@@ -1,0 +1,23 @@
+[workspace]
+members = ["crates/*"]
+resolver = "2"
+
+[workspace.package]
+edition = "2021"
+license = "MIT"
+version = "0.1.0"
+repository = "https://github.com/thirtytwobits/clerkenwell"
+
+# The approved Rust/npm Loro release pair and its source live in
+# loro-release.json. Consumers take `loro` through clerkenwell-doc's re-export.
+[workspace.dependencies]
+base64 = "0.22"
+loro = { git = "https://github.com/thirtytwobits/loro.git", rev = "551d0da5b943c754caefcba3fd14e4dd369e06bc" }
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.145"
+thiserror = "2.0.17"
+
+# Workspace patches do not propagate to dependents: every workspace that
+# builds these crates carries this override too.
+[patch.crates-io]
+generic-btree = { git = "https://github.com/thirtytwobits/loro.git", rev = "551d0da5b943c754caefcba3fd14e4dd369e06bc" }

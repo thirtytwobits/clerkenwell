@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "source": {
+    "kind": "git",
+    "url": "https://github.com/thirtytwobits/loro.git",
+    "revision": "551d0da5b943c754caefcba3fd14e4dd369e06bc"
+  },
+  "rust": {
+    "version": "1.16.0",
+    "crates": {
+      "loro": "1.16.0",
+      "loro-internal": "1.16.0",
+      "loro-common": "1.16.0",
+      "loro-kv-store": "1.16.0",
+      "loro-delta": "1.13.0",
+      "loro-rle": "1.6.0",
+      "loro_fractional_index": "1.13.0",
+      "generic-btree": "0.10.7"
+    },
+    "registryCrates": {
+      "loro-thunderdome": {
+        "version": "0.6.2",
+        "checksum": "3f3d053a135388e6b1df14e8af1212af5064746e9b87a06a345a7a779ee9695a"
+      }
+    }
+  },
+  "npm": {
+    "version": "1.16.1",
+    "url": "https://github.com/thirtytwobits/loro/releases/download/primrose-551d0da5b943/loro-crdt-1.16.1.tgz",
+    "integrity": "sha512-M3WrwdGuYROpOkP3ZHBdZ9g+yTBly6qLwi7elPob/+oSegV0+1P8Mjeg6izaGBKasOb25c8Ch4kG6KzyuR5pxQ=="
+  }
+}
