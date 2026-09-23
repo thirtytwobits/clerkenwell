@@ -1,0 +1,486 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Clerkenwell Projection Definition",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "version",
+    "compatibility",
+    "namespace",
+    "entities",
+    "projections",
+    "mutations",
+    "mnemonic",
+    "collaboration",
+    "$defs"
+  ],
+  "properties": {
+    "version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "compatibility": { "$ref": "#/definitions/versionCompatibility" },
+    "namespace": {
+      "type": "string",
+      "minLength": 1
+    },
+    "entities": {
+      "type": "object",
+      "additionalProperties": { "$ref": "#/definitions/entity" },
+      "minProperties": 1
+    },
+    "projections": {
+      "type": "object",
+      "additionalProperties": { "$ref": "#/definitions/projection" },
+      "minProperties": 1
+    },
+    "mutations": {
+      "type": "object",
+      "additionalProperties": { "$ref": "#/definitions/mutation" },
+      "minProperties": 1
+    },
+    "mnemonic": {
+      "type": "object",
+      "additionalProperties": { "$ref": "#/definitions/mnemonic" }
+    },
+    "collaboration": { "$ref": "#/definitions/collaboration" },
+    "$defs": {
+      "type": "object",
+      "additionalProperties": { "$ref": "#/definitions/schemaNode" },
+      "minProperties": 1
+    }
+  },
+  "definitions": {
+    "entity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "schema", "revision", "authoring"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "schema": { "$ref": "#/definitions/schemaRef" },
+        "revision": { "$ref": "#/definitions/revision" },
+        "authoring": { "$ref": "#/definitions/authoringPolicy" }
+      }
+    },
+    "versionCompatibility": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["minimumReaderVersion", "minimumWriterVersion", "migrationIds"],
+      "properties": {
+        "minimumReaderVersion": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "minimumWriterVersion": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "migrationIds": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true
+        }
+      }
+    },
+    "authoringPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "rationale",
+        "planningMutations",
+        "commandMutations",
+        "lifecycleMutations"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "optimisticDocument",
+            "collaborative",
+            "commandOwned",
+            "readOnly"
+          ]
+        },
+        "rationale": { "type": "string", "minLength": 1 },
+        "contentMutation": { "type": "string", "minLength": 1 },
+        "planningMutations": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true
+        },
+        "commandMutations": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true
+        },
+        "lifecycleMutations": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "kind": { "enum": ["collaborative", "optimisticDocument"] }
+            }
+          },
+          "then": { "required": ["contentMutation"] }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": { "enum": ["commandOwned", "readOnly"] }
+            }
+          },
+          "then": {
+            "not": { "required": ["contentMutation"] }
+          }
+        }
+      ]
+    },
+    "revision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind"],
+      "properties": {
+        "kind": { "enum": ["contentHash", "loro"] },
+        "field": { "type": "string", "minLength": 1 }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "kind": { "const": "contentHash" }
+            }
+          },
+          "then": {
+            "required": ["field"]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": { "const": "loro" }
+            }
+          },
+          "then": {
+            "not": {
+              "required": ["field"]
+            }
+          }
+        }
+      ]
+    },
+    "projection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["params", "snapshot", "patch", "dependsOn", "materialization"],
+      "properties": {
+        "params": { "$ref": "#/definitions/schemaRef" },
+        "snapshot": { "$ref": "#/definitions/schemaRef" },
+        "patch": { "$ref": "#/definitions/schemaRef" },
+        "dependsOn": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "minItems": 1
+        },
+        "materialization": { "$ref": "#/definitions/materialization" }
+      }
+    },
+    "materialization": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["strategy"],
+      "properties": {
+        "strategy": {
+          "enum": [
+            "keyedCollection",
+            "sequencedText",
+            "replaceOrRemove",
+            "replace",
+            "reset"
+          ]
+        },
+        "collectionField": { "type": "string", "minLength": 1 },
+        "itemField": { "type": "string", "minLength": 1 },
+        "itemIdentityField": { "type": "string", "minLength": 1 },
+        "patchIdentityField": { "type": "string", "minLength": 1 },
+        "snapshotOutputField": { "type": "string", "minLength": 1 },
+        "sequenceField": { "type": "string", "minLength": 1 },
+        "textField": { "type": "string", "minLength": 1 },
+        "patchOutputField": { "type": "string", "minLength": 1 },
+        "deltaTextField": { "type": "string", "minLength": 1 },
+        "snapshotMode": { "enum": ["patch", "field"] },
+        "snapshotField": { "type": "string", "minLength": 1 },
+        "snapshotOmitFields": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true
+        },
+        "removeMode": { "enum": ["nullSnapshot", "nullField"] },
+        "removeField": { "type": "string", "minLength": 1 },
+        "updateField": { "type": "string", "minLength": 1 },
+        "updatesField": { "type": "string", "minLength": 1 }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "strategy": { "const": "keyedCollection" } }
+          },
+          "then": {
+            "required": [
+              "collectionField",
+              "itemField",
+              "itemIdentityField",
+              "patchIdentityField"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": { "strategy": { "const": "replaceOrRemove" } }
+          },
+          "then": {
+            "required": ["snapshotMode", "removeMode"]
+          }
+        },
+        {
+          "if": {
+            "properties": { "strategy": { "const": "sequencedText" } }
+          },
+          "then": {
+            "required": [
+              "collectionField",
+              "itemIdentityField",
+              "patchIdentityField",
+              "snapshotOutputField",
+              "sequenceField",
+              "textField",
+              "patchOutputField",
+              "deltaTextField"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": { "strategy": { "const": "replace" } }
+          },
+          "then": {
+            "required": ["snapshotMode"]
+          }
+        },
+        {
+          "if": {
+            "properties": { "snapshotMode": { "const": "field" } },
+            "required": ["snapshotMode"]
+          },
+          "then": {
+            "required": ["snapshotField"]
+          }
+        },
+        {
+          "if": {
+            "properties": { "removeMode": { "const": "nullField" } },
+            "required": ["removeMode"]
+          },
+          "then": {
+            "required": ["removeField"]
+          }
+        }
+      ]
+    },
+    "mutation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["params", "result", "conflict", "touches"],
+      "properties": {
+        "params": { "$ref": "#/definitions/schemaRef" },
+        "result": { "$ref": "#/definitions/schemaRef" },
+        "conflict": { "enum": ["optimistic"] },
+        "touches": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "minItems": 1,
+          "uniqueItems": true
+        }
+      }
+    },
+    "mnemonic": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "key",
+        "version",
+        "schema",
+        "cachePolicy",
+        "migrationIds",
+        "recovery"
+      ],
+      "properties": {
+        "key": { "type": "string", "minLength": 1 },
+        "version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "schema": { "$ref": "#/definitions/schemaRef" },
+        "cachePolicy": { "enum": ["localDraft", "lastKnownSnapshot"] },
+        "migrationIds": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "recovery": {
+          "enum": [
+            "schemaMigration",
+            "legacyDraftTransfer",
+            "authoringRuntime"
+          ]
+        }
+      }
+    },
+    "collaboration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["version", "compatibility", "entities"],
+      "properties": {
+        "version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "compatibility": { "$ref": "#/definitions/versionCompatibility" },
+        "entities": {
+          "type": "object",
+          "additionalProperties": { "$ref": "#/definitions/collaborationEntity" },
+          "minProperties": 1
+        }
+      }
+    },
+    "collaborationEntity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "substrate",
+        "schemaVersion",
+        "migrationIds",
+        "authoringState",
+        "rootContainer",
+        "clientPathNaming",
+        "fields"
+      ],
+      "properties": {
+        "substrate": { "enum": ["loro"] },
+        "schemaVersion": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "migrationIds": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "authoringState": { "$ref": "#/definitions/collaborationAuthoringState" },
+        "rootContainer": { "type": "string", "minLength": 1 },
+        "clientPathNaming": { "enum": ["camelCase"] },
+        "fields": {
+          "type": "object",
+          "additionalProperties": { "$ref": "#/definitions/collaborationField" },
+          "minProperties": 1
+        }
+      }
+    },
+    "collaborationAuthoringState": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["projection", "importMutation"],
+      "properties": {
+        "projection": { "type": "string", "minLength": 1 },
+        "importMutation": { "type": "string", "minLength": 1 }
+      }
+    },
+    "collaborationField": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["storage", "value", "required", "conflict"],
+      "properties": {
+        "storage": { "$ref": "#/definitions/collaborationStorage" },
+        "value": { "$ref": "#/definitions/collaborationValue" },
+        "required": { "type": "boolean" },
+        "conflict": {
+          "enum": ["immutable", "explicit", "merge", "lastWriterWins"]
+        }
+      }
+    },
+    "collaborationStorage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind"],
+      "properties": {
+        "kind": {
+          "enum": [
+            "scalar",
+            "text",
+            "orderedList",
+            "structuredList",
+            "structuredMap",
+            "structuredDocument",
+            "derivedIdentity",
+            "derivedRevision",
+            "keyedSequence"
+          ]
+        },
+        "container": { "type": "string", "minLength": 1 },
+        "containerTemplate": { "type": "string", "minLength": 1 },
+        "key": { "type": "string", "minLength": 1 },
+        "identityPath": { "type": "string", "minLength": 1 },
+        "identityVariable": { "type": "string", "minLength": 1 },
+        "orderContainer": { "type": "string", "minLength": 1 },
+        "itemContainerTemplate": { "type": "string", "minLength": 1 },
+        "metadataContainer": { "type": "string", "minLength": 1 },
+        "metadataContainerTemplate": { "type": "string", "minLength": 1 },
+        "metadataKey": { "type": "string", "minLength": 1 }
+      }
+    },
+    "collaborationValue": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["codec"],
+      "properties": {
+        "codec": {
+          "enum": [
+            "integer",
+            "number",
+            "optionalNumber",
+            "boolean",
+            "string",
+            "optionalString",
+            "propertyText",
+            "stringList",
+            "structuredJson",
+            "identity",
+            "keyedSequence"
+          ]
+        },
+        "schema": { "$ref": "#/definitions/schemaRef" }
+      }
+    },
+    "schemaRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["$ref"],
+      "properties": {
+        "$ref": {
+          "type": "string",
+          "pattern": "^#\\/\\$defs\\/[A-Za-z][A-Za-z0-9]*$"
+        }
+      }
+    },
+    "schemaNode": {
+      "type": "object",
+      "additionalProperties": true
+    }
+  }
+}

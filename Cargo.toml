@@ -12,9 +12,15 @@ repository = "https://github.com/thirtytwobits/clerkenwell"
 # loro-release.json. Consumers take `loro` through clerkenwell-doc's re-export.
 [workspace.dependencies]
 base64 = "0.22"
+clap = { version = "4.5", features = ["derive"] }
+icu_collator = "2.1"
+indexmap = "2.12"
+jsonschema = { version = "0.30", default-features = false }
 loro = { git = "https://github.com/thirtytwobits/loro.git", rev = "551d0da5b943c754caefcba3fd14e4dd369e06bc" }
+schemars = "1.0.4"
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.145"
+tempfile = "3.20"
 thiserror = "2.0.17"
 
 # Workspace patches do not propagate to dependents: every workspace that
