@@ -132,6 +132,46 @@ export const NOTE_PLAN = {
       required: false,
       conflict: "merge"
     },
+    author: {
+      path: "author",
+      storage: { kind: "scalar", container: "note", key: "author" },
+      value: { codec: "string" },
+      required: false,
+      conflict: "explicit"
+    },
+    footnote: {
+      path: "footnote",
+      storage: { kind: "text", container: "footnote" },
+      value: { codec: "string" },
+      required: false,
+      conflict: "merge"
+    },
+    caption: {
+      path: "caption",
+      storage: {
+        kind: "text",
+        container: "caption",
+        metadataContainer: "note",
+        metadataKey: "caption.$mime"
+      },
+      value: { codec: "propertyText" },
+      required: false,
+      conflict: "merge"
+    },
+    aliases: {
+      path: "aliases",
+      storage: { kind: "orderedList", container: "aliases" },
+      value: { codec: "stringList" },
+      required: false,
+      conflict: "merge"
+    },
+    references: {
+      path: "references",
+      storage: { kind: "structuredList", container: "references" },
+      value: { codec: "structuredJson", schema: { $ref: "#/$defs/NoteLink" } },
+      required: false,
+      conflict: "merge"
+    },
     etag: {
       path: "etag",
       storage: { kind: "derivedRevision" },
@@ -163,6 +203,11 @@ export interface NoteDocument {
   links: NoteLink[];
   attributes?: Record<string, unknown>;
   outline?: Record<string, unknown>;
+  author?: string;
+  footnote?: string;
+  caption?: { "$mime": string; value: string };
+  aliases?: string[];
+  references?: NoteLink[];
   etag?: string;
 }
 
@@ -185,7 +230,12 @@ export function noteDocument(): NoteDocument {
     outline: {
       heading: "Agenda",
       items: [{ id: "item-1", text: "Stand-up" }, { id: "item-2", text: "Retro" }]
-    }
+    },
+    author: "Iris",
+    footnote: "Minuted by Iris.",
+    caption: { "$mime": "text/plain", value: "Friday's minutes" },
+    aliases: ["stand-up notes"],
+    references: [{ targetId: "note-9", linkLabel: "Background" }]
   };
 }
 

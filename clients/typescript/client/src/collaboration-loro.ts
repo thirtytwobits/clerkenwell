@@ -88,11 +88,13 @@ export class CollaborationLoroAuthoringDocument<TDocument extends ClientDocument
     source: CollaborationReplicaSource<TDocument>
   ) {
     switch (source.kind) {
-      case "document":
+      case "document": {
+        const document = validatedCollaborationDocument(this.plan, source.document);
         this.doc = new LoroDoc();
-        this.document = structuredClone(source.document);
-        writeCollaborationDocumentToLoroDoc(this.doc, this.plan, this.document);
+        writeCollaborationDocumentChangesToLoroDoc(this.doc, this.plan, {}, document);
+        this.document = document;
         return;
+      }
       case "update":
         this.doc = new LoroDoc();
         this.doc.import(base64ToBytes(source.updateBase64));
@@ -266,19 +268,15 @@ export class CollaborationLoroAuthoringDocument<TDocument extends ClientDocument
     );
   }
 
+  /** Refuses an invalid document before writing anything, leaving the replica as it was. */
   replaceDocument(document: TDocument): void {
+    const next = validatedCollaborationDocument(this.plan, document);
     const before = this.doc.version();
     this.refreshDocument();
     for (const binding of this.textBindings.values()) binding.endHistoryGroup();
-    const previous = this.document;
-    this.document = structuredClone(document);
-    writeCollaborationDocumentChangesToLoroDoc(
-      this.doc,
-      this.plan,
-      previous,
-      this.document
-    );
+    writeCollaborationDocumentChangesToLoroDoc(this.doc, this.plan, this.document, next);
     this.doc.commit({ origin: "document" });
+    this.document = next;
     const update = this.doc.export({ mode: "update", from: before });
     for (const binding of this.textBindings.values()) binding.importUpdate(update);
     this.documentDirty = false;
@@ -536,8 +534,9 @@ export function collaborationDocumentToLoroDoc<TDocument extends ClientDocument>
   plan: CollaborationEntityPlan,
   document: TDocument
 ): LoroDoc {
+  const validated = validatedCollaborationDocument(plan, document);
   const doc = new LoroDoc();
-  writeCollaborationDocumentToLoroDoc(doc, plan, document);
+  writeCollaborationDocumentChangesToLoroDoc(doc, plan, {}, validated);
   return doc;
 }
 
@@ -624,14 +623,7 @@ function isEmptyOptionalValue(value: unknown): boolean {
     || (isRecord(value) && Object.keys(value).length === 0);
 }
 
-function writeCollaborationDocumentToLoroDoc<TDocument extends ClientDocument>(
-  doc: LoroDoc,
-  plan: CollaborationEntityPlan,
-  document: TDocument
-): void {
-  writeCollaborationDocumentChangesToLoroDoc(doc, plan, {}, document);
-}
-
+/** Writes the changes from `previous` to `next`, which the caller has validated. */
 function writeCollaborationDocumentChangesToLoroDoc<
   TDocument extends ClientDocument
 >(
@@ -640,7 +632,6 @@ function writeCollaborationDocumentChangesToLoroDoc<
   previous: ClientDocument,
   next: TDocument
 ): void {
-  validateCollaborationDocument(plan, next);
   const index = collaborationPlanIndex(plan);
   for (const field of index.rootFields) {
     if (isDerivedField(field)) {
@@ -725,7 +716,7 @@ function writeCollaborationSequence(
 ): void {
   const relativePath = index.relativeSequencePath(sequence);
   const nextValue = clientValueAtPath(nextParent, relativePath);
-  const nextItems = nextValue === undefined && !sequence.required ? [] : nextValue;
+  const nextItems = isAbsent(nextValue) ? [] : nextValue;
   if (!Array.isArray(nextItems)) {
     throw new Error(`Collaboration field ${sequence.path} must be an array.`);
   }
@@ -740,7 +731,7 @@ function writeCollaborationSequence(
     parentContext
   );
   const presence = doc.getMap(KEYED_SEQUENCE_PRESENCE_CONTAINER);
-  if (nextValue !== undefined || sequence.required) {
+  if (!isAbsent(nextValue) || sequence.required) {
     presence.set(orderContainer, true);
   } else if (presence.get(orderContainer) !== undefined) {
     presence.delete(orderContainer);
@@ -922,6 +913,9 @@ function readCollaborationField(
           identities
         );
         const mime = doc.getMap(metadataContainer).get(metadataKey);
+        if (mime === undefined && !field.required) {
+          return undefined;
+        }
         if (typeof mime !== "string") {
           throw new Error(`Property text collaboration field ${field.path} has no MIME value.`);
         }
@@ -979,24 +973,15 @@ function writeCollaborationField(
         throw new Error(`Scalar collaboration field ${field.path} has no key.`);
       }
       const map = doc.getMap(container);
-      if (
-        (
-          field.value.codec === "optionalString"
-          && (value === undefined || value === null || value === "")
-        )
-        || (
-          field.value.codec === "optionalNumber"
-          && (value === undefined || value === null)
-        )
-      ) {
-        map.delete(key);
+      if (isAbsent(value) || (field.value.codec === "optionalString" && value === "")) {
+        deletePresentKey(map, key);
       } else {
         map.set(key, scalarValue(field, value));
       }
       return;
     }
     case "text":
-      setText(doc.getText(container), textValue(field, value));
+      setText(doc.getText(container), isAbsent(value) ? "" : textValue(field, value));
       if (field.value.codec === "propertyText") {
         const metadataContainerTemplate =
           field.storage.metadataContainer ?? field.storage.metadataContainerTemplate;
@@ -1004,21 +989,22 @@ function writeCollaborationField(
         if (metadataContainerTemplate === undefined || metadataKey === undefined) {
           throw new Error(`Property text collaboration field ${field.path} has no MIME storage.`);
         }
-        const metadataContainer = resolveCollaborationContainer(
-          metadataContainerTemplate,
-          identities
-        );
-        doc.getMap(metadataContainer).set(metadataKey, propertyTextValue(field, value)["$mime"]);
+        const metadata = doc.getMap(resolveCollaborationContainer(metadataContainerTemplate, identities));
+        if (isAbsent(value)) {
+          deletePresentKey(metadata, metadataKey);
+        } else {
+          metadata.set(metadataKey, propertyTextValue(field, value)["$mime"]);
+        }
       }
       return;
     case "orderedList":
-      setStringList(doc.getList(container), stringArray(field, value));
+      setStringList(doc.getList(container), isAbsent(value) ? [] : stringArray(field, value));
       return;
     case "structuredList":
-      setStructuredList(doc.getList(container), structuredArray(field, value));
+      setStructuredList(doc.getList(container), isAbsent(value) ? [] : structuredArray(field, value));
       return;
     case "structuredMap":
-      if (value === undefined && !field.required) {
+      if (isAbsent(value)) {
         setStructuredMap(
           doc.getMap(container),
           isRecord(previousValue) ? previousValue : {},
@@ -1035,7 +1021,7 @@ function writeCollaborationField(
       }
       return;
     case "structuredDocument":
-      if (value === undefined && !field.required) {
+      if (isAbsent(value)) {
         setStructuredDocument(
           doc.getMap(container),
           isRecord(previousValue) ? previousValue : {},
@@ -1058,12 +1044,20 @@ function writeCollaborationField(
   }
 }
 
-/** Deleting an absent key still records an op, so only delete what is present. */
 function deleteStructuredPresence(doc: LoroDoc, container: string): void {
-  const presence = doc.getMap(STRUCTURED_MAP_PRESENCE_CONTAINER);
-  if (presence.get(container) !== undefined) {
-    presence.delete(container);
+  deletePresentKey(doc.getMap(STRUCTURED_MAP_PRESENCE_CONTAINER), container);
+}
+
+/** Deleting an absent key still records an op, so only delete what is present. */
+function deletePresentKey(map: LoroMap, key: string): void {
+  if (map.get(key) !== undefined) {
+    map.delete(key);
   }
+}
+
+/** Absent and `null` are the same thing: no value. */
+function isAbsent(value: unknown): value is undefined | null {
+  return value === undefined || value === null;
 }
 
 function isDerivedField(field: CollaborationFieldPlan): boolean {
@@ -1102,9 +1096,6 @@ function textValue(field: CollaborationFieldPlan, value: unknown): string {
   if (field.value.codec === "propertyText") {
     return propertyTextValue(field, value).value;
   }
-  if (field.value.codec === "optionalString" && value === undefined) {
-    return "";
-  }
   if (typeof value !== "string") {
     throw new Error(`Collaboration field ${field.path} must be a string.`);
   }
@@ -1138,11 +1129,10 @@ function propertyTextValue(field: CollaborationFieldPlan, value: unknown): Prope
 }
 
 function stringArray(field: CollaborationFieldPlan, value: unknown): string[] {
-  const values = value ?? [];
-  if (!Array.isArray(values) || !values.every((entry) => typeof entry === "string")) {
+  if (!Array.isArray(value) || !value.every((entry) => typeof entry === "string")) {
     throw new Error(`Collaboration field ${field.path} must be a string array.`);
   }
-  return values;
+  return value;
 }
 
 function structuredArray(
@@ -1163,9 +1153,6 @@ function structuredRecord(
   field: CollaborationFieldPlan,
   value: unknown
 ): ClientRecord {
-  if (value === undefined && !field.required) {
-    return {};
-  }
   if (!isRecord(value)) {
     throw new Error(`Collaboration field ${field.path} must be an object.`);
   }
@@ -1442,16 +1429,75 @@ function setClientValueAtPath(root: ClientRecord, path: string, value: unknown):
   current[last] = value;
 }
 
-function validateCollaborationDocument(
+/**
+ * A copy of `document` checked whole against its plan, so a write never starts
+ * on a document it would have to refuse part-way through. Optional fields set
+ * to null are dropped: the write removes them.
+ */
+function validatedCollaborationDocument<TDocument extends ClientDocument>(
   plan: CollaborationEntityPlan,
-  value: ClientDocument
-): void {
+  document: TDocument
+): TDocument {
+  const copy = structuredClone(document);
+  validateCollaborationDocument(plan, copy);
   const index = collaborationPlanIndex(plan);
   for (const field of index.rootFields) {
-    if (isDerivedField(field) || !field.required) {
-      continue;
+    deleteNullAtClientPath(copy, field.path);
+  }
+  for (const sequence of index.rootSequences) {
+    deleteNullSequenceFields(index, sequence, copy);
+  }
+  return copy;
+}
+
+function deleteNullSequenceFields(
+  index: CollaborationPlanIndex,
+  sequence: CollaborationFieldPlan,
+  parent: unknown
+): void {
+  const relativePath = index.relativeSequencePath(sequence);
+  const items = clientValueAtPath(parent, relativePath);
+  if (!Array.isArray(items)) {
+    deleteNullAtClientPath(parent, relativePath);
+    return;
+  }
+  for (const item of items) {
+    for (const field of index.itemFields(sequence)) {
+      deleteNullAtClientPath(item, field.path.slice(`${sequence.path}.*.`.length));
     }
-    validateClientFieldValue(field, clientValueAtPath(value, field.path));
+    for (const child of index.childSequences(sequence)) {
+      deleteNullSequenceFields(index, child, item);
+    }
+  }
+}
+
+function deleteNullAtClientPath(root: unknown, path: string): void {
+  const segments = clientPathSegments(path);
+  let parent = root;
+  for (const segment of segments.slice(0, -1)) {
+    if (!isRecord(parent)) {
+      return;
+    }
+    parent = parent[segment];
+  }
+  const last = segments[segments.length - 1];
+  if (isRecord(parent) && last !== undefined && parent[last] === null) {
+    delete parent[last];
+  }
+}
+
+function validateCollaborationDocument(
+  plan: CollaborationEntityPlan,
+  value: unknown
+): void {
+  if (!isRecord(value)) {
+    throw new Error("A collaboration document must be an object.");
+  }
+  const index = collaborationPlanIndex(plan);
+  for (const field of index.rootFields) {
+    if (!isDerivedField(field)) {
+      validateClientFieldValue(field, clientValueAtPath(value, field.path));
+    }
   }
   for (const sequence of index.rootSequences) {
     validateClientSequence(index, sequence, value, {});
@@ -1465,16 +1511,21 @@ function validateClientSequence(
   context: Readonly<Record<string, string>>
 ): void {
   const relativePath = index.relativeSequencePath(sequence);
-  const value = clientValueAtPath(parent, relativePath);
-  const items = value === undefined && !sequence.required ? [] : value;
+  const items = clientValueAtPath(parent, relativePath);
+  if (isAbsent(items)) {
+    if (sequence.required) {
+      throw new Error(`Collaboration field ${sequence.path} is required.`);
+    }
+    return;
+  }
   if (!Array.isArray(items)) {
     throw new Error(`Collaboration field ${sequence.path} must be an array.`);
   }
   const identityPath = requiredSequenceMetadata(sequence, "identityPath");
   const identityVariable = sequence.storage.identityVariable ?? identityPath;
   const identities = new Set<string>();
-  const requiredItemFields = index.itemFields(sequence)
-    .filter((itemField) => !isDerivedField(itemField) && itemField.required)
+  const itemFields = index.itemFields(sequence)
+    .filter((itemField) => !isDerivedField(itemField))
     .map((itemField) => ({
       field: itemField,
       itemPath: itemField.path.slice(`${sequence.path}.*.`.length)
@@ -1487,7 +1538,7 @@ function validateClientSequence(
     }
     identities.add(identity);
     const itemContext = { ...context, [identityVariable]: identity };
-    for (const { field: itemField, itemPath } of requiredItemFields) {
+    for (const { field: itemField, itemPath } of itemFields) {
       validateClientFieldValue(itemField, clientValueAtPath(item, itemPath));
     }
     for (const child of childSequences) {
@@ -1496,44 +1547,38 @@ function validateClientSequence(
   }
 }
 
+/**
+ * A required field must be present and satisfy its codec. An optional field
+ * may be absent or null, which removes it; a present value must satisfy its
+ * codec.
+ */
 function validateClientFieldValue(field: CollaborationFieldPlan, value: unknown): void {
-  switch (field.value.codec) {
-    case "integer":
-    case "number":
-    case "boolean":
-    case "string":
-    case "identity":
+  if (isAbsent(value)) {
+    if (field.required) {
+      throw new Error(`Collaboration field ${field.path} is required.`);
+    }
+    return;
+  }
+  switch (field.storage.kind) {
+    case "scalar":
       scalarValue(field, value);
       return;
-    case "optionalNumber":
-      if (value !== undefined) {
-        scalarValue(field, value);
-      }
-      return;
-    case "optionalString":
-      if (value !== undefined && typeof value !== "string") {
-        throw new Error(`Collaboration field ${field.path} must be an optional string.`);
-      }
-      return;
-    case "propertyText":
+    case "text":
       textValue(field, value);
       return;
-    case "stringList":
+    case "orderedList":
       stringArray(field, value);
       return;
-    case "structuredJson":
-      if (isObjectStorageKind(field.storage.kind)) {
-        structuredRecord(field, value);
-        return;
-      }
-      if (!Array.isArray(value)) {
-        throw new Error(`Collaboration field ${field.path} must be an array.`);
-      }
+    case "structuredList":
+      structuredArray(field, value);
       return;
+    case "structuredMap":
+    case "structuredDocument":
+      structuredRecord(field, value);
+      return;
+    case "derivedIdentity":
+    case "derivedRevision":
     case "keyedSequence":
-      if (!Array.isArray(value)) {
-        throw new Error(`Collaboration field ${field.path} must be an array.`);
-      }
       return;
   }
 }

@@ -40,7 +40,18 @@ test("text rewritten any number of times holds exactly the text last written", (
   );
 });
 
-const OPTIONAL_FIELDS = ["rating", "subtitle", "summary", "attributes", "outline"] as const;
+const OPTIONAL_FIELDS = [
+  "rating",
+  "subtitle",
+  "summary",
+  "attributes",
+  "outline",
+  "author",
+  "footnote",
+  "caption",
+  "aliases",
+  "references"
+] as const;
 
 test("materialising a document with any optional fields left out settles on one shape", () => {
   fc.assert(
