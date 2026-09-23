@@ -8,5 +8,6 @@ export * from "./json-value-equality";
 export * from "./materialize";
 export * from "./plans";
 export * from "./projection-model";
+export * from "./projection-subscription";
 export * from "./protocol";
 export * from "./text-binding";
