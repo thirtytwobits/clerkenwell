@@ -7,7 +7,8 @@
   },
   "description": "The TypeScript clients: a React-free projection and authoring client, and a React binding over it.",
   "workspaces": [
-    "clients/typescript/client"
+    "clients/typescript/client",
+    "clients/typescript/react"
   ],
   "scripts": {
     "typecheck": "npm run typecheck --workspaces",
