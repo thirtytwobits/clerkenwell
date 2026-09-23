@@ -1,0 +1,2564 @@
+{
+  "collaboration": {
+    "compatibility": {
+      "migrationIds": [],
+      "minimumReaderVersion": 1,
+      "minimumWriterVersion": 1
+    },
+    "entities": [
+      {
+        "authoringState": {
+          "importMutation": "board.importLoroUpdate",
+          "projection": "boards.authoringState"
+        },
+        "clientPathNaming": "camelCase",
+        "fields": [
+          {
+            "conflict": "immutable",
+            "path": "board_id",
+            "required": true,
+            "storage": {
+              "kind": "derivedIdentity"
+            },
+            "value": {
+              "codec": "identity"
+            }
+          },
+          {
+            "conflict": "merge",
+            "path": "columns",
+            "required": true,
+            "storage": {
+              "identityPath": "column_id",
+              "identityVariable": "column_id",
+              "itemContainerTemplate": "column.{column_id}",
+              "kind": "keyedSequence",
+              "orderContainer": "column_order"
+            },
+            "value": {
+              "codec": "keyedSequence"
+            }
+          },
+          {
+            "conflict": "merge",
+            "path": "columns.*.cards",
+            "required": true,
+            "storage": {
+              "identityPath": "card_id",
+              "identityVariable": "card_id",
+              "itemContainerTemplate": "card.{card_id}",
+              "kind": "keyedSequence",
+              "orderContainer": "card_order"
+            },
+            "value": {
+              "codec": "keyedSequence"
+            }
+          },
+          {
+            "conflict": "immutable",
+            "path": "columns.*.cards.*.card_id",
+            "required": true,
+            "storage": {
+              "identityPath": "card_id",
+              "kind": "derivedIdentity"
+            },
+            "value": {
+              "codec": "identity"
+            }
+          },
+          {
+            "conflict": "lastWriterWins",
+            "path": "columns.*.cards.*.done",
+            "required": true,
+            "storage": {
+              "containerTemplate": "card.{card_id}",
+              "key": "done",
+              "kind": "scalar"
+            },
+            "value": {
+              "codec": "boolean"
+            }
+          },
+          {
+            "conflict": "merge",
+            "path": "columns.*.cards.*.labels",
+            "required": false,
+            "storage": {
+              "containerTemplate": "card.{card_id}.labels",
+              "kind": "orderedList"
+            },
+            "value": {
+              "codec": "stringList"
+            }
+          },
+          {
+            "conflict": "merge",
+            "path": "columns.*.cards.*.note",
+            "required": true,
+            "storage": {
+              "containerTemplate": "card.{card_id}.note",
+              "kind": "text",
+              "metadataContainerTemplate": "card.{card_id}",
+              "metadataKey": "note.$mime"
+            },
+            "value": {
+              "codec": "propertyText"
+            }
+          },
+          {
+            "conflict": "merge",
+            "path": "columns.*.cards.*.text",
+            "required": true,
+            "storage": {
+              "containerTemplate": "card.{card_id}.text",
+              "kind": "text"
+            },
+            "value": {
+              "codec": "string"
+            }
+          },
+          {
+            "conflict": "immutable",
+            "path": "columns.*.column_id",
+            "required": true,
+            "storage": {
+              "identityPath": "column_id",
+              "kind": "derivedIdentity"
+            },
+            "value": {
+              "codec": "identity"
+            }
+          },
+          {
+            "conflict": "explicit",
+            "path": "columns.*.title",
+            "required": true,
+            "storage": {
+              "containerTemplate": "column.{column_id}",
+              "key": "title",
+              "kind": "scalar"
+            },
+            "value": {
+              "codec": "string"
+            }
+          },
+          {
+            "conflict": "lastWriterWins",
+            "path": "columns.*.wip_limit",
+            "required": false,
+            "storage": {
+              "containerTemplate": "column.{column_id}",
+              "key": "wip_limit",
+              "kind": "scalar"
+            },
+            "value": {
+              "codec": "optionalNumber"
+            }
+          },
+          {
+            "conflict": "immutable",
+            "path": "etag",
+            "required": true,
+            "storage": {
+              "kind": "derivedRevision"
+            },
+            "value": {
+              "codec": "string"
+            }
+          },
+          {
+            "conflict": "explicit",
+            "path": "name",
+            "required": true,
+            "storage": {
+              "container": "board",
+              "key": "name",
+              "kind": "scalar"
+            },
+            "value": {
+              "codec": "string"
+            }
+          }
+        ],
+        "migrationIds": [
+          "board-loro-layout-v1",
+          "board-column-order-v2",
+          "board-card-notes-v3"
+        ],
+        "name": "Board",
+        "rootContainer": "board",
+        "schemaVersion": 3,
+        "substrate": "loro"
+      },
+      {
+        "authoringState": {
+          "importMutation": "note.importLoroUpdate",
+          "projection": "notes.authoringState"
+        },
+        "clientPathNaming": "camelCase",
+        "fields": [
+          {
+            "conflict": "explicit",
+            "path": "archived_at",
+            "required": false,
+            "storage": {
+              "container": "note",
+              "key": "archived_at",
+              "kind": "scalar"
+            },
+            "value": {
+              "codec": "optionalString"
+            }
+          },
+          {
+            "conflict": "merge",
+            "path": "attachments",
+            "required": true,
+            "storage": {
+              "container": "attachments",
+              "kind": "structuredList"
+            },
+            "value": {
+              "codec": "structuredJson",
+              "schema": {
+                "$ref": "#/$defs/Attachment"
+              }
+            }
+          },
+          {
+            "conflict": "merge",
+            "path": "body",
+            "required": true,
+            "storage": {
+              "container": "body",
+              "kind": "text",
+              "metadataContainer": "note",
+              "metadataKey": "body.$mime"
+            },
+            "value": {
+              "codec": "propertyText"
+            }
+          },
+          {
+            "conflict": "immutable",
+            "path": "created_at",
+            "required": true,
+            "storage": {
+              "container": "note",
+              "key": "created_at",
+              "kind": "scalar"
+            },
+            "value": {
+              "codec": "string"
+            }
+          },
+          {
+            "conflict": "lastWriterWins",
+            "path": "estimate",
+            "required": false,
+            "storage": {
+              "container": "note",
+              "key": "estimate",
+              "kind": "scalar"
+            },
+            "value": {
+              "codec": "optionalNumber"
+            }
+          },
+          {
+            "conflict": "immutable",
+            "path": "etag",
+            "required": true,
+            "storage": {
+              "kind": "derivedRevision"
+            },
+            "value": {
+              "codec": "string"
+            }
+          },
+          {
+            "conflict": "lastWriterWins",
+            "path": "extras",
+            "required": true,
+            "storage": {
+              "container": "extras",
+              "kind": "structuredMap"
+            },
+            "value": {
+              "codec": "structuredJson",
+              "schema": {
+                "$ref": "#/$defs/NoteExtras"
+              }
+            }
+          },
+          {
+            "conflict": "merge",
+            "path": "layout",
+            "required": true,
+            "storage": {
+              "container": "layout",
+              "kind": "structuredDocument"
+            },
+            "value": {
+              "codec": "structuredJson",
+              "schema": {
+                "$ref": "#/$defs/NoteLayout"
+              }
+            }
+          },
+          {
+            "conflict": "explicit",
+            "path": "meta.owner",
+            "required": true,
+            "storage": {
+              "container": "note",
+              "key": "meta.owner",
+              "kind": "scalar"
+            },
+            "value": {
+              "codec": "string"
+            }
+          },
+          {
+            "conflict": "explicit",
+            "path": "meta.reviewer",
+            "required": false,
+            "storage": {
+              "container": "note",
+              "key": "meta.reviewer",
+              "kind": "scalar"
+            },
+            "value": {
+              "codec": "optionalString"
+            }
+          },
+          {
+            "conflict": "immutable",
+            "path": "note_id",
+            "required": true,
+            "storage": {
+              "kind": "derivedIdentity"
+            },
+            "value": {
+              "codec": "identity"
+            }
+          },
+          {
+            "conflict": "lastWriterWins",
+            "path": "pinned",
+            "required": true,
+            "storage": {
+              "container": "note",
+              "key": "pinned",
+              "kind": "scalar"
+            },
+            "value": {
+              "codec": "boolean"
+            }
+          },
+          {
+            "conflict": "explicit",
+            "path": "priority",
+            "required": true,
+            "storage": {
+              "container": "note",
+              "key": "priority",
+              "kind": "scalar"
+            },
+            "value": {
+              "codec": "integer"
+            }
+          },
+          {
+            "conflict": "merge",
+            "path": "properties",
+            "required": true,
+            "storage": {
+              "container": "properties",
+              "kind": "structuredMap"
+            },
+            "value": {
+              "codec": "structuredJson",
+              "schema": {
+                "$ref": "#/$defs/NoteProperties"
+              }
+            }
+          },
+          {
+            "conflict": "explicit",
+            "path": "status",
+            "required": true,
+            "storage": {
+              "container": "note",
+              "key": "status",
+              "kind": "scalar"
+            },
+            "value": {
+              "codec": "string"
+            }
+          },
+          {
+            "conflict": "merge",
+            "path": "summary",
+            "required": false,
+            "storage": {
+              "container": "summary",
+              "kind": "text"
+            },
+            "value": {
+              "codec": "optionalString"
+            }
+          },
+          {
+            "conflict": "merge",
+            "path": "tags",
+            "required": true,
+            "storage": {
+              "container": "tags",
+              "kind": "orderedList"
+            },
+            "value": {
+              "codec": "stringList"
+            }
+          },
+          {
+            "conflict": "explicit",
+            "path": "title",
+            "required": true,
+            "storage": {
+              "container": "note",
+              "key": "title",
+              "kind": "scalar"
+            },
+            "value": {
+              "codec": "string"
+            }
+          },
+          {
+            "conflict": "lastWriterWins",
+            "path": "weight",
+            "required": true,
+            "storage": {
+              "container": "note",
+              "key": "weight",
+              "kind": "scalar"
+            },
+            "value": {
+              "codec": "number"
+            }
+          }
+        ],
+        "migrationIds": [
+          "note-loro-layout-v1"
+        ],
+        "name": "Note",
+        "rootContainer": "note",
+        "schemaVersion": 1,
+        "substrate": "loro"
+      }
+    ],
+    "version": 1
+  },
+  "compatibility": {
+    "migrationIds": [
+      "notebook-definition-v1-to-v2"
+    ],
+    "minimumReaderVersion": 2,
+    "minimumWriterVersion": 1
+  },
+  "definitions": [
+    {
+      "additionalProperties": false,
+      "name": "ActivityEntry",
+      "properties": {
+        "at": {
+          "type": "string"
+        },
+        "entry_id": {
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "created",
+            "edited",
+            "deleted"
+          ],
+          "type": "string"
+        },
+        "payload": {
+          "type": "json"
+        }
+      },
+      "required": [
+        "entry_id",
+        "kind",
+        "at",
+        "payload"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "name": "ActivityLog",
+      "properties": {
+        "entries": {
+          "items": {
+            "$ref": "#/$defs/ActivityEntry"
+          },
+          "type": "array"
+        },
+        "revision": {
+          "type": "string"
+        },
+        "schema_version": {
+          "const": 1,
+          "type": "integer"
+        },
+        "scope": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "scope",
+        "revision",
+        "schema_version",
+        "entries"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "name": "ActivityLogPatch",
+      "properties": {
+        "entries": {
+          "items": {
+            "$ref": "#/$defs/ActivityEntry"
+          },
+          "type": "array"
+        },
+        "kind": {
+          "enum": [
+            "replace"
+          ],
+          "type": "string"
+        },
+        "revision": {
+          "type": "string"
+        },
+        "schema_version": {
+          "const": 1,
+          "type": "integer"
+        },
+        "scope": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "scope",
+        "revision",
+        "schema_version",
+        "entries"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "name": "ActivityStream",
+      "properties": {
+        "output": {
+          "$ref": "#/$defs/StreamOutput"
+        },
+        "stream_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "stream_id",
+        "output"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "name": "ActivityStreamPatch",
+      "properties": {
+        "delta": {
+          "$ref": "#/$defs/StreamDelta"
+        },
+        "kind": {
+          "enum": [
+            "output",
+            "reset"
+          ],
+          "type": "string"
+        },
+        "stream_id": {
+          "type": "string"
+        },
+        "streams": {
+          "items": {
+            "$ref": "#/$defs/ActivityStream"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "name": "ActivityStreamSnapshot",
+      "properties": {
+        "streams": {
+          "items": {
+            "$ref": "#/$defs/ActivityStream"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "streams"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "name": "Attachment",
+      "properties": {
+        "file_name": {
+          "type": "string"
+        },
+        "size_bytes": {
+          "type": "integer"
+        },
+        "url": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "file_name",
+        "size_bytes"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "name": "BoardAuthoringState",
+      "properties": {
+        "board_id": {
+          "type": "string"
+        },
+        "etag": {
+          "type": "string"
+        },
+        "exchange_modes": {
+          "items": {
+            "enum": [
+              "incremental",
+              "bootstrap"
+            ],
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "board_id",
+        "etag",
+        "exchange_modes"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "name": "BoardAuthoringStatePatch",
+      "properties": {
+        "kind": {
+          "enum": [
+            "replace",
+            "remove"
+          ],
+          "type": "string"
+        },
+        "state": {
+          "$ref": "#/$defs/BoardAuthoringState"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "name": "BoardCard",
+      "properties": {
+        "card_id": {
+          "type": "string"
+        },
+        "done": {
+          "type": "boolean"
+        },
+        "labels": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "note": {
+          "$ref": "#/$defs/MimeValue"
+        },
+        "text": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "card_id",
+        "text",
+        "done",
+        "note"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "name": "BoardColumn",
+      "properties": {
+        "cards": {
+          "items": {
+            "$ref": "#/$defs/BoardCard"
+          },
+          "type": "array"
+        },
+        "column_id": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "wip_limit": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "column_id",
+        "title",
+        "cards"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "name": "BoardCreateParams",
+      "properties": {
+        "name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "name": "BoardDocument",
+      "properties": {
+        "board_id": {
+          "type": "string"
+        },
+        "columns": {
+          "items": {
+            "$ref": "#/$defs/BoardColumn"
+          },
+          "type": "array"
+        },
+        "etag": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "board_id",
+        "etag",
+        "name",
+        "columns"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "name": "BoardKeyParams",
+      "properties": {
+        "board_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "board_id"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "name": "BoardMutationResult",
+      "properties": {
+        "board_id": {
+          "type": "string"
+        },
+        "etag": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "board_id",
+        "etag"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "name": "BoardViewState",
+      "properties": {
+        "board_id": {
+          "type": "string"
+        },
+        "collapsed_columns": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "density": {
+          "enum": [
+            "compact",
+            "comfortable"
+          ],
+          "type": "string"
+        },
+        "filters": {
+          "$ref": "#/$defs/NoFilters"
+        },
+        "sort": {
+          "$ref": "#/$defs/SortKey"
+        },
+        "zoom": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "collapsed_columns",
+        "zoom",
+        "density",
+        "sort",
+        "filters"
+      ],
+      "type": "object"
+    },
+    {
+      "$ref": "#/$defs/TaskRecord",
+      "name": "CurrentTask"
+    },
+    {
+      "additionalProperties": false,
+      "name": "DraftEntry",
+      "properties": {
+        "entity": {
+          "type": "string"
+        },
+        "entity_id": {
+          "type": "string"
+        },
+        "payload": {
+          "opaqueReason": "The unsent edit, in whichever entity's shape it was made.",
+          "type": "json"
+        },
+        "saved_at": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "entity",
+        "entity_id",
+        "saved_at",
+        "payload"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": {
+        "$ref": "#/$defs/DraftEntry"
+      },
+      "name": "DraftMap",
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "name": "EmptyResult",
+      "properties": {},
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "name": "LoroUpdateParams",
+      "properties": {
+        "entity_id": {
+          "type": "string"
+        },
+        "exchange_mode": {
+          "enum": [
+            "incremental",
+            "bootstrap"
+          ],
+          "type": "string"
+        },
+        "update": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "entity_id",
+        "update",
+        "exchange_mode"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "name": "LoroUpdateResult",
+      "properties": {
+        "etag": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "etag"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "name": "MimeValue",
+      "properties": {
+        "$mime": {
+          "type": "string"
+        },
+        "value": {
+          "opaqueReason": "The envelope's `$mime` says how to read the value, and `application/json` admits any JSON.",
+          "type": "json"
+        }
+      },
+      "required": [
+        "$mime",
+        "value"
+      ],
+      "title": "A value tagged with the media type that says how to read it",
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "name": "NoFilters",
+      "properties": {},
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "name": "NoteAuthoringState",
+      "properties": {
+        "etag": {
+          "type": "string"
+        },
+        "exchange_modes": {
+          "items": {
+            "enum": [
+              "incremental",
+              "bootstrap"
+            ],
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "note_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "note_id",
+        "etag",
+        "exchange_modes"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "name": "NoteAuthoringStatePatch",
+      "properties": {
+        "kind": {
+          "enum": [
+            "replace",
+            "remove"
+          ],
+          "type": "string"
+        },
+        "state": {
+          "$ref": "#/$defs/NoteAuthoringState"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "name": "NoteChanges",
+      "properties": {
+        "pinned": {
+          "type": "boolean"
+        },
+        "tags": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "title": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "title",
+        "tags"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "name": "NoteCreateParams",
+      "properties": {
+        "title": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "title"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "name": "NoteDetail",
+      "properties": {
+        "note_id": {
+          "type": "string"
+        },
+        "pinned": {
+          "type": "boolean"
+        },
+        "tags": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "title": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "note_id",
+        "title",
+        "tags",
+        "pinned"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "name": "NoteDetailPatch",
+      "properties": {
+        "changes": {
+          "$ref": "#/$defs/NoteChanges"
+        },
+        "kind": {
+          "enum": [
+            "replace",
+            "remove",
+            "update"
+          ],
+          "type": "string"
+        },
+        "note": {
+          "$ref": "#/$defs/NoteDetail"
+        },
+        "reason": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "name": "NoteDetailSnapshot",
+      "properties": {
+        "note": {
+          "$ref": "#/$defs/NoteDetail"
+        }
+      },
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "name": "NoteDocument",
+      "properties": {
+        "archived_at": {
+          "type": "string"
+        },
+        "attachments": {
+          "items": {
+            "$ref": "#/$defs/Attachment"
+          },
+          "type": "array"
+        },
+        "body": {
+          "$ref": "#/$defs/MimeValue"
+        },
+        "created_at": {
+          "type": "string"
+        },
+        "estimate": {
+          "type": "number"
+        },
+        "etag": {
+          "type": "string"
+        },
+        "extras": {
+          "$ref": "#/$defs/NoteExtras"
+        },
+        "layout": {
+          "$ref": "#/$defs/NoteLayout"
+        },
+        "meta": {
+          "$ref": "#/$defs/NoteMeta"
+        },
+        "note_id": {
+          "type": "string"
+        },
+        "pinned": {
+          "type": "boolean"
+        },
+        "priority": {
+          "type": "integer"
+        },
+        "properties": {
+          "$ref": "#/$defs/NoteProperties"
+        },
+        "status": {
+          "enum": [
+            "draft",
+            "published",
+            "archived"
+          ],
+          "type": "string"
+        },
+        "summary": {
+          "type": "string"
+        },
+        "tags": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "title": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "weight": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "note_id",
+        "etag",
+        "title",
+        "body",
+        "tags",
+        "pinned",
+        "priority",
+        "weight",
+        "status",
+        "created_at",
+        "attachments",
+        "properties",
+        "layout",
+        "extras",
+        "meta"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": {
+        "type": "json"
+      },
+      "name": "NoteExtras",
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "name": "NoteKeyParams",
+      "properties": {
+        "note_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "note_id"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "name": "NoteLayout",
+      "properties": {
+        "columns": {
+          "type": "integer"
+        },
+        "grid": {
+          "items": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array"
+          },
+          "type": "array"
+        },
+        "mode": {
+          "enum": [
+            "list",
+            "grid"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "columns",
+        "grid",
+        "mode"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "name": "NoteMeta",
+      "properties": {
+        "owner": {
+          "type": "string"
+        },
+        "reviewer": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "owner"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "name": "NoteMoveParams",
+      "properties": {
+        "board_id": {
+          "type": "string"
+        },
+        "column_id": {
+          "type": "string"
+        },
+        "note_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "note_id",
+        "board_id",
+        "column_id"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "name": "NoteMutationResult",
+      "properties": {
+        "etag": {
+          "type": "string"
+        },
+        "note_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "note_id",
+        "etag"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "name": "NotePinParams",
+      "properties": {
+        "note_id": {
+          "type": "string"
+        },
+        "pinned": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "note_id",
+        "pinned"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "description": "Free-form string properties.",
+      "name": "NoteProperties",
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "name": "NoteRenameParams",
+      "properties": {
+        "note_id": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "note_id",
+        "title"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "name": "NoteSelectionState",
+      "properties": {
+        "anchor": {
+          "type": "string"
+        },
+        "note_ids": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "note_ids"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "name": "NotesListParams",
+      "properties": {},
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "name": "NotesListPatch",
+      "properties": {
+        "kind": {
+          "enum": [
+            "upsert",
+            "remove",
+            "reset"
+          ],
+          "type": "string"
+        },
+        "note": {
+          "$ref": "#/$defs/NoteSummary"
+        },
+        "note_id": {
+          "type": "string"
+        },
+        "notes": {
+          "items": {
+            "$ref": "#/$defs/NoteSummary"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "name": "NotesListSnapshot",
+      "properties": {
+        "notes": {
+          "items": {
+            "$ref": "#/$defs/NoteSummary"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "notes"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "name": "NoteSummary",
+      "properties": {
+        "note_id": {
+          "type": "string"
+        },
+        "pinned": {
+          "type": "boolean"
+        },
+        "title": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "note_id",
+        "title",
+        "pinned"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "A count or a measure.",
+      "name": "Quantity",
+      "type": [
+        "integer",
+        "number"
+      ]
+    },
+    {
+      "name": "RawPayload",
+      "opaqueReason": "A replica's own error report, forwarded verbatim for diagnosis.",
+      "type": "json"
+    },
+    {
+      "additionalProperties": false,
+      "name": "SessionDrafts",
+      "properties": {
+        "drafts": {
+          "$ref": "#/$defs/DraftMap"
+        }
+      },
+      "required": [
+        "drafts"
+      ],
+      "type": "object"
+    },
+    {
+      "default": 0,
+      "name": "SortKey",
+      "type": [
+        "string",
+        "integer"
+      ]
+    },
+    {
+      "additionalProperties": false,
+      "name": "StreamDelta",
+      "properties": {
+        "sequence": {
+          "type": "integer"
+        },
+        "text_delta": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "sequence",
+        "text_delta"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "name": "StreamOutput",
+      "properties": {
+        "sequence": {
+          "type": "integer"
+        },
+        "text": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "sequence",
+        "text"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "name": "SyncHealthPatch",
+      "properties": {
+        "health": {
+          "$ref": "#/$defs/SyncHealthRecord"
+        },
+        "kind": {
+          "enum": [
+            "replace"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "name": "SyncHealthRecord",
+      "properties": {
+        "healthy": {
+          "type": "boolean"
+        },
+        "lag": {
+          "$ref": "#/$defs/Quantity"
+        },
+        "last_error": {
+          "$ref": "#/$defs/RawPayload"
+        },
+        "managed": {
+          "const": true,
+          "type": "boolean"
+        },
+        "peers": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "revision": {
+          "type": "string"
+        },
+        "scope": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "scope",
+        "revision",
+        "healthy",
+        "managed",
+        "lag",
+        "peers"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "name": "SyncResetParams",
+      "properties": {
+        "peer": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "name": "TaskBoardPatch",
+      "properties": {
+        "kind": {
+          "enum": [
+            "replace"
+          ],
+          "type": "string"
+        },
+        "snapshot": {
+          "$ref": "#/$defs/TaskBoardSnapshot"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "name": "TaskBoardSnapshot",
+      "properties": {
+        "sort": {
+          "$ref": "#/$defs/SortKey"
+        },
+        "tasks": {
+          "items": {
+            "$ref": "#/$defs/TaskRecord"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "tasks",
+        "sort"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "name": "TaskDetailPatch",
+      "properties": {
+        "kind": {
+          "enum": [
+            "replace"
+          ],
+          "type": "string"
+        },
+        "related": {
+          "items": {
+            "$ref": "#/$defs/TaskRecord"
+          },
+          "type": "array"
+        },
+        "task": {
+          "$ref": "#/$defs/TaskRecord"
+        }
+      },
+      "required": [
+        "kind",
+        "task",
+        "related"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "name": "TaskDetailSnapshot",
+      "properties": {
+        "related": {
+          "items": {
+            "$ref": "#/$defs/TaskRecord"
+          },
+          "type": "array"
+        },
+        "task": {
+          "$ref": "#/$defs/TaskRecord"
+        }
+      },
+      "required": [
+        "task",
+        "related"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "name": "TaskKeyParams",
+      "properties": {
+        "task_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "task_id"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "name": "TaskRecord",
+      "properties": {
+        "blocked": {
+          "default": false,
+          "type": "boolean"
+        },
+        "checklist": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "dueAt": {
+          "type": "string"
+        },
+        "estimate_hours": {
+          "default": 1.5,
+          "type": "number"
+        },
+        "labels": {
+          "default": [],
+          "items": {
+            "enum": [
+              "urgent",
+              "later"
+            ],
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "links": {
+          "additionalProperties": {
+            "$ref": "#/$defs/TaskRecord"
+          },
+          "type": "object"
+        },
+        "metadata": {
+          "opaqueReason": "Integrations annotate tasks with their own keys.",
+          "type": "json"
+        },
+        "parent": {
+          "$ref": "#/$defs/TaskRecord"
+        },
+        "revision": {
+          "type": "string"
+        },
+        "sort_key": {
+          "$ref": "#/$defs/SortKey"
+        },
+        "state": {
+          "$ref": "#/$defs/TaskState"
+        },
+        "subtasks": {
+          "items": {
+            "$ref": "#/$defs/TaskRecord"
+          },
+          "type": "array"
+        },
+        "task_id": {
+          "type": "string"
+        },
+        "title": {
+          "description": "Shown on the card.",
+          "minLength": 1,
+          "type": "string"
+        },
+        "type": {
+          "default": "chore",
+          "enum": [
+            "chore",
+            "bug",
+            "feature"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "task_id",
+        "title",
+        "revision",
+        "state",
+        "type",
+        "checklist",
+        "blocked",
+        "labels",
+        "sort_key"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "name": "TaskSaveParams",
+      "properties": {
+        "expected_revision": {
+          "type": "string"
+        },
+        "task": {
+          "$ref": "#/$defs/CurrentTask"
+        }
+      },
+      "required": [
+        "task"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "name": "TaskSaveResult",
+      "properties": {
+        "revision": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "revision"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "name": "TaskScheduleParams",
+      "properties": {
+        "due_at": {
+          "type": "string"
+        },
+        "task_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "task_id",
+        "due_at"
+      ],
+      "type": "object"
+    },
+    {
+      "discriminator": "phase",
+      "name": "TaskState",
+      "oneOf": {
+        "blocked": {
+          "additionalProperties": false,
+          "properties": {
+            "reason": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "reason"
+          ],
+          "type": "object"
+        },
+        "delegated": {
+          "additionalProperties": false,
+          "properties": {
+            "to": {
+              "$ref": "#/$defs/TaskState"
+            }
+          },
+          "required": [
+            "to"
+          ],
+          "type": "object"
+        },
+        "done": {
+          "additionalProperties": false,
+          "properties": {
+            "completed_at": {
+              "type": "string"
+            },
+            "evidence": {
+              "opaqueReason": "Whatever the reviewer attached; the task only records that it exists.",
+              "type": "json"
+            },
+            "reviewer": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "completed_at"
+          ],
+          "type": "object"
+        },
+        "open": {
+          "additionalProperties": false,
+          "properties": {},
+          "type": "object"
+        }
+      },
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "name": "WorkspaceConfigureParams",
+      "properties": {
+        "theme": {
+          "enum": [
+            "light",
+            "dark",
+            "system"
+          ],
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "name": "WorkspaceParams",
+      "properties": {},
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "name": "WorkspaceSettings",
+      "properties": {
+        "autosave_seconds": {
+          "default": 30,
+          "type": "integer"
+        },
+        "revision": {
+          "type": "string"
+        },
+        "scope": {
+          "const": "workspace",
+          "type": "string"
+        },
+        "shortcuts": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "default": {},
+          "type": "object"
+        },
+        "theme": {
+          "default": "system",
+          "enum": [
+            "light",
+            "dark",
+            "system"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "scope",
+        "revision",
+        "theme",
+        "shortcuts",
+        "autosave_seconds"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "name": "WorkspaceSettingsPatch",
+      "properties": {
+        "autosave_seconds": {
+          "default": 30,
+          "type": "integer"
+        },
+        "kind": {
+          "enum": [
+            "reset"
+          ],
+          "type": "string"
+        },
+        "revision": {
+          "type": "string"
+        },
+        "scope": {
+          "const": "workspace",
+          "type": "string"
+        },
+        "shortcuts": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "default": {},
+          "type": "object"
+        },
+        "theme": {
+          "default": "system",
+          "enum": [
+            "light",
+            "dark",
+            "system"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "scope",
+        "revision",
+        "theme",
+        "shortcuts",
+        "autosave_seconds"
+      ],
+      "type": "object"
+    }
+  ],
+  "entities": [
+    {
+      "authoring": {
+        "commandMutations": [],
+        "kind": "readOnly",
+        "lifecycleMutations": [],
+        "planningMutations": [],
+        "rationale": "The activity log is written by the service and only read by clients."
+      },
+      "id": "scope",
+      "name": "Activity",
+      "revision": {
+        "field": "revision",
+        "kind": "contentHash"
+      },
+      "schema": {
+        "$ref": "#/$defs/ActivityLog"
+      }
+    },
+    {
+      "authoring": {
+        "commandMutations": [],
+        "contentMutation": "board.importLoroUpdate",
+        "kind": "collaborative",
+        "lifecycleMutations": [
+          "board.create"
+        ],
+        "planningMutations": [
+          "board.reconcileArchivedColumnOrder",
+          "note.moveToBoard"
+        ],
+        "rationale": "Boards reorder columns and cards concurrently through keyed sequences."
+      },
+      "id": "board_id",
+      "name": "Board",
+      "revision": {
+        "kind": "loro"
+      },
+      "schema": {
+        "$ref": "#/$defs/BoardDocument"
+      }
+    },
+    {
+      "authoring": {
+        "commandMutations": [
+          "note.pin",
+          "note.moveToBoard"
+        ],
+        "contentMutation": "note.importLoroUpdate",
+        "kind": "collaborative",
+        "lifecycleMutations": [
+          "note.create",
+          "note.rename",
+          "note.delete"
+        ],
+        "planningMutations": [],
+        "rationale": "Notes are edited concurrently; every field declares how concurrent edits merge."
+      },
+      "id": "note_id",
+      "name": "Note",
+      "revision": {
+        "kind": "loro"
+      },
+      "schema": {
+        "$ref": "#/$defs/NoteDocument"
+      }
+    },
+    {
+      "authoring": {
+        "commandMutations": [
+          "sync.reset"
+        ],
+        "kind": "commandOwned",
+        "lifecycleMutations": [],
+        "planningMutations": [],
+        "rationale": "Replication health is reported by replicas and reset by operators."
+      },
+      "id": "scope",
+      "name": "SyncHealth",
+      "revision": {
+        "field": "revision",
+        "kind": "contentHash"
+      },
+      "schema": {
+        "$ref": "#/$defs/SyncHealthRecord"
+      }
+    },
+    {
+      "authoring": {
+        "commandMutations": [],
+        "contentMutation": "task.save",
+        "kind": "optimisticDocument",
+        "lifecycleMutations": [
+          "task.archive"
+        ],
+        "planningMutations": [
+          "task.schedule"
+        ],
+        "rationale": "Tasks are saved whole against the revision they were read at."
+      },
+      "id": "task_id",
+      "name": "Task",
+      "revision": {
+        "field": "revision",
+        "kind": "contentHash"
+      },
+      "schema": {
+        "$ref": "#/$defs/TaskRecord"
+      }
+    },
+    {
+      "authoring": {
+        "commandMutations": [
+          "workspace.configure"
+        ],
+        "kind": "commandOwned",
+        "lifecycleMutations": [],
+        "planningMutations": [],
+        "rationale": "Workspace settings change only through explicit commands."
+      },
+      "id": "scope",
+      "name": "Workspace",
+      "revision": {
+        "field": "revision",
+        "kind": "contentHash"
+      },
+      "schema": {
+        "$ref": "#/$defs/WorkspaceSettings"
+      }
+    }
+  ],
+  "mnemonic": [
+    {
+      "cachePolicy": "lastKnownSnapshot",
+      "key": "notebook.board.view",
+      "migrationIds": [
+        "board-view-normalise-v1"
+      ],
+      "name": "board.view",
+      "recovery": "legacyDraftTransfer",
+      "schema": {
+        "$ref": "#/$defs/BoardViewState"
+      },
+      "version": 1
+    },
+    {
+      "cachePolicy": "lastKnownSnapshot",
+      "key": "notebook.note.selection",
+      "migrationIds": [
+        "note-selection-v1"
+      ],
+      "name": "noteSelection",
+      "recovery": "schemaMigration",
+      "schema": {
+        "$ref": "#/$defs/NoteSelectionState"
+      },
+      "version": 1
+    },
+    {
+      "cachePolicy": "localDraft",
+      "key": "notebook.session.drafts",
+      "migrationIds": [
+        "session-drafts-v1-to-v2"
+      ],
+      "name": "session.drafts",
+      "recovery": "authoringRuntime",
+      "schema": {
+        "$ref": "#/$defs/SessionDrafts"
+      },
+      "version": 2
+    }
+  ],
+  "mutations": [
+    {
+      "conflict": "optimistic",
+      "name": "board.create",
+      "params": {
+        "$ref": "#/$defs/BoardCreateParams"
+      },
+      "result": {
+        "$ref": "#/$defs/BoardMutationResult"
+      },
+      "touches": [
+        "Board"
+      ]
+    },
+    {
+      "conflict": "optimistic",
+      "name": "board.importLoroUpdate",
+      "params": {
+        "$ref": "#/$defs/LoroUpdateParams"
+      },
+      "result": {
+        "$ref": "#/$defs/LoroUpdateResult"
+      },
+      "touches": [
+        "Board"
+      ]
+    },
+    {
+      "conflict": "optimistic",
+      "name": "board.reconcileArchivedColumnOrder",
+      "params": {
+        "$ref": "#/$defs/BoardKeyParams"
+      },
+      "result": {
+        "$ref": "#/$defs/BoardMutationResult"
+      },
+      "touches": [
+        "Board"
+      ]
+    },
+    {
+      "conflict": "optimistic",
+      "name": "note.create",
+      "params": {
+        "$ref": "#/$defs/NoteCreateParams"
+      },
+      "result": {
+        "$ref": "#/$defs/NoteMutationResult"
+      },
+      "touches": [
+        "Note"
+      ]
+    },
+    {
+      "conflict": "optimistic",
+      "name": "note.delete",
+      "params": {
+        "$ref": "#/$defs/NoteKeyParams"
+      },
+      "result": {
+        "$ref": "#/$defs/EmptyResult"
+      },
+      "touches": [
+        "Note"
+      ]
+    },
+    {
+      "conflict": "optimistic",
+      "name": "note.importLoroUpdate",
+      "params": {
+        "$ref": "#/$defs/LoroUpdateParams"
+      },
+      "result": {
+        "$ref": "#/$defs/LoroUpdateResult"
+      },
+      "touches": [
+        "Note"
+      ]
+    },
+    {
+      "conflict": "optimistic",
+      "name": "note.moveToBoard",
+      "params": {
+        "$ref": "#/$defs/NoteMoveParams"
+      },
+      "result": {
+        "$ref": "#/$defs/NoteMutationResult"
+      },
+      "touches": [
+        "Note",
+        "Board"
+      ]
+    },
+    {
+      "conflict": "optimistic",
+      "name": "note.pin",
+      "params": {
+        "$ref": "#/$defs/NotePinParams"
+      },
+      "result": {
+        "$ref": "#/$defs/NoteMutationResult"
+      },
+      "touches": [
+        "Note"
+      ]
+    },
+    {
+      "conflict": "optimistic",
+      "name": "note.rename",
+      "params": {
+        "$ref": "#/$defs/NoteRenameParams"
+      },
+      "result": {
+        "$ref": "#/$defs/NoteMutationResult"
+      },
+      "touches": [
+        "Note"
+      ]
+    },
+    {
+      "conflict": "optimistic",
+      "name": "sync.reset",
+      "params": {
+        "$ref": "#/$defs/SyncResetParams"
+      },
+      "result": {
+        "$ref": "#/$defs/EmptyResult"
+      },
+      "touches": [
+        "SyncHealth"
+      ]
+    },
+    {
+      "conflict": "optimistic",
+      "name": "task.archive",
+      "params": {
+        "$ref": "#/$defs/TaskKeyParams"
+      },
+      "result": {
+        "$ref": "#/$defs/EmptyResult"
+      },
+      "touches": [
+        "Task"
+      ]
+    },
+    {
+      "conflict": "optimistic",
+      "name": "task.save",
+      "params": {
+        "$ref": "#/$defs/TaskSaveParams"
+      },
+      "result": {
+        "$ref": "#/$defs/TaskSaveResult"
+      },
+      "touches": [
+        "Task"
+      ]
+    },
+    {
+      "conflict": "optimistic",
+      "name": "task.schedule",
+      "params": {
+        "$ref": "#/$defs/TaskScheduleParams"
+      },
+      "result": {
+        "$ref": "#/$defs/TaskSaveResult"
+      },
+      "touches": [
+        "Task"
+      ]
+    },
+    {
+      "conflict": "optimistic",
+      "name": "workspace.configure",
+      "params": {
+        "$ref": "#/$defs/WorkspaceConfigureParams"
+      },
+      "result": {
+        "$ref": "#/$defs/EmptyResult"
+      },
+      "touches": [
+        "Workspace"
+      ]
+    }
+  ],
+  "namespace": "notebook",
+  "projections": [
+    {
+      "dependsOn": [
+        "Activity"
+      ],
+      "materialization": {
+        "snapshotMode": "patch",
+        "strategy": "replace"
+      },
+      "name": "activity.history",
+      "params": {
+        "$ref": "#/$defs/WorkspaceParams"
+      },
+      "patch": {
+        "$ref": "#/$defs/ActivityLogPatch"
+      },
+      "snapshot": {
+        "$ref": "#/$defs/ActivityLog"
+      }
+    },
+    {
+      "dependsOn": [
+        "Activity"
+      ],
+      "materialization": {
+        "collectionField": "streams",
+        "deltaTextField": "text_delta",
+        "itemIdentityField": "stream_id",
+        "patchIdentityField": "stream_id",
+        "patchOutputField": "delta",
+        "sequenceField": "sequence",
+        "snapshotOutputField": "output",
+        "strategy": "sequencedText",
+        "textField": "text"
+      },
+      "name": "activity.streams",
+      "params": {
+        "$ref": "#/$defs/WorkspaceParams"
+      },
+      "patch": {
+        "$ref": "#/$defs/ActivityStreamPatch"
+      },
+      "snapshot": {
+        "$ref": "#/$defs/ActivityStreamSnapshot"
+      }
+    },
+    {
+      "dependsOn": [
+        "Board"
+      ],
+      "materialization": {
+        "removeMode": "nullSnapshot",
+        "snapshotField": "state",
+        "snapshotMode": "field",
+        "strategy": "replaceOrRemove"
+      },
+      "name": "boards.authoringState",
+      "params": {
+        "$ref": "#/$defs/BoardKeyParams"
+      },
+      "patch": {
+        "$ref": "#/$defs/BoardAuthoringStatePatch"
+      },
+      "snapshot": {
+        "$ref": "#/$defs/BoardAuthoringState"
+      }
+    },
+    {
+      "dependsOn": [
+        "Note"
+      ],
+      "materialization": {
+        "removeMode": "nullSnapshot",
+        "snapshotField": "state",
+        "snapshotMode": "field",
+        "strategy": "replaceOrRemove"
+      },
+      "name": "notes.authoringState",
+      "params": {
+        "$ref": "#/$defs/NoteKeyParams"
+      },
+      "patch": {
+        "$ref": "#/$defs/NoteAuthoringStatePatch"
+      },
+      "snapshot": {
+        "$ref": "#/$defs/NoteAuthoringState"
+      }
+    },
+    {
+      "dependsOn": [
+        "Note"
+      ],
+      "materialization": {
+        "removeField": "note",
+        "removeMode": "nullField",
+        "snapshotMode": "patch",
+        "snapshotOmitFields": [
+          "reason",
+          "changes"
+        ],
+        "strategy": "replaceOrRemove",
+        "updateField": "note",
+        "updatesField": "changes"
+      },
+      "name": "notes.byId",
+      "params": {
+        "$ref": "#/$defs/NoteKeyParams"
+      },
+      "patch": {
+        "$ref": "#/$defs/NoteDetailPatch"
+      },
+      "snapshot": {
+        "$ref": "#/$defs/NoteDetailSnapshot"
+      }
+    },
+    {
+      "dependsOn": [
+        "Note"
+      ],
+      "materialization": {
+        "collectionField": "notes",
+        "itemField": "note",
+        "itemIdentityField": "note_id",
+        "patchIdentityField": "note_id",
+        "strategy": "keyedCollection"
+      },
+      "name": "notes.list",
+      "params": {
+        "$ref": "#/$defs/NotesListParams"
+      },
+      "patch": {
+        "$ref": "#/$defs/NotesListPatch"
+      },
+      "snapshot": {
+        "$ref": "#/$defs/NotesListSnapshot"
+      }
+    },
+    {
+      "dependsOn": [
+        "SyncHealth"
+      ],
+      "materialization": {
+        "snapshotField": "health",
+        "snapshotMode": "field",
+        "strategy": "replace"
+      },
+      "name": "sync.health",
+      "params": {
+        "$ref": "#/$defs/WorkspaceParams"
+      },
+      "patch": {
+        "$ref": "#/$defs/SyncHealthPatch"
+      },
+      "snapshot": {
+        "$ref": "#/$defs/SyncHealthRecord"
+      }
+    },
+    {
+      "dependsOn": [
+        "Task",
+        "Board"
+      ],
+      "materialization": {
+        "snapshotField": "snapshot",
+        "snapshotMode": "field",
+        "strategy": "replace"
+      },
+      "name": "tasks.board",
+      "params": {
+        "$ref": "#/$defs/BoardKeyParams"
+      },
+      "patch": {
+        "$ref": "#/$defs/TaskBoardPatch"
+      },
+      "snapshot": {
+        "$ref": "#/$defs/TaskBoardSnapshot"
+      }
+    },
+    {
+      "dependsOn": [
+        "Task"
+      ],
+      "materialization": {
+        "snapshotMode": "patch",
+        "strategy": "replace"
+      },
+      "name": "tasks.byId",
+      "params": {
+        "$ref": "#/$defs/TaskKeyParams"
+      },
+      "patch": {
+        "$ref": "#/$defs/TaskDetailPatch"
+      },
+      "snapshot": {
+        "$ref": "#/$defs/TaskDetailSnapshot"
+      }
+    },
+    {
+      "dependsOn": [
+        "Workspace"
+      ],
+      "materialization": {
+        "strategy": "reset"
+      },
+      "name": "workspace.current",
+      "params": {
+        "$ref": "#/$defs/WorkspaceParams"
+      },
+      "patch": {
+        "$ref": "#/$defs/WorkspaceSettingsPatch"
+      },
+      "snapshot": {
+        "$ref": "#/$defs/WorkspaceSettings"
+      }
+    }
+  ],
+  "version": 2
+}

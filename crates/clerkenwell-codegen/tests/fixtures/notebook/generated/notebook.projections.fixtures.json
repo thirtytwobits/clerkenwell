@@ -1,0 +1,661 @@
+{
+  "version": 1,
+  "projections": [
+    {
+      "projection": "notes.list",
+      "strategy": "keyedCollection",
+      "snapshot": {
+        "projection": "notes.list",
+        "value": {
+          "notes": [
+            {
+              "note_id": "fixture-id",
+              "title": "fixture",
+              "pinned": true
+            }
+          ]
+        }
+      },
+      "cases": [
+        {
+          "kind": "upsert",
+          "patch": {
+            "projection": "notes.list",
+            "value": {
+              "kind": "upsert",
+              "note": {
+                "note_id": "fixture-id",
+                "title": "fixture",
+                "pinned": true
+              }
+            }
+          },
+          "expectedSnapshot": {
+            "notes": [
+              {
+                "note_id": "fixture-id",
+                "title": "fixture",
+                "pinned": true
+              }
+            ]
+          }
+        },
+        {
+          "kind": "remove",
+          "patch": {
+            "projection": "notes.list",
+            "value": {
+              "kind": "remove",
+              "note_id": "fixture-id"
+            }
+          },
+          "expectedSnapshot": {
+            "notes": []
+          }
+        },
+        {
+          "kind": "reset",
+          "patch": {
+            "projection": "notes.list",
+            "value": {
+              "kind": "reset",
+              "notes": [
+                {
+                  "note_id": "fixture-id",
+                  "title": "fixture",
+                  "pinned": true
+                }
+              ]
+            }
+          },
+          "expectedSnapshot": {
+            "notes": [
+              {
+                "note_id": "fixture-id",
+                "title": "fixture",
+                "pinned": true
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "projection": "notes.authoringState",
+      "strategy": "replaceOrRemove",
+      "snapshot": {
+        "projection": "notes.authoringState",
+        "value": {
+          "note_id": "fixture",
+          "etag": "fixture",
+          "exchange_modes": [
+            "incremental"
+          ]
+        }
+      },
+      "cases": [
+        {
+          "kind": "replace",
+          "patch": {
+            "projection": "notes.authoringState",
+            "value": {
+              "kind": "replace",
+              "state": {
+                "note_id": "fixture",
+                "etag": "fixture",
+                "exchange_modes": [
+                  "incremental"
+                ]
+              }
+            }
+          },
+          "expectedSnapshot": {
+            "note_id": "fixture",
+            "etag": "fixture",
+            "exchange_modes": [
+              "incremental"
+            ]
+          }
+        },
+        {
+          "kind": "remove",
+          "patch": {
+            "projection": "notes.authoringState",
+            "value": {
+              "kind": "remove"
+            }
+          },
+          "expectedSnapshot": null
+        }
+      ]
+    },
+    {
+      "projection": "notes.byId",
+      "strategy": "replaceOrRemove",
+      "snapshot": {
+        "projection": "notes.byId",
+        "value": {}
+      },
+      "cases": [
+        {
+          "kind": "replace",
+          "patch": {
+            "projection": "notes.byId",
+            "value": {
+              "kind": "replace"
+            }
+          },
+          "expectedSnapshot": {}
+        },
+        {
+          "kind": "remove",
+          "patch": {
+            "projection": "notes.byId",
+            "value": {
+              "kind": "remove"
+            }
+          },
+          "expectedSnapshot": {
+            "note": null
+          }
+        },
+        {
+          "kind": "update",
+          "patch": {
+            "projection": "notes.byId",
+            "value": {
+              "kind": "update",
+              "changes": {
+                "title": "fixture",
+                "tags": []
+              }
+            }
+          },
+          "expectedSnapshot": {
+            "note": {
+              "title": "fixture",
+              "tags": []
+            }
+          }
+        }
+      ]
+    },
+    {
+      "projection": "boards.authoringState",
+      "strategy": "replaceOrRemove",
+      "snapshot": {
+        "projection": "boards.authoringState",
+        "value": {
+          "board_id": "fixture",
+          "etag": "fixture",
+          "exchange_modes": [
+            "incremental"
+          ]
+        }
+      },
+      "cases": [
+        {
+          "kind": "replace",
+          "patch": {
+            "projection": "boards.authoringState",
+            "value": {
+              "kind": "replace",
+              "state": {
+                "board_id": "fixture",
+                "etag": "fixture",
+                "exchange_modes": [
+                  "incremental"
+                ]
+              }
+            }
+          },
+          "expectedSnapshot": {
+            "board_id": "fixture",
+            "etag": "fixture",
+            "exchange_modes": [
+              "incremental"
+            ]
+          }
+        },
+        {
+          "kind": "remove",
+          "patch": {
+            "projection": "boards.authoringState",
+            "value": {
+              "kind": "remove"
+            }
+          },
+          "expectedSnapshot": null
+        }
+      ]
+    },
+    {
+      "projection": "tasks.byId",
+      "strategy": "replace",
+      "snapshot": {
+        "projection": "tasks.byId",
+        "value": {
+          "task": {
+            "task_id": "fixture",
+            "title": "fixture",
+            "revision": "fixture",
+            "state": {
+              "phase": "open"
+            },
+            "type": "chore",
+            "checklist": [
+              "fixture"
+            ],
+            "blocked": true,
+            "labels": [
+              "urgent"
+            ],
+            "sort_key": "fixture"
+          },
+          "related": [
+            {
+              "task_id": "fixture",
+              "title": "fixture",
+              "revision": "fixture",
+              "state": {
+                "phase": "open"
+              },
+              "type": "chore",
+              "checklist": [
+                "fixture"
+              ],
+              "blocked": true,
+              "labels": [
+                "urgent"
+              ],
+              "sort_key": "fixture"
+            }
+          ]
+        }
+      },
+      "cases": [
+        {
+          "kind": "replace",
+          "patch": {
+            "projection": "tasks.byId",
+            "value": {
+              "kind": "replace",
+              "task": {
+                "task_id": "fixture",
+                "title": "fixture",
+                "revision": "fixture",
+                "state": {
+                  "phase": "open"
+                },
+                "type": "chore",
+                "checklist": [
+                  "fixture"
+                ],
+                "blocked": true,
+                "labels": [
+                  "urgent"
+                ],
+                "sort_key": "fixture"
+              },
+              "related": [
+                {
+                  "task_id": "fixture",
+                  "title": "fixture",
+                  "revision": "fixture",
+                  "state": {
+                    "phase": "open"
+                  },
+                  "type": "chore",
+                  "checklist": [
+                    "fixture"
+                  ],
+                  "blocked": true,
+                  "labels": [
+                    "urgent"
+                  ],
+                  "sort_key": "fixture"
+                }
+              ]
+            }
+          },
+          "expectedSnapshot": {
+            "task": {
+              "task_id": "fixture",
+              "title": "fixture",
+              "revision": "fixture",
+              "state": {
+                "phase": "open"
+              },
+              "type": "chore",
+              "checklist": [
+                "fixture"
+              ],
+              "blocked": true,
+              "labels": [
+                "urgent"
+              ],
+              "sort_key": "fixture"
+            },
+            "related": [
+              {
+                "task_id": "fixture",
+                "title": "fixture",
+                "revision": "fixture",
+                "state": {
+                  "phase": "open"
+                },
+                "type": "chore",
+                "checklist": [
+                  "fixture"
+                ],
+                "blocked": true,
+                "labels": [
+                  "urgent"
+                ],
+                "sort_key": "fixture"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "projection": "tasks.board",
+      "strategy": "replace",
+      "snapshot": {
+        "projection": "tasks.board",
+        "value": {
+          "tasks": [
+            {
+              "task_id": "fixture",
+              "title": "fixture",
+              "revision": "fixture",
+              "state": {
+                "phase": "open"
+              },
+              "type": "chore",
+              "checklist": [
+                "fixture"
+              ],
+              "blocked": true,
+              "labels": [
+                "urgent"
+              ],
+              "sort_key": "fixture"
+            }
+          ],
+          "sort": "fixture"
+        }
+      },
+      "cases": [
+        {
+          "kind": "replace",
+          "patch": {
+            "projection": "tasks.board",
+            "value": {
+              "kind": "replace",
+              "snapshot": {
+                "tasks": [
+                  {
+                    "task_id": "fixture",
+                    "title": "fixture",
+                    "revision": "fixture",
+                    "state": {
+                      "phase": "open"
+                    },
+                    "type": "chore",
+                    "checklist": [
+                      "fixture"
+                    ],
+                    "blocked": true,
+                    "labels": [
+                      "urgent"
+                    ],
+                    "sort_key": "fixture"
+                  }
+                ],
+                "sort": "fixture"
+              }
+            }
+          },
+          "expectedSnapshot": {
+            "tasks": [
+              {
+                "task_id": "fixture",
+                "title": "fixture",
+                "revision": "fixture",
+                "state": {
+                  "phase": "open"
+                },
+                "type": "chore",
+                "checklist": [
+                  "fixture"
+                ],
+                "blocked": true,
+                "labels": [
+                  "urgent"
+                ],
+                "sort_key": "fixture"
+              }
+            ],
+            "sort": "fixture"
+          }
+        }
+      ]
+    },
+    {
+      "projection": "workspace.current",
+      "strategy": "reset",
+      "snapshot": {
+        "projection": "workspace.current",
+        "value": {
+          "scope": "fixture",
+          "revision": "fixture",
+          "theme": "light",
+          "shortcuts": {},
+          "autosave_seconds": 1
+        }
+      },
+      "cases": [
+        {
+          "kind": "reset",
+          "patch": {
+            "projection": "workspace.current",
+            "value": {
+              "kind": "reset",
+              "scope": "fixture",
+              "revision": "fixture",
+              "theme": "light",
+              "shortcuts": {},
+              "autosave_seconds": 1
+            }
+          },
+          "expectedSnapshot": {
+            "scope": "fixture",
+            "revision": "fixture",
+            "theme": "light",
+            "shortcuts": {},
+            "autosave_seconds": 1
+          }
+        }
+      ]
+    },
+    {
+      "projection": "activity.streams",
+      "strategy": "sequencedText",
+      "snapshot": {
+        "projection": "activity.streams",
+        "value": {
+          "streams": [
+            {
+              "stream_id": "fixture-id",
+              "output": {
+                "sequence": 0,
+                "text": ""
+              }
+            }
+          ]
+        }
+      },
+      "cases": [
+        {
+          "kind": "output",
+          "patch": {
+            "projection": "activity.streams",
+            "value": {
+              "kind": "output",
+              "stream_id": "fixture-id",
+              "delta": {
+                "sequence": 1,
+                "text_delta": "fixture"
+              }
+            }
+          },
+          "expectedSnapshot": {
+            "streams": [
+              {
+                "stream_id": "fixture-id",
+                "output": {
+                  "sequence": 1,
+                  "text": "fixture"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "kind": "reset",
+          "patch": {
+            "projection": "activity.streams",
+            "value": {
+              "kind": "reset",
+              "streams": [
+                {
+                  "stream_id": "fixture-id",
+                  "output": {
+                    "sequence": 0,
+                    "text": ""
+                  }
+                }
+              ]
+            }
+          },
+          "expectedSnapshot": {
+            "streams": [
+              {
+                "stream_id": "fixture-id",
+                "output": {
+                  "sequence": 0,
+                  "text": ""
+                }
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "projection": "activity.history",
+      "strategy": "replace",
+      "snapshot": {
+        "projection": "activity.history",
+        "value": {
+          "scope": "fixture",
+          "revision": "fixture",
+          "schema_version": 1,
+          "entries": [
+            {
+              "entry_id": "fixture",
+              "kind": "created",
+              "at": "fixture",
+              "payload": null
+            }
+          ]
+        }
+      },
+      "cases": [
+        {
+          "kind": "replace",
+          "patch": {
+            "projection": "activity.history",
+            "value": {
+              "kind": "replace",
+              "scope": "fixture",
+              "revision": "fixture",
+              "schema_version": 1,
+              "entries": [
+                {
+                  "entry_id": "fixture",
+                  "kind": "created",
+                  "at": "fixture",
+                  "payload": null
+                }
+              ]
+            }
+          },
+          "expectedSnapshot": {
+            "scope": "fixture",
+            "revision": "fixture",
+            "schema_version": 1,
+            "entries": [
+              {
+                "entry_id": "fixture",
+                "kind": "created",
+                "at": "fixture",
+                "payload": null
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "projection": "sync.health",
+      "strategy": "replace",
+      "snapshot": {
+        "projection": "sync.health",
+        "value": {
+          "scope": "fixture",
+          "revision": "fixture",
+          "healthy": true,
+          "managed": true,
+          "lag": 1,
+          "peers": [
+            "fixture"
+          ]
+        }
+      },
+      "cases": [
+        {
+          "kind": "replace",
+          "patch": {
+            "projection": "sync.health",
+            "value": {
+              "kind": "replace",
+              "health": {
+                "scope": "fixture",
+                "revision": "fixture",
+                "healthy": true,
+                "managed": true,
+                "lag": 1,
+                "peers": [
+                  "fixture"
+                ]
+              }
+            }
+          },
+          "expectedSnapshot": {
+            "scope": "fixture",
+            "revision": "fixture",
+            "healthy": true,
+            "managed": true,
+            "lag": 1,
+            "peers": [
+              "fixture"
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

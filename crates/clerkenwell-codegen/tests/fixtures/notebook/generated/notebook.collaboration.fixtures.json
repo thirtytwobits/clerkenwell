@@ -1,0 +1,327 @@
+{
+  "collaborationDefinitionVersion": 1,
+  "entities": [
+    {
+      "entity": "Note",
+      "schemaVersion": 1,
+      "migrationIds": [
+        "note-loro-layout-v1"
+      ],
+      "wireDocument": {
+        "title": "title-value",
+        "body": {
+          "$mime": "text/markdown",
+          "value": "body value"
+        },
+        "summary": "summary-value",
+        "tags": [
+          "tags-value"
+        ],
+        "pinned": true,
+        "priority": 1,
+        "weight": 1.5,
+        "estimate": 1.5,
+        "status": "draft",
+        "created_at": "created-at-value",
+        "archived_at": "archived-at-value",
+        "attachments": [
+          {
+            "file_name": "file-name-value",
+            "size_bytes": 1
+          }
+        ],
+        "properties": {
+          "properties-key": "value-value"
+        },
+        "layout": {
+          "columns": 1,
+          "grid": [
+            [
+              1
+            ]
+          ],
+          "mode": "mode-value"
+        },
+        "extras": {
+          "extras-key": "extras-value"
+        },
+        "meta": {
+          "owner": "meta-owner-value",
+          "reviewer": "meta-reviewer-value"
+        }
+      },
+      "clientDocument": {
+        "title": "title-value",
+        "body": {
+          "$mime": "text/markdown",
+          "value": "body value"
+        },
+        "summary": "summary-value",
+        "tags": [
+          "tags-value"
+        ],
+        "pinned": true,
+        "priority": 1,
+        "weight": 1.5,
+        "estimate": 1.5,
+        "status": "draft",
+        "createdAt": "created-at-value",
+        "archivedAt": "archived-at-value",
+        "attachments": [
+          {
+            "fileName": "file-name-value",
+            "sizeBytes": 1
+          }
+        ],
+        "properties": {
+          "properties-key": "value-value"
+        },
+        "layout": {
+          "columns": 1,
+          "grid": [
+            [
+              1
+            ]
+          ],
+          "mode": "mode-value"
+        },
+        "extras": {
+          "extras-key": "extras-value"
+        },
+        "meta": {
+          "owner": "meta-owner-value",
+          "reviewer": "meta-reviewer-value"
+        }
+      },
+      "operations": {
+        "scalar": {
+          "path": "title",
+          "value": "updated-value"
+        },
+        "reorder": [],
+        "delete": [],
+        "optionalPresent": [
+          "summary",
+          "estimate",
+          "archived_at",
+          "meta.reviewer"
+        ],
+        "optionalAbsent": [
+          "summary",
+          "estimate",
+          "archived_at",
+          "meta.reviewer"
+        ]
+      },
+      "invalid": [
+        {
+          "kind": "missingIdentity"
+        },
+        {
+          "kind": "duplicateIdentity"
+        },
+        {
+          "kind": "unsupportedSchemaVersion",
+          "schemaVersion": 2
+        }
+      ]
+    },
+    {
+      "entity": "Board",
+      "schemaVersion": 3,
+      "migrationIds": [
+        "board-loro-layout-v1",
+        "board-column-order-v2",
+        "board-card-notes-v3"
+      ],
+      "wireDocument": {
+        "name": "name-value",
+        "columns": [
+          {
+            "column_id": "board-one",
+            "title": "columns-title-one",
+            "wip_limit": 1.5,
+            "cards": [
+              {
+                "card_id": "board-one",
+                "text": "columns-cards-text-one",
+                "done": true,
+                "note": {
+                  "$mime": "text/markdown",
+                  "value": "columns.*.cards.*.note one"
+                },
+                "labels": [
+                  "columns-cards-labels-one"
+                ]
+              },
+              {
+                "card_id": "board-two",
+                "text": "columns-cards-text-two",
+                "done": true,
+                "note": {
+                  "$mime": "text/markdown",
+                  "value": "columns.*.cards.*.note two"
+                },
+                "labels": [
+                  "columns-cards-labels-two"
+                ]
+              }
+            ]
+          },
+          {
+            "column_id": "board-two",
+            "title": "columns-title-two",
+            "wip_limit": 1.5,
+            "cards": [
+              {
+                "card_id": "board-one",
+                "text": "columns-cards-text-one",
+                "done": true,
+                "note": {
+                  "$mime": "text/markdown",
+                  "value": "columns.*.cards.*.note one"
+                },
+                "labels": [
+                  "columns-cards-labels-one"
+                ]
+              },
+              {
+                "card_id": "board-two",
+                "text": "columns-cards-text-two",
+                "done": true,
+                "note": {
+                  "$mime": "text/markdown",
+                  "value": "columns.*.cards.*.note two"
+                },
+                "labels": [
+                  "columns-cards-labels-two"
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "clientDocument": {
+        "name": "name-value",
+        "columns": [
+          {
+            "columnId": "board-one",
+            "title": "columns-title-one",
+            "wipLimit": 1.5,
+            "cards": [
+              {
+                "cardId": "board-one",
+                "text": "columns-cards-text-one",
+                "done": true,
+                "note": {
+                  "$mime": "text/markdown",
+                  "value": "columns.*.cards.*.note one"
+                },
+                "labels": [
+                  "columns-cards-labels-one"
+                ]
+              },
+              {
+                "cardId": "board-two",
+                "text": "columns-cards-text-two",
+                "done": true,
+                "note": {
+                  "$mime": "text/markdown",
+                  "value": "columns.*.cards.*.note two"
+                },
+                "labels": [
+                  "columns-cards-labels-two"
+                ]
+              }
+            ]
+          },
+          {
+            "columnId": "board-two",
+            "title": "columns-title-two",
+            "wipLimit": 1.5,
+            "cards": [
+              {
+                "cardId": "board-one",
+                "text": "columns-cards-text-one",
+                "done": true,
+                "note": {
+                  "$mime": "text/markdown",
+                  "value": "columns.*.cards.*.note one"
+                },
+                "labels": [
+                  "columns-cards-labels-one"
+                ]
+              },
+              {
+                "cardId": "board-two",
+                "text": "columns-cards-text-two",
+                "done": true,
+                "note": {
+                  "$mime": "text/markdown",
+                  "value": "columns.*.cards.*.note two"
+                },
+                "labels": [
+                  "columns-cards-labels-two"
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "operations": {
+        "scalar": {
+          "path": "name",
+          "value": "updated-value"
+        },
+        "reorder": [
+          {
+            "path": "columns",
+            "order": [
+              1,
+              0
+            ]
+          },
+          {
+            "path": "columns.*.cards",
+            "order": [
+              1,
+              0
+            ]
+          }
+        ],
+        "delete": [
+          {
+            "path": "columns",
+            "index": 0
+          },
+          {
+            "path": "columns.*.cards",
+            "index": 0
+          }
+        ],
+        "optionalPresent": [
+          "columns.*.wip_limit",
+          "columns.*.cards.*.labels"
+        ],
+        "optionalAbsent": [
+          "columns.*.wip_limit",
+          "columns.*.cards.*.labels"
+        ]
+      },
+      "invalid": [
+        {
+          "kind": "missingIdentity",
+          "sequencePath": "columns"
+        },
+        {
+          "kind": "duplicateIdentity",
+          "sequencePath": "columns"
+        },
+        {
+          "kind": "unsupportedSchemaVersion",
+          "schemaVersion": 4
+        }
+      ]
+    }
+  ]
+}
