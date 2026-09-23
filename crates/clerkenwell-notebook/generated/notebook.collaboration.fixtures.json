@@ -34,13 +34,20 @@
           "properties-key": "value-value"
         },
         "layout": {
+          "caption": "caption-value",
           "columns": 1,
           "grid": [
             [
               1
             ]
           ],
-          "mode": "mode-value"
+          "mode": "mode-value",
+          "panels": [
+            {
+              "id": "id-value",
+              "label": "label-value"
+            }
+          ]
         },
         "extras": {
           "extras-key": "extras-value"
@@ -77,13 +84,20 @@
           "properties-key": "value-value"
         },
         "layout": {
+          "caption": "caption-value",
           "columns": 1,
           "grid": [
             [
               1
             ]
           ],
-          "mode": "mode-value"
+          "mode": "mode-value",
+          "panels": [
+            {
+              "id": "id-value",
+              "label": "label-value"
+            }
+          ]
         },
         "extras": {
           "extras-key": "extras-value"

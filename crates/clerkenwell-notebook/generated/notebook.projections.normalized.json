@@ -1231,6 +1231,9 @@
       "additionalProperties": false,
       "name": "NoteLayout",
       "properties": {
+        "caption": {
+          "type": "string"
+        },
         "columns": {
           "type": "integer"
         },
@@ -1249,12 +1252,37 @@
             "grid"
           ],
           "type": "string"
+        },
+        "panels": {
+          "items": {
+            "$ref": "#/$defs/NoteLayoutPanel"
+          },
+          "type": "array"
         }
       },
       "required": [
+        "caption",
         "columns",
         "grid",
-        "mode"
+        "mode",
+        "panels"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "name": "NoteLayoutPanel",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "label"
       ],
       "type": "object"
     },

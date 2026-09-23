@@ -41,9 +41,16 @@ export type NoteProperties = Record<string, string>;
 export type NoteExtras = Record<string, unknown>;
 
 export type NoteLayout = {
+  "caption": string;
   "columns": number;
   "grid": number[][];
   "mode": "list" | "grid";
+  "panels": NoteLayoutPanel[];
+};
+
+export type NoteLayoutPanel = {
+  "id": string;
+  "label": string;
 };
 
 export type NoteMeta = {

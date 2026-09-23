@@ -259,9 +259,18 @@ pub type NoteExtras = HashMap<String, JsonValue>;
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct NoteLayout {
+    pub caption: String,
     pub columns: i64,
     pub grid: Vec<Vec<i64>>,
     pub mode: NoteLayoutMode,
+    pub panels: Vec<NoteLayoutPanel>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct NoteLayoutPanel {
+    pub id: String,
+    pub label: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, PartialEq)]

@@ -1094,11 +1094,16 @@
       "type": "object",
       "additionalProperties": false,
       "required": [
+        "caption",
         "columns",
         "grid",
-        "mode"
+        "mode",
+        "panels"
       ],
       "properties": {
+        "caption": {
+          "type": "string"
+        },
         "columns": {
           "type": "integer"
         },
@@ -1117,6 +1122,28 @@
             "list",
             "grid"
           ]
+        },
+        "panels": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/NoteLayoutPanel"
+          }
+        }
+      }
+    },
+    "NoteLayoutPanel": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "label"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
         }
       }
     },
