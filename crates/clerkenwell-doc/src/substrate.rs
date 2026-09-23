@@ -74,9 +74,8 @@ pub(crate) fn validate_document(
         {
             continue;
         }
-        if field.storage_kind != GeneratedCollaborationStorageKind::KeyedSequence && field.required
-        {
-            validate_field_value(field, value_at_path(document, field.path))?;
+        if field.storage_kind != GeneratedCollaborationStorageKind::KeyedSequence {
+            validate_declared_value(field, value_at_path(document, field.path))?;
         }
     }
     for sequence in direct_child_sequences(plan, None) {
@@ -339,16 +338,14 @@ fn validate_sequence(
             identity.to_string(),
         );
         for field in direct_sequence_item_fields(plan, sequence) {
-            if !field.required
-                || matches!(
-                    field.storage_kind,
-                    GeneratedCollaborationStorageKind::DerivedIdentity
-                        | GeneratedCollaborationStorageKind::DerivedRevision
-                )
-            {
+            if matches!(
+                field.storage_kind,
+                GeneratedCollaborationStorageKind::DerivedIdentity
+                    | GeneratedCollaborationStorageKind::DerivedRevision
+            ) {
                 continue;
             }
-            validate_field_value(
+            validate_declared_value(
                 field,
                 value_at_path(
                     item,
@@ -850,6 +847,18 @@ fn resolve_template(
         return Err(invalid_field(path, "resolved container identities"));
     }
     Ok(resolved)
+}
+
+/// A required field must hold a value its codec accepts. An optional field may
+/// be absent or null, but a value it does hold must be accepted too.
+fn validate_declared_value(
+    field: &GeneratedCollaborationFieldSpec,
+    value: Option<&Value>,
+) -> Result<(), CollaborationLoroError> {
+    match value {
+        None | Some(Value::Null) if !field.required => Ok(()),
+        _ => validate_field_value(field, value),
+    }
 }
 
 fn validate_field_value(
