@@ -1044,15 +1044,21 @@ const DOCUMENTATION_SCHEMA_KEYS: &[&str] = &["opaqueReason"];
 /// Informational: what the owner supplies when the field is absent.
 const ANNOTATION_SCHEMA_KEYS: &[&str] = &["default"];
 
-fn is_allowed_schema_key(key: &str) -> bool {
+/// Every keyword a `$defs` schema node may use.
+pub fn schema_keywords() -> impl Iterator<Item = &'static str> {
     [
         TYPE_SCHEMA_KEYS,
         VALIDATION_SCHEMA_KEYS,
         DOCUMENTATION_SCHEMA_KEYS,
         ANNOTATION_SCHEMA_KEYS,
     ]
-    .iter()
-    .any(|keys| keys.contains(&key))
+    .into_iter()
+    .flatten()
+    .copied()
+}
+
+fn is_allowed_schema_key(key: &str) -> bool {
+    schema_keywords().any(|keyword| keyword == key)
 }
 
 /// Refuses a schema node outside the subset every renderer can represent exactly.

@@ -199,6 +199,28 @@ impl Json {
         self.as_object().and_then(|object| object.get(key))
     }
 
+    /// The value at a JSON Pointer (RFC 6901), such as `/$defs/Note/properties`.
+    pub fn pointer(&self, pointer: &str) -> Option<&Json> {
+        pointer_segments(pointer)?
+            .iter()
+            .try_fold(self, |value, segment| match value {
+                Json::Object(object) => object.get(segment),
+                Json::Array(items) => items.get(segment.parse::<usize>().ok()?),
+                _ => None,
+            })
+    }
+
+    /// The value at a JSON Pointer, mutably.
+    pub fn pointer_mut(&mut self, pointer: &str) -> Option<&mut Json> {
+        pointer_segments(pointer)?
+            .iter()
+            .try_fold(self, |value, segment| match value {
+                Json::Object(object) => object.get_mut(segment),
+                Json::Array(items) => items.get_mut(segment.parse::<usize>().ok()?),
+                _ => None,
+            })
+    }
+
     /// `JSON.stringify(value)`.
     pub fn stringify(&self) -> String {
         let mut out = String::new();
@@ -344,6 +366,20 @@ impl<'de> Visitor<'de> for JsonVisitor {
         }
         Ok(Json::Object(object))
     }
+}
+
+/// The unescaped reference tokens of a JSON Pointer; `None` if it is malformed.
+fn pointer_segments(pointer: &str) -> Option<Vec<String>> {
+    if pointer.is_empty() {
+        return Some(Vec::new());
+    }
+    let tokens = pointer.strip_prefix('/')?;
+    Some(
+        tokens
+            .split('/')
+            .map(|token| token.replace("~1", "/").replace("~0", "~"))
+            .collect(),
+    )
 }
 
 /// `JSON.stringify(value)` for a string: the quoted, escaped literal.

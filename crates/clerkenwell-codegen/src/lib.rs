@@ -32,7 +32,7 @@ pub use coverage::{collect_payload_coverage, PayloadCoverage};
 pub use definition::Definition;
 pub use error::{Error, Result};
 pub use normalize::normalized_document;
-pub use validate::META_SCHEMA;
+pub use validate::{schema_keywords, META_SCHEMA};
 
 /// The contents of every generated artefact.
 #[derive(Clone, Debug, PartialEq, Eq)]
