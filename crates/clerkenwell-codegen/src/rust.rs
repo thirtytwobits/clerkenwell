@@ -83,6 +83,13 @@ pub fn render_model_module(definition: &Definition, project: &Project) -> Result
     lines.extend(
         [
             "",
+            "pub use clerkenwell_schema::{",
+            "    GeneratedAuthoringConflictPolicy, GeneratedAuthoringPolicyKind, GeneratedCollaborationConflict,",
+            "    GeneratedCollaborationEntitySpec, GeneratedCollaborationFieldSpec,",
+            "    GeneratedCollaborationStorageKind, GeneratedCollaborationValueCodec,",
+            "    GeneratedEntityAuthoringSpec, GeneratedMaterializationPlan, GeneratedMutationSpec,",
+            "    GeneratedProjectionSpec, GeneratedRemoveMode, GeneratedSnapshotMode,",
+            "};",
             "use serde::{Deserialize, Serialize};",
             "use serde_json::Value as JsonValue;",
             "use std::collections::HashMap;",
@@ -225,7 +232,11 @@ fn literals(values: &[&str]) -> Expr {
 }
 
 fn mutation_path(name: &str) -> Expr {
-    Expr::atom(format!("MutationName::{}", pascal_identifier(name)))
+    Expr::atom(name_constant_identifier(name, "MUTATION"))
+}
+
+fn projection_path(name: &str) -> Expr {
+    Expr::atom(name_constant_identifier(name, "PROJECTION"))
 }
 
 fn mutation_paths(names: &[&str]) -> Expr {
@@ -249,13 +260,7 @@ fn registry_metadata(definition: &Definition, project: &Project) -> String {
             spec(
                 "GeneratedProjectionSpec",
                 vec![
-                    (
-                        "name",
-                        Expr::atom(format!(
-                            "ProjectionName::{}",
-                            pascal_identifier(projection.name)
-                        )),
-                    ),
+                    ("name", projection_path(projection.name)),
                     ("depends_on", literals(&projection.depends_on())),
                     (
                         "materialization",
@@ -339,8 +344,7 @@ fn registry_metadata(definition: &Definition, project: &Project) -> String {
             )
         })
         .collect();
-    let mut lines: Vec<String> = REGISTRY_TYPES.lines().map(str::to_owned).collect();
-    lines.push(String::new());
+    let mut lines = Vec::new();
     lines.push(layout::item(
         "pub static GENERATED_PROJECTION_SPECS: &[GeneratedProjectionSpec] =",
         &Expr::slice(projections),
@@ -357,91 +361,6 @@ fn registry_metadata(definition: &Definition, project: &Project) -> String {
     ));
     lines.join("\n")
 }
-
-const REGISTRY_TYPES: &str = "#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum GeneratedAuthoringPolicyKind {
-    OptimisticDocument,
-    Collaborative,
-    CommandOwned,
-    ReadOnly,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum GeneratedAuthoringConflictPolicy {
-    ExpectedRevision,
-    GeneratedFieldPolicy,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct GeneratedEntityAuthoringSpec {
-    pub entity: &'static str,
-    pub kind: GeneratedAuthoringPolicyKind,
-    pub rationale: &'static str,
-    pub mutations: &'static [MutationName],
-    pub content_mutation: Option<MutationName>,
-    pub planning_mutations: &'static [MutationName],
-    pub command_mutations: &'static [MutationName],
-    pub lifecycle_mutations: &'static [MutationName],
-    pub session_mnemonic_key: Option<&'static str>,
-    pub conflict_policy: Option<GeneratedAuthoringConflictPolicy>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum GeneratedMaterializationPlan {
-    KeyedCollection {
-        collection_field: &'static str,
-        item_field: &'static str,
-        item_identity_field: &'static str,
-        patch_identity_field: &'static str,
-    },
-    SequencedText {
-        collection_field: &'static str,
-        item_identity_field: &'static str,
-        patch_identity_field: &'static str,
-        snapshot_output_field: &'static str,
-        sequence_field: &'static str,
-        text_field: &'static str,
-        patch_output_field: &'static str,
-        delta_text_field: &'static str,
-    },
-    ReplaceOrRemove {
-        snapshot_mode: GeneratedSnapshotMode,
-        snapshot_omit_fields: &'static [&'static str],
-        remove_mode: GeneratedRemoveMode,
-        update_fields: Option<(&'static str, &'static str)>,
-    },
-    Replace {
-        snapshot_mode: GeneratedSnapshotMode,
-        snapshot_omit_fields: &'static [&'static str],
-    },
-    Reset,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum GeneratedSnapshotMode {
-    Patch,
-    Field(&'static str),
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum GeneratedRemoveMode {
-    NullSnapshot,
-    NullField(&'static str),
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct GeneratedProjectionSpec {
-    pub name: ProjectionName,
-    pub depends_on: &'static [&'static str],
-    pub materialization: GeneratedMaterializationPlan,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct GeneratedMutationSpec {
-    pub name: MutationName,
-    pub touches: &'static [&'static str],
-}
-";
 
 fn materialization_plan(materialization: Materialization) -> Expr {
     let field = |key: &str| literal(materialization.required(key));
@@ -516,81 +435,10 @@ fn materialization_plan(materialization: Materialization) -> Expr {
     }
 }
 
-const COLLABORATION_TYPES: &str = "#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum GeneratedCollaborationStorageKind {
-    Scalar,
-    Text,
-    OrderedList,
-    StructuredList,
-    StructuredMap,
-    StructuredDocument,
-    DerivedIdentity,
-    DerivedRevision,
-    KeyedSequence,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum GeneratedCollaborationValueCodec {
-    Integer,
-    Number,
-    OptionalNumber,
-    Boolean,
-    String,
-    OptionalString,
-    PropertyText,
-    StringList,
-    StructuredJson,
-    Identity,
-    KeyedSequence,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum GeneratedCollaborationConflict {
-    Immutable,
-    Explicit,
-    Merge,
-    LastWriterWins,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct GeneratedCollaborationFieldSpec {
-    pub path: &'static str,
-    pub storage_kind: GeneratedCollaborationStorageKind,
-    pub container: Option<&'static str>,
-    pub container_template: Option<&'static str>,
-    pub key: Option<&'static str>,
-    pub identity_path: Option<&'static str>,
-    pub identity_variable: Option<&'static str>,
-    pub order_container: Option<&'static str>,
-    pub item_container_template: Option<&'static str>,
-    pub metadata_container: Option<&'static str>,
-    pub metadata_container_template: Option<&'static str>,
-    pub metadata_key: Option<&'static str>,
-    pub codec: GeneratedCollaborationValueCodec,
-    pub value_schema: Option<&'static str>,
-    pub required: bool,
-    pub conflict: GeneratedCollaborationConflict,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct GeneratedCollaborationEntitySpec {
-    pub name: &'static str,
-    pub id_field: &'static str,
-    pub substrate: &'static str,
-    pub schema_version: u32,
-    pub migration_ids: &'static [&'static str],
-    pub authoring_projection: ProjectionName,
-    pub import_mutation: MutationName,
-    pub root_container: &'static str,
-    pub fields: &'static [GeneratedCollaborationFieldSpec],
-}
-";
-
 fn collaboration_metadata(definition: &Definition) -> String {
     let collaboration = definition.collaboration();
     let compatibility = collaboration.compatibility();
-    let mut lines: Vec<String> = COLLABORATION_TYPES.lines().map(str::to_owned).collect();
-    lines.push(String::new());
+    let mut lines = Vec::new();
     lines.push(format!(
         "pub const COLLABORATION_DEFINITION_VERSION: u32 = {};",
         number_to_string(collaboration.version())
@@ -683,10 +531,7 @@ fn collaboration_metadata(definition: &Definition) -> String {
                 ("migration_ids", literals(&entity.migration_ids())),
                 (
                     "authoring_projection",
-                    Expr::atom(format!(
-                        "ProjectionName::{}",
-                        pascal_identifier(entity.authoring_projection())
-                    )),
+                    projection_path(entity.authoring_projection()),
                 ),
                 ("import_mutation", mutation_path(entity.import_mutation())),
                 ("root_container", literal(entity.root_container())),

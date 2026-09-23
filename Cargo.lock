@@ -273,6 +273,7 @@ name = "clerkenwell-codegen"
 version = "0.1.0"
 dependencies = [
  "clap",
+ "clerkenwell-schema",
  "icu_collator",
  "indexmap",
  "jsonschema",
