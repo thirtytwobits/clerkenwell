@@ -68,14 +68,15 @@ impl LoroAuthoringDocument {
         plan: &'static GeneratedCollaborationEntitySpec,
         document: &Value,
     ) -> Result<Self, CollaborationLoroError> {
-        substrate::validate_document(plan, document)?;
-        let authoring = Self {
+        let document = substrate::without_null_optionals(plan, document);
+        substrate::validate_document(plan, &document)?;
+        let doc = LoroDoc::new();
+        substrate::write_document_changes(plan, &doc, &Value::Null, &document)?;
+        Ok(Self {
             plan,
-            doc: LoroDoc::new(),
-            document: document.clone(),
-        };
-        substrate::write_document_changes(authoring.plan, &authoring.doc, &Value::Null, document)?;
-        Ok(authoring)
+            doc,
+            document,
+        })
     }
 
     pub fn from_versioned_update_base64(
@@ -98,8 +99,9 @@ impl LoroAuthoringDocument {
     }
 
     pub fn replace_document(&mut self, document: &Value) -> Result<(), CollaborationLoroError> {
-        substrate::write_document_changes(self.plan, &self.doc, &self.document, document)?;
-        self.document = document.clone();
+        let document = substrate::without_null_optionals(self.plan, document);
+        substrate::write_document_changes(self.plan, &self.doc, &self.document, &document)?;
+        self.document = document;
         Ok(())
     }
 
