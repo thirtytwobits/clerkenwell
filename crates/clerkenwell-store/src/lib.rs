@@ -28,7 +28,8 @@ use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 use uuid::Uuid;
 
-const ENVELOPE_VERSION: u32 = 1;
+/// The envelope format this store reads and writes.
+pub const ENVELOPE_VERSION: u32 = 1;
 const RETAINED_OPERATION_COUNT: usize = 8;
 
 #[cfg(test)]
