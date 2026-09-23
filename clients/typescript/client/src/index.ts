@@ -5,6 +5,7 @@
  */
 export * from "./binary";
 export * from "./json-value-equality";
+export * from "./materialize";
 export * from "./plans";
 export * from "./projection-model";
 export * from "./protocol";
