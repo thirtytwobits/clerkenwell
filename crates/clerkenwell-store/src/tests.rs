@@ -72,6 +72,11 @@ static NOTE_PLAN: GeneratedCollaborationEntitySpec = plan("Note", "note_id", "no
 static TASK_PLAN: GeneratedCollaborationEntitySpec = plan("Task", "task_id", "task", TASK_FIELDS);
 static PLANS: &[GeneratedCollaborationEntitySpec] = &[NOTE_PLAN, TASK_PLAN];
 
+/// A validator that accepts every document.
+fn accept(_: &Value) -> StoreResult<()> {
+    Ok(())
+}
+
 const RELATIVE_PATH: &str = "notes/fixture.yaml";
 
 fn note_seed() -> Value {
@@ -101,7 +106,7 @@ fn initialise(
     let resource_id = seed["note_id"].as_str().expect("note ID").to_string();
     let document = CollaborationDocumentId::new("Note", resource_id);
     service
-        .bootstrap(&NOTE_PLAN, &document, RELATIVE_PATH, &seed, |_| Ok(()))
+        .bootstrap(&NOTE_PLAN, &document, RELATIVE_PATH, &seed, accept)
         .expect("bootstrap collaboration document");
     let state = service
         .authoring_state(&NOTE_PLAN, &document)
@@ -227,7 +232,7 @@ fn import(
     request: CollaborationImportRequest,
     _seed: &Value,
 ) -> StoreResult<CollaborationImportResult> {
-    service.import(&NOTE_PLAN, request, |_| Ok(()))
+    service.import(&NOTE_PLAN, request, accept)
 }
 
 #[test]

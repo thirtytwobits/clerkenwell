@@ -1,12 +1,9 @@
 //! The collaboration service commits through a storage port implemented
 //! outside this crate.
 
+mod support;
+
 use clerkenwell_doc::LoroAuthoringDocument;
-use clerkenwell_schema::{
-    GeneratedCollaborationConflict, GeneratedCollaborationEntitySpec,
-    GeneratedCollaborationFieldSpec, GeneratedCollaborationStorageKind,
-    GeneratedCollaborationValueCodec,
-};
 use clerkenwell_store::StoreResult;
 use clerkenwell_store::{
     CollaborationCommit, CollaborationCommitOutcome, CollaborationDocumentId,
@@ -19,6 +16,7 @@ use serde_json::{json, Value};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use support::{accept, NOTE_PLAN, PLANS};
 
 /// A port that counts the commits it is asked for and keeps its envelopes in
 /// a local-file store it owns.
@@ -115,69 +113,6 @@ impl CollaborationStoragePort for CountingPort {
     }
 }
 
-const fn field(
-    path: &'static str,
-    storage_kind: GeneratedCollaborationStorageKind,
-    container: Option<&'static str>,
-    key: Option<&'static str>,
-    conflict: GeneratedCollaborationConflict,
-) -> GeneratedCollaborationFieldSpec {
-    GeneratedCollaborationFieldSpec {
-        path,
-        storage_kind,
-        container,
-        container_template: None,
-        key,
-        identity_path: None,
-        identity_variable: None,
-        order_container: None,
-        item_container_template: None,
-        metadata_container: None,
-        metadata_container_template: None,
-        metadata_key: None,
-        codec: GeneratedCollaborationValueCodec::String,
-        value_schema: None,
-        required: true,
-        conflict,
-    }
-}
-
-static NOTE_FIELDS: &[GeneratedCollaborationFieldSpec] = &[
-    field(
-        "note_id",
-        GeneratedCollaborationStorageKind::Scalar,
-        Some("note"),
-        Some("note_id"),
-        GeneratedCollaborationConflict::Immutable,
-    ),
-    field(
-        "body",
-        GeneratedCollaborationStorageKind::Text,
-        Some("body"),
-        None,
-        GeneratedCollaborationConflict::Merge,
-    ),
-    field(
-        "etag",
-        GeneratedCollaborationStorageKind::DerivedRevision,
-        None,
-        None,
-        GeneratedCollaborationConflict::Immutable,
-    ),
-];
-static NOTE_PLAN: GeneratedCollaborationEntitySpec = GeneratedCollaborationEntitySpec {
-    name: "Note",
-    id_field: "note_id",
-    substrate: "loro",
-    schema_version: 1,
-    migration_ids: &[],
-    authoring_projection: "notes.authoringState",
-    import_mutation: "note.importLoroUpdate",
-    root_container: "note",
-    fields: NOTE_FIELDS,
-};
-static PLANS: &[GeneratedCollaborationEntitySpec] = &[NOTE_PLAN];
-
 #[test]
 fn a_storage_port_implemented_outside_the_crate_carries_every_commit() {
     let root = tempfile::tempdir().expect("temp store");
@@ -194,7 +129,7 @@ fn a_storage_port_implemented_outside_the_crate_carries_every_commit() {
     let relative_path = "notes/note-1.yaml";
 
     service
-        .bootstrap(&NOTE_PLAN, &document, relative_path, &seed, |_| Ok(()))
+        .bootstrap(&NOTE_PLAN, &document, relative_path, &seed, accept)
         .expect("bootstrap through the port");
     let state = service
         .authoring_state(&NOTE_PLAN, &document)
@@ -223,7 +158,7 @@ fn a_storage_port_implemented_outside_the_crate_carries_every_commit() {
                     .export_incremental_update_base64(&state.accepted_frontier_base64)
                     .expect("incremental update"),
             },
-            |_| Ok(()),
+            accept,
         )
         .expect("import through the port");
     service

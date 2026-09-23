@@ -511,12 +511,12 @@ impl<S: CollaborationStoragePort> CollaborationService<S> {
         })
     }
 
-    pub fn import(
+    pub fn import<E: From<StoreError>>(
         &self,
         plan: &'static GeneratedCollaborationEntitySpec,
         request: CollaborationImportRequest,
-        validate: impl Fn(&Value) -> StoreResult<()>,
-    ) -> StoreResult<CollaborationImportResult> {
+        validate: impl Fn(&Value) -> Result<(), E>,
+    ) -> Result<CollaborationImportResult, E> {
         self.import_internal(plan, request, validate, true)
     }
 
@@ -525,22 +525,22 @@ impl<S: CollaborationStoragePort> CollaborationService<S> {
     /// concurrent-edit field policy applied to authoring imports. The one
     /// caller is rename, which must rewrite the immutable identity field so
     /// the materialised document matches its moved envelope.
-    pub fn import_lifecycle_rewrite(
+    pub fn import_lifecycle_rewrite<E: From<StoreError>>(
         &self,
         plan: &'static GeneratedCollaborationEntitySpec,
         request: CollaborationImportRequest,
-        validate: impl Fn(&Value) -> StoreResult<()>,
-    ) -> StoreResult<CollaborationImportResult> {
+        validate: impl Fn(&Value) -> Result<(), E>,
+    ) -> Result<CollaborationImportResult, E> {
         self.import_internal(plan, request, validate, false)
     }
 
-    fn import_internal(
+    fn import_internal<E: From<StoreError>>(
         &self,
         plan: &'static GeneratedCollaborationEntitySpec,
         request: CollaborationImportRequest,
-        validate: impl Fn(&Value) -> StoreResult<()>,
+        validate: impl Fn(&Value) -> Result<(), E>,
         enforce_field_policy: bool,
-    ) -> StoreResult<CollaborationImportResult> {
+    ) -> Result<CollaborationImportResult, E> {
         if request.schema_version != plan.schema_version {
             return Err(StoreError::invalid_request(format!(
                 "Unsupported {} collaboration schema version {}; expected {}.",
@@ -552,12 +552,14 @@ impl<S: CollaborationStoragePort> CollaborationService<S> {
                 "resource_id": request.document.resource_id,
                 "actual": request.schema_version,
                 "expected": plan.schema_version,
-            })));
+            }))
+            .into());
         }
         if request.document.resource_id.trim().is_empty() {
             return Err(StoreError::invalid_request(
                 "A collaboration resource identity must not be empty.",
-            ));
+            )
+            .into());
         }
         if request.operation_id.trim().is_empty() {
             return Err(StoreError::invalid_request(
@@ -567,7 +569,8 @@ impl<S: CollaborationStoragePort> CollaborationService<S> {
                 "code": "invalid_collaboration_operation_id",
                 "entity": request.document.entity,
                 "resource_id": request.document.resource_id,
-            })));
+            }))
+            .into());
         }
         let imported_update = BASE64
             .decode(request.update_base64.as_bytes())
@@ -593,7 +596,8 @@ impl<S: CollaborationStoragePort> CollaborationService<S> {
                         "resource_id": request.document.resource_id,
                         "exchange_mode": "bootstrap",
                         "draft_retained": true,
-                    })))
+                    }))
+                    .into())
                 }
                 Some(current) => current,
                 None if request.exchange_mode == CollaborationExchangeMode::Bootstrap => {
@@ -639,7 +643,8 @@ impl<S: CollaborationStoragePort> CollaborationService<S> {
                         "entity": request.document.entity,
                         "resource_id": request.document.resource_id,
                         "exchange_mode": "incremental",
-                    })))
+                    }))
+                    .into())
                 }
             };
             let authoring = load_authoring_document(plan, &request.document, &current)?;
@@ -685,7 +690,8 @@ impl<S: CollaborationStoragePort> CollaborationService<S> {
                         "current_etag": current_etag,
                         "expected_etag": request.base_frontier_base64,
                         "draft_retained": true,
-                    })));
+                    }))
+                    .into());
                 }
             }
             let before_import = authoring.accepted_frontier_base64();
@@ -784,7 +790,7 @@ impl<S: CollaborationStoragePort> CollaborationService<S> {
             "entity": request.document.entity,
             "resource_id": request.document.resource_id,
             "draft_retained": true,
-        })))
+        })).into())
     }
 
     pub fn acknowledge_publication(
@@ -955,14 +961,14 @@ impl<S: CollaborationStoragePort> CollaborationService<S> {
         }
     }
 
-    pub fn bootstrap(
+    pub fn bootstrap<E: From<StoreError>>(
         &self,
         plan: &'static GeneratedCollaborationEntitySpec,
         document: &CollaborationDocumentId,
         relative_path: &str,
         seed: &Value,
-        validate: impl Fn(&Value) -> StoreResult<()>,
-    ) -> StoreResult<DurableCollaborationEnvelope> {
+        validate: impl Fn(&Value) -> Result<(), E>,
+    ) -> Result<DurableCollaborationEnvelope, E> {
         if let Some(current) = self.storage.load(document)? {
             return Ok(current);
         }
@@ -991,26 +997,26 @@ impl<S: CollaborationStoragePort> CollaborationService<S> {
             has_new_operations: true,
             accepted_update,
         })? {
-            CollaborationCommitOutcome::Accepted | CollaborationCommitOutcome::Duplicate => self
-                .storage
-                .load(document)?
-                .ok_or_else(|| StoreError::internal("Seeded collaboration state disappeared.")),
-            CollaborationCommitOutcome::Stale => self
-                .storage
-                .load(document)?
-                .ok_or_else(|| StoreError::internal("Concurrent collaboration seed disappeared.")),
+            CollaborationCommitOutcome::Accepted | CollaborationCommitOutcome::Duplicate => {
+                self.storage.load(document)?.ok_or_else(|| {
+                    StoreError::internal("Seeded collaboration state disappeared.").into()
+                })
+            }
+            CollaborationCommitOutcome::Stale => self.storage.load(document)?.ok_or_else(|| {
+                StoreError::internal("Concurrent collaboration seed disappeared.").into()
+            }),
         }
     }
 
-    pub fn bootstrap_update(
+    pub fn bootstrap_update<E: From<StoreError>>(
         &self,
         plan: &'static GeneratedCollaborationEntitySpec,
         document: &CollaborationDocumentId,
         relative_path: &str,
         schema_version: u32,
         update_base64: &str,
-        validate: impl Fn(&Value) -> StoreResult<()>,
-    ) -> StoreResult<DurableCollaborationEnvelope> {
+        validate: impl Fn(&Value) -> Result<(), E>,
+    ) -> Result<DurableCollaborationEnvelope, E> {
         if let Some(current) = self.storage.load(document)? {
             return Ok(current);
         }
@@ -1039,26 +1045,26 @@ impl<S: CollaborationStoragePort> CollaborationService<S> {
             has_new_operations: true,
             accepted_update,
         })? {
-            CollaborationCommitOutcome::Accepted | CollaborationCommitOutcome::Duplicate => self
-                .storage
-                .load(document)?
-                .ok_or_else(|| StoreError::internal("Seeded collaboration state disappeared.")),
-            CollaborationCommitOutcome::Stale => self
-                .storage
-                .load(document)?
-                .ok_or_else(|| StoreError::internal("Concurrent collaboration seed disappeared.")),
+            CollaborationCommitOutcome::Accepted | CollaborationCommitOutcome::Duplicate => {
+                self.storage.load(document)?.ok_or_else(|| {
+                    StoreError::internal("Seeded collaboration state disappeared.").into()
+                })
+            }
+            CollaborationCommitOutcome::Stale => self.storage.load(document)?.ok_or_else(|| {
+                StoreError::internal("Concurrent collaboration seed disappeared.").into()
+            }),
         }
     }
 
-    pub fn migrate(
+    pub fn migrate<E: From<StoreError>>(
         &self,
         plan: &'static GeneratedCollaborationEntitySpec,
         document: &CollaborationDocumentId,
         relative_path: &str,
         from_schema_version: u32,
         migrated_update_base64: &str,
-        validate: impl Fn(&Value) -> StoreResult<()>,
-    ) -> StoreResult<DurableCollaborationEnvelope> {
+        validate: impl Fn(&Value) -> Result<(), E>,
+    ) -> Result<DurableCollaborationEnvelope, E> {
         let migrated = LoroAuthoringDocument::from_versioned_update_base64(
             plan,
             plan.schema_version,
@@ -1097,7 +1103,8 @@ impl<S: CollaborationStoragePort> CollaborationService<S> {
                     "resource_id": document.resource_id,
                     "actual": current.schema_version,
                     "expected": plan.schema_version,
-                })));
+                }))
+                .into());
             }
             let operation_id = format!(
                 "migration:{}-to-{}:{}",
@@ -1117,7 +1124,7 @@ impl<S: CollaborationStoragePort> CollaborationService<S> {
             })? {
                 CollaborationCommitOutcome::Accepted | CollaborationCommitOutcome::Duplicate => {
                     return self.storage.load(document)?.ok_or_else(|| {
-                        StoreError::internal("Migrated collaboration state disappeared.")
+                        StoreError::internal("Migrated collaboration state disappeared.").into()
                     });
                 }
                 CollaborationCommitOutcome::Stale => continue,
