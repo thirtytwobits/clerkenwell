@@ -162,3 +162,29 @@ fn an_optional_field_written_as_null_or_left_out_is_removed() {
         assert!(document.get("subtitle").is_none(), "{document}");
     }
 }
+
+#[test]
+fn removing_an_optional_field_that_is_already_absent_writes_nothing() {
+    let mut replica = replica();
+    let before = observed(&replica);
+    replica
+        .replace_document(&with(json!({ "rating": null, "subtitle": null })))
+        .expect("absent optional values");
+    assert_eq!(observed(&replica), before);
+}
+
+#[test]
+fn an_optional_field_removed_as_null_and_then_left_out_writes_nothing_more() {
+    let mut replica = replica();
+    replica
+        .replace_document(&with(json!({ "rating": 4 })))
+        .expect("set an optional value");
+    replica
+        .replace_document(&with(json!({ "rating": null })))
+        .expect("remove it as null");
+    let removed = observed(&replica);
+    replica
+        .replace_document(&note())
+        .expect("leave the removed field out");
+    assert_eq!(observed(&replica), removed);
+}

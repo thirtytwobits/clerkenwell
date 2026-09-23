@@ -84,6 +84,53 @@ pub(crate) fn validate_document(
     Ok(())
 }
 
+/// `document` with every optional field that holds null left out: null and
+/// absence are one state.
+pub(crate) fn without_null_optionals(
+    plan: &GeneratedCollaborationEntitySpec,
+    document: &Value,
+) -> Value {
+    let mut normalized = document.clone();
+    remove_null_optionals(plan, &mut normalized, None);
+    normalized
+}
+
+fn remove_null_optionals(
+    plan: &GeneratedCollaborationEntitySpec,
+    scope: &mut Value,
+    sequence: Option<&GeneratedCollaborationFieldSpec>,
+) {
+    let fields = match sequence {
+        None => plan
+            .fields
+            .iter()
+            .filter(|field| !field.path.contains(".*."))
+            .map(|field| (field, field.path))
+            .collect::<Vec<_>>(),
+        Some(sequence) => {
+            let prefix_len = sequence.path.len() + ".*.".len();
+            direct_sequence_item_fields(plan, sequence)
+                .into_iter()
+                .chain(direct_child_sequences(plan, Some(sequence.path)))
+                .map(|field| (field, &field.path[prefix_len..]))
+                .collect()
+        }
+    };
+    for (field, relative) in fields {
+        if !field.required && value_at_path(scope, relative).is_some_and(Value::is_null) {
+            remove_value_at_path(scope, relative);
+        }
+    }
+    for child in direct_child_sequences(plan, sequence.map(|sequence| sequence.path)) {
+        let relative = sequence_relative_path(plan, child);
+        if let Some(items) = value_at_path_mut(scope, relative).and_then(Value::as_array_mut) {
+            for item in items {
+                remove_null_optionals(plan, item, Some(child));
+            }
+        }
+    }
+}
+
 pub(crate) fn write_document_changes(
     plan: &GeneratedCollaborationEntitySpec,
     doc: &LoroDoc,
@@ -929,6 +976,21 @@ fn keyed_items<'a>(
 fn value_at_path<'a>(value: &'a Value, path: &str) -> Option<&'a Value> {
     path.split('.')
         .try_fold(value, |current, segment| current.get(segment))
+}
+
+fn value_at_path_mut<'a>(value: &'a mut Value, path: &str) -> Option<&'a mut Value> {
+    path.split('.')
+        .try_fold(value, |current, segment| current.get_mut(segment))
+}
+
+fn remove_value_at_path(root: &mut Value, path: &str) {
+    let (parent, key) = match path.rsplit_once('.') {
+        Some((parent, key)) => (value_at_path_mut(root, parent), key),
+        None => (Some(root), path),
+    };
+    if let Some(object) = parent.and_then(Value::as_object_mut) {
+        object.remove(key);
+    }
 }
 
 fn set_value_at_path(
