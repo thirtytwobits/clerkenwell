@@ -17,6 +17,7 @@ pub mod definition;
 mod error;
 mod fixtures;
 pub mod json;
+mod layout;
 mod names;
 mod normalize;
 mod rust;

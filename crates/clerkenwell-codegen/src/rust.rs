@@ -5,6 +5,7 @@ use crate::config::Project;
 use crate::definition::{Definition, Fields, Materialization};
 use crate::error::{refuse, Result};
 use crate::json::{number_to_string, string_literal, Json, Object};
+use crate::layout::{self, Expr};
 use crate::names::{
     constant_name, name_constant_identifier, pascal_identifier, rust_field_identifier,
     rust_property_enum_name, utf16_len,
@@ -181,8 +182,12 @@ fn transport_enum(enum_name: &str, tag: &str, entries: &[(&str, String)]) -> Str
         format!("pub enum {enum_name} {{"),
     ];
     for (name, type_name) in entries {
-        lines.push(format!("    #[serde(rename = {})]", string_literal(name)));
-        lines.push(format!("    {}({type_name}),", pascal_identifier(name)));
+        lines.push(rename_attribute("    ", name));
+        lines.push(layout::wrap_last_argument(
+            &format!("    {}(", pascal_identifier(name)),
+            type_name,
+            "),",
+        ));
     }
     lines.push("}".to_owned());
     if tag == "mutation" {
@@ -211,128 +216,145 @@ fn transport_enum(enum_name: &str, tag: &str, entries: &[(&str, String)]) -> Str
     lines.join("\n")
 }
 
-fn mutation_list(names: &[&str]) -> String {
-    names
-        .iter()
-        .map(|name| format!("MutationName::{}", pascal_identifier(name)))
-        .collect::<Vec<_>>()
-        .join(", ")
+fn literal(value: &str) -> Expr {
+    Expr::atom(string_literal(value))
 }
 
-fn string_list(values: &[&str]) -> String {
-    values
-        .iter()
-        .map(|value| string_literal(value))
-        .collect::<Vec<_>>()
-        .join(", ")
+fn literals(values: &[&str]) -> Expr {
+    Expr::slice(values.iter().map(|value| literal(value)).collect())
+}
+
+fn mutation_path(name: &str) -> Expr {
+    Expr::atom(format!("MutationName::{}", pascal_identifier(name)))
+}
+
+fn mutation_paths(names: &[&str]) -> Expr {
+    Expr::slice(names.iter().map(|name| mutation_path(name)).collect())
+}
+
+fn spec(name: &str, fields: Vec<(&str, Expr)>) -> Expr {
+    Expr::Struct(
+        name.to_owned(),
+        fields
+            .into_iter()
+            .map(|(field, value)| (field.to_owned(), value))
+            .collect(),
+    )
 }
 
 fn registry_metadata(definition: &Definition, project: &Project) -> String {
-    let mut lines: Vec<String> = REGISTRY_TYPES.lines().map(str::to_owned).collect();
-    lines.push(String::new());
-    lines.push("pub static GENERATED_PROJECTION_SPECS: &[GeneratedProjectionSpec] = &[".to_owned());
-    for projection in definition.projections() {
-        lines.push("    GeneratedProjectionSpec {".to_owned());
-        lines.push(format!(
-            "        name: ProjectionName::{},",
-            pascal_identifier(projection.name)
-        ));
-        lines.push(format!(
-            "        depends_on: &[{}],",
-            string_list(&projection.depends_on())
-        ));
-        lines.extend(materialization_plan_lines(projection.materialization()));
-        lines.push("    },".to_owned());
-    }
-    lines.extend(
-        [
-            "];",
-            "",
-            "pub static GENERATED_MUTATION_SPECS: &[GeneratedMutationSpec] = &[",
-        ]
-        .map(str::to_owned),
-    );
-    for mutation in definition.mutations() {
-        lines.push("    GeneratedMutationSpec {".to_owned());
-        lines.push(format!(
-            "        name: MutationName::{},",
-            pascal_identifier(mutation.name)
-        ));
-        lines.push(format!(
-            "        touches: &[{}],",
-            string_list(&mutation.touches())
-        ));
-        lines.push("    },".to_owned());
-    }
-    lines.extend(
-        [
-            "];",
-            "",
-            "pub static GENERATED_ENTITY_AUTHORING_SPECS: &[GeneratedEntityAuthoringSpec] = &[",
-        ]
-        .map(str::to_owned),
-    );
+    let projections = definition
+        .projections()
+        .map(|projection| {
+            spec(
+                "GeneratedProjectionSpec",
+                vec![
+                    (
+                        "name",
+                        Expr::atom(format!(
+                            "ProjectionName::{}",
+                            pascal_identifier(projection.name)
+                        )),
+                    ),
+                    ("depends_on", literals(&projection.depends_on())),
+                    (
+                        "materialization",
+                        materialization_plan(projection.materialization()),
+                    ),
+                ],
+            )
+        })
+        .collect();
+    let mutations = definition
+        .mutations()
+        .map(|mutation| {
+            spec(
+                "GeneratedMutationSpec",
+                vec![
+                    ("name", mutation_path(mutation.name)),
+                    ("touches", literals(&mutation.touches())),
+                ],
+            )
+        })
+        .collect();
     let session_key = project
         .authoring_session_mnemonic
         .as_deref()
         .and_then(|name| definition.mnemonic(name))
         .map(|mnemonic| mnemonic.key());
-    for entity in definition.entities() {
-        let mutations: Vec<&str> = definition
-            .mutations()
-            .filter(|mutation| mutation.touches().contains(&entity.name))
-            .map(|mutation| mutation.name)
-            .collect();
-        let kind = entity.authoring_kind();
-        lines.push("    GeneratedEntityAuthoringSpec {".to_owned());
-        lines.push(format!("        entity: {},", string_literal(entity.name)));
-        lines.push(format!(
-            "        kind: GeneratedAuthoringPolicyKind::{},",
-            pascal_identifier(kind)
-        ));
-        lines.push(format!(
-            "        rationale: {},",
-            string_literal(entity.rationale())
-        ));
-        lines.push(format!(
-            "        mutations: &[{}],",
-            mutation_list(&mutations)
-        ));
-        lines.push(format!(
-            "        content_mutation: {},",
-            entity.content_mutation().map_or_else(
-                || "None".to_owned(),
-                |mutation| format!("Some(MutationName::{})", pascal_identifier(mutation))
+    let entities = definition
+        .entities()
+        .map(|entity| {
+            let touching: Vec<&str> = definition
+                .mutations()
+                .filter(|mutation| mutation.touches().contains(&entity.name))
+                .map(|mutation| mutation.name)
+                .collect();
+            let kind = entity.authoring_kind();
+            let conflict_policy = match kind {
+                "collaborative" => Some("GeneratedFieldPolicy"),
+                "optimisticDocument" => Some("ExpectedRevision"),
+                _ => None,
+            };
+            spec(
+                "GeneratedEntityAuthoringSpec",
+                vec![
+                    ("entity", literal(entity.name)),
+                    (
+                        "kind",
+                        Expr::atom(format!(
+                            "GeneratedAuthoringPolicyKind::{}",
+                            pascal_identifier(kind)
+                        )),
+                    ),
+                    ("rationale", literal(entity.rationale())),
+                    ("mutations", mutation_paths(&touching)),
+                    (
+                        "content_mutation",
+                        Expr::option(entity.content_mutation().map(mutation_path)),
+                    ),
+                    (
+                        "planning_mutations",
+                        mutation_paths(&entity.planning_mutations()),
+                    ),
+                    (
+                        "command_mutations",
+                        mutation_paths(&entity.command_mutations()),
+                    ),
+                    (
+                        "lifecycle_mutations",
+                        mutation_paths(&entity.lifecycle_mutations()),
+                    ),
+                    (
+                        "session_mnemonic_key",
+                        Expr::option(session_key.filter(|_| entity.owns_session()).map(literal)),
+                    ),
+                    (
+                        "conflict_policy",
+                        Expr::option(conflict_policy.map(|policy| {
+                            Expr::atom(format!("GeneratedAuthoringConflictPolicy::{policy}"))
+                        })),
+                    ),
+                ],
             )
-        ));
-        lines.push(format!(
-            "        planning_mutations: &[{}],",
-            mutation_list(&entity.planning_mutations())
-        ));
-        lines.push(format!(
-            "        command_mutations: &[{}],",
-            mutation_list(&entity.command_mutations())
-        ));
-        lines.push(format!(
-            "        lifecycle_mutations: &[{}],",
-            mutation_list(&entity.lifecycle_mutations())
-        ));
-        let session_mnemonic_key = match (entity.owns_session(), session_key) {
-            (true, Some(key)) => format!("Some({})", string_literal(key)),
-            _ => "None".to_owned(),
-        };
-        lines.push(format!(
-            "        session_mnemonic_key: {session_mnemonic_key},"
-        ));
-        let conflict_policy = match kind {
-            "collaborative" => "Some(GeneratedAuthoringConflictPolicy::GeneratedFieldPolicy)",
-            "optimisticDocument" => "Some(GeneratedAuthoringConflictPolicy::ExpectedRevision)",
-            _ => "None",
-        };
-        lines.push(format!("        conflict_policy: {conflict_policy},"));
-        lines.push("    },".to_owned());
-    }
-    lines.push("];".to_owned());
+        })
+        .collect();
+    let mut lines: Vec<String> = REGISTRY_TYPES.lines().map(str::to_owned).collect();
+    lines.push(String::new());
+    lines.push(layout::item(
+        "pub static GENERATED_PROJECTION_SPECS: &[GeneratedProjectionSpec] =",
+        &Expr::slice(projections),
+    ));
+    lines.push(String::new());
+    lines.push(layout::item(
+        "pub static GENERATED_MUTATION_SPECS: &[GeneratedMutationSpec] =",
+        &Expr::slice(mutations),
+    ));
+    lines.push(String::new());
+    lines.push(layout::item(
+        "pub static GENERATED_ENTITY_AUTHORING_SPECS: &[GeneratedEntityAuthoringSpec] =",
+        &Expr::slice(entities),
+    ));
     lines.join("\n")
 }
 
@@ -421,92 +443,75 @@ pub struct GeneratedMutationSpec {
 }
 ";
 
-fn materialization_plan_lines(materialization: Materialization) -> Vec<String> {
-    let field = |key: &str| string_literal(materialization.required(key));
+fn materialization_plan(materialization: Materialization) -> Expr {
+    let field = |key: &str| literal(materialization.required(key));
     let snapshot_mode = || match materialization.setting("snapshotMode") {
-        Some("patch") => "GeneratedSnapshotMode::Patch".to_owned(),
-        _ => format!("GeneratedSnapshotMode::Field({})", field("snapshotField")),
+        Some("patch") => Expr::atom("GeneratedSnapshotMode::Patch"),
+        _ => Expr::Call(
+            "GeneratedSnapshotMode::Field".to_owned(),
+            vec![field("snapshotField")],
+        ),
     };
-    let omit_fields = || string_list(&materialization.snapshot_omit_fields().unwrap_or_default());
+    let omit_fields = || literals(&materialization.snapshot_omit_fields().unwrap_or_default());
+    let plan = |variant: &str, fields: Vec<(&str, Expr)>| {
+        spec(&format!("GeneratedMaterializationPlan::{variant}"), fields)
+    };
     match materialization.strategy() {
-        "keyedCollection" => vec![
-            "        materialization: GeneratedMaterializationPlan::KeyedCollection {".to_owned(),
-            format!(
-                "            collection_field: {},",
-                field("collectionField")
-            ),
-            format!("            item_field: {},", field("itemField")),
-            format!(
-                "            item_identity_field: {},",
-                field("itemIdentityField")
-            ),
-            format!(
-                "            patch_identity_field: {},",
-                field("patchIdentityField")
-            ),
-            "        },".to_owned(),
-        ],
-        "sequencedText" => vec![
-            "        materialization: GeneratedMaterializationPlan::SequencedText {".to_owned(),
-            format!(
-                "            collection_field: {},",
-                field("collectionField")
-            ),
-            format!(
-                "            item_identity_field: {},",
-                field("itemIdentityField")
-            ),
-            format!(
-                "            patch_identity_field: {},",
-                field("patchIdentityField")
-            ),
-            format!(
-                "            snapshot_output_field: {},",
-                field("snapshotOutputField")
-            ),
-            format!("            sequence_field: {},", field("sequenceField")),
-            format!("            text_field: {},", field("textField")),
-            format!(
-                "            patch_output_field: {},",
-                field("patchOutputField")
-            ),
-            format!("            delta_text_field: {},", field("deltaTextField")),
-            "        },".to_owned(),
-        ],
+        "keyedCollection" => plan(
+            "KeyedCollection",
+            vec![
+                ("collection_field", field("collectionField")),
+                ("item_field", field("itemField")),
+                ("item_identity_field", field("itemIdentityField")),
+                ("patch_identity_field", field("patchIdentityField")),
+            ],
+        ),
+        "sequencedText" => plan(
+            "SequencedText",
+            vec![
+                ("collection_field", field("collectionField")),
+                ("item_identity_field", field("itemIdentityField")),
+                ("patch_identity_field", field("patchIdentityField")),
+                ("snapshot_output_field", field("snapshotOutputField")),
+                ("sequence_field", field("sequenceField")),
+                ("text_field", field("textField")),
+                ("patch_output_field", field("patchOutputField")),
+                ("delta_text_field", field("deltaTextField")),
+            ],
+        ),
         "replaceOrRemove" => {
             let remove_mode = if materialization.setting("removeMode") == Some("nullSnapshot") {
-                "GeneratedRemoveMode::NullSnapshot".to_owned()
+                Expr::atom("GeneratedRemoveMode::NullSnapshot")
             } else {
-                format!("GeneratedRemoveMode::NullField({})", field("removeField"))
+                Expr::Call(
+                    "GeneratedRemoveMode::NullField".to_owned(),
+                    vec![field("removeField")],
+                )
             };
-            let update_fields = match materialization
+            let update_fields = materialization
                 .setting("updateField")
-                .filter(|field| !field.is_empty())
-            {
-                Some(update_field) => format!(
-                    "Some(({}, {}))",
-                    string_literal(update_field),
-                    field("updatesField")
-                ),
-                None => "None".to_owned(),
-            };
-            vec![
-                "        materialization: GeneratedMaterializationPlan::ReplaceOrRemove {"
-                    .to_owned(),
-                format!("            snapshot_mode: {},", snapshot_mode()),
-                format!("            snapshot_omit_fields: &[{}],", omit_fields()),
-                format!("            remove_mode: {remove_mode},"),
-                format!("            update_fields: {update_fields},"),
-                "        },".to_owned(),
-            ]
+                .filter(|update_field| !update_field.is_empty())
+                .map(|update_field| {
+                    Expr::Tuple(vec![literal(update_field), field("updatesField")])
+                });
+            plan(
+                "ReplaceOrRemove",
+                vec![
+                    ("snapshot_mode", snapshot_mode()),
+                    ("snapshot_omit_fields", omit_fields()),
+                    ("remove_mode", remove_mode),
+                    ("update_fields", Expr::option(update_fields)),
+                ],
+            )
         }
-        "replace" => vec![
-            "        materialization: GeneratedMaterializationPlan::Replace {".to_owned(),
-            format!("            snapshot_mode: {},", snapshot_mode()),
-            format!("            snapshot_omit_fields: &[{}],", omit_fields()),
-            "        },".to_owned(),
-        ],
-        "reset" => vec!["        materialization: GeneratedMaterializationPlan::Reset,".to_owned()],
+        "replace" => plan(
+            "Replace",
+            vec![
+                ("snapshot_mode", snapshot_mode()),
+                ("snapshot_omit_fields", omit_fields()),
+            ],
+        ),
+        "reset" => Expr::atom("GeneratedMaterializationPlan::Reset"),
         other => unreachable!("the meta-schema admits no strategy {other:?}"),
     }
 }
@@ -581,13 +586,6 @@ pub struct GeneratedCollaborationEntitySpec {
 }
 ";
 
-fn option_string(value: Option<&str>) -> String {
-    value.map_or_else(
-        || "None".to_owned(),
-        |value| format!("Some({})", string_literal(value)),
-    )
-}
-
 fn collaboration_metadata(definition: &Definition) -> String {
     let collaboration = definition.collaboration();
     let compatibility = collaboration.compatibility();
@@ -608,125 +606,113 @@ fn collaboration_metadata(definition: &Definition) -> String {
     lines.push(String::new());
     for entity in collaboration.entities() {
         let field_constant = format!("{}_COLLABORATION_FIELDS", constant_name(entity.name));
-        lines.push(format!(
-            "pub static {field_constant}: &[GeneratedCollaborationFieldSpec] = &["
+        let fields = entity
+            .fields()
+            .map(|field| {
+                let storage = |key: &str| Expr::option(field.storage_setting(key).map(literal));
+                spec(
+                    "GeneratedCollaborationFieldSpec",
+                    vec![
+                        ("path", literal(field.path)),
+                        (
+                            "storage_kind",
+                            Expr::atom(format!(
+                                "GeneratedCollaborationStorageKind::{}",
+                                pascal_identifier(field.storage_kind())
+                            )),
+                        ),
+                        ("container", storage("container")),
+                        ("container_template", storage("containerTemplate")),
+                        ("key", storage("key")),
+                        ("identity_path", storage("identityPath")),
+                        ("identity_variable", storage("identityVariable")),
+                        ("order_container", storage("orderContainer")),
+                        ("item_container_template", storage("itemContainerTemplate")),
+                        ("metadata_container", storage("metadataContainer")),
+                        (
+                            "metadata_container_template",
+                            storage("metadataContainerTemplate"),
+                        ),
+                        ("metadata_key", storage("metadataKey")),
+                        (
+                            "codec",
+                            Expr::atom(format!(
+                                "GeneratedCollaborationValueCodec::{}",
+                                pascal_identifier(field.codec())
+                            )),
+                        ),
+                        (
+                            "value_schema",
+                            Expr::option(
+                                field
+                                    .value_schema()
+                                    .map(|schema| literal(ref_string(schema))),
+                            ),
+                        ),
+                        ("required", Expr::atom(field.required().to_string())),
+                        (
+                            "conflict",
+                            Expr::atom(format!(
+                                "GeneratedCollaborationConflict::{}",
+                                pascal_identifier(field.conflict())
+                            )),
+                        ),
+                    ],
+                )
+            })
+            .collect();
+        lines.push(layout::item(
+            &format!("pub static {field_constant}: &[GeneratedCollaborationFieldSpec] ="),
+            &Expr::slice(fields),
         ));
-        for field in entity.fields() {
-            let storage = |key: &str| option_string(field.storage_setting(key));
-            lines.push("    GeneratedCollaborationFieldSpec {".to_owned());
-            lines.push(format!("        path: {},", string_literal(field.path)));
-            lines.push(format!(
-                "        storage_kind: GeneratedCollaborationStorageKind::{},",
-                pascal_identifier(field.storage_kind())
-            ));
-            lines.push(format!("        container: {},", storage("container")));
-            lines.push(format!(
-                "        container_template: {},",
-                storage("containerTemplate")
-            ));
-            lines.push(format!("        key: {},", storage("key")));
-            lines.push(format!(
-                "        identity_path: {},",
-                storage("identityPath")
-            ));
-            lines.push(format!(
-                "        identity_variable: {},",
-                storage("identityVariable")
-            ));
-            lines.push(format!(
-                "        order_container: {},",
-                storage("orderContainer")
-            ));
-            lines.push(format!(
-                "        item_container_template: {},",
-                storage("itemContainerTemplate")
-            ));
-            lines.push(format!(
-                "        metadata_container: {},",
-                storage("metadataContainer")
-            ));
-            lines.push(format!(
-                "        metadata_container_template: {},",
-                storage("metadataContainerTemplate")
-            ));
-            lines.push(format!("        metadata_key: {},", storage("metadataKey")));
-            lines.push(format!(
-                "        codec: GeneratedCollaborationValueCodec::{},",
-                pascal_identifier(field.codec())
-            ));
-            lines.push(format!(
-                "        value_schema: {},",
-                option_string(field.value_schema().map(ref_string))
-            ));
-            lines.push(format!("        required: {},", field.required()));
-            lines.push(format!(
-                "        conflict: GeneratedCollaborationConflict::{},",
-                pascal_identifier(field.conflict())
-            ));
-            lines.push("    },".to_owned());
-        }
-        lines.push("];".to_owned());
         lines.push(String::new());
         let entity_id = definition
             .entity(entity.name)
             .expect("validation requires the collaboration entity to exist")
             .id();
-        lines.push(format!(
-            "pub static {}_COLLABORATION_SPEC: GeneratedCollaborationEntitySpec =",
-            constant_name(entity.name)
+        let entity_spec = spec(
+            "GeneratedCollaborationEntitySpec",
+            vec![
+                ("name", literal(entity.name)),
+                ("id_field", literal(entity_id)),
+                ("substrate", literal(entity.substrate())),
+                (
+                    "schema_version",
+                    Expr::atom(number_to_string(entity.schema_version())),
+                ),
+                ("migration_ids", literals(&entity.migration_ids())),
+                (
+                    "authoring_projection",
+                    Expr::atom(format!(
+                        "ProjectionName::{}",
+                        pascal_identifier(entity.authoring_projection())
+                    )),
+                ),
+                ("import_mutation", mutation_path(entity.import_mutation())),
+                ("root_container", literal(entity.root_container())),
+                ("fields", Expr::atom(field_constant)),
+            ],
+        );
+        lines.push(layout::item(
+            &format!(
+                "pub static {}_COLLABORATION_SPEC: GeneratedCollaborationEntitySpec =",
+                constant_name(entity.name)
+            ),
+            &entity_spec,
         ));
-        lines.push("    GeneratedCollaborationEntitySpec {".to_owned());
-        lines.push(format!("        name: {},", string_literal(entity.name)));
-        lines.push(format!("        id_field: {},", string_literal(entity_id)));
-        lines.push(format!(
-            "        substrate: {},",
-            string_literal(entity.substrate())
-        ));
-        lines.push(format!(
-            "        schema_version: {},",
-            number_to_string(entity.schema_version())
-        ));
-        let migration_ids = entity.migration_ids();
-        let migration_ids_line =
-            format!("        migration_ids: &[{}],", string_list(&migration_ids));
-        if utf16_len(&migration_ids_line) > 80 {
-            lines.push("        migration_ids: &[".to_owned());
-            for migration_id in &migration_ids {
-                lines.push(format!("            {},", string_literal(migration_id)));
-            }
-            lines.push("        ],".to_owned());
-        } else {
-            lines.push(migration_ids_line);
-        }
-        lines.push(format!(
-            "        authoring_projection: ProjectionName::{},",
-            pascal_identifier(entity.authoring_projection())
-        ));
-        lines.push(format!(
-            "        import_mutation: MutationName::{},",
-            pascal_identifier(entity.import_mutation())
-        ));
-        lines.push(format!(
-            "        root_container: {},",
-            string_literal(entity.root_container())
-        ));
-        lines.push(format!("        fields: {field_constant},"));
-        lines.push("    };".to_owned());
         lines.push(String::new());
     }
-    lines.push(
-        "pub static GENERATED_COLLABORATION_SPECS: &[GeneratedCollaborationEntitySpec] = &["
-            .to_owned(),
-    );
-    for entity_name in collaboration.entity_names() {
-        lines.push(format!(
-            "    {}_COLLABORATION_SPEC,",
-            constant_name(entity_name)
-        ));
-    }
+    let specs = collaboration
+        .entity_names()
+        .into_iter()
+        .map(|name| Expr::atom(format!("{}_COLLABORATION_SPEC", constant_name(name))))
+        .collect();
+    lines.push(layout::item(
+        "pub static GENERATED_COLLABORATION_SPECS: &[GeneratedCollaborationEntitySpec] =",
+        &Expr::slice(specs),
+    ));
     lines.extend(
         [
-            "];",
             "",
             "pub fn generated_collaboration_spec(",
             "    entity: &str,",
@@ -747,8 +733,8 @@ fn render_enum(name: &str, values: &[String]) -> String {
         .iter()
         .map(|value| {
             format!(
-                "    #[serde(rename = {})]\n    {},",
-                string_literal(value),
+                "{}\n    {},",
+                rename_attribute("    ", value),
                 pascal_identifier(value)
             )
         })
@@ -908,8 +894,8 @@ fn tagged_union(definition_name: &str, schema: &Object) -> Result<String> {
             format!("\n{fields}\n    ")
         };
         rendered.push(format!(
-            "    #[serde(rename = {})]\n    {} {{{body}}},",
-            string_literal(tag),
+            "{}\n    {} {{{body}}},",
+            rename_attribute("    ", tag),
             pascal_identifier(tag)
         ));
     }
@@ -939,10 +925,7 @@ fn render_field(
     let rust_name = rust_field_identifier(property_name);
     let mut attributes = Vec::new();
     if rust_name.strip_prefix("r#").unwrap_or(&rust_name) != property_name {
-        attributes.push(format!(
-            "{indent}#[serde(rename = {})]",
-            string_literal(property_name)
-        ));
+        attributes.push(rename_attribute(indent, property_name));
     }
     if !required {
         // `Option<T>` omitted when absent, matching the TypeScript `?` field.
@@ -965,8 +948,21 @@ fn render_field(
         .map(|attribute| format!("{attribute}\n"))
         .collect();
     Ok(format!(
-        "{prefix}{indent}{visibility}{rust_name}: {field_type},"
+        "{prefix}{}",
+        layout::declaration(indent, &format!("{visibility}{rust_name}:"), &field_type)
     ))
+}
+
+/// `#[serde(rename = "value")]`, its argument on a line of its own when the
+/// attribute is too wide, as rustfmt breaks it.
+fn rename_attribute(indent: &str, value: &str) -> String {
+    let argument = format!("rename = {}", string_literal(value));
+    let line = format!("{indent}#[serde({argument})]");
+    if layout::fits_attribute(&line) {
+        line
+    } else {
+        format!("{indent}#[serde(\n{indent}    {argument}\n{indent})]")
+    }
 }
 
 /// Validation keywords reach the generated schema through `schemars`
@@ -1049,29 +1045,22 @@ fn rust_type(
 }
 
 fn string_slice_constant(name: &str, values: &[&str]) -> String {
-    if values.is_empty() {
-        return format!("pub const {name}: &[&str] = &[];");
-    }
-    let inline = format!("pub const {name}: &[&str] = &[{}];", string_list(values));
-    if utf16_len(&inline) <= 100 {
-        return inline;
-    }
-    let rendered: Vec<String> = values
-        .iter()
-        .map(|value| format!("    {},", string_literal(value)))
-        .collect();
-    format!(
-        "pub const {name}: &[&str] = &[\n{}\n];",
-        rendered.join("\n")
-    )
+    layout::item(&format!("pub const {name}: &[&str] ="), &literals(values))
 }
 
+/// `pub const NAME: &str = "value";`, broken after `=` when too wide, and
+/// after `NAME:` when even the head is.
 fn string_constant(name: &str, value: &str) -> String {
-    let inline = format!("pub const {name}: &str = {};", string_literal(value));
+    let head = format!("pub const {name}: &str =");
+    let literal = string_literal(value);
+    let inline = format!("{head} {literal};");
     if utf16_len(&inline) <= 100 {
         return inline;
     }
-    format!("pub const {name}: &str =\n    {};", string_literal(value))
+    if layout::fits(&head) {
+        return format!("{head}\n    {literal};");
+    }
+    format!("pub const {name}:\n    &str = {literal};")
 }
 
 /// One constant per public name, so dispatch code depends on the definition
