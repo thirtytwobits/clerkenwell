@@ -1,0 +1,673 @@
+{
+  "reportVersion": 1,
+  "definitionVersion": 2,
+  "collaborationDefinitionVersion": 1,
+  "namespace": "notebook",
+  "entities": [
+    {
+      "entity": "Note",
+      "policy": "collaborative",
+      "rationale": "Notes are edited concurrently; every field declares how concurrent edits merge.",
+      "schema": "#/$defs/NoteDocument",
+      "identityField": "note_id",
+      "revision": {
+        "kind": "loro"
+      },
+      "projections": [
+        "notes.list",
+        "notes.authoringState",
+        "notes.byId"
+      ],
+      "mutations": [
+        "note.create",
+        "note.importLoroUpdate",
+        "note.rename",
+        "note.delete",
+        "note.pin",
+        "note.moveToBoard"
+      ],
+      "contentMutation": "note.importLoroUpdate",
+      "planningMutations": [],
+      "commandMutations": [
+        "note.pin",
+        "note.moveToBoard"
+      ],
+      "lifecycleMutations": [
+        "note.create",
+        "note.rename",
+        "note.delete"
+      ],
+      "generatedHandlerOwnership": {
+        "rust": "ProjectionName/MutationName exhaustive dispatch",
+        "typescript": "ProjectionSnapshotByName/MutationResultByName mapped unions"
+      },
+      "materialisers": [
+        {
+          "projection": "notes.list",
+          "strategy": "keyedCollection"
+        },
+        {
+          "projection": "notes.authoringState",
+          "strategy": "replaceOrRemove"
+        },
+        {
+          "projection": "notes.byId",
+          "strategy": "replaceOrRemove"
+        }
+      ],
+      "authoringSessionMnemonic": "notebook.session.drafts",
+      "collaboration": {
+        "schemaVersion": 1,
+        "migrationIds": [
+          "note-loro-layout-v1"
+        ],
+        "authoringStateProjection": "notes.authoringState",
+        "importMutation": "note.importLoroUpdate",
+        "fieldCount": 19
+      },
+      "diagnostics": [
+        "authoring-runtime-metadata"
+      ]
+    },
+    {
+      "entity": "Board",
+      "policy": "collaborative",
+      "rationale": "Boards reorder columns and cards concurrently through keyed sequences.",
+      "schema": "#/$defs/BoardDocument",
+      "identityField": "board_id",
+      "revision": {
+        "kind": "loro"
+      },
+      "projections": [
+        "boards.authoringState",
+        "tasks.board"
+      ],
+      "mutations": [
+        "note.moveToBoard",
+        "board.create",
+        "board.importLoroUpdate",
+        "board.reconcileArchivedColumnOrder"
+      ],
+      "contentMutation": "board.importLoroUpdate",
+      "planningMutations": [
+        "board.reconcileArchivedColumnOrder",
+        "note.moveToBoard"
+      ],
+      "commandMutations": [],
+      "lifecycleMutations": [
+        "board.create"
+      ],
+      "generatedHandlerOwnership": {
+        "rust": "ProjectionName/MutationName exhaustive dispatch",
+        "typescript": "ProjectionSnapshotByName/MutationResultByName mapped unions"
+      },
+      "materialisers": [
+        {
+          "projection": "boards.authoringState",
+          "strategy": "replaceOrRemove"
+        },
+        {
+          "projection": "tasks.board",
+          "strategy": "replace"
+        }
+      ],
+      "authoringSessionMnemonic": "notebook.session.drafts",
+      "collaboration": {
+        "schemaVersion": 3,
+        "migrationIds": [
+          "board-loro-layout-v1",
+          "board-column-order-v2",
+          "board-card-notes-v3"
+        ],
+        "authoringStateProjection": "boards.authoringState",
+        "importMutation": "board.importLoroUpdate",
+        "fieldCount": 13
+      },
+      "diagnostics": [
+        "authoring-runtime-metadata"
+      ]
+    },
+    {
+      "entity": "Task",
+      "policy": "optimisticDocument",
+      "rationale": "Tasks are saved whole against the revision they were read at.",
+      "schema": "#/$defs/TaskRecord",
+      "identityField": "task_id",
+      "revision": {
+        "kind": "contentHash",
+        "field": "revision"
+      },
+      "projections": [
+        "tasks.byId",
+        "tasks.board"
+      ],
+      "mutations": [
+        "task.save",
+        "task.schedule",
+        "task.archive"
+      ],
+      "contentMutation": "task.save",
+      "planningMutations": [
+        "task.schedule"
+      ],
+      "commandMutations": [],
+      "lifecycleMutations": [
+        "task.archive"
+      ],
+      "generatedHandlerOwnership": {
+        "rust": "ProjectionName/MutationName exhaustive dispatch",
+        "typescript": "ProjectionSnapshotByName/MutationResultByName mapped unions"
+      },
+      "materialisers": [
+        {
+          "projection": "tasks.byId",
+          "strategy": "replace"
+        },
+        {
+          "projection": "tasks.board",
+          "strategy": "replace"
+        }
+      ],
+      "authoringSessionMnemonic": "notebook.session.drafts",
+      "collaboration": null,
+      "diagnostics": [
+        "authoring-runtime-metadata"
+      ]
+    },
+    {
+      "entity": "Workspace",
+      "policy": "commandOwned",
+      "rationale": "Workspace settings change only through explicit commands.",
+      "schema": "#/$defs/WorkspaceSettings",
+      "identityField": "scope",
+      "revision": {
+        "kind": "contentHash",
+        "field": "revision"
+      },
+      "projections": [
+        "workspace.current"
+      ],
+      "mutations": [
+        "workspace.configure"
+      ],
+      "contentMutation": null,
+      "planningMutations": [],
+      "commandMutations": [
+        "workspace.configure"
+      ],
+      "lifecycleMutations": [],
+      "generatedHandlerOwnership": {
+        "rust": "ProjectionName/MutationName exhaustive dispatch",
+        "typescript": "ProjectionSnapshotByName/MutationResultByName mapped unions"
+      },
+      "materialisers": [
+        {
+          "projection": "workspace.current",
+          "strategy": "reset"
+        }
+      ],
+      "authoringSessionMnemonic": null,
+      "collaboration": null,
+      "diagnostics": []
+    },
+    {
+      "entity": "Activity",
+      "policy": "readOnly",
+      "rationale": "The activity log is written by the service and only read by clients.",
+      "schema": "#/$defs/ActivityLog",
+      "identityField": "scope",
+      "revision": {
+        "kind": "contentHash",
+        "field": "revision"
+      },
+      "projections": [
+        "activity.streams",
+        "activity.history"
+      ],
+      "mutations": [],
+      "contentMutation": null,
+      "planningMutations": [],
+      "commandMutations": [],
+      "lifecycleMutations": [],
+      "generatedHandlerOwnership": {
+        "rust": "ProjectionName/MutationName exhaustive dispatch",
+        "typescript": "ProjectionSnapshotByName/MutationResultByName mapped unions"
+      },
+      "materialisers": [
+        {
+          "projection": "activity.streams",
+          "strategy": "sequencedText"
+        },
+        {
+          "projection": "activity.history",
+          "strategy": "replace"
+        }
+      ],
+      "authoringSessionMnemonic": null,
+      "collaboration": null,
+      "diagnostics": []
+    },
+    {
+      "entity": "SyncHealth",
+      "policy": "commandOwned",
+      "rationale": "Replication health is reported by replicas and reset by operators.",
+      "schema": "#/$defs/SyncHealthRecord",
+      "identityField": "scope",
+      "revision": {
+        "kind": "contentHash",
+        "field": "revision"
+      },
+      "projections": [
+        "sync.health"
+      ],
+      "mutations": [
+        "sync.reset"
+      ],
+      "contentMutation": null,
+      "planningMutations": [],
+      "commandMutations": [
+        "sync.reset"
+      ],
+      "lifecycleMutations": [],
+      "generatedHandlerOwnership": {
+        "rust": "ProjectionName/MutationName exhaustive dispatch",
+        "typescript": "ProjectionSnapshotByName/MutationResultByName mapped unions"
+      },
+      "materialisers": [
+        {
+          "projection": "sync.health",
+          "strategy": "replace"
+        }
+      ],
+      "authoringSessionMnemonic": null,
+      "collaboration": null,
+      "diagnostics": [
+        "sync.health",
+        "replica-lag"
+      ]
+    }
+  ],
+  "projections": [
+    {
+      "name": "notes.list",
+      "params": "#/$defs/NotesListParams",
+      "snapshot": "#/$defs/NotesListSnapshot",
+      "patch": "#/$defs/NotesListPatch",
+      "dependsOn": [
+        "Note"
+      ],
+      "materialisation": {
+        "strategy": "keyedCollection",
+        "collectionField": "notes",
+        "itemField": "note",
+        "itemIdentityField": "note_id",
+        "patchIdentityField": "note_id"
+      },
+      "generatedRegistryOwner": "GENERATED_PROJECTION_SPECS"
+    },
+    {
+      "name": "notes.authoringState",
+      "params": "#/$defs/NoteKeyParams",
+      "snapshot": "#/$defs/NoteAuthoringState",
+      "patch": "#/$defs/NoteAuthoringStatePatch",
+      "dependsOn": [
+        "Note"
+      ],
+      "materialisation": {
+        "strategy": "replaceOrRemove",
+        "snapshotMode": "field",
+        "snapshotField": "state",
+        "removeMode": "nullSnapshot"
+      },
+      "generatedRegistryOwner": "GENERATED_PROJECTION_SPECS"
+    },
+    {
+      "name": "notes.byId",
+      "params": "#/$defs/NoteKeyParams",
+      "snapshot": "#/$defs/NoteDetailSnapshot",
+      "patch": "#/$defs/NoteDetailPatch",
+      "dependsOn": [
+        "Note"
+      ],
+      "materialisation": {
+        "strategy": "replaceOrRemove",
+        "updateField": "note",
+        "updatesField": "changes",
+        "snapshotMode": "patch",
+        "snapshotOmitFields": [
+          "reason",
+          "changes"
+        ],
+        "removeMode": "nullField",
+        "removeField": "note"
+      },
+      "generatedRegistryOwner": "GENERATED_PROJECTION_SPECS"
+    },
+    {
+      "name": "boards.authoringState",
+      "params": "#/$defs/BoardKeyParams",
+      "snapshot": "#/$defs/BoardAuthoringState",
+      "patch": "#/$defs/BoardAuthoringStatePatch",
+      "dependsOn": [
+        "Board"
+      ],
+      "materialisation": {
+        "strategy": "replaceOrRemove",
+        "snapshotMode": "field",
+        "snapshotField": "state",
+        "removeMode": "nullSnapshot"
+      },
+      "generatedRegistryOwner": "GENERATED_PROJECTION_SPECS"
+    },
+    {
+      "name": "tasks.byId",
+      "params": "#/$defs/TaskKeyParams",
+      "snapshot": "#/$defs/TaskDetailSnapshot",
+      "patch": "#/$defs/TaskDetailPatch",
+      "dependsOn": [
+        "Task"
+      ],
+      "materialisation": {
+        "strategy": "replace",
+        "snapshotMode": "patch"
+      },
+      "generatedRegistryOwner": "GENERATED_PROJECTION_SPECS"
+    },
+    {
+      "name": "tasks.board",
+      "params": "#/$defs/BoardKeyParams",
+      "snapshot": "#/$defs/TaskBoardSnapshot",
+      "patch": "#/$defs/TaskBoardPatch",
+      "dependsOn": [
+        "Task",
+        "Board"
+      ],
+      "materialisation": {
+        "strategy": "replace",
+        "snapshotMode": "field",
+        "snapshotField": "snapshot"
+      },
+      "generatedRegistryOwner": "GENERATED_PROJECTION_SPECS"
+    },
+    {
+      "name": "workspace.current",
+      "params": "#/$defs/WorkspaceParams",
+      "snapshot": "#/$defs/WorkspaceSettings",
+      "patch": "#/$defs/WorkspaceSettingsPatch",
+      "dependsOn": [
+        "Workspace"
+      ],
+      "materialisation": {
+        "strategy": "reset"
+      },
+      "generatedRegistryOwner": "GENERATED_PROJECTION_SPECS"
+    },
+    {
+      "name": "activity.streams",
+      "params": "#/$defs/WorkspaceParams",
+      "snapshot": "#/$defs/ActivityStreamSnapshot",
+      "patch": "#/$defs/ActivityStreamPatch",
+      "dependsOn": [
+        "Activity"
+      ],
+      "materialisation": {
+        "strategy": "sequencedText",
+        "collectionField": "streams",
+        "itemIdentityField": "stream_id",
+        "patchIdentityField": "stream_id",
+        "snapshotOutputField": "output",
+        "sequenceField": "sequence",
+        "textField": "text",
+        "patchOutputField": "delta",
+        "deltaTextField": "text_delta"
+      },
+      "generatedRegistryOwner": "GENERATED_PROJECTION_SPECS"
+    },
+    {
+      "name": "activity.history",
+      "params": "#/$defs/WorkspaceParams",
+      "snapshot": "#/$defs/ActivityLog",
+      "patch": "#/$defs/ActivityLogPatch",
+      "dependsOn": [
+        "Activity"
+      ],
+      "materialisation": {
+        "strategy": "replace",
+        "snapshotMode": "patch"
+      },
+      "generatedRegistryOwner": "GENERATED_PROJECTION_SPECS"
+    },
+    {
+      "name": "sync.health",
+      "params": "#/$defs/WorkspaceParams",
+      "snapshot": "#/$defs/SyncHealthRecord",
+      "patch": "#/$defs/SyncHealthPatch",
+      "dependsOn": [
+        "SyncHealth"
+      ],
+      "materialisation": {
+        "strategy": "replace",
+        "snapshotMode": "field",
+        "snapshotField": "health"
+      },
+      "generatedRegistryOwner": "GENERATED_PROJECTION_SPECS"
+    }
+  ],
+  "mutations": [
+    {
+      "name": "note.create",
+      "params": "#/$defs/NoteCreateParams",
+      "result": "#/$defs/NoteMutationResult",
+      "touches": [
+        "Note"
+      ],
+      "conflict": "optimistic",
+      "generatedRegistryOwner": "GENERATED_MUTATION_SPECS"
+    },
+    {
+      "name": "note.importLoroUpdate",
+      "params": "#/$defs/LoroUpdateParams",
+      "result": "#/$defs/LoroUpdateResult",
+      "touches": [
+        "Note"
+      ],
+      "conflict": "optimistic",
+      "generatedRegistryOwner": "GENERATED_MUTATION_SPECS"
+    },
+    {
+      "name": "note.rename",
+      "params": "#/$defs/NoteRenameParams",
+      "result": "#/$defs/NoteMutationResult",
+      "touches": [
+        "Note"
+      ],
+      "conflict": "optimistic",
+      "generatedRegistryOwner": "GENERATED_MUTATION_SPECS"
+    },
+    {
+      "name": "note.delete",
+      "params": "#/$defs/NoteKeyParams",
+      "result": "#/$defs/EmptyResult",
+      "touches": [
+        "Note"
+      ],
+      "conflict": "optimistic",
+      "generatedRegistryOwner": "GENERATED_MUTATION_SPECS"
+    },
+    {
+      "name": "note.pin",
+      "params": "#/$defs/NotePinParams",
+      "result": "#/$defs/NoteMutationResult",
+      "touches": [
+        "Note"
+      ],
+      "conflict": "optimistic",
+      "generatedRegistryOwner": "GENERATED_MUTATION_SPECS"
+    },
+    {
+      "name": "note.moveToBoard",
+      "params": "#/$defs/NoteMoveParams",
+      "result": "#/$defs/NoteMutationResult",
+      "touches": [
+        "Note",
+        "Board"
+      ],
+      "conflict": "optimistic",
+      "generatedRegistryOwner": "GENERATED_MUTATION_SPECS"
+    },
+    {
+      "name": "board.create",
+      "params": "#/$defs/BoardCreateParams",
+      "result": "#/$defs/BoardMutationResult",
+      "touches": [
+        "Board"
+      ],
+      "conflict": "optimistic",
+      "generatedRegistryOwner": "GENERATED_MUTATION_SPECS"
+    },
+    {
+      "name": "board.importLoroUpdate",
+      "params": "#/$defs/LoroUpdateParams",
+      "result": "#/$defs/LoroUpdateResult",
+      "touches": [
+        "Board"
+      ],
+      "conflict": "optimistic",
+      "generatedRegistryOwner": "GENERATED_MUTATION_SPECS"
+    },
+    {
+      "name": "board.reconcileArchivedColumnOrder",
+      "params": "#/$defs/BoardKeyParams",
+      "result": "#/$defs/BoardMutationResult",
+      "touches": [
+        "Board"
+      ],
+      "conflict": "optimistic",
+      "generatedRegistryOwner": "GENERATED_MUTATION_SPECS"
+    },
+    {
+      "name": "task.save",
+      "params": "#/$defs/TaskSaveParams",
+      "result": "#/$defs/TaskSaveResult",
+      "touches": [
+        "Task"
+      ],
+      "conflict": "optimistic",
+      "generatedRegistryOwner": "GENERATED_MUTATION_SPECS"
+    },
+    {
+      "name": "task.schedule",
+      "params": "#/$defs/TaskScheduleParams",
+      "result": "#/$defs/TaskSaveResult",
+      "touches": [
+        "Task"
+      ],
+      "conflict": "optimistic",
+      "generatedRegistryOwner": "GENERATED_MUTATION_SPECS"
+    },
+    {
+      "name": "task.archive",
+      "params": "#/$defs/TaskKeyParams",
+      "result": "#/$defs/EmptyResult",
+      "touches": [
+        "Task"
+      ],
+      "conflict": "optimistic",
+      "generatedRegistryOwner": "GENERATED_MUTATION_SPECS"
+    },
+    {
+      "name": "workspace.configure",
+      "params": "#/$defs/WorkspaceConfigureParams",
+      "result": "#/$defs/EmptyResult",
+      "touches": [
+        "Workspace"
+      ],
+      "conflict": "optimistic",
+      "generatedRegistryOwner": "GENERATED_MUTATION_SPECS"
+    },
+    {
+      "name": "sync.reset",
+      "params": "#/$defs/SyncResetParams",
+      "result": "#/$defs/EmptyResult",
+      "touches": [
+        "SyncHealth"
+      ],
+      "conflict": "optimistic",
+      "generatedRegistryOwner": "GENERATED_MUTATION_SPECS"
+    }
+  ],
+  "mnemonic": [
+    {
+      "name": "session.drafts",
+      "key": "notebook.session.drafts",
+      "schema": "#/$defs/SessionDrafts",
+      "version": 2,
+      "cachePolicy": "localDraft",
+      "migrationIds": [
+        "session-drafts-v1-to-v2"
+      ],
+      "recovery": "authoringRuntime",
+      "generatedRegistryOwner": "MNEMONIC_SCHEMAS"
+    },
+    {
+      "name": "board.view",
+      "key": "notebook.board.view",
+      "schema": "#/$defs/BoardViewState",
+      "version": 1,
+      "cachePolicy": "lastKnownSnapshot",
+      "migrationIds": [
+        "board-view-normalise-v1"
+      ],
+      "recovery": "legacyDraftTransfer",
+      "generatedRegistryOwner": "MNEMONIC_SCHEMAS"
+    },
+    {
+      "name": "noteSelection",
+      "key": "notebook.note.selection",
+      "schema": "#/$defs/NoteSelectionState",
+      "version": 1,
+      "cachePolicy": "lastKnownSnapshot",
+      "migrationIds": [
+        "note-selection-v1"
+      ],
+      "recovery": "schemaMigration",
+      "generatedRegistryOwner": "MNEMONIC_SCHEMAS"
+    }
+  ],
+  "ownership": {
+    "missing": [],
+    "multiplyOwned": []
+  },
+  "payloads": {
+    "undescribedCount": 2,
+    "reasonedCount": 5,
+    "projectionsCarryingUndescribed": 1,
+    "projectionCount": 10,
+    "undescribed": [
+      "NoteExtras{}",
+      "ActivityEntry.payload"
+    ],
+    "reasoned": [
+      {
+        "path": "MimeValue.value",
+        "reason": "The envelope's `$mime` says how to read the value, and `application/json` admits any JSON."
+      },
+      {
+        "path": "RawPayload",
+        "reason": "A replica's own error report, forwarded verbatim for diagnosis."
+      },
+      {
+        "path": "TaskState|done.evidence",
+        "reason": "Whatever the reviewer attached; the task only records that it exists."
+      },
+      {
+        "path": "TaskRecord.metadata",
+        "reason": "Integrations annotate tasks with their own keys."
+      },
+      {
+        "path": "DraftEntry.payload",
+        "reason": "The unsent edit, in whichever entity's shape it was made."
+      }
+    ]
+  }
+}
