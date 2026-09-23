@@ -9,7 +9,7 @@ use clerkenwell_codegen::{Config, Definition, Error, Result};
 /// The directory holding the notebook definition, its configuration and its
 /// committed outputs.
 pub fn notebook_dir() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/notebook")
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../clerkenwell-notebook")
 }
 
 pub fn notebook_config_path() -> PathBuf {

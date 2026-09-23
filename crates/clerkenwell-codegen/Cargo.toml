@@ -16,6 +16,6 @@ serde_json = { workspace = true, features = ["float_roundtrip"] }
 thiserror.workspace = true
 
 [dev-dependencies]
-clerkenwell-schema = { path = "../clerkenwell-schema" }
+clerkenwell-notebook = { path = "../clerkenwell-notebook" }
 schemars.workspace = true
 tempfile.workspace = true

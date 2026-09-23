@@ -3,9 +3,7 @@
 
 mod common;
 
-#[allow(dead_code, clippy::all)]
-#[path = "fixtures/notebook/generated/rust/model.rs"]
-mod model;
+use clerkenwell_notebook as model;
 
 use clerkenwell_codegen::json::Json;
 use common::{notebook_dir, notebook_document};

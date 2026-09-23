@@ -1,0 +1,14 @@
+[package]
+name = "clerkenwell-notebook"
+description = "The notebook example definition and the bindings generated from it, shared by Clerkenwell's tests"
+publish = false
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+clerkenwell-schema = { path = "../clerkenwell-schema" }
+schemars.workspace = true
+serde.workspace = true
+serde_json.workspace = true

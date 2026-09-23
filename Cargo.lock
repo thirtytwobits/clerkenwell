@@ -273,7 +273,7 @@ name = "clerkenwell-codegen"
 version = "0.1.0"
 dependencies = [
  "clap",
- "clerkenwell-schema",
+ "clerkenwell-notebook",
  "icu_collator",
  "indexmap",
  "jsonschema",
@@ -295,6 +295,16 @@ dependencies = [
  "similar",
  "thiserror 2.0.21",
  "toml",
+]
+
+[[package]]
+name = "clerkenwell-notebook"
+version = "0.1.0"
+dependencies = [
+ "clerkenwell-schema",
+ "schemars",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

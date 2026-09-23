@@ -1,6 +1,6 @@
 {
   "definition": "notebook.projections.json",
-  "regenerateCommand": "cargo run -p clerkenwell-codegen -- --config crates/clerkenwell-codegen/tests/fixtures/notebook/clerkenwell-codegen.json",
+  "regenerateCommand": "cargo run -p clerkenwell-codegen -- --config crates/clerkenwell-notebook/clerkenwell-codegen.json",
   "header": ["SPDX-License-Identifier: MIT"],
   "authoringSessionMnemonic": "session.drafts",
   "collaborationLeafSchemas": ["MimeValue"],
@@ -14,6 +14,6 @@
     "normalizedDefinition": "generated/notebook.projections.normalized.json",
     "typescriptModel": "generated/typescript/index.ts",
     "typescriptMnemonic": "generated/typescript/mnemonic.ts",
-    "rustModel": "generated/rust/model.rs"
+    "rustModel": "src/lib.rs"
   }
 }
