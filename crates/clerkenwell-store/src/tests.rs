@@ -668,6 +668,55 @@ fn files_under(root: &Path) -> BTreeMap<PathBuf, Vec<u8>> {
     files
 }
 
+/// Every file under `root` with its bytes and modification time.
+fn file_states(root: &Path) -> BTreeMap<PathBuf, (Vec<u8>, std::time::SystemTime)> {
+    files_under(root)
+        .into_iter()
+        .map(|(path, bytes)| {
+            let modified = std::fs::metadata(&path)
+                .and_then(|metadata| metadata.modified())
+                .expect("file modification time");
+            (path, (bytes, modified))
+        })
+        .collect()
+}
+
+#[test]
+fn reads_leave_every_stored_byte_and_timestamp_unchanged() {
+    let root = TempDir::new().expect("temp workspace");
+    let (service, document, seed, state) = initialise(root.path());
+    let request = edit_request(
+        &document,
+        &seed,
+        &state,
+        "read-purity-edit",
+        &["body"],
+        json!("an accepted edit"),
+    );
+    let accepted = import(&service, request, &seed).expect("accepted edit");
+    service
+        .acknowledge_publication(&document, accepted.generation)
+        .expect("publish");
+    let before = file_states(root.path());
+
+    for _ in 0..2 {
+        service.detail(&NOTE_PLAN, &document).expect("detail");
+        service
+            .authoring_state(&NOTE_PLAN, &document)
+            .expect("authoring state");
+        service.storage().load(&document).expect("load");
+        service.storage().list_entity("Note").expect("list entity");
+        service.publication_scan().expect("publication scan");
+        service.publications().expect("publications");
+        service.inspect(None, None, None).expect("inspect");
+        service.verify(&document);
+        service.recovery_audit().expect("recovery audit");
+        service.counters();
+    }
+
+    assert_eq!(file_states(root.path()), before);
+}
+
 #[test]
 fn reindex_reads_every_document_and_changes_nothing_but_the_audit() {
     let root = TempDir::new().expect("temp workspace");
