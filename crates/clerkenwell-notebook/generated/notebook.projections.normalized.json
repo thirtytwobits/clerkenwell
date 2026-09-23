@@ -46,9 +46,9 @@
             "storage": {
               "identityPath": "card_id",
               "identityVariable": "card_id",
-              "itemContainerTemplate": "card.{card_id}",
+              "itemContainerTemplate": "column.{column_id}.card.{card_id}",
               "kind": "keyedSequence",
-              "orderContainer": "card_order"
+              "orderContainer": "column.{column_id}.card_order"
             },
             "value": {
               "codec": "keyedSequence"
@@ -71,7 +71,7 @@
             "path": "columns.*.cards.*.done",
             "required": true,
             "storage": {
-              "containerTemplate": "card.{card_id}",
+              "containerTemplate": "column.{column_id}.card.{card_id}",
               "key": "done",
               "kind": "scalar"
             },
@@ -84,7 +84,7 @@
             "path": "columns.*.cards.*.labels",
             "required": false,
             "storage": {
-              "containerTemplate": "card.{card_id}.labels",
+              "containerTemplate": "column.{column_id}.card.{card_id}.labels",
               "kind": "orderedList"
             },
             "value": {
@@ -96,9 +96,9 @@
             "path": "columns.*.cards.*.note",
             "required": true,
             "storage": {
-              "containerTemplate": "card.{card_id}.note",
+              "containerTemplate": "column.{column_id}.card.{card_id}.note",
               "kind": "text",
-              "metadataContainerTemplate": "card.{card_id}",
+              "metadataContainerTemplate": "column.{column_id}.card.{card_id}",
               "metadataKey": "note.$mime"
             },
             "value": {
@@ -110,7 +110,7 @@
             "path": "columns.*.cards.*.text",
             "required": true,
             "storage": {
-              "containerTemplate": "card.{card_id}.text",
+              "containerTemplate": "column.{column_id}.card.{card_id}.text",
               "kind": "text"
             },
             "value": {
