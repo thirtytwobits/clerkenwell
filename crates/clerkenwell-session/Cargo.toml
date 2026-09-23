@@ -1,0 +1,13 @@
+[package]
+name = "clerkenwell-session"
+description = "The projection session protocol: wire contracts, subscriptions, retained patches and resume"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+clerkenwell-schema = { path = "../clerkenwell-schema" }
+serde.workspace = true
+serde_json.workspace = true
+sha2 = "0.10.9"

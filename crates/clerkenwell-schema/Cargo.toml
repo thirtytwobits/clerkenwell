@@ -1,0 +1,9 @@
+[package]
+name = "clerkenwell-schema"
+description = "Plan types that generated Clerkenwell bindings instantiate"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
