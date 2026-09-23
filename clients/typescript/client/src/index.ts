@@ -1,7 +1,8 @@
 /**
  * Copyright (c) 2026 Scott A Dixon
  *
- * The React-free client.
+ * The React-free client. It never loads the CRDT runtime; replicas come from
+ * `@clerkenwell/client/loro`.
  */
 export * from "./authoring-persistence";
 export * from "./authoring-session";
