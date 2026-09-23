@@ -3,6 +3,8 @@
  *
  * The React-free client.
  */
+export * from "./authoring-persistence";
+export * from "./authoring-session";
 export * from "./binary";
 export * from "./json-value-equality";
 export * from "./materialize";
