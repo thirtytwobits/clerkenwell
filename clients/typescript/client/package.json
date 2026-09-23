@@ -1,0 +1,24 @@
+{
+  "name": "@clerkenwell/client",
+  "version": "0.1.0",
+  "description": "React-free client for Clerkenwell documents: plan types, projection materialisation and subscription, the authoring state machine, and a plan-driven Loro replica.",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "exports": {
+    ".": "./src/index.ts",
+    "./loro": "./src/collaboration-loro.ts"
+  },
+  "files": [
+    "src"
+  ],
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "node --import tsx --test \"tests/**/*.test.ts\""
+  },
+  "dependencies": {
+    "loro-crdt": "https://github.com/thirtytwobits/loro/releases/download/primrose-551d0da5b943/loro-crdt-1.16.1.tgz"
+  }
+}

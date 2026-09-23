@@ -1,0 +1,32 @@
+{
+  "name": "@clerkenwell/react",
+  "version": "0.1.0",
+  "description": "React binding for @clerkenwell/client: external stores, edit overlays, text bindings, autosync and the authoring runtime provider.",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "files": [
+    "src"
+  ],
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "node --import tsx --test \"tests/**/*.test.ts\" \"tests/**/*.test.tsx\""
+  },
+  "dependencies": {
+    "@clerkenwell/client": "0.1.0"
+  },
+  "peerDependencies": {
+    "react": ">=18"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  }
+}
