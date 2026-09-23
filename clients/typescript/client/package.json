@@ -1,0 +1,20 @@
+{
+  "name": "@clerkenwell/client",
+  "version": "0.1.0",
+  "description": "React-free client for Clerkenwell documents: plan types, projection materialisation and subscription, the authoring state machine, and a plan-driven Loro replica.",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "files": [
+    "src"
+  ],
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "node --import tsx --test \"tests/**/*.test.ts\""
+  }
+}
