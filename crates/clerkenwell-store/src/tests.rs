@@ -167,6 +167,14 @@ fn concurrent_explicit_scalar_edits_block_until_rebased_resolution() {
             .and_then(Value::as_str),
         Some("title")
     );
+    assert_eq!(
+        error
+            .data
+            .as_ref()
+            .map(|data| data["base_frontier_base64"].clone()),
+        Some(json!(state.accepted_frontier_base64)),
+        "a policy refusal names the frontier the refused edit was based on"
+    );
 
     let current = service
         .authoring_state(&NOTE_PLAN, &document)
@@ -224,6 +232,7 @@ fn edit_request(
         update_base64: client
             .export_incremental_update_base64(&state.accepted_frontier_base64)
             .expect("incremental update"),
+        fence: ImportFence::Frontier,
     }
 }
 
@@ -280,6 +289,7 @@ fn captured_text_consumption_preserves_later_edits_across_restart_and_retry() {
             exchange_mode: CollaborationExchangeMode::Incremental,
             base_frontier_base64: state.accepted_frontier_base64.clone(),
             update_base64: replacement,
+            fence: ImportFence::Frontier,
         },
         &seed,
     )
@@ -292,6 +302,7 @@ fn captured_text_consumption_preserves_later_edits_across_restart_and_retry() {
         exchange_mode: CollaborationExchangeMode::Incremental,
         base_frontier_base64: state.accepted_frontier_base64.clone(),
         update_base64: prepared,
+        fence: ImportFence::Frontier,
     };
     let before = service.authoring_state(&NOTE_PLAN, &document).unwrap();
     // Rejection must leave accepted text and the durable frontier untouched.
@@ -793,4 +804,147 @@ fn diagnostic_inspection_is_bounded_and_contains_no_document_payload() {
     assert!(!serialized.contains("update_base64"));
     assert!(!serialized.contains(&note_seed()["body"].as_str().unwrap().to_string()));
     assert!(!serialized.contains("checkpoint_update"));
+}
+
+fn on_read(
+    mut request: CollaborationImportRequest,
+    read: &CollaborationAuthoringState,
+) -> CollaborationImportRequest {
+    request.fence = ImportFence::Etag(read.etag.clone());
+    request
+}
+
+#[test]
+fn an_etag_fenced_import_of_the_current_read_commits() {
+    let root = TempDir::new().expect("temp workspace");
+    let (service, document, seed, state) = initialise(root.path());
+    let replacement = json!("committed on the read it was made from");
+    let request = on_read(
+        edit_request(
+            &document,
+            &seed,
+            &state,
+            "current-read",
+            &["body"],
+            replacement.clone(),
+        ),
+        &state,
+    );
+
+    import(&service, request, &seed).expect("the read is current");
+
+    assert_eq!(
+        service.detail(&NOTE_PLAN, &document).unwrap().unwrap()["body"],
+        replacement
+    );
+}
+
+#[test]
+fn an_etag_fenced_import_of_a_superseded_read_is_refused_and_changes_nothing() {
+    let root = TempDir::new().expect("temp workspace");
+    let (service, document, seed, state) = initialise(root.path());
+    let first = edit_request(
+        &document,
+        &seed,
+        &state,
+        "first",
+        &["summary"],
+        json!("first"),
+    );
+    import(&service, first, &seed).expect("an earlier writer commits");
+    let before = service.storage().load(&document).unwrap().unwrap();
+    let stale = on_read(
+        edit_request(&document, &seed, &state, "stale", &["body"], json!("stale")),
+        &state,
+    );
+
+    let error = import(&service, stale, &seed).expect_err("the read was superseded");
+
+    assert_eq!(error.kind, StoreErrorKind::Conflict);
+    let data = error.data.expect("the refusal carries data");
+    let accepted = service.authoring_state(&NOTE_PLAN, &document).unwrap();
+    assert_eq!(data["conflict_kind"], "collaboration_revision");
+    assert_eq!(data["expected_etag"], json!(state.etag));
+    assert_eq!(data["current_etag"], json!(accepted.etag));
+    assert_eq!(data[NOTE_PLAN.id_field], json!(document.resource_id));
+    assert_eq!(data["current"]["summary"], json!("first"));
+    let after = service.storage().load(&document).unwrap().unwrap();
+    assert_eq!(after.generation, before.generation);
+    assert_eq!(after.checkpoint_sha256, before.checkpoint_sha256);
+}
+
+#[test]
+fn a_retried_etag_fenced_import_is_a_duplicate_not_a_stale_read() {
+    let root = TempDir::new().expect("temp workspace");
+    let (service, document, seed, state) = initialise(root.path());
+    let request = on_read(
+        edit_request(
+            &document,
+            &seed,
+            &state,
+            "retried",
+            &["body"],
+            json!("once"),
+        ),
+        &state,
+    );
+    let accepted = import(&service, request.clone(), &seed).expect("first delivery");
+
+    let retried = import(&service, request, &seed).expect("the retry is recognised");
+
+    assert!(retried.duplicate);
+    assert_eq!(retried.generation, accepted.generation);
+}
+
+#[test]
+fn etag_fenced_imports_racing_from_one_read_in_two_processes_commit_exactly_once() {
+    let root = TempDir::new().expect("temp workspace");
+    let (process_a, document, seed, state) = initialise(root.path());
+    let process_b = open_service(root.path());
+    let request_a = on_read(
+        edit_request(
+            &document,
+            &seed,
+            &state,
+            "race-a",
+            &["body"],
+            json!("from process A"),
+        ),
+        &state,
+    );
+    let request_b = on_read(
+        edit_request(
+            &document,
+            &seed,
+            &state,
+            "race-b",
+            &["summary"],
+            json!("from process B"),
+        ),
+        &state,
+    );
+    let (seed_a, seed_b) = (seed.clone(), seed.clone());
+    let thread_a = std::thread::spawn(move || import(&process_a, request_a, &seed_a));
+    let thread_b = std::thread::spawn(move || import(&process_b, request_b, &seed_b));
+    let outcomes = [
+        thread_a.join().expect("process A thread"),
+        thread_b.join().expect("process B thread"),
+    ];
+
+    let committed = outcomes.iter().filter(|outcome| outcome.is_ok()).count();
+    assert_eq!(
+        committed, 1,
+        "exactly one writer of the shared read commits"
+    );
+    let refused = outcomes
+        .iter()
+        .find_map(|outcome| outcome.as_ref().err())
+        .expect("the other is refused");
+    assert_eq!(
+        refused
+            .data
+            .as_ref()
+            .map(|data| data["conflict_kind"].clone()),
+        Some(json!("collaboration_revision"))
+    );
 }

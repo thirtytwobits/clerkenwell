@@ -13,7 +13,8 @@ use std::path::Path;
 use clerkenwell_doc::{CollaborationLoroError, LoroAuthoringDocument};
 use clerkenwell_store::{
     CollaborationDocumentId, CollaborationExchangeMode, CollaborationImportRequest,
-    CollaborationImportResult, CollaborationRecoveryAuditRecord, CollaborationService, StoreError,
+    CollaborationImportResult, CollaborationRecoveryAuditRecord, CollaborationService, ImportFence,
+    StoreError,
 };
 use model::{GeneratedCollaborationEntitySpec, NoteDocumentStatus};
 use serde_json::{json, Value};
@@ -84,11 +85,12 @@ pub struct Notes {
     note: CollaborationDocumentId,
 }
 
-/// A writer's replica of the note and the accepted frontier its edits are
-/// based on.
+/// A writer's replica of the note, and the accepted frontier and etag its
+/// edits are based on.
 pub struct Writer {
     replica: LoroAuthoringDocument,
     base_frontier: String,
+    read_etag: String,
     document: Value,
 }
 
@@ -98,6 +100,7 @@ impl Writer {
         let replica = LoroAuthoringDocument::from_document(NOTE, document)?;
         Ok(Self {
             base_frontier: replica.accepted_frontier_base64(),
+            read_etag: String::new(),
             replica,
             document: document.clone(),
         })
@@ -138,12 +141,36 @@ impl Notes {
         Ok(Writer {
             document: replica.materialized_document(&read.etag)?,
             base_frontier: read.accepted_frontier_base64,
+            read_etag: read.etag,
             replica,
         })
     }
 
     /// Commits the writer's edits, fenced on the frontier the writer read.
     pub fn submit(&self, writer: &Writer, operation_id: &str) -> Result<CollaborationImportResult> {
+        self.submit_fenced(writer, operation_id, ImportFence::Frontier)
+    }
+
+    /// Commits the writer's edits only if the note is still the one the
+    /// writer read.
+    pub fn submit_on_read(
+        &self,
+        writer: &Writer,
+        operation_id: &str,
+    ) -> Result<CollaborationImportResult> {
+        self.submit_fenced(
+            writer,
+            operation_id,
+            ImportFence::Etag(writer.read_etag.clone()),
+        )
+    }
+
+    fn submit_fenced(
+        &self,
+        writer: &Writer,
+        operation_id: &str,
+        fence: ImportFence,
+    ) -> Result<CollaborationImportResult> {
         let update = writer
             .replica
             .export_incremental_update_base64(&writer.base_frontier)?;
@@ -157,6 +184,7 @@ impl Notes {
                 exchange_mode: CollaborationExchangeMode::Incremental,
                 base_frontier_base64: writer.base_frontier.clone(),
                 update_base64: update,
+                fence,
             },
             validate,
         )?)
@@ -205,7 +233,23 @@ pub fn refuse_an_unknown_base(notes: &Notes) -> Result<StoreError> {
     }
 }
 
-/// Step 4: two writers set the explicit status to different values. The
+/// Step 4: a writer asks for its edit to land only on the note it read. Another
+/// writer commits first, so the store refuses the edit as stale and returns the
+/// accepted note with its etag. Returns the refusal.
+pub fn refuse_a_superseded_read(notes: &Notes) -> Result<StoreError> {
+    let mut careful = notes.writer()?;
+    let mut quick = notes.writer()?;
+    quick.edit(|note| note["title"] = json!("Launch plan, final"))?;
+    careful.edit(|note| note["title"] = json!("Launch plan, checked"))?;
+    notes.submit(&quick, "quick-title")?;
+    match notes.submit_on_read(&careful, "careful-title") {
+        Err(Error::Store(refusal)) => Ok(refusal),
+        Err(other) => Err(other),
+        Ok(_) => Err(StoreError::internal("The store accepted a superseded read.").into()),
+    }
+}
+
+/// Step 5: two writers set the explicit status to different values. The
 /// first commits; the second is refused as a conflict naming the status.
 /// Returns the refused writer and the refusal.
 pub fn conflict_on_status(notes: &Notes) -> Result<(Writer, StoreError)> {
@@ -221,7 +265,7 @@ pub fn conflict_on_status(notes: &Notes) -> Result<(Writer, StoreError)> {
     }
 }
 
-/// Step 5: the refused writer rebases. It reads the accepted note, restates
+/// Step 6: the refused writer rebases. It reads the accepted note, restates
 /// its value for each field the refusal names, and commits. Returns the
 /// accepted note.
 pub fn rebase(notes: &Notes, refused: &Writer, refusal: &StoreError) -> Result<Value> {
@@ -248,7 +292,7 @@ pub fn rebase(notes: &Notes, refused: &Writer, refusal: &StoreError) -> Result<V
     notes.read()
 }
 
-/// Step 6: an operator exports the note's evidence and reindexes the store.
+/// Step 7: an operator exports the note's evidence and reindexes the store.
 /// Each recovery request is audited. Returns the audit.
 pub fn audit_recovery(notes: &Notes) -> Result<Vec<CollaborationRecoveryAuditRecord>> {
     notes.service.export_for_recovery(&notes.note)?;

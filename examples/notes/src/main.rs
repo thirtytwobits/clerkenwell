@@ -2,7 +2,7 @@
 
 use clerkenwell_example_notes::{
     audit_recovery, conflict_on_status, create_note, merge_concurrent_prose, rebase,
-    refuse_an_unknown_base, Result,
+    refuse_a_superseded_read, refuse_an_unknown_base, Result,
 };
 
 fn main() -> Result<()> {
@@ -18,13 +18,16 @@ fn main() -> Result<()> {
     let refusal = refuse_an_unknown_base(&notes)?;
     println!("\n3. A writer whose replica began outside the store was refused:\n{refusal}");
 
+    let refusal = refuse_a_superseded_read(&notes)?;
+    println!("\n4. A writer that fenced its edit on the etag it read was refused, because another writer committed first:\n{refusal}");
+
     let (grace, refusal) = conflict_on_status(&notes)?;
-    println!("\n4. Ada set the status first; Grace's concurrent status was refused:\n{refusal}");
+    println!("\n5. Ada set the status first; Grace's concurrent status was refused:\n{refusal}");
 
     let rebased = rebase(&notes, &grace, &refusal)?;
-    println!("\n5. Grace rebased onto the accepted note and restated her status:\n{rebased:#}");
+    println!("\n6. Grace rebased onto the accepted note and restated her status:\n{rebased:#}");
 
-    println!("\n6. Recovery requests are audited:");
+    println!("\n7. Recovery requests are audited:");
     for record in audit_recovery(&notes)? {
         println!(
             "   {:?} {}/{} destructive: {}",

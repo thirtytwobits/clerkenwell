@@ -13,10 +13,12 @@ The binary runs these steps against a store in a temporary directory:
 2. Two writers edit the body concurrently and one retitles the note. Each commit is fenced on
    the frontier its writer read, so the body keeps both edits.
 3. A writer whose replica began outside the store is refused and told to resynchronise.
-4. Two writers set the status differently. The second commit is refused as a conflict naming
+4. A writer fences its edit on the etag it read. Another writer commits first, so the edit is
+   refused as stale and the refusal carries the accepted note and its etag.
+5. Two writers set the status differently. The second commit is refused as a conflict naming
    `status`, and the refusal carries the accepted note.
-5. The refused writer rebases onto the accepted note, restates its status and commits.
-6. An export and a reindex are recorded in the recovery audit.
+6. The refused writer rebases onto the accepted note, restates its status and commits.
+7. An export and a reindex are recorded in the recovery audit.
 
 Each step is a function in `src/lib.rs`; `tests/walkthrough.rs` checks each outcome.
 

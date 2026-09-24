@@ -223,6 +223,17 @@ pub struct CollaborationImportRequest {
     pub exchange_mode: CollaborationExchangeMode,
     pub base_frontier_base64: String,
     pub update_base64: String,
+    pub fence: ImportFence,
+}
+
+/// What an import is judged against when it commits.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ImportFence {
+    /// The accepted document must still be the one read at this etag.
+    Etag(String),
+    /// Operations after the base frontier merge under each field's conflict
+    /// policy.
+    Frontier,
 }
 
 #[derive(Debug, Clone)]
@@ -651,6 +662,37 @@ impl<S: CollaborationStoragePort> CollaborationService<S> {
             let authoring = load_authoring_document(plan, &request.document, &current)?;
             let current_update = current.checkpoint_update(&request.document)?;
             let current_etag = collaboration_etag(&current_update);
+            // An operation already in the retained window was accepted: its
+            // retry is a duplicate, however far the document has moved since.
+            let already_accepted = current
+                .retained_operations
+                .iter()
+                .any(|operation| operation.operation_id == request.operation_id);
+            if let ImportFence::Etag(expected_etag) = &request.fence {
+                if !already_accepted && *expected_etag != current_etag {
+                    let current_document = authoring
+                        .materialized_document(&current_etag)
+                        .map_err(|error| collaboration_loro_error(&request.document, error))?;
+                    let mut data = serde_json::json!({
+                        "code": "conflict",
+                        "conflict_kind": "collaboration_revision",
+                        "entity": request.document.entity,
+                        "resource_id": request.document.resource_id,
+                        "current": current_document,
+                        "current_etag": current_etag,
+                        "expected_etag": expected_etag,
+                        "draft_retained": true,
+                    });
+                    // A caller names the document by its plan's identity field.
+                    data[plan.id_field] = Value::from(request.document.resource_id.clone());
+                    return Err(StoreError::conflict(format!(
+                        "{} \"{}\" has advanced since the caller read it.",
+                        request.document.entity, request.document.resource_id
+                    ))
+                    .with_data(data)
+                    .into());
+                }
+            }
             if request.exchange_mode == CollaborationExchangeMode::Incremental {
                 authoring
                     .require_frontier_base64(&request.base_frontier_base64)
@@ -689,7 +731,7 @@ impl<S: CollaborationStoragePort> CollaborationService<S> {
                         "conflict_paths": conflicts,
                         "current": current_document,
                         "current_etag": current_etag,
-                        "expected_etag": request.base_frontier_base64,
+                        "base_frontier_base64": request.base_frontier_base64,
                         "draft_retained": true,
                     }))
                     .into());

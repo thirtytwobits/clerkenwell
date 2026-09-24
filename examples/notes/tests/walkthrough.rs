@@ -2,7 +2,7 @@
 
 use clerkenwell_example_notes::{
     audit_recovery, conflict_on_status, create_note, merge_concurrent_prose, rebase,
-    refuse_an_unknown_base, seed, Notes, NOTE_ID,
+    refuse_a_superseded_read, refuse_an_unknown_base, seed, Notes, NOTE_ID,
 };
 use clerkenwell_store::{CollaborationRecoveryAction, StoreErrorKind};
 use serde_json::{json, Value};
@@ -69,6 +69,22 @@ fn an_import_based_on_a_frontier_the_store_never_accepted_is_refused_and_changes
         resyncs + 1,
         "the refusal asks the writer to resynchronise"
     );
+}
+
+#[test]
+fn an_edit_fenced_on_a_superseded_read_is_refused_with_the_accepted_note() {
+    let (_root, notes) = store();
+
+    let refusal = refuse_a_superseded_read(&notes).expect("the step runs");
+
+    let accepted = notes.read().expect("read");
+    assert_eq!(refusal.kind, StoreErrorKind::Conflict);
+    let data = refusal.data.as_ref().expect("the refusal carries data");
+    assert_eq!(data["conflict_kind"], "collaboration_revision");
+    assert_eq!(data["current_etag"], accepted["etag"]);
+    assert_ne!(data["expected_etag"], accepted["etag"]);
+    assert_eq!(content(&data["current"]), content(&accepted));
+    assert_eq!(accepted["title"], "Launch plan, final");
 }
 
 #[test]

@@ -9,7 +9,7 @@ use clerkenwell_store::{
     CollaborationCommit, CollaborationCommitOutcome, CollaborationDocumentId,
     CollaborationDocumentInspection, CollaborationExchangeMode, CollaborationImportRequest,
     CollaborationPublicationScan, CollaborationRecoveryAction, CollaborationRecoveryAuditRecord,
-    CollaborationService, CollaborationStoragePort, DurableCollaborationEnvelope,
+    CollaborationService, CollaborationStoragePort, DurableCollaborationEnvelope, ImportFence,
     LocalFileCollaborationStorage,
 };
 use serde_json::{json, Value};
@@ -157,6 +157,7 @@ fn a_storage_port_implemented_outside_the_crate_carries_every_commit() {
                 update_base64: client
                     .export_incremental_update_base64(&state.accepted_frontier_base64)
                     .expect("incremental update"),
+                fence: ImportFence::Frontier,
             },
             accept,
         )
