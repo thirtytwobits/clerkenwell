@@ -11,7 +11,7 @@ repository = "https://github.com/thirtytwobits/clerkenwell"
 # The approved Rust/npm Loro release pair and its source live in
 # loro-release.json. Consumers take `loro` through clerkenwell-doc's re-export.
 [workspace.dependencies]
-base64 = "0.22"
+base64 = "0.23"
 clap = { version = "4.5", features = ["derive"] }
 icu_collator = "2.1"
 indexmap = "2.12"
