@@ -226,8 +226,7 @@ test("restart turns an interrupted send back into a replayable durable operation
       "Note:note": beginAuthoringReplay(queuedSession(), "operation")
     }
   });
-  const restarted = new AuthoringRuntime();
-  restarted.restore(runtime.getSnapshot());
+  const restarted = new AuthoringRuntime(runtime.getSnapshot());
 
   const restored = restarted.session<{ prose: string }>(resource);
   assert.ok(restored);

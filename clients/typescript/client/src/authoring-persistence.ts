@@ -30,6 +30,11 @@ export interface PersistedQueuedAuthoringOperation {
   rejection_category?: string;
 }
 
+export interface PersistedAuthoringDraftOperations {
+  base_frontier_base64: string;
+  update_base64: string;
+}
+
 export interface PersistedAuthoringSessionState {
   resource: PersistedAuthoringResourceIdentity;
   policy: "collaborative" | "optimisticDocument";
@@ -41,6 +46,7 @@ export interface PersistedAuthoringSessionState {
   draft: unknown;
   validation: unknown;
   queued_operations: PersistedQueuedAuthoringOperation[];
+  draft_operations?: PersistedAuthoringDraftOperations;
   last_rejection?: unknown;
 }
 
@@ -149,6 +155,14 @@ function toPersistedSession(
         ? {}
         : { rejection_category: operation.rejectionCategory })
     })),
+    ...(session.draftOperations === undefined
+      ? {}
+      : {
+          draft_operations: {
+            base_frontier_base64: session.draftOperations.baseFrontierBase64,
+            update_base64: session.draftOperations.updateBase64
+          }
+        }),
     ...(session.lastRejection === undefined
       ? {}
       : { last_rejection: structuredClone(session.lastRejection) })
@@ -192,6 +206,14 @@ function fromPersistedSession(
         ? {}
         : { rejectionCategory: operation.rejection_category })
     })),
+    ...(session.draft_operations === undefined
+      ? {}
+      : {
+          draftOperations: {
+            baseFrontierBase64: session.draft_operations.base_frontier_base64,
+            updateBase64: session.draft_operations.update_base64
+          }
+        }),
     ...(isAuthoringRejection(session.last_rejection)
       ? { lastRejection: session.last_rejection }
       : {})

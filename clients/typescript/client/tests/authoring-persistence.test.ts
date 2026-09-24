@@ -114,9 +114,23 @@ test("restoring a snapshot does not drop a live session the snapshot omits", () 
   assert.deepEqual(runtime.session(resource), live);
 });
 
-test("restoring adopts pending work over the live session for the same resource", () => {
-  const runtime = openedRuntime();
-  const elsewhere = openedRuntime();
+function optimisticRuntime(): AuthoringRuntime {
+  const runtime = new AuthoringRuntime();
+  runtime.open({
+    resource,
+    policy: "optimisticDocument",
+    schemaVersion: 1,
+    acceptedRevision: "etag",
+    supportedExchangeModes: ["optimisticDocument"],
+    baseline: { prose: "server copy" },
+    draft: { prose: "server copy" }
+  });
+  return runtime;
+}
+
+test("restoring adopts another runtime's optimistic draft over the live session", () => {
+  const runtime = optimisticRuntime();
+  const elsewhere = optimisticRuntime();
   elsewhere.modify(resource, { prose: "edited in another window" });
 
   runtime.restore(fromPersistedRuntime(toPersistedRuntime(elsewhere.getSnapshot())));
@@ -125,6 +139,46 @@ test("restoring adopts pending work over the live session for the same resource"
     runtime.session<{ prose: string }>(resource)?.draft,
     elsewhere.session<{ prose: string }>(resource)?.draft
   );
+});
+
+test("restoring carries another runtime's collaborative session without adopting it", () => {
+  const runtime = openedRuntime();
+  const live = runtime.session(resource);
+  const elsewhere = openedRuntime();
+  elsewhere.modify(resource, { prose: "edited in another window" });
+  const persisted = toPersistedRuntime(elsewhere.getSnapshot());
+
+  runtime.restore(fromPersistedRuntime(persisted));
+
+  assert.equal(runtime.session(resource), live);
+  assert.deepEqual(toPersistedRuntime(runtime.persistedState()), persisted);
+});
+
+test("this runtime's own pending work is persisted over a carried session", () => {
+  const runtime = openedRuntime();
+  const elsewhere = openedRuntime();
+  elsewhere.modify(resource, { prose: "edited in another window" });
+  runtime.restore(fromPersistedRuntime(toPersistedRuntime(elsewhere.getSnapshot())));
+
+  runtime.modify(resource, { prose: "edited here" });
+
+  assert.deepEqual(
+    toPersistedRuntime(runtime.persistedState()),
+    toPersistedRuntime(runtime.getSnapshot())
+  );
+});
+
+test("a carried session is dropped once a later snapshot omits it", () => {
+  const runtime = openedRuntime();
+  const elsewhere = openedRuntime();
+  elsewhere.modify(resource, { prose: "edited in another window" });
+  runtime.restore(fromPersistedRuntime(toPersistedRuntime(elsewhere.getSnapshot())));
+
+  elsewhere.discard(resource);
+  runtime.restore(fromPersistedRuntime(toPersistedRuntime(elsewhere.getSnapshot())));
+
+  assert.deepEqual(persistedKeys(runtime), []);
+  assert.deepEqual(Object.keys(toPersistedRuntime(runtime.persistedState()).sessions), []);
 });
 
 test("a publish that leaves the durable sessions alone produces the same persisted set", () => {

@@ -38,8 +38,7 @@ test("edit, dismiss, restart, reconnect, and exactly-once replay retain one sess
   assert.ok(durable);
   assert.equal(authoringLeaveDecision(durable, true).kind, "allow");
 
-  const afterRestart = new AuthoringRuntime();
-  afterRestart.restore(beforeRestart.getSnapshot());
+  const afterRestart = new AuthoringRuntime(beforeRestart.getSnapshot());
   afterRestart.reconnect(resource);
   afterRestart.beginReplay(resource, "stable-operation");
   afterRestart.acknowledge({

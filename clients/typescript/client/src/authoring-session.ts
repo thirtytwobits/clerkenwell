@@ -47,6 +47,14 @@ export interface QueuedAuthoringOperation<TDocument = unknown> {
   rejectionCategory?: string;
 }
 
+/** The replica operations a collaborative draft materialises. */
+export interface AuthoringDraftOperations {
+  /** Frontier of the replica state the operations extend. */
+  baseFrontierBase64: string;
+  /** Loro update from that frontier to the state the draft materialises. */
+  updateBase64: string;
+}
+
 export interface AuthoringSession<TDocument> {
   resource: AuthoringResourceIdentity;
   policy: "collaborative" | "optimisticDocument";
@@ -58,6 +66,11 @@ export interface AuthoringSession<TDocument> {
   draft: TDocument;
   validation: unknown;
   queuedOperations: readonly QueuedAuthoringOperation<TDocument>[];
+  /**
+   * Recorded while a collaborative session has pending work and a controller
+   * that can record it, and dropped once the draft is set any other way.
+   */
+  draftOperations?: AuthoringDraftOperations;
   lastRejection?: {
     category: string;
     message: string;
@@ -125,7 +138,35 @@ export interface AuthoringSessionController<
   exportUpdateBase64?: () => string;
   exportIncrementalUpdateBase64?: (acceptedFrontierBase64: string) => string;
   acceptedFrontierBase64?: () => string;
+  /** Whether the replica holds every operation up to a frontier. */
+  coversFrontierBase64?: (frontierBase64: string) => boolean;
+  /** Frontier of the operations an update carries, once the replica holds them. */
+  updateFrontierBase64?: (updateBase64: string) => string;
   dispose?: () => void;
+}
+
+/**
+ * A controller whose replica records a session's draft as operations and
+ * takes them back: {@link AuthoringSession.draftOperations}.
+ */
+type OperationRecordingController = AuthoringSessionController<unknown, string>
+  & Required<Pick<
+    AuthoringSessionController<unknown, string>,
+    | "acceptedFrontierBase64"
+    | "coversFrontierBase64"
+    | "exportIncrementalUpdateBase64"
+    | "importUpdateBase64"
+    | "updateFrontierBase64"
+  >>;
+
+function recordsOperations(
+  controller: AuthoringSessionController<unknown, string>
+): controller is OperationRecordingController {
+  return controller.acceptedFrontierBase64 !== undefined
+    && controller.coversFrontierBase64 !== undefined
+    && controller.exportIncrementalUpdateBase64 !== undefined
+    && controller.importUpdateBase64 !== undefined
+    && controller.updateFrontierBase64 !== undefined;
 }
 
 export type AuthoringTextStageConfirmation =
@@ -156,6 +197,12 @@ interface OwnedAuthoringController {
   textStages: Set<OwnedAuthoringTextStage>;
   draftSyncQueued: boolean;
   disposed: boolean;
+  /**
+   * Frontier of the newest accepted state the replica holds, which a session's
+   * recorded operations extend: where the replica stood when attached, then the
+   * end of each accepted update it takes through the session handle.
+   */
+  acceptedBaseFrontierBase64?: string;
 }
 
 /**
@@ -275,6 +322,7 @@ export class AuthoringSessionHandle<
         input.updateBase64
       );
     }
+    takeAcceptedUpdate(this.owned, input.updateBase64);
     const draft = input.draft
       ?? controller.currentDraft?.()
       ?? input.baseline;
@@ -336,21 +384,25 @@ export class AuthoringSessionHandle<
     controller.adoptDocument(document);
   }
 
+  /** Import accepted operations and materialise the draft they leave. */
   importUpdateBase64(updateBase64: string): void {
     const controller = this.controller();
     if (controller.importUpdateBase64 === undefined) {
       throw new Error(`${this.owned.resource.entity} authoring cannot import Loro updates.`);
     }
     controller.importUpdateBase64(updateBase64);
+    takeAcceptedUpdate(this.owned, updateBase64);
     this.runtime.syncControllerDraft(this.owned);
   }
 
+  /** Import accepted operations and materialise the draft they leave. */
   importVersionedUpdateBase64(schemaVersion: number, updateBase64: string): void {
     const controller = this.controller();
     if (controller.importVersionedUpdateBase64 === undefined) {
       throw new Error(`${this.owned.resource.entity} authoring cannot import versioned Loro updates.`);
     }
     controller.importVersionedUpdateBase64(schemaVersion, updateBase64);
+    takeAcceptedUpdate(this.owned, updateBase64);
     this.runtime.syncControllerDraft(this.owned);
   }
 
@@ -440,24 +492,25 @@ export function startAuthoringSession<TDocument>(input: {
   };
 }
 
+/** Statuses whose draft may change; a blocked session's draft stays as it is. */
+const MODIFIABLE_STATUSES: readonly AuthoringSessionStatus[] = [
+  "clean",
+  "live",
+  "modified",
+  "commitPending",
+  "replaying",
+  "commitRejected",
+  "disconnectedReadable",
+  "offlineModified",
+  "policyConflict"
+];
+
 export function modifyAuthoringSession<TDocument>(
   session: AuthoringSession<TDocument>,
   draft: TDocument,
   validation: unknown = session.validation
 ): AuthoringSession<TDocument> {
-  requireStatus(
-    session,
-    "modify",
-    "clean",
-    "live",
-    "modified",
-    "commitPending",
-    "replaying",
-    "commitRejected",
-    "disconnectedReadable",
-    "offlineModified",
-    "policyConflict"
-  );
+  requireStatus(session, "modify", ...MODIFIABLE_STATUSES);
   const draftMatchesBaseline = documentsEqual(session.baseline, draft);
   const hasQueuedOperations = session.queuedOperations.length > 0;
   return {
@@ -892,11 +945,16 @@ export class AuthoringRuntime {
   readonly #listeners = new Set<AuthoringRuntimeListener>();
   readonly #controllers = new Map<string, OwnedAuthoringController>();
   #state: AuthoringRuntimeState;
+  #carried: Readonly<Record<string, AuthoringSession<unknown>>> = {};
   #batchDepth = 0;
   #batchDirty = false;
 
+  /**
+   * Start from a persisted snapshot, as after a restart. An operation that was
+   * being sent when the snapshot was taken is queued again.
+   */
   constructor(initial: AuthoringRuntimeState = { sessions: {} }) {
-    this.#state = cloneRuntimeState(initial);
+    this.#state = cloneRuntimeState(initial, true);
   }
 
   getSnapshot = (): AuthoringRuntimeState => this.#state;
@@ -930,7 +988,7 @@ export class AuthoringRuntime {
   }
 
   /**
-   * Adopt persisted sessions on top of the live ones.
+   * Adopt the sessions another live runtime persisted on top of this one's.
    *
    * A snapshot carries only the sessions that
    * {@link authoringSessionRequiresDurableRestoration} keeps, so a session it
@@ -938,20 +996,27 @@ export class AuthoringRuntime {
    * gone". Restoring therefore overwrites what the snapshot names and leaves
    * everything else where it is.
    *
-   * A collaborative session with a live controller is that controller's
-   * replica. Another runtime's draft for it materialises operations that
-   * runtime holds and sends itself, so writing the draft into this replica
-   * would author the same edits again as a second copy. Such a session is
-   * restored only through {@link AuthoringSessionController.importDraft};
-   * without it the live session stays, and the edits arrive as accepted state.
+   * A collaborative draft materialises operations the other runtime holds and
+   * sends itself, so this runtime never writes it into a replica. A
+   * collaborative session with a live controller is restored only through
+   * {@link AuthoringSessionController.importDraft}; without it the live session
+   * stays, and the edits arrive as accepted state. A collaborative session this
+   * runtime has no controller for is carried rather than adopted: it is
+   * persisted with this runtime's own sessions ({@link persistedState}) until a
+   * later snapshot omits it, and never attached here.
    */
   restore(snapshot: AuthoringRuntimeState): void {
-    const restored = cloneRuntimeState(snapshot, true);
+    const restored = cloneRuntimeState(snapshot);
     const sessions = { ...this.#state.sessions };
+    const carried: Record<string, AuthoringSession<unknown>> = {};
     let changed = false;
     for (const [id, session] of Object.entries(restored.sessions)) {
       const live = this.#state.sessions[id];
       const controller = this.#controllers.get(id)?.controller;
+      if (session.policy === "collaborative" && controller === undefined) {
+        carried[id] = session;
+        continue;
+      }
       if (documentsEqual(session, live)) {
         continue;
       }
@@ -966,9 +1031,25 @@ export class AuthoringRuntime {
       sessions[id] = session;
       changed = true;
     }
+    this.#carried = carried;
     if (changed) {
       this.#publish({ sessions });
     }
+  }
+
+  /**
+   * The sessions to persist: this runtime's own, and each session carried from
+   * another runtime where this runtime has nothing pending of its own.
+   */
+  persistedState(): AuthoringRuntimeState {
+    const sessions = { ...this.#state.sessions };
+    for (const [id, session] of Object.entries(this.#carried)) {
+      const own = sessions[id];
+      if (own === undefined || !authoringSessionRequiresDurableRestoration(own)) {
+        sessions[id] = session;
+      }
+    }
+    return { sessions };
   }
 
   session<TDocument>(
@@ -997,19 +1078,42 @@ export class AuthoringRuntime {
     if (existing !== undefined) {
       return existing.handle as AuthoringSessionHandle<TDocument, TTextFieldPath>;
     }
-    const controller = create();
-    controller.replaceDraft?.(session.draft);
+    const controller = create() as AuthoringSessionController<unknown, string>;
+    const recording = recordsOperations(controller);
     const owned: OwnedAuthoringController = {
       resource: { ...resource },
-      controller: controller as AuthoringSessionController<unknown, string>,
+      controller,
       bindingSubscriptions: new Map(),
       textStages: new Set(),
       draftSyncQueued: false,
-      disposed: false
+      disposed: false,
+      ...(recording ? { acceptedBaseFrontierBase64: controller.acceptedFrontierBase64() } : {})
     };
+    // Recorded operations are taken as themselves, so edits the replica
+    // already holds are not authored again. A replica without their base holds
+    // other history, and a blocked session's draft stays as it is: both take
+    // the draft as a document.
+    const operations = session.draftOperations;
+    if (
+      recording
+      && operations !== undefined
+      && MODIFIABLE_STATUSES.includes(session.status)
+      && controller.coversFrontierBase64(operations.baseFrontierBase64)
+    ) {
+      controller.importUpdateBase64(operations.updateBase64);
+    } else {
+      controller.replaceDraft?.(session.draft);
+    }
     owned.handle = new AuthoringSessionHandle<unknown, string>(this, owned);
     this.#controllers.set(id, owned);
     this.syncControllerDraft(owned);
+    const synced = this.session<unknown>(resource);
+    if (synced !== undefined) {
+      const recorded = recordDraftOperations(owned, synced);
+      if (recorded !== synced) {
+        this.#publish({ sessions: { ...this.#state.sessions, [id]: recorded } });
+      }
+    }
     return owned.handle as AuthoringSessionHandle<TDocument, TTextFieldPath>;
   }
 
@@ -1310,16 +1414,17 @@ export class AuthoringRuntime {
     session: AuthoringSession<TDocument>,
     alignController: boolean = true
   ): void {
+    const id = authoringSessionId(session.resource);
+    const owned = this.#controllers.get(id);
     if (alignController) {
-      const controller = this.#controllers.get(
-        authoringSessionId(session.resource)
-      )?.controller as AuthoringSessionController<TDocument, string> | undefined;
-      controller?.replaceDraft?.(session.draft);
+      owned?.controller.replaceDraft?.(session.draft);
     }
     this.#publish({
       sessions: {
         ...this.#state.sessions,
-        [authoringSessionId(session.resource)]: session
+        [id]: owned === undefined
+          ? withoutStaleDraftOperations(this.#state.sessions[id], session)
+          : recordDraftOperations(owned, session)
       }
     });
   }
@@ -1382,6 +1487,63 @@ export class AuthoringRuntime {
     owned.textStages.clear();
     owned.controller.dispose?.();
   }
+}
+
+/**
+ * Records what a session's replica holds beyond the newest accepted state it
+ * has taken, while the session has anything pending.
+ */
+function recordDraftOperations<TDocument>(
+  owned: OwnedAuthoringController,
+  session: AuthoringSession<TDocument>
+): AuthoringSession<TDocument> {
+  const controller = owned.controller;
+  const base = owned.acceptedBaseFrontierBase64;
+  if (session.policy !== "collaborative" || base === undefined || !recordsOperations(controller)) {
+    return session;
+  }
+  if (!authoringSessionRequiresDurableRestoration(session)) {
+    return withoutDraftOperations(session);
+  }
+  const updateBase64 = controller.exportIncrementalUpdateBase64(base);
+  const recorded = session.draftOperations;
+  if (recorded?.baseFrontierBase64 === base && recorded.updateBase64 === updateBase64) {
+    return session;
+  }
+  return { ...session, draftOperations: { baseFrontierBase64: base, updateBase64 } };
+}
+
+/** Moves a replica's accepted base to the end of an accepted update it has taken. */
+function takeAcceptedUpdate(owned: OwnedAuthoringController, updateBase64: string): void {
+  if (owned.acceptedBaseFrontierBase64 !== undefined && recordsOperations(owned.controller)) {
+    owned.acceptedBaseFrontierBase64 = owned.controller.updateFrontierBase64(updateBase64);
+  }
+}
+
+/**
+ * A session without a replica keeps its recorded operations while it is
+ * pending and its draft is still the one they materialise.
+ */
+function withoutStaleDraftOperations<TDocument>(
+  previous: AuthoringSession<unknown> | undefined,
+  next: AuthoringSession<TDocument>
+): AuthoringSession<TDocument> {
+  return previous !== undefined
+    && authoringSessionRequiresDurableRestoration(next)
+    && documentsEqual(previous.draft, next.draft)
+    ? next
+    : withoutDraftOperations(next);
+}
+
+function withoutDraftOperations<TDocument>(
+  session: AuthoringSession<TDocument>
+): AuthoringSession<TDocument> {
+  if (session.draftOperations === undefined) {
+    return session;
+  }
+  const next = { ...session };
+  delete next.draftOperations;
+  return next;
 }
 
 function cloneRuntimeState(
