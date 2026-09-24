@@ -19,6 +19,12 @@ operations and forensic recovery.
 `loro-release.json` records the approved Rust and npm Loro release pair. Consumers take
 `loro` through `clerkenwell-doc`.
 
+## Example
+
+`examples/notes` walks through a store, two writers editing one note concurrently, fenced
+commits, a conflict on an explicit field resolved by rebasing, and the recovery audit:
+`cargo run -p clerkenwell-example-notes`.
+
 ## TypeScript packages
 
 An npm workspace under `clients/typescript/`, consumed as TypeScript source. `npm run typecheck`

@@ -1,0 +1,20 @@
+[package]
+name = "clerkenwell-example-notes"
+description = "A walk-through of Clerkenwell over one collaborative note"
+publish = false
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+clerkenwell-doc = { path = "../../crates/clerkenwell-doc" }
+clerkenwell-schema = { path = "../../crates/clerkenwell-schema" }
+clerkenwell-store = { path = "../../crates/clerkenwell-store" }
+schemars.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tempfile.workspace = true
+
+[dev-dependencies]
+clerkenwell-codegen = { path = "../../crates/clerkenwell-codegen" }

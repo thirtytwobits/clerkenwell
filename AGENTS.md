@@ -13,6 +13,7 @@ crates/clerkenwell-codegen      the definition language, its validation, and the
 crates/clerkenwell-notebook     the example definition the tests share, and its generated bindings
 crates/clerkenwell-conformance  Rust and TypeScript replicas of one definition driven against each other
 conformance/                    the Node bridges the conformance tests drive
+examples/notes                  a runnable walk-through of the framework over one note
 clients/typescript/             @clerkenwell/client (React-free) and @clerkenwell/react
 ```
 

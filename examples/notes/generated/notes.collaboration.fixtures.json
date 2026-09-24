@@ -1,0 +1,44 @@
+{
+  "collaborationDefinitionVersion": 1,
+  "entities": [
+    {
+      "entity": "Note",
+      "schemaVersion": 1,
+      "migrationIds": [
+        "note-loro-layout-v1"
+      ],
+      "wireDocument": {
+        "title": "title-value",
+        "body": "body-value",
+        "status": "draft"
+      },
+      "clientDocument": {
+        "title": "title-value",
+        "body": "body-value",
+        "status": "draft"
+      },
+      "operations": {
+        "scalar": {
+          "path": "status",
+          "value": "updated-value"
+        },
+        "reorder": [],
+        "delete": [],
+        "optionalPresent": [],
+        "optionalAbsent": []
+      },
+      "invalid": [
+        {
+          "kind": "missingIdentity"
+        },
+        {
+          "kind": "duplicateIdentity"
+        },
+        {
+          "kind": "unsupportedSchemaVersion",
+          "schemaVersion": 2
+        }
+      ]
+    }
+  ]
+}

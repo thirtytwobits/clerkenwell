@@ -310,6 +310,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "clerkenwell-example-notes"
+version = "0.1.0"
+dependencies = [
+ "clerkenwell-codegen",
+ "clerkenwell-doc",
+ "clerkenwell-schema",
+ "clerkenwell-store",
+ "schemars",
+ "serde",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
 name = "clerkenwell-notebook"
 version = "0.1.0"
 dependencies = [
