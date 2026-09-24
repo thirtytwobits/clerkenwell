@@ -27,6 +27,24 @@ fn module_header(project: &Project) -> String {
 /// The React-free TypeScript model module.
 pub fn render_model_module(definition: &Definition, project: &Project) -> Result<String> {
     let mut lines = vec![module_header(project), String::new()];
+    lines.extend(
+        [
+            "import type {",
+            "  AuthoringPlan,",
+            "  CollaborationEntityPlan as ClerkenwellCollaborationEntityPlan,",
+            "  ProjectionCompositionPlan as ClerkenwellProjectionCompositionPlan",
+            "} from \"@clerkenwell/client\";",
+            "export type {",
+            "  AuthoringPolicyKind,",
+            "  CollaborationFieldPlan,",
+            "  CollaborationStorageKind,",
+            "  CollaborationValueCodec",
+            "} from \"@clerkenwell/client\";",
+            "export { resolveCollaborationContainer } from \"@clerkenwell/client\";",
+            "",
+        ]
+        .map(str::to_owned),
+    );
     for (definition_name, schema) in definition.def_entries() {
         lines.push(render_definition(definition_name, schema)?);
         lines.push(String::new());
@@ -65,6 +83,28 @@ pub fn render_model_module(definition: &Definition, project: &Project) -> Result
     lines.push(String::new());
     lines.push(contract_interfaces(definition)?);
     lines.push(String::new());
+    lines.extend(
+        [
+            "/** The projection model @clerkenwell/client is generic over. */",
+            "export type GeneratedProjectionModel = {",
+            "  projections: {",
+            "    [K in ProjectionName]: {",
+            "      params: ProjectionParamsByName[K];",
+            "      snapshot: ProjectionSnapshotByName[K];",
+            "      patch: ProjectionPatchByName[K];",
+            "    };",
+            "  };",
+            "  mutations: {",
+            "    [K in MutationName]: {",
+            "      params: MutationParamsByName[K];",
+            "      result: MutationResultByName[K];",
+            "    };",
+            "  };",
+            "};",
+            "",
+        ]
+        .map(str::to_owned),
+    );
     lines.push(composition_metadata(definition, project));
     lines.push(String::new());
     Ok(format!("{}\n", lines.join("\n")))
@@ -196,12 +236,7 @@ fn composition_metadata(definition: &Definition, project: &Project) -> String {
         })
         .collect();
     [
-        "export type ProjectionCompositionPlan =".to_owned(),
-        "  | { readonly strategy: \"keyedCollection\"; readonly collectionField: string; readonly itemField: string; readonly itemIdentityField: string; readonly patchIdentityField: string; readonly dependsOn: readonly EntityName[] }".to_owned(),
-        "  | { readonly strategy: \"sequencedText\"; readonly collectionField: string; readonly itemIdentityField: string; readonly patchIdentityField: string; readonly snapshotOutputField: string; readonly sequenceField: string; readonly textField: string; readonly patchOutputField: string; readonly deltaTextField: string; readonly dependsOn: readonly EntityName[] }".to_owned(),
-        "  | { readonly strategy: \"replaceOrRemove\"; readonly updateField?: string; readonly updatesField?: string; readonly snapshotMode: \"patch\" | \"field\"; readonly snapshotField?: string; readonly snapshotOmitFields?: readonly string[]; readonly removeMode: \"nullSnapshot\" | \"nullField\"; readonly removeField?: string; readonly dependsOn: readonly EntityName[] }".to_owned(),
-        "  | { readonly strategy: \"replace\"; readonly snapshotMode: \"patch\" | \"field\"; readonly snapshotField?: string; readonly snapshotOmitFields?: readonly string[]; readonly dependsOn: readonly EntityName[] }".to_owned(),
-        "  | { readonly strategy: \"reset\"; readonly dependsOn: readonly EntityName[] };".to_owned(),
+        "export type ProjectionCompositionPlan = ClerkenwellProjectionCompositionPlan<EntityName>;".to_owned(),
         String::new(),
         format!(
             "export const PROJECTION_COMPOSITION_PLANS = {} as const satisfies Record<ProjectionName, ProjectionCompositionPlan>;",
@@ -213,19 +248,7 @@ fn composition_metadata(definition: &Definition, project: &Project) -> String {
             Json::from(effects).stringify_pretty()
         ),
         String::new(),
-        "export type AuthoringPolicyKind = \"optimisticDocument\" | \"collaborative\" | \"commandOwned\" | \"readOnly\";".to_owned(),
-        "export interface GeneratedAuthoringPlan {".to_owned(),
-        "  readonly kind: AuthoringPolicyKind;".to_owned(),
-        "  readonly schemaVersion: number;".to_owned(),
-        "  readonly rationale: string;".to_owned(),
-        "  readonly revision: { readonly kind: \"contentHash\"; readonly field: string } | { readonly kind: \"loro\" };".to_owned(),
-        "  readonly mutations: readonly MutationName[];".to_owned(),
-        "  readonly contentMutation?: MutationName;".to_owned(),
-        "  readonly planningMutations: readonly MutationName[];".to_owned(),
-        "  readonly commandMutations: readonly MutationName[];".to_owned(),
-        "  readonly lifecycleMutations: readonly MutationName[];".to_owned(),
-        "  readonly authoringSession: null | { readonly mnemonicKey: string; readonly leavePolicy: \"durableRestoreOrConfirmDiscard\"; readonly conflictPolicy: \"generatedFieldPolicy\" | \"expectedRevision\" };".to_owned(),
-        "}".to_owned(),
+        "export type GeneratedAuthoringPlan = AuthoringPlan<MutationName>;".to_owned(),
         format!(
             "export const AUTHORING_PLANS = {} as const satisfies Record<EntityName, GeneratedAuthoringPlan>;",
             Json::from(authoring_plans).stringify_pretty()
@@ -263,24 +286,7 @@ fn collaboration_metadata(definition: &Definition) -> String {
         .collect();
     let compatibility = collaboration.compatibility();
     [
-        "export type CollaborationStorageKind = \"scalar\" | \"text\" | \"orderedList\" | \"structuredList\" | \"structuredMap\" | \"structuredDocument\" | \"derivedIdentity\" | \"derivedRevision\" | \"keyedSequence\";".to_owned(),
-        "export type CollaborationValueCodec = \"integer\" | \"number\" | \"optionalNumber\" | \"boolean\" | \"string\" | \"optionalString\" | \"propertyText\" | \"stringList\" | \"structuredJson\" | \"identity\" | \"keyedSequence\";".to_owned(),
-        "export interface CollaborationFieldPlan {".to_owned(),
-        "  readonly path: string;".to_owned(),
-        "  readonly storage: { readonly kind: CollaborationStorageKind; readonly container?: string; readonly containerTemplate?: string; readonly key?: string; readonly identityPath?: string; readonly identityVariable?: string; readonly orderContainer?: string; readonly itemContainerTemplate?: string; readonly metadataContainer?: string; readonly metadataContainerTemplate?: string; readonly metadataKey?: string };".to_owned(),
-        "  readonly value: { readonly codec: CollaborationValueCodec; readonly schema?: { readonly $ref: string } };".to_owned(),
-        "  readonly required: boolean;".to_owned(),
-        "  readonly conflict: \"immutable\" | \"explicit\" | \"merge\" | \"lastWriterWins\";".to_owned(),
-        "}".to_owned(),
-        "export interface CollaborationEntityPlan {".to_owned(),
-        "  readonly substrate: \"loro\";".to_owned(),
-        "  readonly schemaVersion: number;".to_owned(),
-        "  readonly migrationIds: readonly string[];".to_owned(),
-        "  readonly authoringState: { readonly projection: ProjectionName; readonly importMutation: MutationName };".to_owned(),
-        "  readonly rootContainer: string;".to_owned(),
-        "  readonly clientPathNaming: \"camelCase\";".to_owned(),
-        "  readonly fields: Readonly<Record<string, CollaborationFieldPlan>>;".to_owned(),
-        "}".to_owned(),
+        "export type CollaborationEntityPlan = ClerkenwellCollaborationEntityPlan<ProjectionName, MutationName>;".to_owned(),
         format!(
             "export const COLLABORATION_DEFINITION_VERSION = {} as const;",
             number_to_string(collaboration.version())
@@ -302,16 +308,6 @@ fn collaboration_metadata(definition: &Definition) -> String {
         "export type CollaborationTextFieldPath<TEntity extends CollaborationEntityName> = {".to_owned(),
         "  [TPath in CollaborationFieldPath<TEntity>]: (typeof COLLABORATION_PLANS)[TEntity][\"fields\"][TPath] extends { readonly storage: { readonly kind: \"text\" } } ? TPath : never;".to_owned(),
         "}[CollaborationFieldPath<TEntity>];".to_owned(),
-        String::new(),
-        "export function resolveCollaborationContainer(template: string, identities: Readonly<Record<string, string>>): string {".to_owned(),
-        "  return template.replace(/\\{([^}]+)\\}/g, (_match, identity: string) => {".to_owned(),
-        "    const value = identities[identity];".to_owned(),
-        "    if (value === undefined || value.length === 0) {".to_owned(),
-        "      throw new Error(`Missing collaboration identity ${JSON.stringify(identity)} for ${JSON.stringify(template)}.`);".to_owned(),
-        "    }".to_owned(),
-        "    return value;".to_owned(),
-        "  });".to_owned(),
-        "}".to_owned(),
     ]
     .join("\n")
 }
