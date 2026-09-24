@@ -285,6 +285,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "clerkenwell-conformance"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "clerkenwell-doc",
+ "clerkenwell-notebook",
+ "clerkenwell-schema",
+ "serde_json",
+]
+
+[[package]]
 name = "clerkenwell-doc"
 version = "0.1.0"
 dependencies = [

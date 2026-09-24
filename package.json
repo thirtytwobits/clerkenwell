@@ -11,7 +11,7 @@
     "clients/typescript/react"
   ],
   "scripts": {
-    "typecheck": "npm run typecheck --workspaces",
+    "typecheck": "npm run typecheck --workspaces && tsc --noEmit -p conformance",
     "test": "npm run test --workspaces"
   },
   "devDependencies": {
