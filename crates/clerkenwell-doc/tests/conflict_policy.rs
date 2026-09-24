@@ -189,3 +189,111 @@ fn a_replica_refuses_an_update_that_diverges_from_what_it_has_accepted() {
         "an immutable field refuses any change"
     );
 }
+
+mod nested {
+    //! A plan whose explicit field sits two keyed sequences deep. Policy is
+    //! judged on materialised documents, so only paths, identities, storage
+    //! kinds and policies matter here.
+
+    use clerkenwell_notebook::{
+        GeneratedCollaborationConflict as Conflict, GeneratedCollaborationEntitySpec,
+        GeneratedCollaborationFieldSpec, GeneratedCollaborationStorageKind as Storage,
+        GeneratedCollaborationValueCodec as Codec,
+    };
+
+    const fn field(
+        path: &'static str,
+        storage_kind: Storage,
+        identity_path: Option<&'static str>,
+        codec: Codec,
+        conflict: Conflict,
+    ) -> GeneratedCollaborationFieldSpec {
+        GeneratedCollaborationFieldSpec {
+            path,
+            storage_kind,
+            container: None,
+            container_template: None,
+            key: None,
+            identity_path,
+            identity_variable: None,
+            order_container: None,
+            item_container_template: None,
+            metadata_container: None,
+            metadata_container_template: None,
+            metadata_key: None,
+            codec,
+            value_schema: None,
+            required: true,
+            conflict,
+        }
+    }
+
+    static FIELDS: &[GeneratedCollaborationFieldSpec] = &[
+        field(
+            "columns",
+            Storage::KeyedSequence,
+            Some("column_id"),
+            Codec::KeyedSequence,
+            Conflict::Merge,
+        ),
+        field(
+            "columns.*.cards",
+            Storage::KeyedSequence,
+            Some("card_id"),
+            Codec::KeyedSequence,
+            Conflict::Merge,
+        ),
+        field(
+            "columns.*.cards.*.status",
+            Storage::Scalar,
+            None,
+            Codec::String,
+            Conflict::Explicit,
+        ),
+    ];
+
+    pub static PLAN: GeneratedCollaborationEntitySpec = GeneratedCollaborationEntitySpec {
+        name: "Board",
+        id_field: "board_id",
+        substrate: "loro",
+        schema_version: 1,
+        migration_ids: &[],
+        authoring_projection: "boards.authoringState",
+        import_mutation: "board.importLoroUpdate",
+        root_container: "board",
+        fields: FIELDS,
+    };
+}
+
+fn nested_board(first: &str, second: &str) -> Value {
+    json!({
+        "columns": [{
+            "column_id": "c1",
+            "cards": [
+                { "card_id": "k1", "status": first },
+                { "card_id": "k2", "status": second },
+            ],
+        }],
+    })
+}
+
+#[test]
+fn an_explicit_field_two_keyed_sequences_deep_is_judged_per_nested_item() {
+    let base = nested_board("todo", "todo");
+
+    let same_card = conflicting_field_paths(
+        &nested::PLAN,
+        &base,
+        &nested_board("doing", "todo"),
+        &nested_board("done", "todo"),
+    );
+    assert_eq!(same_card, ["columns[c1].cards[k1].status"]);
+
+    let different_cards = conflicting_field_paths(
+        &nested::PLAN,
+        &base,
+        &nested_board("doing", "todo"),
+        &nested_board("todo", "done"),
+    );
+    assert!(different_cards.is_empty(), "{different_cards:?}");
+}

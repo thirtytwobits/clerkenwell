@@ -71,14 +71,33 @@ fn field_values(
     field: &GeneratedCollaborationFieldSpec,
     document: &Value,
 ) -> BTreeMap<String, Value> {
-    let Some((sequence_path, item_path)) = field.path.split_once(".*") else {
-        return BTreeMap::from([(
-            field.path.to_string(),
-            value_at_path(document, field.path)
+    let mut values = BTreeMap::new();
+    collect_field_values(plan, "", field.path, document, "", &mut values);
+    values
+}
+
+/// Collects the values `relative` addresses in `scope`, whose declared path
+/// prefix is `declared_prefix`, descending through every keyed sequence on the
+/// way. Each value is keyed by its field path with every enclosing item named
+/// by its identity: `sequence[identity].nested[identity].field`.
+fn collect_field_values(
+    plan: &GeneratedCollaborationEntitySpec,
+    declared_prefix: &str,
+    relative: &str,
+    scope: &Value,
+    key_prefix: &str,
+    values: &mut BTreeMap<String, Value>,
+) {
+    let Some((sequence_relative, rest)) = relative.split_once(".*.") else {
+        values.insert(
+            format!("{key_prefix}{relative}"),
+            value_at_path(scope, relative)
                 .cloned()
                 .unwrap_or(Value::Null),
-        )]);
+        );
+        return;
     };
+    let sequence_path = format!("{declared_prefix}{sequence_relative}");
     let identity_path = plan
         .fields
         .iter()
@@ -87,25 +106,25 @@ fn field_values(
                 && candidate.storage_kind == GeneratedCollaborationStorageKind::KeyedSequence
         })
         .and_then(|candidate| candidate.identity_path);
-    let Some(identity_path) = identity_path else {
-        return BTreeMap::new();
+    let (Some(identity_path), Some(items)) = (
+        identity_path,
+        value_at_path(scope, sequence_relative).and_then(Value::as_array),
+    ) else {
+        return;
     };
-    let Some(items) = value_at_path(document, sequence_path).and_then(Value::as_array) else {
-        return BTreeMap::new();
-    };
-    items
-        .iter()
-        .filter_map(|item| {
-            let identity = value_at_path(item, identity_path)?.as_str()?.to_string();
-            let suffix = item_path.strip_prefix('.').unwrap_or(item_path);
-            let value = if suffix.is_empty() {
-                item.clone()
-            } else {
-                value_at_path(item, suffix).cloned().unwrap_or(Value::Null)
-            };
-            Some((format!("{sequence_path}[{identity}]{item_path}"), value))
-        })
-        .collect()
+    for item in items {
+        let Some(identity) = value_at_path(item, identity_path).and_then(Value::as_str) else {
+            continue;
+        };
+        collect_field_values(
+            plan,
+            &format!("{sequence_path}.*."),
+            rest,
+            item,
+            &format!("{key_prefix}{sequence_relative}[{identity}]."),
+            values,
+        );
+    }
 }
 
 fn value_at_path<'a>(value: &'a Value, path: &str) -> Option<&'a Value> {
