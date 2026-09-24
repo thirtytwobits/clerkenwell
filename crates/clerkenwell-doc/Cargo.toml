@@ -11,9 +11,9 @@ base64.workspace = true
 clerkenwell-schema = { path = "../clerkenwell-schema" }
 loro.workspace = true
 serde_json.workspace = true
-similar = "2.7"
+similar = "3.2"
 thiserror.workspace = true
 
 [dev-dependencies]
 clerkenwell-notebook = { path = "../clerkenwell-notebook" }
-toml = "0.9"
+toml = "1.1"
