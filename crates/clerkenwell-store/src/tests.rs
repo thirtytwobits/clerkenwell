@@ -117,12 +117,14 @@ fn initialise(
 #[test]
 fn reading_missing_collaboration_documents_does_not_create_storage_or_lock_files() {
     let temp = tempfile::tempdir().unwrap();
-    let storage = LocalFileCollaborationStorage::new(temp.path(), PLANS);
+    let service = open_service(temp.path());
     let id = CollaborationDocumentId::new("Note", "missing");
     for _ in 0..3 {
-        assert!(storage.load(&id).unwrap().is_none());
-        assert!(storage.list_entity("Note").unwrap().is_empty());
-        assert!(!storage.verify(&id).valid);
+        assert!(service.load(&id).unwrap().is_none());
+        assert!(service.envelopes("Note").unwrap().is_empty());
+        assert!(!service.verify(&id).valid);
+        assert!(service.inspect(None, None, None).unwrap().0.is_empty());
+        assert!(service.publication_scan().unwrap().publications.is_empty());
     }
     assert_eq!(std::fs::read_dir(temp.path()).unwrap().count(), 0);
 }
@@ -343,7 +345,6 @@ fn pre_commit_faults_leave_the_previous_generation_atomically_visible() {
         let root = TempDir::new().expect("temp workspace");
         let (service, document, seed, state) = initialise(root.path());
         let before = service
-            .storage()
             .load(&document)
             .expect("read baseline")
             .expect("baseline envelope");
@@ -363,7 +364,6 @@ fn pre_commit_faults_leave_the_previous_generation_atomically_visible() {
             Some("collaboration_fault_injected")
         );
         let after = service
-            .storage()
             .load(&document)
             .expect("read after fault")
             .expect("baseline remains");
@@ -382,7 +382,6 @@ fn post_commit_faults_leave_the_new_generation_recoverably_pending() {
         let root = TempDir::new().expect("temp workspace");
         let (service, document, seed, state) = initialise(root.path());
         let before = service
-            .storage()
             .load(&document)
             .expect("read baseline")
             .expect("baseline envelope");
@@ -398,7 +397,7 @@ fn post_commit_faults_leave_the_new_generation_recoverably_pending() {
         service.storage().inject_fault(point);
 
         import(&service, request, &seed).expect_err("fault reports interrupted publication");
-        let after = LocalFileCollaborationStorage::new(root.path(), PLANS)
+        let after = open_service(root.path())
             .load(&document)
             .expect("restart reads committed generation")
             .expect("committed envelope");
@@ -448,7 +447,6 @@ fn process_loss_before_publication_ack_is_recovered_exactly_once() {
         .expect("duplicate acknowledgement is idempotent");
     assert!(
         !restarted
-            .storage()
             .load(&document)
             .expect("read acknowledged state")
             .expect("collaboration state")
@@ -482,7 +480,6 @@ fn publication_scan_reads_identity_without_materialising_authoritative_payloads(
     );
 
     let error = service
-        .storage()
         .load(&document)
         .expect_err("authoritative reads must still validate payload integrity");
     assert_eq!(
@@ -565,7 +562,6 @@ fn two_process_adapters_serialise_concurrent_commits_and_converge() {
     let duplicate = import(&process_b, replay_a, &seed).expect("cross-process retry");
     assert!(duplicate.duplicate);
     let envelope = process_b
-        .storage()
         .load(&document)
         .expect("retained window")
         .expect("envelope");
@@ -715,8 +711,8 @@ fn reads_leave_every_stored_byte_and_timestamp_unchanged() {
         service
             .authoring_state(&NOTE_PLAN, &document)
             .expect("authoring state");
-        service.storage().load(&document).expect("load");
-        service.storage().list_entity("Note").expect("list entity");
+        service.load(&document).expect("load");
+        service.envelopes("Note").expect("list entity");
         service.publication_scan().expect("publication scan");
         service.publications().expect("publications");
         service.inspect(None, None, None).expect("inspect");
@@ -735,8 +731,7 @@ fn reindex_reads_every_document_and_changes_nothing_but_the_audit() {
     let count = 250;
     for index in 0..count {
         service
-            .storage()
-            .install_migrated(opaque_envelope(
+            .install(opaque_envelope(
                 PLANS[index % PLANS.len()].name,
                 &format!("document-{index:03}"),
                 1,
@@ -852,7 +847,7 @@ fn an_etag_fenced_import_of_a_superseded_read_is_refused_and_changes_nothing() {
         json!("first"),
     );
     import(&service, first, &seed).expect("an earlier writer commits");
-    let before = service.storage().load(&document).unwrap().unwrap();
+    let before = service.load(&document).unwrap().unwrap();
     let stale = on_read(
         edit_request(&document, &seed, &state, "stale", &["body"], json!("stale")),
         &state,
@@ -868,7 +863,7 @@ fn an_etag_fenced_import_of_a_superseded_read_is_refused_and_changes_nothing() {
     assert_eq!(data["current_etag"], json!(accepted.etag));
     assert_eq!(data[NOTE_PLAN.id_field], json!(document.resource_id));
     assert_eq!(data["current"]["summary"], json!("first"));
-    let after = service.storage().load(&document).unwrap().unwrap();
+    let after = service.load(&document).unwrap().unwrap();
     assert_eq!(after.generation, before.generation);
     assert_eq!(after.checkpoint_sha256, before.checkpoint_sha256);
 }
@@ -947,4 +942,75 @@ fn etag_fenced_imports_racing_from_one_read_in_two_processes_commit_exactly_once
             .map(|data| data["conflict_kind"].clone()),
         Some(json!("collaboration_revision"))
     );
+}
+
+#[test]
+fn a_moved_document_keeps_its_history_under_its_new_identity() {
+    let root = TempDir::new().expect("temp workspace");
+    let (service, document, seed, state) = initialise(root.path());
+    let request = edit_request(
+        &document,
+        &seed,
+        &state,
+        "before-move",
+        &["body"],
+        json!("written before the move"),
+    );
+    import(&service, request, &seed).expect("edit");
+    let before = service.load(&document).unwrap().expect("stored");
+    let renamed = CollaborationDocumentId::new("Note", "note-2");
+    let relative_path = "notes/renamed.yaml";
+
+    let generation = service
+        .move_document(&document, &renamed, relative_path)
+        .expect("move")
+        .expect("the document exists");
+
+    assert!(service.load(&document).unwrap().is_none());
+    let moved = service.load(&renamed).unwrap().expect("moved");
+    assert_eq!(moved.generation, generation);
+    assert!(moved.generation > before.generation);
+    assert!(moved.publication_pending);
+    assert_eq!(moved.relative_path, relative_path);
+    assert_eq!(
+        moved.pending_rename_from.as_deref(),
+        Some(document.resource_id.as_str())
+    );
+    assert_eq!(
+        moved.retained_operations.len(),
+        before.retained_operations.len()
+    );
+    assert!(moved
+        .retained_operations
+        .iter()
+        .zip(&before.retained_operations)
+        .all(|(moved, before)| moved.operation_id == before.operation_id));
+    assert_eq!(
+        service.detail(&NOTE_PLAN, &renamed).unwrap().unwrap()["body"],
+        json!("written before the move")
+    );
+}
+
+#[test]
+fn a_move_onto_a_stored_document_is_refused_and_moves_nothing() {
+    let root = TempDir::new().expect("temp workspace");
+    let (service, document, _, _) = initialise(root.path());
+    let occupied = CollaborationDocumentId::new("Note", "note-2");
+    let mut other = note_seed();
+    other["note_id"] = json!("note-2");
+    service
+        .bootstrap(&NOTE_PLAN, &occupied, "notes/other.yaml", &other, accept)
+        .expect("second document");
+    let before = files_under(root.path());
+
+    let error = service
+        .move_document(&document, &occupied, "notes/other.yaml")
+        .expect_err("the destination is taken");
+
+    assert_eq!(error.kind, StoreErrorKind::Conflict);
+    assert_eq!(
+        error.data.as_ref().and_then(|data| data["code"].as_str()),
+        Some("collaboration_destination_exists")
+    );
+    assert_eq!(files_under(root.path()), before);
 }

@@ -2,9 +2,7 @@
 
 mod support;
 
-use clerkenwell_store::{
-    CollaborationDocumentId, CollaborationService, CollaborationStoragePort, StoreError,
-};
+use clerkenwell_store::{CollaborationDocumentId, CollaborationService, StoreError};
 use serde_json::{json, Value};
 use support::{NOTE_PLAN, PLANS};
 
@@ -41,9 +39,5 @@ fn a_rejecting_validator_fails_the_commit_with_its_own_error() {
         Err(AppError::Store(error)) => panic!("expected the validator's rejection, got {error}"),
         Ok(envelope) => panic!("expected the validator's rejection, got {envelope:?}"),
     }
-    assert!(service
-        .storage()
-        .load(&document)
-        .expect("read store")
-        .is_none());
+    assert!(service.load(&document).expect("read store").is_none());
 }

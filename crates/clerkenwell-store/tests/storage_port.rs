@@ -1,191 +1,456 @@
 //! The collaboration service commits through a storage port implemented
-//! outside this crate.
+//! outside this crate that keeps nothing but bytes and versions.
 
 mod support;
 
 use clerkenwell_doc::LoroAuthoringDocument;
-use clerkenwell_store::StoreResult;
 use clerkenwell_store::{
-    CollaborationCommit, CollaborationCommitOutcome, CollaborationDocumentId,
-    CollaborationDocumentInspection, CollaborationExchangeMode, CollaborationImportRequest,
-    CollaborationPublicationScan, CollaborationRecoveryAction, CollaborationRecoveryAuditRecord,
-    CollaborationService, CollaborationStoragePort, DurableCollaborationEnvelope, ImportFence,
-    LocalFileCollaborationStorage,
+    CollaborationDocumentId, CollaborationExchangeMode, CollaborationImportRequest,
+    CollaborationRecoveryAction, CollaborationRecoveryAuditRecord, CollaborationService,
+    CollaborationStoragePort, DurableCollaborationEnvelope, ImportFence,
+    LocalFileCollaborationStorage, StoreResult, StoredEnvelope,
 };
 use serde_json::{json, Value};
+use std::collections::BTreeMap;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use support::{accept, NOTE_PLAN, PLANS};
 
-/// A port that counts the commits it is asked for and keeps its envelopes in
-/// a local-file store it owns.
-#[derive(Debug, Clone)]
-struct CountingPort {
-    inner: LocalFileCollaborationStorage,
-    commits: Arc<AtomicUsize>,
+type Hook = Box<dyn FnOnce() + Send>;
+
+#[derive(Default)]
+struct MemoryState {
+    next_version: u64,
+    envelopes: BTreeMap<String, (String, Vec<u8>)>,
+    evidence: Vec<Vec<u8>>,
+    audit: Vec<CollaborationRecoveryAuditRecord>,
+    /// Runs once, after the next write to the named source has landed.
+    after_write: Option<(String, Hook)>,
 }
 
-impl CollaborationStoragePort for CountingPort {
-    fn load(
-        &self,
-        document: &CollaborationDocumentId,
-    ) -> StoreResult<Option<DurableCollaborationEnvelope>> {
-        self.inner.load(document)
+impl std::fmt::Debug for MemoryState {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("MemoryState")
+            .field("envelopes", &self.envelopes.keys())
+            .finish()
+    }
+}
+
+/// A port that keeps each document's bytes in memory under a counter
+/// version, with no knowledge of what the bytes hold.
+#[derive(Debug, Clone, Default)]
+struct MemoryPort(Arc<Mutex<MemoryState>>);
+
+impl MemoryPort {
+    fn state(&self) -> std::sync::MutexGuard<'_, MemoryState> {
+        self.0.lock().expect("memory port")
+    }
+
+    /// Runs `hook` once, after the next write to `document` lands.
+    fn after_write(&self, document: &CollaborationDocumentId, hook: Hook) {
+        self.state().after_write = Some((self.source(document), hook));
+    }
+
+    fn run_hook(&self, source: &str) {
+        let hook = {
+            let mut state = self.state();
+            match state.after_write.take() {
+                Some((target, hook)) if target == source => Some(hook),
+                other => {
+                    state.after_write = other;
+                    None
+                }
+            }
+        };
+        if let Some(hook) = hook {
+            hook();
+        }
+    }
+}
+
+impl CollaborationStoragePort for MemoryPort {
+    fn source(&self, document: &CollaborationDocumentId) -> String {
+        format!("{}/{}", document.entity, document.resource_id)
+    }
+
+    fn sources(&self, entity: &str) -> StoreResult<Vec<String>> {
+        let prefix = format!("{entity}/");
+        Ok(self
+            .state()
+            .envelopes
+            .keys()
+            .filter(|source| source.starts_with(&prefix))
+            .cloned()
+            .collect())
+    }
+
+    fn read(&self, source: &str) -> StoreResult<Option<StoredEnvelope>> {
+        Ok(self
+            .state()
+            .envelopes
+            .get(source)
+            .map(|(version, bytes)| StoredEnvelope {
+                version: version.clone(),
+                bytes: bytes.clone(),
+            }))
     }
 
     fn compare_and_swap(
         &self,
-        commit: CollaborationCommit,
-    ) -> StoreResult<CollaborationCommitOutcome> {
-        self.commits.fetch_add(1, Ordering::SeqCst);
-        self.inner.compare_and_swap(commit)
+        document: &CollaborationDocumentId,
+        expected: Option<&str>,
+        bytes: &[u8],
+    ) -> StoreResult<Option<String>> {
+        let source = self.source(document);
+        let version = {
+            let mut state = self.state();
+            let current = state
+                .envelopes
+                .get(&source)
+                .map(|(version, _)| version.as_str());
+            if current != expected {
+                return Ok(None);
+            }
+            state.next_version += 1;
+            let version = state.next_version.to_string();
+            state
+                .envelopes
+                .insert(source.clone(), (version.clone(), bytes.to_vec()));
+            version
+        };
+        self.run_hook(&source);
+        Ok(Some(version))
     }
 
-    fn acknowledge_publication(
+    fn compare_and_remove(
         &self,
         document: &CollaborationDocumentId,
-        generation: u64,
-    ) -> StoreResult<()> {
-        self.inner.acknowledge_publication(document, generation)
+        expected: &str,
+    ) -> StoreResult<bool> {
+        let source = self.source(document);
+        let mut state = self.state();
+        if state
+            .envelopes
+            .get(&source)
+            .map(|(version, _)| version.as_str())
+            != Some(expected)
+        {
+            return Ok(false);
+        }
+        state.envelopes.remove(&source);
+        Ok(true)
     }
 
-    fn delete(&self, document: &CollaborationDocumentId) -> StoreResult<()> {
-        self.inner.delete(document)
-    }
-
-    fn move_document(
+    fn preserve(
         &self,
-        source: &CollaborationDocumentId,
-        destination: &CollaborationDocumentId,
-        relative_path: &str,
-    ) -> StoreResult<Option<u64>> {
-        self.inner.move_document(source, destination, relative_path)
-    }
-
-    fn update_relative_path(
-        &self,
-        document: &CollaborationDocumentId,
-        relative_path: &str,
-    ) -> StoreResult<Option<u64>> {
-        self.inner.update_relative_path(document, relative_path)
-    }
-
-    fn list_publications(&self, entity: &str) -> StoreResult<CollaborationPublicationScan> {
-        self.inner.list_publications(entity)
-    }
-
-    fn list_entity(&self, entity: &str) -> StoreResult<Vec<DurableCollaborationEnvelope>> {
-        self.inner.list_entity(entity)
-    }
-
-    fn export_for_recovery(&self, document: &CollaborationDocumentId) -> StoreResult<Vec<u8>> {
-        self.inner.export_for_recovery(document)
-    }
-
-    fn quarantine(&self, document: &CollaborationDocumentId, reason: &str) -> StoreResult<PathBuf> {
-        self.inner.quarantine(document, reason)
-    }
-
-    fn inspect(
-        &self,
-        entity: Option<&str>,
-        resource_id: Option<&str>,
-        limit: Option<usize>,
-    ) -> StoreResult<(Vec<CollaborationDocumentInspection>, bool)> {
-        CollaborationStoragePort::inspect(&self.inner, entity, resource_id, limit)
-    }
-
-    fn verify(&self, document: &CollaborationDocumentId) -> CollaborationDocumentInspection {
-        CollaborationStoragePort::verify(&self.inner, document)
-    }
-
-    fn repair(&self, document: &CollaborationDocumentId, reason: &str) -> StoreResult<PathBuf> {
-        CollaborationStoragePort::repair(&self.inner, document, reason)
+        _document: &CollaborationDocumentId,
+        label: &str,
+        bytes: &[u8],
+    ) -> StoreResult<PathBuf> {
+        let mut state = self.state();
+        state.evidence.push(bytes.to_vec());
+        Ok(PathBuf::from(format!(
+            "evidence/{}-{label}",
+            state.evidence.len()
+        )))
     }
 
     fn append_recovery_audit(&self, record: &CollaborationRecoveryAuditRecord) -> StoreResult<()> {
-        self.inner.append_recovery_audit(record)
+        self.state().audit.push(record.clone());
+        Ok(())
     }
 
     fn recovery_audit(&self) -> StoreResult<Vec<CollaborationRecoveryAuditRecord>> {
-        self.inner.recovery_audit()
+        Ok(self.state().audit.clone())
     }
 }
 
-#[test]
-fn a_storage_port_implemented_outside_the_crate_carries_every_commit() {
-    let root = tempfile::tempdir().expect("temp store");
-    let commits = Arc::new(AtomicUsize::new(0));
-    let service = CollaborationService::with_storage(
-        CountingPort {
-            inner: LocalFileCollaborationStorage::new(root.path(), PLANS),
-            commits: commits.clone(),
-        },
-        PLANS,
-    );
-    let seed = json!({ "note_id": "note-1", "body": "Seeded.", "etag": "" });
-    let document = CollaborationDocumentId::new("Note", "note-1");
-    let relative_path = "notes/note-1.yaml";
+const RELATIVE_PATH: &str = "notes/note-1.yaml";
 
+fn note() -> CollaborationDocumentId {
+    CollaborationDocumentId::new("Note", "note-1")
+}
+
+fn seed_document() -> Value {
+    json!({ "note_id": "note-1", "body": "Seeded.", "etag": "" })
+}
+
+/// One client's history of a note: its seed, then each edit as an operation
+/// id, the frontier it was made on and the operations it made.
+struct Edits {
+    seed_update: String,
+    edits: Vec<(String, String, String)>,
+}
+
+fn edits(count: usize) -> Edits {
+    let mut client =
+        LoroAuthoringDocument::from_document(&NOTE_PLAN, &seed_document()).expect("seed client");
+    let seed_update = client.export_update_base64().expect("seed update");
+    let mut edits = Vec::new();
+    for index in 0..count {
+        let base = client.accepted_frontier_base64();
+        let mut edited = seed_document();
+        edited["body"] = Value::from(format!("Edit {index}."));
+        client.replace_document(&edited).expect("edit client");
+        let update = client
+            .export_incremental_update_base64(&base)
+            .expect("incremental update");
+        edits.push((format!("edit-{index}"), base, update));
+    }
+    Edits { seed_update, edits }
+}
+
+fn request(operation_id: &str, base: &str, update: &str) -> CollaborationImportRequest {
+    CollaborationImportRequest {
+        document: note(),
+        relative_path: RELATIVE_PATH.to_string(),
+        schema_version: NOTE_PLAN.schema_version,
+        operation_id: operation_id.to_string(),
+        exchange_mode: CollaborationExchangeMode::Incremental,
+        base_frontier_base64: base.to_string(),
+        update_base64: update.to_string(),
+        fence: ImportFence::Frontier,
+    }
+}
+
+/// What an envelope says about a document's history and publication,
+/// leaving out how its checkpoint is encoded.
+fn history(envelope: &DurableCollaborationEnvelope) -> Value {
+    json!({
+        "resource_id": envelope.resource_id,
+        "relative_path": envelope.relative_path,
+        "schema_version": envelope.schema_version,
+        "generation": envelope.generation,
+        "checkpoint_sequence": envelope.checkpoint_sequence,
+        "compacted_through_sequence": envelope.compacted_through_sequence,
+        "retained": envelope
+            .retained_operations
+            .iter()
+            .map(|operation| json!([operation.operation_id, operation.sequence]))
+            .collect::<Vec<_>>(),
+        "publication_pending": envelope.publication_pending,
+        "pending_rename_from": envelope.pending_rename_from,
+    })
+}
+
+/// Drives one document through commits, a retry, publication, a path
+/// change, a rename and recovery, recording what the service reports.
+fn drive<S: CollaborationStoragePort>(service: &CollaborationService<S>, edits: &Edits) -> Value {
+    let mut observed = Vec::new();
+    let document = note();
     service
-        .bootstrap(&NOTE_PLAN, &document, relative_path, &seed, accept)
-        .expect("bootstrap through the port");
-    let state = service
-        .authoring_state(&NOTE_PLAN, &document)
-        .expect("read through the port");
-
-    let mut edited = seed.clone();
-    edited["body"] = Value::from("Written through a foreign port.");
-    let mut client = LoroAuthoringDocument::from_versioned_update_base64(
-        &NOTE_PLAN,
-        state.schema_version,
-        &state.update_base64,
-    )
-    .expect("hydrate client");
-    client.replace_document(&edited).expect("edit client");
-    let imported = service
-        .import(
+        .bootstrap_update(
             &NOTE_PLAN,
-            CollaborationImportRequest {
-                document: document.clone(),
-                relative_path: relative_path.to_string(),
-                schema_version: state.schema_version,
-                operation_id: "foreign-port-edit".to_string(),
-                exchange_mode: CollaborationExchangeMode::Incremental,
-                base_frontier_base64: state.accepted_frontier_base64.clone(),
-                update_base64: client
-                    .export_incremental_update_base64(&state.accepted_frontier_base64)
-                    .expect("incremental update"),
-                fence: ImportFence::Frontier,
-            },
+            &document,
+            RELATIVE_PATH,
+            NOTE_PLAN.schema_version,
+            &edits.seed_update,
             accept,
         )
-        .expect("import through the port");
-    service
-        .acknowledge_publication(&document, imported.generation)
-        .expect("acknowledge through the port");
-    service
-        .quarantine(&document, "foreign port evidence")
-        .expect("quarantine through the port");
+        .expect("seed");
+    let mut generation = 0;
+    for (operation_id, base, update) in &edits.edits {
+        let imported = service
+            .import(&NOTE_PLAN, request(operation_id, base, update), accept)
+            .expect("commit");
+        assert!(!imported.duplicate, "{operation_id} is new");
+        generation = imported.generation;
+    }
+    let (operation_id, base, update) = edits.edits.last().expect("an edit");
+    let retried = service
+        .import(&NOTE_PLAN, request(operation_id, base, update), accept)
+        .expect("retry");
+    assert!(retried.duplicate, "a retried operation is a duplicate");
+    observed.push(history(&service.load(&document).unwrap().unwrap()));
 
-    assert_eq!(commits.load(Ordering::SeqCst), 2, "seed and edit");
-    let accepted = service
-        .detail(&NOTE_PLAN, &document)
-        .expect("materialise through the port")
-        .expect("accepted document");
-    assert_eq!(accepted["body"], edited["body"]);
+    service
+        .acknowledge_publication(&document, generation)
+        .expect("acknowledge");
+    observed.push(history(&service.load(&document).unwrap().unwrap()));
+    service
+        .update_relative_path(&document, "notes/moved-note-1.yaml")
+        .expect("path")
+        .expect("the document exists");
+    observed.push(history(&service.load(&document).unwrap().unwrap()));
+
+    let renamed = CollaborationDocumentId::new("Note", "note-2");
+    service
+        .move_document(&document, &renamed, "notes/note-2.yaml")
+        .expect("move")
+        .expect("the document exists");
     assert!(
-        !service
-            .storage()
-            .load(&document)
-            .expect("reload")
-            .expect("envelope")
-            .publication_pending
+        service.load(&document).unwrap().is_none(),
+        "the source is gone"
     );
-    let audit = service.recovery_audit().expect("audit through the port");
+    observed.push(history(&service.load(&renamed).unwrap().unwrap()));
+    observed.push(service.detail(&NOTE_PLAN, &renamed).unwrap().unwrap());
+
+    service.repair(&renamed, "drop the window").expect("repair");
+    observed.push(history(&service.load(&renamed).unwrap().unwrap()));
+    assert!(service.verify(&renamed).valid);
+    let exported = service.export_for_recovery(&renamed).expect("export");
+    assert!(!exported.is_empty());
+    service
+        .quarantine(&renamed, "evidence")
+        .expect("quarantine");
+    service.reset(&renamed).expect("reset");
+    assert!(service.load(&renamed).unwrap().is_none());
+    observed.push(json!(service
+        .recovery_audit()
+        .unwrap()
+        .iter()
+        .map(|record| record.action)
+        .collect::<Vec<_>>()));
+    Value::Array(observed)
+}
+
+#[test]
+fn a_port_that_keeps_only_bytes_carries_the_protocol_as_the_file_store_does() {
+    let edits = edits(12);
+    let root = tempfile::tempdir().expect("temp store");
+    let on_files = drive(
+        &CollaborationService::with_storage(LocalFileCollaborationStorage::new(root.path()), PLANS),
+        &edits,
+    );
+    let in_memory = drive(
+        &CollaborationService::with_storage(MemoryPort::default(), PLANS),
+        &edits,
+    );
+
+    assert_eq!(in_memory, on_files);
+    let audit = in_memory
+        .as_array()
+        .and_then(|observed| observed.last())
+        .cloned();
     assert_eq!(
-        audit.iter().map(|record| record.action).collect::<Vec<_>>(),
-        vec![CollaborationRecoveryAction::Quarantine]
+        audit,
+        Some(json!([
+            CollaborationRecoveryAction::Repair,
+            CollaborationRecoveryAction::Export,
+            CollaborationRecoveryAction::Quarantine,
+            CollaborationRecoveryAction::Reset,
+        ]))
+    );
+}
+
+#[test]
+fn quarantine_preserves_the_stored_bytes_through_the_port() {
+    let port = MemoryPort::default();
+    let service = CollaborationService::with_storage(port.clone(), PLANS);
+    let document = note();
+    service
+        .bootstrap(
+            &NOTE_PLAN,
+            &document,
+            RELATIVE_PATH,
+            &seed_document(),
+            accept,
+        )
+        .expect("seed");
+
+    service
+        .quarantine(&document, "evidence")
+        .expect("quarantine");
+
+    let stored = port
+        .read(&port.source(&document))
+        .expect("read")
+        .expect("stored");
+    assert_eq!(port.state().evidence, vec![stored.bytes]);
+}
+
+#[test]
+fn commits_racing_through_one_port_both_land() {
+    let port = MemoryPort::default();
+    let first = CollaborationService::with_storage(port.clone(), PLANS);
+    let second = CollaborationService::with_storage(port, PLANS);
+    let document = note();
+    first
+        .bootstrap(
+            &NOTE_PLAN,
+            &document,
+            RELATIVE_PATH,
+            &seed_document(),
+            accept,
+        )
+        .expect("seed");
+    let state = first.authoring_state(&NOTE_PLAN, &document).expect("read");
+    let edit = |body: &str| {
+        let mut client = LoroAuthoringDocument::from_versioned_update_base64(
+            &NOTE_PLAN,
+            state.schema_version,
+            &state.update_base64,
+        )
+        .expect("client");
+        let mut edited = seed_document();
+        edited["body"] = Value::from(body);
+        client.replace_document(&edited).expect("edit");
+        client
+            .export_incremental_update_base64(&state.accepted_frontier_base64)
+            .expect("update")
+    };
+    let (update_a, update_b) = (edit("From A."), edit("From B."));
+    let base_a = state.accepted_frontier_base64.clone();
+    let base_b = base_a.clone();
+
+    let thread_a = std::thread::spawn(move || {
+        first.import(&NOTE_PLAN, request("race-a", &base_a, &update_a), accept)
+    });
+    let thread_b = std::thread::spawn(move || {
+        second.import(&NOTE_PLAN, request("race-b", &base_b, &update_b), accept)
+    });
+    let accepted_a = thread_a.join().expect("thread A").expect("A commits");
+    let accepted_b = thread_b.join().expect("thread B").expect("B commits");
+
+    assert_ne!(accepted_a.generation, accepted_b.generation);
+}
+
+#[test]
+fn a_move_takes_the_source_as_it_stands_when_another_writer_commits_during_it() {
+    let edits = edits(1);
+    let port = MemoryPort::default();
+    let service = CollaborationService::with_storage(port.clone(), PLANS);
+    let document = note();
+    service
+        .bootstrap_update(
+            &NOTE_PLAN,
+            &document,
+            RELATIVE_PATH,
+            NOTE_PLAN.schema_version,
+            &edits.seed_update,
+            accept,
+        )
+        .expect("seed");
+    let renamed = CollaborationDocumentId::new("Note", "note-2");
+    let (operation_id, base, update) = edits.edits[0].clone();
+    let writer = service.clone();
+    port.after_write(
+        &renamed,
+        Box::new(move || {
+            writer
+                .import(&NOTE_PLAN, request(&operation_id, &base, &update), accept)
+                .expect("a concurrent commit to the source");
+        }),
+    );
+
+    service
+        .move_document(&document, &renamed, "notes/note-2.yaml")
+        .expect("move")
+        .expect("the document exists");
+
+    assert!(
+        service.load(&document).unwrap().is_none(),
+        "the source is gone"
+    );
+    let moved = service.load(&renamed).unwrap().expect("moved");
+    assert_eq!(moved.pending_rename_from.as_deref(), Some("note-1"));
+    assert!(moved
+        .retained_operations
+        .iter()
+        .any(|operation| operation.operation_id == edits.edits[0].0));
+    assert_eq!(
+        service.detail(&NOTE_PLAN, &renamed).unwrap().unwrap()["body"],
+        json!("Edit 0.")
     );
 }
