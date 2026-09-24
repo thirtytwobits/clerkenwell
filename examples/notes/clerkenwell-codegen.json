@@ -1,0 +1,15 @@
+{
+  "definition": "notes.projections.json",
+  "regenerateCommand": "cargo run -p clerkenwell-codegen -- --config examples/notes/clerkenwell-codegen.json",
+  "header": ["SPDX-License-Identifier: MIT"],
+  "authoringSessionMnemonic": "session.drafts",
+  "outputs": {
+    "collaborationFixtures": "generated/notes.collaboration.fixtures.json",
+    "contractFixtures": "generated/notes.projections.fixtures.json",
+    "coverageReport": "generated/notes.projections.coverage.json",
+    "normalizedDefinition": "generated/notes.projections.normalized.json",
+    "typescriptModel": "generated/typescript/index.ts",
+    "typescriptMnemonic": "generated/typescript/mnemonic.ts",
+    "rustModel": "src/model.rs"
+  }
+}

@@ -1,0 +1,372 @@
+{
+  "version": 1,
+  "compatibility": {
+    "minimumReaderVersion": 1,
+    "minimumWriterVersion": 1,
+    "migrationIds": []
+  },
+  "namespace": "notes",
+  "entities": {
+    "Note": {
+      "id": "note_id",
+      "schema": {
+        "$ref": "#/$defs/NoteDocument"
+      },
+      "revision": {
+        "kind": "loro"
+      },
+      "authoring": {
+        "kind": "collaborative",
+        "rationale": "Writers edit a note concurrently: its body merges, and a change of status is decided explicitly.",
+        "contentMutation": "note.importLoroUpdate",
+        "planningMutations": [],
+        "commandMutations": [],
+        "lifecycleMutations": [
+          "note.create"
+        ]
+      }
+    }
+  },
+  "projections": {
+    "notes.authoringState": {
+      "params": {
+        "$ref": "#/$defs/NoteKeyParams"
+      },
+      "snapshot": {
+        "$ref": "#/$defs/NoteAuthoringState"
+      },
+      "patch": {
+        "$ref": "#/$defs/NoteAuthoringStatePatch"
+      },
+      "dependsOn": [
+        "Note"
+      ],
+      "materialization": {
+        "strategy": "replaceOrRemove",
+        "snapshotMode": "field",
+        "snapshotField": "state",
+        "removeMode": "nullSnapshot"
+      }
+    }
+  },
+  "mutations": {
+    "note.create": {
+      "params": {
+        "$ref": "#/$defs/NoteCreateParams"
+      },
+      "result": {
+        "$ref": "#/$defs/NoteMutationResult"
+      },
+      "conflict": "optimistic",
+      "touches": [
+        "Note"
+      ]
+    },
+    "note.importLoroUpdate": {
+      "params": {
+        "$ref": "#/$defs/LoroUpdateParams"
+      },
+      "result": {
+        "$ref": "#/$defs/LoroUpdateResult"
+      },
+      "conflict": "optimistic",
+      "touches": [
+        "Note"
+      ]
+    }
+  },
+  "mnemonic": {
+    "session.drafts": {
+      "key": "notes.session.drafts",
+      "version": 1,
+      "schema": {
+        "$ref": "#/$defs/SessionDrafts"
+      },
+      "cachePolicy": "localDraft",
+      "migrationIds": [
+        "session-drafts-v1"
+      ],
+      "recovery": "authoringRuntime"
+    }
+  },
+  "collaboration": {
+    "version": 1,
+    "compatibility": {
+      "minimumReaderVersion": 1,
+      "minimumWriterVersion": 1,
+      "migrationIds": []
+    },
+    "entities": {
+      "Note": {
+        "substrate": "loro",
+        "schemaVersion": 1,
+        "migrationIds": [
+          "note-loro-layout-v1"
+        ],
+        "authoringState": {
+          "projection": "notes.authoringState",
+          "importMutation": "note.importLoroUpdate"
+        },
+        "rootContainer": "note",
+        "clientPathNaming": "camelCase",
+        "fields": {
+          "note_id": {
+            "storage": {
+              "kind": "derivedIdentity"
+            },
+            "value": {
+              "codec": "identity"
+            },
+            "required": true,
+            "conflict": "immutable"
+          },
+          "etag": {
+            "storage": {
+              "kind": "derivedRevision"
+            },
+            "value": {
+              "codec": "string"
+            },
+            "required": true,
+            "conflict": "immutable"
+          },
+          "title": {
+            "storage": {
+              "kind": "scalar",
+              "container": "note",
+              "key": "title"
+            },
+            "value": {
+              "codec": "string"
+            },
+            "required": true,
+            "conflict": "lastWriterWins"
+          },
+          "body": {
+            "storage": {
+              "kind": "text",
+              "container": "body"
+            },
+            "value": {
+              "codec": "string"
+            },
+            "required": true,
+            "conflict": "merge"
+          },
+          "status": {
+            "storage": {
+              "kind": "scalar",
+              "container": "note",
+              "key": "status"
+            },
+            "value": {
+              "codec": "string"
+            },
+            "required": true,
+            "conflict": "explicit"
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "NoteDocument": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "note_id",
+        "etag",
+        "title",
+        "body",
+        "status"
+      ],
+      "properties": {
+        "note_id": {
+          "type": "string"
+        },
+        "etag": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1
+        },
+        "body": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "draft",
+            "review",
+            "published"
+          ]
+        }
+      }
+    },
+    "NoteKeyParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "note_id"
+      ],
+      "properties": {
+        "note_id": {
+          "type": "string"
+        }
+      }
+    },
+    "NoteAuthoringState": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "note_id",
+        "etag",
+        "exchange_modes"
+      ],
+      "properties": {
+        "note_id": {
+          "type": "string"
+        },
+        "etag": {
+          "type": "string"
+        },
+        "exchange_modes": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "incremental",
+              "bootstrap"
+            ]
+          }
+        }
+      }
+    },
+    "NoteAuthoringStatePatch": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind"
+      ],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "replace",
+            "remove"
+          ]
+        },
+        "state": {
+          "$ref": "#/$defs/NoteAuthoringState"
+        }
+      }
+    },
+    "NoteCreateParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "title"
+      ],
+      "properties": {
+        "title": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "NoteMutationResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "note_id",
+        "etag"
+      ],
+      "properties": {
+        "note_id": {
+          "type": "string"
+        },
+        "etag": {
+          "type": "string"
+        }
+      }
+    },
+    "LoroUpdateParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "note_id",
+        "update",
+        "exchange_mode"
+      ],
+      "properties": {
+        "note_id": {
+          "type": "string"
+        },
+        "update": {
+          "type": "string",
+          "minLength": 1
+        },
+        "exchange_mode": {
+          "type": "string",
+          "enum": [
+            "incremental",
+            "bootstrap"
+          ]
+        }
+      }
+    },
+    "SessionDrafts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "drafts"
+      ],
+      "properties": {
+        "drafts": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/DraftEntry"
+          }
+        }
+      }
+    },
+    "DraftEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "entity",
+        "entity_id",
+        "saved_at",
+        "payload"
+      ],
+      "properties": {
+        "entity": {
+          "type": "string"
+        },
+        "entity_id": {
+          "type": "string"
+        },
+        "saved_at": {
+          "type": "string"
+        },
+        "payload": {
+          "type": "json",
+          "opaqueReason": "The unsent edit, in the entity's shape."
+        }
+      }
+    },
+    "LoroUpdateResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "etag"
+      ],
+      "properties": {
+        "etag": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}

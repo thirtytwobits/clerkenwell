@@ -1,0 +1,125 @@
+{
+  "reportVersion": 1,
+  "definitionVersion": 1,
+  "collaborationDefinitionVersion": 1,
+  "namespace": "notes",
+  "entities": [
+    {
+      "entity": "Note",
+      "policy": "collaborative",
+      "rationale": "Writers edit a note concurrently: its body merges, and a change of status is decided explicitly.",
+      "schema": "#/$defs/NoteDocument",
+      "identityField": "note_id",
+      "revision": {
+        "kind": "loro"
+      },
+      "projections": [
+        "notes.authoringState"
+      ],
+      "mutations": [
+        "note.create",
+        "note.importLoroUpdate"
+      ],
+      "contentMutation": "note.importLoroUpdate",
+      "planningMutations": [],
+      "commandMutations": [],
+      "lifecycleMutations": [
+        "note.create"
+      ],
+      "generatedHandlerOwnership": {
+        "rust": "ProjectionName/MutationName exhaustive dispatch",
+        "typescript": "ProjectionSnapshotByName/MutationResultByName mapped unions"
+      },
+      "materialisers": [
+        {
+          "projection": "notes.authoringState",
+          "strategy": "replaceOrRemove"
+        }
+      ],
+      "authoringSessionMnemonic": "notes.session.drafts",
+      "collaboration": {
+        "schemaVersion": 1,
+        "migrationIds": [
+          "note-loro-layout-v1"
+        ],
+        "authoringStateProjection": "notes.authoringState",
+        "importMutation": "note.importLoroUpdate",
+        "fieldCount": 5
+      },
+      "diagnostics": [
+        "authoring-runtime-metadata"
+      ]
+    }
+  ],
+  "projections": [
+    {
+      "name": "notes.authoringState",
+      "params": "#/$defs/NoteKeyParams",
+      "snapshot": "#/$defs/NoteAuthoringState",
+      "patch": "#/$defs/NoteAuthoringStatePatch",
+      "dependsOn": [
+        "Note"
+      ],
+      "materialisation": {
+        "strategy": "replaceOrRemove",
+        "snapshotMode": "field",
+        "snapshotField": "state",
+        "removeMode": "nullSnapshot"
+      },
+      "generatedRegistryOwner": "GENERATED_PROJECTION_SPECS"
+    }
+  ],
+  "mutations": [
+    {
+      "name": "note.create",
+      "params": "#/$defs/NoteCreateParams",
+      "result": "#/$defs/NoteMutationResult",
+      "touches": [
+        "Note"
+      ],
+      "conflict": "optimistic",
+      "generatedRegistryOwner": "GENERATED_MUTATION_SPECS"
+    },
+    {
+      "name": "note.importLoroUpdate",
+      "params": "#/$defs/LoroUpdateParams",
+      "result": "#/$defs/LoroUpdateResult",
+      "touches": [
+        "Note"
+      ],
+      "conflict": "optimistic",
+      "generatedRegistryOwner": "GENERATED_MUTATION_SPECS"
+    }
+  ],
+  "mnemonic": [
+    {
+      "name": "session.drafts",
+      "key": "notes.session.drafts",
+      "schema": "#/$defs/SessionDrafts",
+      "version": 1,
+      "cachePolicy": "localDraft",
+      "migrationIds": [
+        "session-drafts-v1"
+      ],
+      "recovery": "authoringRuntime",
+      "generatedRegistryOwner": "MNEMONIC_SCHEMAS"
+    }
+  ],
+  "ownership": {
+    "missing": [],
+    "multiplyOwned": []
+  },
+  "payloads": {
+    "undescribedCount": 0,
+    "reasonedCount": 1,
+    "projectionsCarryingUndescribed": 0,
+    "projectionCount": 1,
+    "undescribed": [],
+    "reasoned": [
+      {
+        "path": "DraftEntry.payload",
+        "reason": "The unsent edit, in the entity's shape."
+      }
+    ]
+  }
+}

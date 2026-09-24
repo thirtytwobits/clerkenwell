@@ -14,9 +14,16 @@ operations and forensic recovery.
 | `clerkenwell-session` | the projection session protocol: wire contracts, registry, per-connection subscriptions, retained patches and resume |
 | `clerkenwell-store` | durable single-authority storage: envelopes, a replaceable storage port, fenced compare-and-swap commits, two-phase publication, quarantine, repair and an audit log |
 | `clerkenwell-codegen` | the definition language, its validation, and the Rust, TypeScript and fixture generator |
+| `clerkenwell-conformance` | cross-language conformance: Rust and TypeScript replicas of one definition's entities exchange the generated fixture operations, concurrent edits and text consumption, and must converge |
 
 `loro-release.json` records the approved Rust and npm Loro release pair. Consumers take
 `loro` through `clerkenwell-doc`.
+
+## Example
+
+`examples/notes` walks through a store, two writers editing one note concurrently, fenced
+commits, a conflict on an explicit field resolved by rebasing, and the recovery audit:
+`cargo run -p clerkenwell-example-notes`.
 
 ## TypeScript packages
 

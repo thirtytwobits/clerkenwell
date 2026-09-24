@@ -15,4 +15,5 @@ similar = "2.7"
 thiserror.workspace = true
 
 [dev-dependencies]
+clerkenwell-notebook = { path = "../clerkenwell-notebook" }
 toml = "0.9"

@@ -285,16 +285,43 @@ dependencies = [
 ]
 
 [[package]]
+name = "clerkenwell-conformance"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "clerkenwell-doc",
+ "clerkenwell-example-notes",
+ "clerkenwell-notebook",
+ "clerkenwell-schema",
+ "serde_json",
+]
+
+[[package]]
 name = "clerkenwell-doc"
 version = "0.1.0"
 dependencies = [
  "base64",
+ "clerkenwell-notebook",
  "clerkenwell-schema",
  "loro",
  "serde_json",
  "similar",
  "thiserror 2.0.21",
  "toml",
+]
+
+[[package]]
+name = "clerkenwell-example-notes"
+version = "0.1.0"
+dependencies = [
+ "clerkenwell-codegen",
+ "clerkenwell-doc",
+ "clerkenwell-schema",
+ "clerkenwell-store",
+ "schemars",
+ "serde",
+ "serde_json",
+ "tempfile",
 ]
 
 [[package]]

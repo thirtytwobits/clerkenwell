@@ -903,8 +903,8 @@
               "kind": "keyedSequence",
               "identityPath": "card_id",
               "identityVariable": "card_id",
-              "orderContainer": "card_order",
-              "itemContainerTemplate": "card.{card_id}"
+              "orderContainer": "column.{column_id}.card_order",
+              "itemContainerTemplate": "column.{column_id}.card.{card_id}"
             },
             "value": {
               "codec": "keyedSequence"
@@ -926,7 +926,7 @@
           "columns.*.cards.*.text": {
             "storage": {
               "kind": "text",
-              "containerTemplate": "card.{card_id}.text"
+              "containerTemplate": "column.{column_id}.card.{card_id}.text"
             },
             "value": {
               "codec": "string"
@@ -937,7 +937,7 @@
           "columns.*.cards.*.done": {
             "storage": {
               "kind": "scalar",
-              "containerTemplate": "card.{card_id}",
+              "containerTemplate": "column.{column_id}.card.{card_id}",
               "key": "done"
             },
             "value": {
@@ -949,8 +949,8 @@
           "columns.*.cards.*.note": {
             "storage": {
               "kind": "text",
-              "containerTemplate": "card.{card_id}.note",
-              "metadataContainerTemplate": "card.{card_id}",
+              "containerTemplate": "column.{column_id}.card.{card_id}.note",
+              "metadataContainerTemplate": "column.{column_id}.card.{card_id}",
               "metadataKey": "note.$mime"
             },
             "value": {
@@ -962,7 +962,7 @@
           "columns.*.cards.*.labels": {
             "storage": {
               "kind": "orderedList",
-              "containerTemplate": "card.{card_id}.labels"
+              "containerTemplate": "column.{column_id}.card.{card_id}.labels"
             },
             "value": {
               "codec": "stringList"
@@ -1094,11 +1094,16 @@
       "type": "object",
       "additionalProperties": false,
       "required": [
+        "caption",
         "columns",
         "grid",
-        "mode"
+        "mode",
+        "panels"
       ],
       "properties": {
+        "caption": {
+          "type": "string"
+        },
         "columns": {
           "type": "integer"
         },
@@ -1117,6 +1122,28 @@
             "list",
             "grid"
           ]
+        },
+        "panels": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/NoteLayoutPanel"
+          }
+        }
+      }
+    },
+    "NoteLayoutPanel": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "label"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
         }
       }
     },

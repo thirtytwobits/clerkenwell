@@ -1,0 +1,54 @@
+{
+  "version": 1,
+  "projections": [
+    {
+      "projection": "notes.authoringState",
+      "strategy": "replaceOrRemove",
+      "snapshot": {
+        "projection": "notes.authoringState",
+        "value": {
+          "note_id": "fixture",
+          "etag": "fixture",
+          "exchange_modes": [
+            "incremental"
+          ]
+        }
+      },
+      "cases": [
+        {
+          "kind": "replace",
+          "patch": {
+            "projection": "notes.authoringState",
+            "value": {
+              "kind": "replace",
+              "state": {
+                "note_id": "fixture",
+                "etag": "fixture",
+                "exchange_modes": [
+                  "incremental"
+                ]
+              }
+            }
+          },
+          "expectedSnapshot": {
+            "note_id": "fixture",
+            "etag": "fixture",
+            "exchange_modes": [
+              "incremental"
+            ]
+          }
+        },
+        {
+          "kind": "remove",
+          "patch": {
+            "projection": "notes.authoringState",
+            "value": {
+              "kind": "remove"
+            }
+          },
+          "expectedSnapshot": null
+        }
+      ]
+    }
+  ]
+}

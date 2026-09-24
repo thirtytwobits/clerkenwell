@@ -1,0 +1,18 @@
+[package]
+name = "clerkenwell-conformance"
+description = "Cross-language conformance: Rust and TypeScript replicas of one definition exchange updates and converge"
+publish = false
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+clerkenwell-doc = { path = "../clerkenwell-doc" }
+clerkenwell-schema = { path = "../clerkenwell-schema" }
+serde_json.workspace = true
+
+[dev-dependencies]
+base64.workspace = true
+clerkenwell-example-notes = { path = "../../examples/notes" }
+clerkenwell-notebook = { path = "../clerkenwell-notebook" }

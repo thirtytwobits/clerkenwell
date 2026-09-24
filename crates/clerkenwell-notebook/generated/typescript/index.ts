@@ -41,9 +41,16 @@ export type NoteProperties = Record<string, string>;
 export type NoteExtras = Record<string, unknown>;
 
 export type NoteLayout = {
+  "caption": string;
   "columns": number;
   "grid": number[][];
   "mode": "list" | "grid";
+  "panels": NoteLayoutPanel[];
+};
+
+export type NoteLayoutPanel = {
+  "id": string;
+  "label": string;
 };
 
 export type NoteMeta = {
@@ -1261,8 +1268,8 @@ export const COLLABORATION_PLANS = {
           "kind": "keyedSequence",
           "identityPath": "card_id",
           "identityVariable": "card_id",
-          "orderContainer": "card_order",
-          "itemContainerTemplate": "card.{card_id}"
+          "orderContainer": "column.{column_id}.card_order",
+          "itemContainerTemplate": "column.{column_id}.card.{card_id}"
         },
         "value": {
           "codec": "keyedSequence"
@@ -1286,7 +1293,7 @@ export const COLLABORATION_PLANS = {
         "path": "columns.*.cards.*.text",
         "storage": {
           "kind": "text",
-          "containerTemplate": "card.{card_id}.text"
+          "containerTemplate": "column.{column_id}.card.{card_id}.text"
         },
         "value": {
           "codec": "string"
@@ -1298,7 +1305,7 @@ export const COLLABORATION_PLANS = {
         "path": "columns.*.cards.*.done",
         "storage": {
           "kind": "scalar",
-          "containerTemplate": "card.{card_id}",
+          "containerTemplate": "column.{column_id}.card.{card_id}",
           "key": "done"
         },
         "value": {
@@ -1311,8 +1318,8 @@ export const COLLABORATION_PLANS = {
         "path": "columns.*.cards.*.note",
         "storage": {
           "kind": "text",
-          "containerTemplate": "card.{card_id}.note",
-          "metadataContainerTemplate": "card.{card_id}",
+          "containerTemplate": "column.{column_id}.card.{card_id}.note",
+          "metadataContainerTemplate": "column.{column_id}.card.{card_id}",
           "metadataKey": "note.$mime"
         },
         "value": {
@@ -1325,7 +1332,7 @@ export const COLLABORATION_PLANS = {
         "path": "columns.*.cards.*.labels",
         "storage": {
           "kind": "orderedList",
-          "containerTemplate": "card.{card_id}.labels"
+          "containerTemplate": "column.{column_id}.card.{card_id}.labels"
         },
         "value": {
           "codec": "stringList"
