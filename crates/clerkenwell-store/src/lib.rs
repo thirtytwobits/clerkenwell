@@ -1311,6 +1311,7 @@ impl LocalFileCollaborationStorage {
         }
         let lock = OpenOptions::new()
             .create(true)
+            .truncate(false)
             .read(true)
             .write(true)
             .open(&lock_path)
@@ -1359,6 +1360,7 @@ impl LocalFileCollaborationStorage {
             }
             let lock = OpenOptions::new()
                 .create(true)
+                .truncate(false)
                 .read(true)
                 .write(true)
                 .open(&lock_path)
@@ -1410,13 +1412,13 @@ impl LocalFileCollaborationStorage {
             .map_err(|error| StoreError::internal(error.to_string()))?;
         #[cfg(test)]
         {
-            return write_atomic_durable_with_hooks(
+            write_atomic_durable_with_hooks(
                 &self.envelope_path(document),
                 &bytes,
                 || self.fail_if(CollaborationFaultPoint::BeforeTemporaryWrite),
                 || self.fail_if(CollaborationFaultPoint::AfterTemporarySync),
                 || self.fail_if(CollaborationFaultPoint::AfterRenameBeforeDirectorySync),
-            );
+            )
         }
         #[cfg(not(test))]
         write_atomic_durable(&self.envelope_path(document), &bytes)
@@ -2017,6 +2019,7 @@ impl CollaborationStoragePort for LocalFileCollaborationStorage {
         })?;
         let lock = OpenOptions::new()
             .create(true)
+            .truncate(false)
             .read(true)
             .write(true)
             .open(self.audit_lock_path())
