@@ -14,7 +14,7 @@ clerkenwell-schema = { path = "../clerkenwell-schema" }
 fs2 = "0.4"
 serde.workspace = true
 serde_json.workspace = true
-sha2 = "0.10.9"
+sha2 = "0.11.0"
 uuid = { version = "1", features = ["v4"] }
 
 [dev-dependencies]
