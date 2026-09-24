@@ -25,6 +25,7 @@ import {
   type BoardDocument,
   type NoteDocument
 } from "./support/plans";
+import { renameTask } from "./support/board-server";
 import {
   boardReplica,
   boardReplicaFromUpdate,
@@ -419,4 +420,19 @@ test("adopting a document changes what the replica reports, not what it holds", 
   assert.deepEqual(replica.currentDocument(), adopted);
   assert.equal(replica.exportUpdateBase64(), update);
   assert.deepEqual(noteReplicaFromUpdate(replica.exportUpdateBase64()).currentDocument(), noteDocument());
+});
+
+test("exporting past an update's frontier carries later edits to a replica built from that update", () => {
+  const accepted = boardReplica(boardDocument());
+  const update = accepted.exportUpdateBase64();
+  const local = boardReplicaFromUpdate(update);
+  const edited = renameTask(local.currentDocument(), "task-2", "Book the hall");
+  local.replaceDocument(edited);
+
+  const pending = local.exportIncrementalUpdateBase64(local.updateFrontierBase64(update));
+  const elsewhere = boardReplicaFromUpdate(update);
+  elsewhere.importUpdateBase64(pending);
+
+  assert.equal(local.coversFrontierBase64(local.updateFrontierBase64(update)), true);
+  assert.deepEqual(elsewhere.currentDocument(), edited);
 });

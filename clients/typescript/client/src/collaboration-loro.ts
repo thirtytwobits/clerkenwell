@@ -7,6 +7,7 @@
  */
 import {
   decodeFrontiers,
+  decodeImportBlobMeta,
   encodeFrontiers,
   LoroDoc,
   LoroList,
@@ -332,6 +333,13 @@ export class CollaborationLoroAuthoringDocument<TDocument extends ClientDocument
   acceptedFrontierBase64(): string {
     this.flushTextBindings();
     return bytesToBase64(encodeFrontiers(this.doc.oplogFrontiers()));
+  }
+
+  /** Frontier of the operations an update carries, once this replica holds them. */
+  updateFrontierBase64(updateBase64: string): string {
+    this.flushTextBindings();
+    const { partialEndVersionVector } = decodeImportBlobMeta(base64ToBytes(updateBase64), false);
+    return bytesToBase64(encodeFrontiers(this.doc.vvToFrontiers(partialEndVersionVector)));
   }
 
   materializedDocument(revision = "loro:materialized"): TDocument {

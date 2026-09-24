@@ -49,6 +49,34 @@ async function append(session: AuthoringSessionHandle<BoardDocument>, text: stri
   await new Promise<void>((resolve) => queueMicrotask(resolve));
 }
 
+/** Deletes the last `count` characters of the notes as one typing step. */
+async function trim(session: AuthoringSessionHandle<BoardDocument>, count: number): Promise<void> {
+  const notes = session.bindText("columns.*.tasks.*.notes", noted);
+  const end = notes.read().length;
+  notes.edit({
+    baseRevision: notes.revision,
+    changes: [{ from: end - count, to: end, insert: "" }],
+    selectionBefore: { anchor: end, head: end },
+    selectionAfter: { anchor: end - count, head: end - count },
+    group: "typing"
+  });
+  await new Promise<void>((resolve) => queueMicrotask(resolve));
+}
+
+/** Sends a session's pending work and adopts what the server accepted. */
+function save(server: FakeBoardServer, session: AuthoringSessionHandle<BoardDocument>): void {
+  const base = session.state().acceptedRevision;
+  const result = server.accept({
+    baseFrontierBase64: base,
+    updateBase64: session.exportIncrementalUpdateBase64(base)
+  });
+  session.adoptAccepted({
+    updateBase64: result.state.update_base64,
+    baseline: result.board,
+    acceptedRevision: result.state.accepted_frontier_base64
+  });
+}
+
 function persisted(runtime: AuthoringRuntime): AuthoringRuntimeState {
   return fromPersistedRuntime(toPersistedRuntime(runtime.getSnapshot()));
 }
@@ -95,7 +123,7 @@ test("a restart takes pending edits as operations and keeps edits accepted meanw
   assert.deepEqual(session.currentDraft(), server.board());
 });
 
-test("a replica attaching to an earlier snapshot keeps edits accepted since it was taken", async () => {
+test("a runtime starting on an earlier snapshot keeps edits accepted since it was taken", async () => {
   const server = new FakeBoardServer(boardDocument());
   const typing = new AuthoringRuntime();
   const typed = openBoardSession(typing, server, resource);
@@ -105,9 +133,7 @@ test("a replica attaching to an earlier snapshot keeps edits accepted since it w
   await append(typed, " Second.");
   sync(server, typed, accepted);
 
-  const watching = new AuthoringRuntime();
-  watching.restore(earlier);
-  const attached = attachAccepted(watching, server);
+  const attached = attachAccepted(new AuthoringRuntime(earlier), server);
   sync(server, attached.session, attached.accepted);
 
   const notes = notesOf(server.board());
@@ -115,16 +141,14 @@ test("a replica attaching to an earlier snapshot keeps edits accepted since it w
   assert.equal(copiesOf(notes, " Second."), 1, notes);
 });
 
-test("pending work adopted from another runtime reaches the server once", async () => {
+test("pending work a runtime starts on reaches the server once", async () => {
   const server = new FakeBoardServer(boardDocument());
   const typing = new AuthoringRuntime();
   const typed = openBoardSession(typing, server, resource);
   const accepted = server.snapshot().accepted_frontier_base64;
   await append(typed, " From the other runtime.");
 
-  const watching = new AuthoringRuntime();
-  watching.restore(persisted(typing));
-  const attached = attachAccepted(watching, server);
+  const attached = attachAccepted(new AuthoringRuntime(persisted(typing)), server);
   sync(server, typed, accepted);
   sync(server, attached.session, attached.accepted);
 
@@ -170,4 +194,75 @@ test("a draft discarded without a replica attaches as the accepted document", as
   const { session } = attachAccepted(restored, server);
 
   assert.deepEqual(session.currentDraft(), server.board());
+});
+
+test("a restart keeps edits accepted meanwhile when pending work follows a character typed and deleted", async () => {
+  const server = new FakeBoardServer(boardDocument());
+  const beforeRestart = new AuthoringRuntime();
+  const typed = openBoardSession(beforeRestart, server, resource);
+  await append(typed, "x");
+  await trim(typed, 1);
+  await append(typed, " Offline.");
+  const snapshot = persisted(beforeRestart);
+  server.editRemotely((board) => withNotes(board, `Remote. ${notesOf(board)}`));
+
+  const { session } = attachAccepted(new AuthoringRuntime(snapshot), server);
+
+  const notes = notesOf(session.currentDraft());
+  assert.equal(copiesOf(notes, " Offline."), 1, notes);
+  assert.equal(copiesOf(notes, "Remote. "), 1, notes);
+});
+
+test("a restart after a save takes what was pending since and keeps edits accepted meanwhile", async () => {
+  const server = new FakeBoardServer(boardDocument());
+  const beforeRestart = new AuthoringRuntime();
+  const typed = openBoardSession(beforeRestart, server, resource);
+  await append(typed, " Saved.");
+  save(server, typed);
+  await append(typed, " Pending.");
+  const snapshot = persisted(beforeRestart);
+  server.editRemotely((board) => withNotes(board, `Remote. ${notesOf(board)}`));
+
+  const { session, accepted } = attachAccepted(new AuthoringRuntime(snapshot), server);
+  sync(server, session, accepted);
+
+  const merged = notesOf(server.board());
+  for (const fragment of [" Saved.", " Pending.", "Remote. "]) {
+    assert.equal(copiesOf(merged, fragment), 1, merged);
+  }
+});
+
+test("another runtime's pending work is carried, so a replica behind it never writes it", async () => {
+  const server = new FakeBoardServer(boardDocument());
+  const older = server.snapshot();
+  const typing = new AuthoringRuntime();
+  const typed = openBoardSession(typing, server, resource);
+  await append(typed, " First.");
+  save(server, typed);
+  await append(typed, " Pending.");
+  const pending = toPersistedRuntime(typing.getSnapshot());
+
+  const watching = new AuthoringRuntime();
+  watching.restore(fromPersistedRuntime(pending));
+  // As an application attaches a resource: open it unless a session exists.
+  if (watching.session(resource) === undefined) {
+    watching.open({
+      resource,
+      policy: "collaborative",
+      schemaVersion: older.schema_version,
+      acceptedRevision: older.accepted_frontier_base64,
+      supportedExchangeModes: [...older.exchange_modes],
+      baseline: boardDocument(),
+      draft: boardDocument()
+    });
+  }
+  const watched = watching.ensureController(resource, () =>
+    boardAuthoringController(boardReplicaFromUpdate(older.update_base64)));
+  sync(server, typed, typed.state().acceptedRevision);
+  sync(server, watched, older.accepted_frontier_base64);
+
+  const notes = notesOf(server.board());
+  assert.equal(copiesOf(notes, " First."), 1, notes);
+  assert.equal(copiesOf(notes, " Pending."), 1, notes);
+  assert.deepEqual(toPersistedRuntime(watching.persistedState()), pending);
 });

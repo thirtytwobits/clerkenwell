@@ -49,8 +49,9 @@ export function useAuthoringRuntimeSnapshot(): AuthoringRuntimeState {
 }
 
 /**
- * Persist the runtime's snapshot whenever its durable sessions change. A
- * publish for a clean session, or for one already written, writes nothing.
+ * Persist the runtime's {@link AuthoringRuntime.persistedState} whenever its
+ * own durable sessions change. A publish for a clean session, or for one
+ * already written, writes nothing.
  */
 export function useAuthoringRuntimePersistence(
   runtime: AuthoringRuntime,
@@ -65,7 +66,7 @@ export function useAuthoringRuntimePersistence(
         return;
       }
       persistedSessionsRef.current = durable;
-      persist(toPersistedRuntime(snapshot));
+      persist(toPersistedRuntime(runtime.persistedState()));
     }),
     [runtime, persist]
   );

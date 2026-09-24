@@ -86,6 +86,7 @@ export function boardAuthoringController(
     exportIncrementalUpdateBase64: (frontier) => replica.exportIncrementalUpdateBase64(frontier),
     acceptedFrontierBase64: () => replica.acceptedFrontierBase64(),
     coversFrontierBase64: (frontier) => replica.coversFrontierBase64(frontier),
+    updateFrontierBase64: (update) => replica.updateFrontierBase64(update),
     dispose: () => replica.disposeTextBindings()
   };
 }

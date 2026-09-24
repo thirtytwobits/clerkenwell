@@ -140,6 +140,8 @@ export interface AuthoringSessionController<
   acceptedFrontierBase64?: () => string;
   /** Whether the replica holds every operation up to a frontier. */
   coversFrontierBase64?: (frontierBase64: string) => boolean;
+  /** Frontier of the operations an update carries, once the replica holds them. */
+  updateFrontierBase64?: (updateBase64: string) => string;
   dispose?: () => void;
 }
 
@@ -154,6 +156,7 @@ type OperationRecordingController = AuthoringSessionController<unknown, string>
     | "coversFrontierBase64"
     | "exportIncrementalUpdateBase64"
     | "importUpdateBase64"
+    | "updateFrontierBase64"
   >>;
 
 function recordsOperations(
@@ -162,7 +165,8 @@ function recordsOperations(
   return controller.acceptedFrontierBase64 !== undefined
     && controller.coversFrontierBase64 !== undefined
     && controller.exportIncrementalUpdateBase64 !== undefined
-    && controller.importUpdateBase64 !== undefined;
+    && controller.importUpdateBase64 !== undefined
+    && controller.updateFrontierBase64 !== undefined;
 }
 
 export type AuthoringTextStageConfirmation =
@@ -194,11 +198,11 @@ interface OwnedAuthoringController {
   draftSyncQueued: boolean;
   disposed: boolean;
   /**
-   * The replica frontier a session's recorded operations extend: where the
-   * replica stood when attached, advanced whenever the session has nothing
-   * pending.
+   * Frontier of the newest accepted state the replica holds, which a session's
+   * recorded operations extend: where the replica stood when attached, then the
+   * end of each accepted update it takes through the session handle.
    */
-  draftBaseFrontierBase64?: string;
+  acceptedBaseFrontierBase64?: string;
 }
 
 /**
@@ -318,6 +322,7 @@ export class AuthoringSessionHandle<
         input.updateBase64
       );
     }
+    takeAcceptedUpdate(this.owned, input.updateBase64);
     const draft = input.draft
       ?? controller.currentDraft?.()
       ?? input.baseline;
@@ -379,21 +384,25 @@ export class AuthoringSessionHandle<
     controller.adoptDocument(document);
   }
 
+  /** Import accepted operations and materialise the draft they leave. */
   importUpdateBase64(updateBase64: string): void {
     const controller = this.controller();
     if (controller.importUpdateBase64 === undefined) {
       throw new Error(`${this.owned.resource.entity} authoring cannot import Loro updates.`);
     }
     controller.importUpdateBase64(updateBase64);
+    takeAcceptedUpdate(this.owned, updateBase64);
     this.runtime.syncControllerDraft(this.owned);
   }
 
+  /** Import accepted operations and materialise the draft they leave. */
   importVersionedUpdateBase64(schemaVersion: number, updateBase64: string): void {
     const controller = this.controller();
     if (controller.importVersionedUpdateBase64 === undefined) {
       throw new Error(`${this.owned.resource.entity} authoring cannot import versioned Loro updates.`);
     }
     controller.importVersionedUpdateBase64(schemaVersion, updateBase64);
+    takeAcceptedUpdate(this.owned, updateBase64);
     this.runtime.syncControllerDraft(this.owned);
   }
 
@@ -936,11 +945,16 @@ export class AuthoringRuntime {
   readonly #listeners = new Set<AuthoringRuntimeListener>();
   readonly #controllers = new Map<string, OwnedAuthoringController>();
   #state: AuthoringRuntimeState;
+  #carried: Readonly<Record<string, AuthoringSession<unknown>>> = {};
   #batchDepth = 0;
   #batchDirty = false;
 
+  /**
+   * Start from a persisted snapshot, as after a restart. An operation that was
+   * being sent when the snapshot was taken is queued again.
+   */
   constructor(initial: AuthoringRuntimeState = { sessions: {} }) {
-    this.#state = cloneRuntimeState(initial);
+    this.#state = cloneRuntimeState(initial, true);
   }
 
   getSnapshot = (): AuthoringRuntimeState => this.#state;
@@ -974,7 +988,7 @@ export class AuthoringRuntime {
   }
 
   /**
-   * Adopt persisted sessions on top of the live ones.
+   * Adopt the sessions another live runtime persisted on top of this one's.
    *
    * A snapshot carries only the sessions that
    * {@link authoringSessionRequiresDurableRestoration} keeps, so a session it
@@ -982,20 +996,27 @@ export class AuthoringRuntime {
    * gone". Restoring therefore overwrites what the snapshot names and leaves
    * everything else where it is.
    *
-   * A collaborative session with a live controller is that controller's
-   * replica. Another runtime's draft for it materialises operations that
-   * runtime holds and sends itself, so writing the draft into this replica
-   * would author the same edits again as a second copy. Such a session is
-   * restored only through {@link AuthoringSessionController.importDraft};
-   * without it the live session stays, and the edits arrive as accepted state.
+   * A collaborative draft materialises operations the other runtime holds and
+   * sends itself, so this runtime never writes it into a replica. A
+   * collaborative session with a live controller is restored only through
+   * {@link AuthoringSessionController.importDraft}; without it the live session
+   * stays, and the edits arrive as accepted state. A collaborative session this
+   * runtime has no controller for is carried rather than adopted: it is
+   * persisted with this runtime's own sessions ({@link persistedState}) until a
+   * later snapshot omits it, and never attached here.
    */
   restore(snapshot: AuthoringRuntimeState): void {
-    const restored = cloneRuntimeState(snapshot, true);
+    const restored = cloneRuntimeState(snapshot);
     const sessions = { ...this.#state.sessions };
+    const carried: Record<string, AuthoringSession<unknown>> = {};
     let changed = false;
     for (const [id, session] of Object.entries(restored.sessions)) {
       const live = this.#state.sessions[id];
       const controller = this.#controllers.get(id)?.controller;
+      if (session.policy === "collaborative" && controller === undefined) {
+        carried[id] = session;
+        continue;
+      }
       if (documentsEqual(session, live)) {
         continue;
       }
@@ -1010,9 +1031,25 @@ export class AuthoringRuntime {
       sessions[id] = session;
       changed = true;
     }
+    this.#carried = carried;
     if (changed) {
       this.#publish({ sessions });
     }
+  }
+
+  /**
+   * The sessions to persist: this runtime's own, and each session carried from
+   * another runtime where this runtime has nothing pending of its own.
+   */
+  persistedState(): AuthoringRuntimeState {
+    const sessions = { ...this.#state.sessions };
+    for (const [id, session] of Object.entries(this.#carried)) {
+      const own = sessions[id];
+      if (own === undefined || !authoringSessionRequiresDurableRestoration(own)) {
+        sessions[id] = session;
+      }
+    }
+    return { sessions };
   }
 
   session<TDocument>(
@@ -1050,7 +1087,7 @@ export class AuthoringRuntime {
       textStages: new Set(),
       draftSyncQueued: false,
       disposed: false,
-      ...(recording ? { draftBaseFrontierBase64: controller.acceptedFrontierBase64() } : {})
+      ...(recording ? { acceptedBaseFrontierBase64: controller.acceptedFrontierBase64() } : {})
     };
     // Recorded operations are taken as themselves, so edits the replica
     // already holds are not authored again. A replica without their base holds
@@ -1453,20 +1490,19 @@ export class AuthoringRuntime {
 }
 
 /**
- * Records what a session's replica holds beyond its base frontier, or advances
- * the base once the session has nothing pending.
+ * Records what a session's replica holds beyond the newest accepted state it
+ * has taken, while the session has anything pending.
  */
 function recordDraftOperations<TDocument>(
   owned: OwnedAuthoringController,
   session: AuthoringSession<TDocument>
 ): AuthoringSession<TDocument> {
   const controller = owned.controller;
-  const base = owned.draftBaseFrontierBase64;
+  const base = owned.acceptedBaseFrontierBase64;
   if (session.policy !== "collaborative" || base === undefined || !recordsOperations(controller)) {
     return session;
   }
   if (!authoringSessionRequiresDurableRestoration(session)) {
-    owned.draftBaseFrontierBase64 = controller.acceptedFrontierBase64();
     return withoutDraftOperations(session);
   }
   const updateBase64 = controller.exportIncrementalUpdateBase64(base);
@@ -1475,6 +1511,13 @@ function recordDraftOperations<TDocument>(
     return session;
   }
   return { ...session, draftOperations: { baseFrontierBase64: base, updateBase64 } };
+}
+
+/** Moves a replica's accepted base to the end of an accepted update it has taken. */
+function takeAcceptedUpdate(owned: OwnedAuthoringController, updateBase64: string): void {
+  if (owned.acceptedBaseFrontierBase64 !== undefined && recordsOperations(owned.controller)) {
+    owned.acceptedBaseFrontierBase64 = owned.controller.updateFrontierBase64(updateBase64);
+  }
 }
 
 /**
