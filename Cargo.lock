@@ -290,6 +290,7 @@ version = "0.1.0"
 dependencies = [
  "base64",
  "clerkenwell-doc",
+ "clerkenwell-example-notes",
  "clerkenwell-notebook",
  "clerkenwell-schema",
  "serde_json",
