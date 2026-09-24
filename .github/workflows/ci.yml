@@ -30,6 +30,15 @@ jobs:
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
 
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install the npm workspace
+        run: npm ci
+
       - name: Format
         run: cargo fmt --all --check
 
