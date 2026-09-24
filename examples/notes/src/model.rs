@@ -196,6 +196,7 @@ pub const SESSION_DRAFTS_MNEMONIC_KEY: &str = "notes.session.drafts";
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "projection", content = "value", deny_unknown_fields)]
+#[allow(clippy::large_enum_variant)]
 pub enum ProjectionTransportSnapshot {
     #[serde(rename = "notes.authoringState")]
     NotesAuthoringState(NoteAuthoringState),
@@ -203,6 +204,7 @@ pub enum ProjectionTransportSnapshot {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "projection", content = "value", deny_unknown_fields)]
+#[allow(clippy::large_enum_variant)]
 pub enum ProjectionTransportPatch {
     #[serde(rename = "notes.authoringState")]
     NotesAuthoringState(NoteAuthoringStatePatch),
@@ -210,6 +212,7 @@ pub enum ProjectionTransportPatch {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "mutation", content = "value", deny_unknown_fields)]
+#[allow(clippy::large_enum_variant)]
 pub enum ProjectionTransportMutationResult {
     #[serde(rename = "note.create")]
     NoteCreate(NoteMutationResult),

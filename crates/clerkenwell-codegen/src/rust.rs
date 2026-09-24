@@ -186,6 +186,9 @@ fn transport_enum(enum_name: &str, tag: &str, entries: &[(&str, String)]) -> Str
             "#[serde(tag = {}, content = \"value\", deny_unknown_fields)]",
             string_literal(tag)
         ),
+        // Variants wrap arbitrary schema-defined payloads, so their sizes vary
+        // by design.
+        "#[allow(clippy::large_enum_variant)]".to_owned(),
         format!("pub enum {enum_name} {{"),
     ];
     for (name, type_name) in entries {
@@ -344,21 +347,22 @@ fn registry_metadata(definition: &Definition, project: &Project) -> String {
             )
         })
         .collect();
-    let mut lines = Vec::new();
-    lines.push(layout::item(
-        "pub static GENERATED_PROJECTION_SPECS: &[GeneratedProjectionSpec] =",
-        &Expr::slice(projections),
-    ));
-    lines.push(String::new());
-    lines.push(layout::item(
-        "pub static GENERATED_MUTATION_SPECS: &[GeneratedMutationSpec] =",
-        &Expr::slice(mutations),
-    ));
-    lines.push(String::new());
-    lines.push(layout::item(
-        "pub static GENERATED_ENTITY_AUTHORING_SPECS: &[GeneratedEntityAuthoringSpec] =",
-        &Expr::slice(entities),
-    ));
+    let lines = [
+        layout::item(
+            "pub static GENERATED_PROJECTION_SPECS: &[GeneratedProjectionSpec] =",
+            &Expr::slice(projections),
+        ),
+        String::new(),
+        layout::item(
+            "pub static GENERATED_MUTATION_SPECS: &[GeneratedMutationSpec] =",
+            &Expr::slice(mutations),
+        ),
+        String::new(),
+        layout::item(
+            "pub static GENERATED_ENTITY_AUTHORING_SPECS: &[GeneratedEntityAuthoringSpec] =",
+            &Expr::slice(entities),
+        ),
+    ];
     lines.join("\n")
 }
 

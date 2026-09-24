@@ -1,0 +1,10 @@
+{
+    // Use a separate target directory for rust-analyzer to avoid blocking the editor with CLI cargo runs.
+    // `cargo check` artifacts under `target/rust-analyzer`.
+    "rust-analyzer.cargo.targetDir": true,
+    "cSpell.language": "en-GB",
+    "cSpell.words": [
+        "clerkenwell",
+        "codegen"
+    ]
+}
