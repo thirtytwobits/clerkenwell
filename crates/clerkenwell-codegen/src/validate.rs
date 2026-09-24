@@ -8,7 +8,7 @@ use indexmap::IndexSet;
 
 use crate::collate::code_unit_compare;
 use crate::config::Project;
-use crate::definition::{CollaborationEntity, Definition, Fields, Projection};
+use crate::definition::{CollaborationEntity, CollaborationField, Definition, Fields, Projection};
 use crate::error::{refuse, Result};
 use crate::json::{string_literal, Json, Object};
 use crate::names::{constant_name, name_constant_identifier, pascal_identifier};
@@ -758,6 +758,8 @@ fn check_collaboration_entity(
         }
     }
 
+    check_keyed_sequence_containers(&context, &fields)?;
+
     let missing: Vec<&str> = required_paths
         .iter()
         .map(String::as_str)
@@ -777,6 +779,54 @@ fn check_collaboration_entity(
         ));
     }
     Ok(())
+}
+
+/// A container inside a keyed sequence holds one item's data, so its name
+/// carries the identity of the item of every sequence that encloses it, and a
+/// sequence's item containers carry the identity of its own items too.
+/// Without one, items of different parents share a container.
+fn check_keyed_sequence_containers(context: &str, fields: &[CollaborationField]) -> Result<()> {
+    let sequences: Vec<&CollaborationField> = fields
+        .iter()
+        .filter(|field| field.storage_kind() == "keyedSequence")
+        .collect();
+    for field in fields {
+        let enclosing: Vec<&str> = sequences
+            .iter()
+            .filter(|sequence| field.path.starts_with(&format!("{}.*.", sequence.path)))
+            .map(|sequence| sequence_identity(sequence))
+            .collect();
+        for key in [
+            "container",
+            "containerTemplate",
+            "metadataContainer",
+            "metadataContainerTemplate",
+            "orderContainer",
+            "itemContainerTemplate",
+        ] {
+            let Some(template) = field.storage_setting(key) else {
+                continue;
+            };
+            let own = (key == "itemContainerTemplate").then(|| sequence_identity(field));
+            for variable in enclosing.iter().copied().chain(own) {
+                if !template.contains(&format!("{{{variable}}}")) {
+                    return refuse(format!(
+                        "{context}.fields.{}.storage.{key} must name {{{variable}}}: each item of its keyed sequence needs a container of its own.",
+                        field.path
+                    ));
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+/// The variable a keyed sequence's item identity is named by in templates.
+fn sequence_identity<'a>(sequence: &CollaborationField<'a>) -> &'a str {
+    sequence
+        .storage_setting("identityVariable")
+        .or(sequence.storage_setting("identityPath"))
+        .expect("a keyed sequence names its identity")
 }
 
 fn check_collaboration_storage(context: &str, storage: &Object) -> Result<()> {

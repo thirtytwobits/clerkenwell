@@ -820,3 +820,39 @@ fn incomplete_ownership_is_refused_at_generation() {
         other => panic!("expected a refusal, got {other:?}"),
     }
 }
+
+#[test]
+fn a_container_inside_a_keyed_sequence_must_name_every_enclosing_identity() {
+    let fields = "/collaboration/entities/Board/fields";
+    for (field, key, template, missing) in [
+        (
+            "columns.*.cards",
+            "orderContainer",
+            "card_order",
+            "{column_id}",
+        ),
+        (
+            "columns.*.cards",
+            "itemContainerTemplate",
+            "column.{column_id}.card",
+            "{card_id}",
+        ),
+        (
+            "columns.*.cards.*.text",
+            "containerTemplate",
+            "card.{card_id}.text",
+            "{column_id}",
+        ),
+    ] {
+        let mut document = notebook_document();
+        set(
+            &mut document,
+            &format!("{fields}/{field}/storage/{key}"),
+            json(&format!("\"{template}\"")),
+        );
+        assert_mentions(
+            &refusal(document),
+            &[&format!("fields.{field}.storage.{key}"), missing],
+        );
+    }
+}
