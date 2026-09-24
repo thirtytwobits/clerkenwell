@@ -6,10 +6,15 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { AuthoringRuntime } from "@clerkenwell/client";
+import {
+  AuthoringRuntime,
+  fromPersistedRuntime,
+  toPersistedRuntime
+} from "@clerkenwell/client";
 
 import { FakeBoardServer, openBoardSession, renameTask } from "./support/board-server";
 import { BOARD_PLAN, boardDocument, type BoardDocument } from "./support/plans";
+import { insert } from "./support/text";
 
 const resource = { entity: "Board", resourceKey: "board-1" } as const;
 
@@ -114,4 +119,33 @@ test("a text binding edits the session draft", async () => {
   const draft = runtime.session<BoardDocument>(resource)?.draft;
   assert.equal(draft?.columns[0]?.tasks[0]?.notes, notes.read());
   assert.equal(runtime.session(resource)?.status, "modified");
+});
+
+test("restoring another runtime's snapshot authors nothing in a live replica", async () => {
+  const server = new FakeBoardServer(boardDocument());
+  const typing = new AuthoringRuntime();
+  const watching = new AuthoringRuntime();
+  const typed = openBoardSession(typing, server, resource);
+  const watched = openBoardSession(watching, server, resource);
+  const accepted = server.snapshot().accepted_frontier_base64;
+  const notes = typed.bindText("columns.*.tasks.*.notes", { column_id: "todo", task_id: "task-1" });
+  const addition = " Written once.";
+  insert(notes, notes.read().length, addition);
+  await new Promise<void>((resolve) => queueMicrotask(resolve));
+
+  let published = 0;
+  watching.subscribe(() => { published += 1; });
+  const before = watched.state();
+  watching.restore(fromPersistedRuntime(toPersistedRuntime(typing.getSnapshot())));
+
+  assert.equal(published, 0, "An unchanged runtime has nothing to persist back");
+  assert.equal(watched.state(), before);
+  for (const session of [typed, watched]) {
+    server.accept({
+      baseFrontierBase64: accepted,
+      updateBase64: session.exportIncrementalUpdateBase64(accepted)
+    });
+  }
+  const merged = server.board().columns[0]?.tasks[0]?.notes ?? "";
+  assert.equal(merged.split(addition).length - 1, 1, `Written once, merged as: ${merged}`);
 });

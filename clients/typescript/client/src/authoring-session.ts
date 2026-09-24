@@ -103,6 +103,11 @@ export interface AuthoringSessionController<
 > {
   currentDraft?: () => TDocument;
   replaceDraft?: (draft: TDocument) => void;
+  /**
+   * Take a draft another runtime persisted through the operations it carries.
+   * Only a controller whose draft holds its replica's operations provides it.
+   */
+  importDraft?: (draft: TDocument) => void;
   adoptDocument?: (document: TDocument) => void;
   bindText?: (
     fieldPath: TTextFieldPath,
@@ -932,15 +937,36 @@ export class AuthoringRuntime {
    * omits means "nothing pending for this resource", not "this resource is
    * gone". Restoring therefore overwrites what the snapshot names and leaves
    * everything else where it is.
+   *
+   * A collaborative session with a live controller is that controller's
+   * replica. Another runtime's draft for it materialises operations that
+   * runtime holds and sends itself, so writing the draft into this replica
+   * would author the same edits again as a second copy. Such a session is
+   * restored only through {@link AuthoringSessionController.importDraft};
+   * without it the live session stays, and the edits arrive as accepted state.
    */
   restore(snapshot: AuthoringRuntimeState): void {
     const restored = cloneRuntimeState(snapshot, true);
-    const sessions = { ...this.#state.sessions, ...restored.sessions };
-    if (!documentsEqual(sessions, this.#state.sessions)) {
-      for (const [id, session] of Object.entries(sessions)) {
-        const controller = this.#controllers.get(id)?.controller;
+    const sessions = { ...this.#state.sessions };
+    let changed = false;
+    for (const [id, session] of Object.entries(restored.sessions)) {
+      const live = this.#state.sessions[id];
+      const controller = this.#controllers.get(id)?.controller;
+      if (documentsEqual(session, live)) {
+        continue;
+      }
+      if (live?.policy === "collaborative" && controller !== undefined) {
+        if (controller.importDraft === undefined) {
+          continue;
+        }
+        controller.importDraft(session.draft);
+      } else {
         controller?.replaceDraft?.(session.draft);
       }
+      sessions[id] = session;
+      changed = true;
+    }
+    if (changed) {
       this.#publish({ sessions });
     }
   }

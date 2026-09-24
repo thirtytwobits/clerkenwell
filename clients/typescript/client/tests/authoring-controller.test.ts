@@ -8,7 +8,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { AuthoringRuntime } from "@clerkenwell/client";
+import {
+  AuthoringRuntime,
+  fromPersistedRuntime,
+  toPersistedRuntime
+} from "@clerkenwell/client";
 
 import { createScratchTextBinding, insert, replaceAll } from "./support/text";
 
@@ -106,4 +110,72 @@ test("session-owned staged text stays private until confirmation and cancel disc
   assert.deepEqual(runtime.session(resource)?.draft, {
     prose: initial.prose + addition
   });
+});
+
+function openedNote(
+  runtime: AuthoringRuntime,
+  target: { entity: string; resourceKey: string },
+  policy: "collaborative" | "optimisticDocument"
+): void {
+  const initial = { prose: "Accepted prose" };
+  runtime.open({
+    resource: target,
+    policy,
+    schemaVersion: 1,
+    acceptedRevision: "accepted",
+    supportedExchangeModes: policy === "collaborative" ? ["incremental"] : ["optimisticDocument"],
+    baseline: initial,
+    draft: initial
+  });
+}
+
+function persistedElsewhere(
+  target: { entity: string; resourceKey: string },
+  policy: "collaborative" | "optimisticDocument",
+  draft: { prose: string }
+) {
+  const elsewhere = new AuthoringRuntime();
+  openedNote(elsewhere, target, policy);
+  elsewhere.modify(target, draft);
+  return fromPersistedRuntime(toPersistedRuntime(elsewhere.getSnapshot()));
+}
+
+test("restoring takes another runtime's collaborative draft through the operations it carries", () => {
+  const runtime = new AuthoringRuntime();
+  openedNote(runtime, resource, "collaborative");
+  const imported: unknown[] = [];
+  const replaced: unknown[] = [];
+  runtime.ensureController<{ prose: string }, "prose">(resource, () => ({
+    replaceDraft: (draft) => { replaced.push(draft); },
+    importDraft: (draft) => { imported.push(draft); }
+  }));
+  replaced.length = 0;
+  const draft = { prose: "Carried with its operations" };
+
+  runtime.restore(persistedElsewhere(resource, "collaborative", draft));
+
+  assert.deepEqual(imported, [draft]);
+  assert.deepEqual(replaced, []);
+  assert.deepEqual(runtime.session(resource)?.draft, draft);
+});
+
+test("restoring replaces an optimistic session's draft and leaves unnamed sessions alone", () => {
+  const runtime = new AuthoringRuntime();
+  const other = { entity: "Note", resourceKey: "other-note" } as const;
+  openedNote(runtime, resource, "optimisticDocument");
+  openedNote(runtime, other, "collaborative");
+  const replaced = new Map<string, unknown[]>([[resource.resourceKey, []], [other.resourceKey, []]]);
+  for (const target of [resource, other]) {
+    runtime.ensureController<{ prose: string }, "prose">(target, () => ({
+      replaceDraft: (draft) => { replaced.get(target.resourceKey)?.push(draft); }
+    }));
+    replaced.get(target.resourceKey)!.length = 0;
+  }
+  const draft = { prose: "Edited in another window" };
+
+  runtime.restore(persistedElsewhere(resource, "optimisticDocument", draft));
+
+  assert.deepEqual(replaced.get(resource.resourceKey), [draft]);
+  assert.deepEqual(replaced.get(other.resourceKey), []);
+  assert.deepEqual(runtime.session(resource)?.draft, draft);
 });
