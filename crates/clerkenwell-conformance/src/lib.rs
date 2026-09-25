@@ -89,13 +89,14 @@ fn plan(
 }
 
 impl Conformance {
-    /// Starts a bridge from this checkout over `bindings`.
+    /// Starts a bridge under this checkout's npm workspace over `bindings`.
     pub fn start(bindings: &Bindings) -> Self {
         Self::start_in(bindings, &workspace())
     }
 
-    /// Starts a bridge from `workspace`, a Clerkenwell checkout whose npm
-    /// workspace is installed, over `bindings`.
+    /// Starts a bridge under `workspace` over `bindings`: an installed npm
+    /// workspace whose `tsx` resolves `@clerkenwell/client`, its `/loro`
+    /// entry and `loro-crdt`, such as this checkout's or a consumer's.
     pub fn start_in(bindings: &Bindings, workspace: &Path) -> Self {
         let corpus = Corpus::load(&bindings.collaboration_fixtures);
         assert!(

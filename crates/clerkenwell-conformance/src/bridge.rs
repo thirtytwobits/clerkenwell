@@ -1,5 +1,5 @@
-//! The Node process holding TypeScript replicas: `conformance/bridge.ts`,
-//! run with the npm workspace's `tsx`.
+//! The Node process holding TypeScript replicas: this checkout's
+//! `conformance/bridge.ts`, run with an npm workspace's `tsx`.
 
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
@@ -25,9 +25,9 @@ pub struct TypeScriptReplica<'a> {
 }
 
 impl Bridge {
-    /// Starts `conformance/bridge.ts` from `workspace`, a Clerkenwell checkout
-    /// whose npm workspace is installed, over the TypeScript plans and fixture
-    /// corpus of `bindings`.
+    /// Starts `conformance/bridge.ts` under `workspace`, an installed npm
+    /// workspace whose `tsx` resolves the client and `loro-crdt`, over the
+    /// TypeScript plans and fixture corpus of `bindings`.
     pub fn start(bindings: &Bindings, workspace: &Path) -> Self {
         assert!(
             workspace.join("node_modules/tsx").is_dir(),
@@ -35,7 +35,9 @@ impl Bridge {
             workspace.display()
         );
         let mut child = Command::new("node")
-            .args(["--import", "tsx", "conformance/bridge.ts", "--plans"])
+            .args(["--import", "tsx"])
+            .arg(crate::workspace().join("conformance/bridge.ts"))
+            .arg("--plans")
             .arg(&bindings.typescript_plans)
             .arg("--fixtures")
             .arg(&bindings.collaboration_fixtures)
