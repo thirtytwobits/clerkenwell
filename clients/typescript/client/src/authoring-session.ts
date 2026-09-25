@@ -860,6 +860,16 @@ export function authoringSessionAcceptsBaseline<TDocument>(
   return session.queuedOperations.length === 0;
 }
 
+/**
+ * Whether a session's draft may change right now. A blocked session's draft
+ * stays as it is until the block is resolved.
+ */
+export function authoringSessionAcceptsDraft<TDocument>(
+  session: AuthoringSession<TDocument>
+): boolean {
+  return MODIFIABLE_STATUSES.includes(session.status);
+}
+
 export type AuthoringReplayDecision =
   | { kind: "skip" }
   | { kind: "replay"; exchangeMode: AuthoringExchangeMode }
@@ -1121,7 +1131,7 @@ export class AuthoringRuntime {
     if (
       recording
       && operations !== undefined
-      && MODIFIABLE_STATUSES.includes(session.status)
+      && authoringSessionAcceptsDraft(session)
       && controller.coversFrontierBase64(operations.baseFrontierBase64)
     ) {
       controller.importUpdateBase64(operations.updateBase64);

@@ -12,7 +12,9 @@ import {
   acknowledgeAuthoringOperation,
   adoptAuthoringBaseline,
   authoringLeaveDecision,
+  authoringSessionAcceptsDraft,
   beginAuthoringReplay,
+  blockAuthoringSession,
   disconnectAuthoringSession,
   modifyAuthoringSession,
   queueAuthoringOperation,
@@ -21,11 +23,29 @@ import {
   rejectAuthoringOperation,
   resolveAuthoringDraftForBaselineAdoption,
   startAuthoringSession,
-  supersedeBlockedAuthoringOperations
+  supersedeBlockedAuthoringOperations,
+  type AuthoringSessionStatus
 } from "@clerkenwell/client";
 
 
 const resource = { entity: "Note", resourceKey: "note" } as const;
+
+const EVERY_STATUS = Object.keys({
+  bootstrapping: true,
+  live: true,
+  clean: true,
+  modified: true,
+  commitPending: true,
+  commitRejected: true,
+  disconnectedReadable: true,
+  offlineModified: true,
+  replaying: true,
+  migrationBlocked: true,
+  dependencyBlocked: true,
+  policyConflict: true,
+  resyncRequired: true,
+  recoveryRequired: true
+} satisfies Record<AuthoringSessionStatus, true>) as AuthoringSessionStatus[];
 
 function modifiedSession() {
   return modifyAuthoringSession(
@@ -257,6 +277,32 @@ test("blocked operations do not replay until an explicit resolution supersedes t
   const superseded = supersedeBlockedAuthoringOperations(reconnected);
   assert.equal(superseded.status, "modified");
   assert.equal(superseded.queuedOperations.length, 0);
+});
+
+test("a session accepts a draft exactly when the modify transition takes one", () => {
+  for (const status of EVERY_STATUS) {
+    const session = { ...modifiedSession(), status };
+    let modified = true;
+    try {
+      modifyAuthoringSession(session, { prose: "next edit" });
+    } catch {
+      modified = false;
+    }
+    assert.equal(authoringSessionAcceptsDraft(session), modified, status);
+  }
+});
+
+test("a session blocked for migration, a dependency, a resync or recovery keeps its draft", () => {
+  for (const block of [
+    "migrationBlocked",
+    "dependencyBlocked",
+    "resyncRequired",
+    "recoveryRequired"
+  ] as const) {
+    const blocked = blockAuthoringSession(queuedSession(), block);
+    assert.equal(authoringSessionAcceptsDraft(blocked), false, block);
+    assert.throws(() => modifyAuthoringSession(blocked, { prose: "next edit" }), Error, block);
+  }
 });
 
 test("leave decisions distinguish durable restoration from irreversible loss", () => {
