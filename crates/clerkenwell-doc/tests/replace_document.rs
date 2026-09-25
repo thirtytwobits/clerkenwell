@@ -59,6 +59,8 @@ static NOTE_FIELDS: &[GeneratedCollaborationFieldSpec] = &[
         false,
     ),
     field("body", Text, "body", None, Str, true),
+    field("mood", Scalar, "note", Some("mood"), Str, false),
+    field("aside", Text, "aside", None, Str, false),
 ];
 static NOTE_PLAN: GeneratedCollaborationEntitySpec = GeneratedCollaborationEntitySpec {
     name: "Note",
@@ -187,4 +189,23 @@ fn an_optional_field_removed_as_null_and_then_left_out_writes_nothing_more() {
         .replace_document(&note())
         .expect("leave the removed field out");
     assert_eq!(observed(&replica), removed);
+}
+
+#[test]
+fn an_optional_field_of_a_plain_codec_is_removed_when_left_out() {
+    let mut replica = replica();
+    replica
+        .replace_document(&with(json!({ "mood": "Calm", "aside": "Buy extra." })))
+        .expect("set optional values");
+
+    replica
+        .replace_document(&note())
+        .expect("leave the optional values out");
+
+    let document = replica.materialized_document("rev").expect("materialise");
+    assert!(document.get("mood").is_none(), "{document}");
+    assert!(
+        document.get("aside").is_none_or(|aside| aside == ""),
+        "{document}"
+    );
 }

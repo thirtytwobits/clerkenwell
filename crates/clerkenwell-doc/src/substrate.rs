@@ -516,6 +516,8 @@ fn write_field_if_changed(
     if field.required {
         validate_field_value(field, next)?;
     }
+    // An optional field left out or written as null holds no value.
+    let absent = matches!(next, None | Some(Value::Null));
     let container = resolve_container(field, context)?;
     match field.storage_kind {
         GeneratedCollaborationStorageKind::Scalar => {
@@ -523,6 +525,10 @@ fn write_field_if_changed(
                 .key
                 .ok_or_else(|| invalid_field(field.path, "a scalar key"))?;
             let map = doc.get_map(container.as_str());
+            if absent {
+                map.delete(key)?;
+                return Ok(());
+            }
             match field.codec {
                 GeneratedCollaborationValueCodec::Integer => {
                     map.insert(
@@ -572,6 +578,15 @@ fn write_field_if_changed(
             }
         }
         GeneratedCollaborationStorageKind::Text => {
+            if absent {
+                write_text(&doc.get_text(container.as_str()), field.path, "")?;
+                if field.codec == GeneratedCollaborationValueCodec::PropertyText {
+                    let (metadata_container, metadata_key) = resolve_metadata(field, context)?;
+                    doc.get_map(metadata_container.as_str())
+                        .delete(metadata_key)?;
+                }
+                return Ok(());
+            }
             let text = match field.codec {
                 GeneratedCollaborationValueCodec::String => next
                     .and_then(Value::as_str)
