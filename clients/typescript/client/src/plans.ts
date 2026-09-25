@@ -84,6 +84,15 @@ export interface CollaborationEntityPlan<
   readonly fields: Readonly<Record<string, CollaborationFieldPlan>>;
 }
 
+/** The paths of a plan's declared text fields. */
+export type CollaborationPlanTextFieldPath<TPlan extends CollaborationEntityPlan> = {
+  [TPath in keyof TPlan["fields"] & string]: TPlan["fields"][TPath] extends {
+    readonly storage: { readonly kind: "text" };
+  }
+    ? TPath
+    : never;
+}[keyof TPlan["fields"] & string];
+
 export function resolveCollaborationContainer(
   template: string,
   identities: Readonly<Record<string, string>>

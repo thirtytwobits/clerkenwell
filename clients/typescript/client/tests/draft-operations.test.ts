@@ -15,13 +15,9 @@ import {
   type AuthoringSessionHandle
 } from "@clerkenwell/client";
 
-import {
-  FakeBoardServer,
-  boardAuthoringController,
-  openBoardSession
-} from "./support/board-server";
+import { FakeBoardServer, openBoardSession } from "./support/board-server";
 import { boardDocument, type BoardDocument } from "./support/plans";
-import { boardReplica, boardReplicaFromUpdate } from "./support/replicas";
+import { BOARD_DRAFTS, type BoardTextFieldPath } from "./support/replicas";
 import { insert } from "./support/text";
 
 const resource = { entity: "Board", resourceKey: "board-1" } as const;
@@ -43,14 +39,14 @@ function copiesOf(text: string, fragment: string): number {
   return text.split(fragment).length - 1;
 }
 
-async function append(session: AuthoringSessionHandle<BoardDocument>, text: string): Promise<void> {
+async function append(session: AuthoringSessionHandle<BoardDocument, BoardTextFieldPath>, text: string): Promise<void> {
   const notes = session.bindText("columns.*.tasks.*.notes", noted);
   insert(notes, notes.read().length, text);
   await new Promise<void>((resolve) => queueMicrotask(resolve));
 }
 
 /** Deletes the last `count` characters of the notes as one typing step. */
-async function trim(session: AuthoringSessionHandle<BoardDocument>, count: number): Promise<void> {
+async function trim(session: AuthoringSessionHandle<BoardDocument, BoardTextFieldPath>, count: number): Promise<void> {
   const notes = session.bindText("columns.*.tasks.*.notes", noted);
   const end = notes.read().length;
   notes.edit({
@@ -64,7 +60,7 @@ async function trim(session: AuthoringSessionHandle<BoardDocument>, count: numbe
 }
 
 /** Sends a session's pending work and adopts what the server accepted. */
-function save(server: FakeBoardServer, session: AuthoringSessionHandle<BoardDocument>): void {
+function save(server: FakeBoardServer, session: AuthoringSessionHandle<BoardDocument, BoardTextFieldPath>): void {
   const base = session.state().acceptedRevision;
   const result = server.accept({
     baseFrontierBase64: base,
@@ -83,13 +79,13 @@ function persisted(runtime: AuthoringRuntime): AuthoringRuntimeState {
 
 /** Attaches a replica built from what the server has accepted, as a reload does. */
 function attachAccepted(runtime: AuthoringRuntime, server: FakeBoardServer): {
-  session: AuthoringSessionHandle<BoardDocument>;
+  session: AuthoringSessionHandle<BoardDocument, BoardTextFieldPath>;
   accepted: string;
 } {
   const state = server.snapshot();
   return {
     session: runtime.ensureController(resource, () =>
-      boardAuthoringController(boardReplicaFromUpdate(state.update_base64))),
+      BOARD_DRAFTS.fromUpdate(state.update_base64).controller()),
     accepted: state.accepted_frontier_base64
   };
 }
@@ -97,7 +93,7 @@ function attachAccepted(runtime: AuthoringRuntime, server: FakeBoardServer): {
 /** Sends what a session's replica holds beyond an accepted frontier. */
 function sync(
   server: FakeBoardServer,
-  session: AuthoringSessionHandle<BoardDocument>,
+  session: AuthoringSessionHandle<BoardDocument, BoardTextFieldPath>,
   accepted: string
 ): void {
   server.accept({
@@ -166,7 +162,7 @@ test("a replica holding other history takes the draft as a document", async () =
 
   const afterRestart = new AuthoringRuntime(snapshot);
   const session = afterRestart.ensureController(resource, () =>
-    boardAuthoringController(boardReplica(boardDocument())));
+    BOARD_DRAFTS.fromDocument(boardDocument()).controller());
 
   assert.deepEqual(session.currentDraft(), draft);
 });
@@ -257,7 +253,7 @@ test("another runtime's pending work is carried, so a replica behind it never wr
     });
   }
   const watched = watching.ensureController(resource, () =>
-    boardAuthoringController(boardReplicaFromUpdate(older.update_base64)));
+    BOARD_DRAFTS.fromUpdate(older.update_base64).controller());
   sync(server, typed, typed.state().acceptedRevision);
   sync(server, watched, older.accepted_frontier_base64);
 

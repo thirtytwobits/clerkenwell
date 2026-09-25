@@ -23,10 +23,11 @@ import {
   resolveCollaborationContainer,
   type CollaborationEntityPlan,
   type CollaborationFieldPlan,
+  type CollaborationPlanTextFieldPath,
   type CollaborationStorageKind
 } from "./plans";
 import { areJsonValuesEqual } from "./json-value-equality";
-import type { AuthoringTextStageController } from "./authoring-session";
+import type { AuthoringSessionController, AuthoringTextStageController } from "./authoring-session";
 import { validateTextEdits, type TextBinding, type TextBindingChange, type TextEdit, type TextSelection } from "./text-binding";
 
 const STRUCTURED_MAP_PRESENCE_CONTAINER = "collaboration.structured_map_presence";
@@ -71,7 +72,8 @@ export function requireCollaborationSchemaVersion(
 
 /**
  * A browser-side collaboration replica whose layout is entirely supplied by a
- * generated entity plan. Resource facades supply domain typing only.
+ * generated entity plan. {@link CollaborationDrafts} reads and writes it as an
+ * application's draft.
  */
 export class CollaborationLoroAuthoringDocument<TDocument extends ClientDocument> {
   private readonly doc: LoroDoc;
@@ -348,6 +350,168 @@ export class CollaborationLoroAuthoringDocument<TDocument extends ClientDocument
       this.doc,
       this.plan,
       revision
+    );
+  }
+}
+
+/**
+ * How an application's draft of a collaborative document is read from and
+ * written to the document a replica holds.
+ */
+export interface CollaborationDraftMapping<TDocument, TDraft> {
+  /** The draft `document` holds. */
+  readonly toDraft: (document: TDocument) => TDraft;
+  /** `current` holding `draft` in place of its own. */
+  readonly toDocument: (draft: TDraft, current: TDocument) => TDocument;
+}
+
+/** A mapping for applications that draft the document itself. */
+export function documentDraftMapping<TDocument>(): CollaborationDraftMapping<TDocument, TDocument> {
+  return { toDraft: (document) => document, toDocument: (draft) => draft };
+}
+
+/**
+ * A replica of one collaborative document, read and written as an
+ * application's draft of it.
+ */
+export class CollaborationDraftReplica<
+  TDocument extends ClientDocument,
+  TDraft,
+  TTextFieldPath extends string = string
+> {
+  constructor(
+    private readonly replica: CollaborationLoroAuthoringDocument<TDocument>,
+    private readonly mapping: CollaborationDraftMapping<TDocument, TDraft>
+  ) {}
+
+  currentDraft(): TDraft {
+    return this.mapping.toDraft(this.replica.currentDocument());
+  }
+
+  /** Refuses a draft whose document is invalid, leaving the replica as it was. */
+  replaceDraft(draft: TDraft): void {
+    this.replica.replaceDocument(this.mapping.toDocument(draft, this.replica.currentDocument()));
+  }
+
+  adoptDraft(draft: TDraft): void {
+    this.replica.adoptDocument(this.mapping.toDocument(draft, this.replica.currentDocument()));
+  }
+
+  bindText(
+    fieldPath: TTextFieldPath,
+    identities: Readonly<Record<string, string>> = {}
+  ): TextBinding {
+    return this.replica.bindText(fieldPath, identities);
+  }
+
+  stageText(
+    fieldPath: TTextFieldPath,
+    identities: Readonly<Record<string, string>> = {}
+  ): AuthoringTextStageController {
+    return this.replica.stageText(fieldPath, identities);
+  }
+
+  /** An independent replica with the same operations, editing under its own peer. */
+  fork(): CollaborationDraftReplica<TDocument, TDraft, TTextFieldPath> {
+    return new CollaborationDraftReplica(this.replica.fork(), this.mapping);
+  }
+
+  /** Imports an update; returns whether it carried operations this replica lacked. */
+  importUpdateBase64(updateBase64: string): boolean {
+    return this.replica.importUpdateBase64(updateBase64);
+  }
+
+  importVersionedUpdateBase64(schemaVersion: number, updateBase64: string): void {
+    this.replica.importVersionedUpdateBase64(schemaVersion, updateBase64);
+  }
+
+  exportUpdateBase64(): string {
+    return this.replica.exportUpdateBase64();
+  }
+
+  exportIncrementalUpdateBase64(acceptedFrontierBase64: string): string {
+    return this.replica.exportIncrementalUpdateBase64(acceptedFrontierBase64);
+  }
+
+  acceptedFrontierBase64(): string {
+    return this.replica.acceptedFrontierBase64();
+  }
+
+  /** Whether every operation up to `frontierBase64` is already in this replica. */
+  coversFrontierBase64(frontierBase64: string): boolean {
+    return this.replica.coversFrontierBase64(frontierBase64);
+  }
+
+  /** Frontier of the operations an update carries, once this replica holds them. */
+  updateFrontierBase64(updateBase64: string): string {
+    return this.replica.updateFrontierBase64(updateBase64);
+  }
+
+  dispose(): void {
+    this.replica.disposeTextBindings();
+  }
+
+  /** This replica as the controller an authoring runtime drives. */
+  controller(): AuthoringSessionController<TDraft, TTextFieldPath> {
+    return {
+      currentDraft: () => this.currentDraft(),
+      replaceDraft: (draft) => this.replaceDraft(draft),
+      adoptDocument: (draft) => this.adoptDraft(draft),
+      bindText: (fieldPath, identities) => this.bindText(fieldPath, identities),
+      stageText: (fieldPath, identities) => this.stageText(fieldPath, identities),
+      importUpdateBase64: (updateBase64) => {
+        this.importUpdateBase64(updateBase64);
+      },
+      importVersionedUpdateBase64: (schemaVersion, updateBase64) =>
+        this.importVersionedUpdateBase64(schemaVersion, updateBase64),
+      exportUpdateBase64: () => this.exportUpdateBase64(),
+      exportIncrementalUpdateBase64: (acceptedFrontierBase64) =>
+        this.exportIncrementalUpdateBase64(acceptedFrontierBase64),
+      acceptedFrontierBase64: () => this.acceptedFrontierBase64(),
+      coversFrontierBase64: (frontierBase64) => this.coversFrontierBase64(frontierBase64),
+      updateFrontierBase64: (updateBase64) => this.updateFrontierBase64(updateBase64),
+      dispose: () => this.dispose()
+    };
+  }
+}
+
+/** One collaborative entity's replicas, read and written as an application's drafts. */
+export class CollaborationDrafts<
+  TPlan extends CollaborationEntityPlan,
+  TDocument extends ClientDocument,
+  TDraft
+> {
+  constructor(
+    readonly entity: string,
+    readonly plan: TPlan,
+    private readonly mapping: CollaborationDraftMapping<TDocument, TDraft>
+  ) {}
+
+  /** Refuses accepted state written under another schema version. */
+  requireSchemaVersion(actual: number): void {
+    requireCollaborationSchemaVersion(this.entity, this.plan, actual);
+  }
+
+  /** A new replica holding `document`. */
+  fromDocument(
+    document: TDocument
+  ): CollaborationDraftReplica<TDocument, TDraft, CollaborationPlanTextFieldPath<TPlan>> {
+    return this.replica({ kind: "document", document });
+  }
+
+  /** A replica holding the history an update carries. */
+  fromUpdate(
+    updateBase64: string
+  ): CollaborationDraftReplica<TDocument, TDraft, CollaborationPlanTextFieldPath<TPlan>> {
+    return this.replica({ kind: "update", updateBase64 });
+  }
+
+  private replica(
+    source: CollaborationReplicaSource<TDocument>
+  ): CollaborationDraftReplica<TDocument, TDraft, CollaborationPlanTextFieldPath<TPlan>> {
+    return new CollaborationDraftReplica(
+      new CollaborationLoroAuthoringDocument<TDocument>(this.entity, this.plan, source),
+      this.mapping
     );
   }
 }

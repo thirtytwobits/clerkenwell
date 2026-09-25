@@ -33,7 +33,7 @@ and `npm test` run from the repository root.
 | Package | Owns |
 |---|---|
 | `@clerkenwell/client` | plan types, projection materialisation and subscriptions, the authoring state machine and its persisted form, text bindings |
-| `@clerkenwell/client/loro` | plan-driven Loro replicas; the package's only importer of `loro-crdt` |
+| `@clerkenwell/client/loro` | plan-driven Loro replicas, read and written as an application's drafts; the package's only importer of `loro-crdt` |
 | `@clerkenwell/react` | React stores, edit overlays, text-binding hooks, autosync and the authoring runtime provider |
 
 ## Licence

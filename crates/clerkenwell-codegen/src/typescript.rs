@@ -32,6 +32,7 @@ pub fn render_model_module(definition: &Definition, project: &Project) -> Result
             "import type {",
             "  AuthoringPlan,",
             "  CollaborationEntityPlan as ClerkenwellCollaborationEntityPlan,",
+            "  CollaborationPlanTextFieldPath,",
             "  ProjectionCompositionPlan as ClerkenwellProjectionCompositionPlan",
             "} from \"@clerkenwell/client\";",
             "export type {",
@@ -305,9 +306,7 @@ fn collaboration_metadata(definition: &Definition) -> String {
         ),
         "export type CollaborationEntityName = keyof typeof COLLABORATION_PLANS;".to_owned(),
         "export type CollaborationFieldPath<TEntity extends CollaborationEntityName> = keyof (typeof COLLABORATION_PLANS)[TEntity][\"fields\"] & string;".to_owned(),
-        "export type CollaborationTextFieldPath<TEntity extends CollaborationEntityName> = {".to_owned(),
-        "  [TPath in CollaborationFieldPath<TEntity>]: (typeof COLLABORATION_PLANS)[TEntity][\"fields\"][TPath] extends { readonly storage: { readonly kind: \"text\" } } ? TPath : never;".to_owned(),
-        "}[CollaborationFieldPath<TEntity>];".to_owned(),
+        "export type CollaborationTextFieldPath<TEntity extends CollaborationEntityName> = CollaborationPlanTextFieldPath<(typeof COLLABORATION_PLANS)[TEntity]>;".to_owned(),
     ]
     .join("\n")
 }

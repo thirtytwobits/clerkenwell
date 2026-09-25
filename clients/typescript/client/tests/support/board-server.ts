@@ -9,12 +9,16 @@
 import type {
   AuthoringResourceIdentity,
   AuthoringRuntime,
-  AuthoringSessionController,
   AuthoringSessionHandle
 } from "@clerkenwell/client";
 
 import { BOARD_PLAN, type BoardDocument } from "./plans";
-import { boardReplica, boardReplicaFromUpdate, type BoardReplica } from "./replicas";
+import {
+  BOARD_DRAFTS,
+  boardReplica,
+  type BoardReplica,
+  type BoardTextFieldPath
+} from "./replicas";
 
 export interface BoardAuthoringState {
   schema_version: number;
@@ -70,33 +74,12 @@ export class FakeBoardServer {
   }
 }
 
-export function boardAuthoringController(
-  replica: BoardReplica
-): AuthoringSessionController<BoardDocument> {
-  return {
-    currentDraft: () => replica.currentDocument(),
-    replaceDraft: (board) => replica.replaceDocument(board),
-    adoptDocument: (board) => replica.adoptDocument(board),
-    bindText: (fieldPath, identities) => replica.bindText(fieldPath, identities),
-    stageText: (fieldPath, identities) => replica.stageText(fieldPath, identities),
-    importUpdateBase64: (updateBase64) => { replica.importUpdateBase64(updateBase64); },
-    importVersionedUpdateBase64: (schemaVersion, updateBase64) =>
-      replica.importVersionedUpdateBase64(schemaVersion, updateBase64),
-    exportUpdateBase64: () => replica.exportUpdateBase64(),
-    exportIncrementalUpdateBase64: (frontier) => replica.exportIncrementalUpdateBase64(frontier),
-    acceptedFrontierBase64: () => replica.acceptedFrontierBase64(),
-    coversFrontierBase64: (frontier) => replica.coversFrontierBase64(frontier),
-    updateFrontierBase64: (update) => replica.updateFrontierBase64(update),
-    dispose: () => replica.disposeTextBindings()
-  };
-}
-
 /** Opens a clean session on the server's accepted state with a live replica behind it. */
 export function openBoardSession(
   runtime: AuthoringRuntime,
   server: FakeBoardServer,
   resource: AuthoringResourceIdentity
-): AuthoringSessionHandle<BoardDocument> {
+): AuthoringSessionHandle<BoardDocument, BoardTextFieldPath> {
   const initial = server.snapshot();
   runtime.open({
     resource,
@@ -108,7 +91,7 @@ export function openBoardSession(
     draft: server.board()
   });
   return runtime.ensureController(resource, () =>
-    boardAuthoringController(boardReplicaFromUpdate(initial.update_base64)));
+    BOARD_DRAFTS.fromUpdate(initial.update_base64).controller());
 }
 
 export function renameTask(board: BoardDocument, taskId: string, title: string): BoardDocument {

@@ -8,6 +8,7 @@
 import type {
   AuthoringPlan,
   CollaborationEntityPlan as ClerkenwellCollaborationEntityPlan,
+  CollaborationPlanTextFieldPath,
   ProjectionCompositionPlan as ClerkenwellProjectionCompositionPlan
 } from "@clerkenwell/client";
 export type {
@@ -282,7 +283,5 @@ export const COLLABORATION_PLANS = {
 } as const satisfies Record<string, CollaborationEntityPlan>;
 export type CollaborationEntityName = keyof typeof COLLABORATION_PLANS;
 export type CollaborationFieldPath<TEntity extends CollaborationEntityName> = keyof (typeof COLLABORATION_PLANS)[TEntity]["fields"] & string;
-export type CollaborationTextFieldPath<TEntity extends CollaborationEntityName> = {
-  [TPath in CollaborationFieldPath<TEntity>]: (typeof COLLABORATION_PLANS)[TEntity]["fields"][TPath] extends { readonly storage: { readonly kind: "text" } } ? TPath : never;
-}[CollaborationFieldPath<TEntity>];
+export type CollaborationTextFieldPath<TEntity extends CollaborationEntityName> = CollaborationPlanTextFieldPath<(typeof COLLABORATION_PLANS)[TEntity]>;
 

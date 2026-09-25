@@ -3,8 +3,11 @@
  *
  * Replica helpers shared by the Loro adapter tests.
  */
+import type { CollaborationPlanTextFieldPath } from "@clerkenwell/client";
 import {
-  CollaborationLoroAuthoringDocument
+  CollaborationDrafts,
+  CollaborationLoroAuthoringDocument,
+  documentDraftMapping
 } from "@clerkenwell/client/loro";
 
 import {
@@ -16,6 +19,16 @@ import {
 
 export type NoteReplica = CollaborationLoroAuthoringDocument<NoteDocument>;
 export type BoardReplica = CollaborationLoroAuthoringDocument<BoardDocument>;
+
+/** A board's declared text fields. */
+export type BoardTextFieldPath = CollaborationPlanTextFieldPath<typeof BOARD_PLAN>;
+
+/** Board replicas drafted as the whole board, as an authoring runtime drives them. */
+export const BOARD_DRAFTS = new CollaborationDrafts(
+  "Board",
+  BOARD_PLAN,
+  documentDraftMapping<BoardDocument>()
+);
 
 export function noteReplica(document: NoteDocument): NoteReplica {
   return new CollaborationLoroAuthoringDocument("Note", NOTE_PLAN, { kind: "document", document });
