@@ -89,6 +89,53 @@ function sameFrontiers(
   return left.length === right.length && left.every((id) => rightKeys.has(key(id)));
 }
 
+/** A declared text field's container, and whether its enclosing records exist. */
+interface TextTarget {
+  readonly available: (doc: LoroDoc) => boolean;
+  readonly container: string;
+}
+
+function resolveTextTarget(
+  entityName: string,
+  plan: CollaborationEntityPlan,
+  fieldPath: string,
+  identities: Readonly<Record<string, string>>
+): TextTarget {
+  const field = plan.fields[fieldPath];
+  const template = field?.storage.container ?? field?.storage.containerTemplate;
+  if (!field || field.storage.kind !== "text" || !template) {
+    throw new Error(`${entityName}.${fieldPath} is not a declared collaborative text field.`);
+  }
+  const context = { ...identities };
+  const ancestors = collaborationPlanIndex(plan).fields.filter((candidate) =>
+    candidate.storage.kind === "keyedSequence" && fieldPath.startsWith(`${candidate.path}.*.`));
+  return {
+    available: (doc) => ancestors.every((sequence) => {
+      const variable = sequence.storage.identityVariable ?? requiredSequenceMetadata(sequence, "identityPath");
+      const identity = context[variable];
+      const order = resolveCollaborationContainer(requiredSequenceMetadata(sequence, "orderContainer"), context);
+      return identity !== undefined && doc.getList(order).toArray().includes(identity);
+    }),
+    container: resolveCollaborationContainer(template, context)
+  };
+}
+
+/**
+ * A view of a replica held elsewhere, such as on another thread, attached with
+ * {@link CollaborationLoroAuthoringDocument.attachView}.
+ */
+export interface CollaborationReplicaView {
+  /** Every operation the replica held when the view attached. */
+  readonly snapshot: Uint8Array;
+  /** Takes operations the view authored. Returns whether the replica lacked any of them. */
+  receive(update: Uint8Array): boolean;
+  detach(): void;
+}
+
+interface AttachedView {
+  readonly send: (update: Uint8Array) => void;
+}
+
 /**
  * A browser-side collaboration replica whose layout is entirely supplied by a
  * generated entity plan. {@link CollaborationDrafts} reads and writes it as an
@@ -103,6 +150,7 @@ export class CollaborationLoroAuthoringDocument<TDocument extends ClientDocument
   private document: TDocument;
   private documentDirty = false;
   private readonly textBindings = new Map<string, LoroFieldTextBinding>();
+  private readonly views = new Set<AttachedView>();
 
   constructor(
     private readonly entityName: string,
@@ -153,7 +201,7 @@ export class CollaborationLoroAuthoringDocument<TDocument extends ClientDocument
   /** A stable handle to a declared text container, shared by views of this replica. */
   bindText(fieldPath: string, identities: Readonly<Record<string, string>> = {}): TextBinding {
     this.flushTextBindings();
-    const target = this.resolveTextTarget(fieldPath, identities);
+    const target = resolveTextTarget(this.entityName, this.plan, fieldPath, identities);
     const { container } = target;
     const existing = this.textBindings.get(container);
     if (existing) return existing;
@@ -169,9 +217,7 @@ export class CollaborationLoroAuthoringDocument<TDocument extends ClientDocument
       publish: (update) => {
         this.doc.import(update);
         this.documentDirty = true;
-        for (const other of this.textBindings.values()) {
-          if (other !== binding) other.importUpdate(update);
-        }
+        this.distribute(update, binding);
       },
       beforeEdit: () => {
         for (const other of this.textBindings.values()) {
@@ -196,7 +242,7 @@ export class CollaborationLoroAuthoringDocument<TDocument extends ClientDocument
     identities: Readonly<Record<string, string>> = {}
   ): AuthoringTextStageController {
     this.refreshDocument();
-    const target = this.resolveTextTarget(fieldPath, identities);
+    const target = resolveTextTarget(this.entityName, this.plan, fieldPath, identities);
     if (!target.available(this.doc)) {
       throw new Error(`Text field ${fieldPath} belongs to a missing record.`);
     }
@@ -231,33 +277,45 @@ export class CollaborationLoroAuthoringDocument<TDocument extends ClientDocument
     };
   }
 
-  private resolveTextTarget(
-    fieldPath: string,
-    identities: Readonly<Record<string, string>>
-  ): {
-    available: (doc: LoroDoc) => boolean;
-    container: string;
-  } {
-    const field = this.plan.fields[fieldPath];
-    const template = field?.storage.container ?? field?.storage.containerTemplate;
-    if (!field || field.storage.kind !== "text" || !template) {
-      throw new Error(`${this.entityName}.${fieldPath} is not a declared collaborative text field.`);
-    }
-    const context = { ...identities };
-    const ancestors = collaborationPlanIndex(this.plan).fields.filter((candidate) =>
-      candidate.storage.kind === "keyedSequence" && fieldPath.startsWith(`${candidate.path}.*.`));
+  /**
+   * Attach a view held elsewhere, such as a {@link CollaborationTextView} on
+   * another thread. The view starts from the snapshot and edits under its own
+   * peer. `send` carries every operation this replica takes from anywhere but
+   * the view: its bindings, its other views, and imports.
+   */
+  attachView(send: (update: Uint8Array) => void): CollaborationReplicaView {
+    this.flushTextBindings();
+    const view: AttachedView = { send };
+    this.views.add(view);
     return {
-      available: (doc) => ancestors.every((sequence) => {
-        const variable = sequence.storage.identityVariable ?? requiredSequenceMetadata(sequence, "identityPath");
-        const identity = context[variable];
-        const order = resolveCollaborationContainer(requiredSequenceMetadata(sequence, "orderContainer"), context);
-        return identity !== undefined && doc.getList(order).toArray().includes(identity);
-      }),
-      container: resolveCollaborationContainer(template, context)
+      snapshot: this.doc.export({ mode: "snapshot" }),
+      receive: (update) => {
+        this.flushTextBindings();
+        const before = this.doc.version();
+        if (this.doc.import(update).success.size === 0) {
+          return false;
+        }
+        this.documentDirty = true;
+        this.distribute(this.doc.export({ mode: "update", from: before }), view);
+        return true;
+      },
+      detach: () => {
+        this.views.delete(view);
+      }
     };
   }
 
-  /** Release editor subscriptions when the owning resource is closed. */
+  /** Hands operations this replica has just taken to its bindings and views, except their source. */
+  private distribute(update: Uint8Array, source?: LoroFieldTextBinding | AttachedView): void {
+    for (const binding of this.textBindings.values()) {
+      if (binding !== source) binding.importUpdate(update);
+    }
+    for (const view of this.views) {
+      if (view !== source) view.send(update);
+    }
+  }
+
+  /** Release editor subscriptions and views when the owning resource is closed. */
   disposeTextBindings(): void {
     if ([...this.textBindings.values()].some((binding) => binding.composing)) {
       throw new Error("Finish text composition before closing the resource.");
@@ -265,6 +323,7 @@ export class CollaborationLoroAuthoringDocument<TDocument extends ClientDocument
     this.flushTextBindings();
     for (const binding of this.textBindings.values()) binding.dispose();
     this.textBindings.clear();
+    this.views.clear();
   }
 
   /**
@@ -299,8 +358,7 @@ export class CollaborationLoroAuthoringDocument<TDocument extends ClientDocument
     writeCollaborationDocumentChangesToLoroDoc(this.doc, this.plan, this.document, next);
     this.doc.commit({ origin: "document" });
     this.document = next;
-    const update = this.doc.export({ mode: "update", from: before });
-    for (const binding of this.textBindings.values()) binding.importUpdate(update);
+    this.distribute(this.doc.export({ mode: "update", from: before }));
     this.documentDirty = false;
   }
 
@@ -315,7 +373,7 @@ export class CollaborationLoroAuthoringDocument<TDocument extends ClientDocument
    */
   importUpdateBase64(updateBase64: string): boolean {
     this.flushTextBindings();
-    const before = this.textBindings.size > 0 ? this.doc.version() : undefined;
+    const before = this.textBindings.size > 0 || this.views.size > 0 ? this.doc.version() : undefined;
     const status = this.doc.import(base64ToBytes(updateBase64));
     if (status.success.size === 0) {
       return false;
@@ -324,8 +382,7 @@ export class CollaborationLoroAuthoringDocument<TDocument extends ClientDocument
     // A transport message may include already-known history. Distribute only
     // the newly accepted operations and decode the wire encoding once.
     if (before) {
-      const update = this.doc.export({ mode: "update", from: before });
-      for (const binding of this.textBindings.values()) binding.importUpdate(update);
+      this.distribute(this.doc.export({ mode: "update", from: before }));
     }
     return true;
   }
@@ -570,6 +627,58 @@ export class CollaborationDrafts<
       new CollaborationLoroAuthoringDocument<TDocument>(this.entity, this.plan, source),
       this.mapping
     );
+  }
+}
+
+/**
+ * One text field of a replica held elsewhere, edited here under its own peer
+ * and with its own undo. It starts from the snapshot of a view attached with
+ * {@link CollaborationLoroAuthoringDocument.attachView}: `publish` carries this
+ * view's edits to that view's `receive`, and {@link receive} takes the
+ * operations its `send` delivers.
+ */
+export class CollaborationTextView {
+  readonly binding: TextBinding;
+  private readonly doc: LoroDoc;
+  private readonly field: LoroFieldTextBinding;
+
+  constructor(input: {
+    entityName: string;
+    plan: CollaborationEntityPlan;
+    fieldPath: string;
+    identities?: Readonly<Record<string, string>>;
+    snapshot: Uint8Array;
+    publish: (update: Uint8Array) => void;
+  }) {
+    const target = resolveTextTarget(input.entityName, input.plan, input.fieldPath, input.identities ?? {});
+    this.doc = new LoroDoc();
+    requireImportedDependencies(input.entityName, this.doc.import(input.snapshot));
+    if (!target.available(this.doc)) {
+      throw new Error(`Text field ${input.fieldPath} belongs to a missing record.`);
+    }
+    const doc = this.doc;
+    this.field = new LoroFieldTextBinding(doc, doc.getText(target.container), {
+      origin: "text-view:",
+      available: () => target.available(doc),
+      publish: input.publish,
+      beforeEdit: () => undefined
+    });
+    this.binding = this.field;
+  }
+
+  /** Takes operations the replica sent. A composing view takes them once its composition ends. */
+  receive(update: Uint8Array): void {
+    this.field.importUpdate(update);
+  }
+
+  /** The frontier of every operation this view holds, once its pending edits are published. */
+  frontierBase64(): string {
+    this.field.flush();
+    return bytesToBase64(encodeFrontiers(this.doc.oplogFrontiers()));
+  }
+
+  dispose(): void {
+    this.field.dispose();
   }
 }
 
