@@ -619,6 +619,38 @@ test("a blocked session takes no accepted state until a discard resolves its blo
   assert.deepEqual(runtime.session(resource)?.draft, { prose: "accepted" });
 });
 
+test("an accepted update a replica already holds is not imported, and pending work extends its frontier", () => {
+  const runtime = new AuthoringRuntime();
+  runtime.open({
+    resource,
+    policy: "collaborative",
+    schemaVersion: 1,
+    acceptedRevision: "before",
+    supportedExchangeModes: ["incremental"],
+    baseline: { prose: "before" },
+    draft: { prose: "before" }
+  });
+  const imports: string[] = [];
+  let prose = "before";
+  const held = new Set(["before"]);
+  const session = runtime.ensureController<{ prose: string }, "prose">(resource, () => ({
+    currentDraft: () => ({ prose }),
+    acceptedFrontierBase64: () => "before",
+    coversFrontierBase64: (frontier) => held.has(frontier),
+    exportIncrementalUpdateBase64: (base) => `operations after ${base}`,
+    importUpdateBase64: (update) => { imports.push(update); }
+  }));
+
+  held.add("accepted");
+  prose = "accepted, then typed";
+  session.importUpdateBase64("accepted operations", "accepted");
+  assert.deepEqual(imports, []);
+  assert.equal(runtime.session(resource)?.draftOperations?.baseFrontierBase64, "accepted");
+
+  session.importUpdateBase64("newer operations", "newer");
+  assert.deepEqual(imports, ["newer operations"]);
+});
+
 test("a replica attached to a blocked session leaves its held draft in place", () => {
   const runtime = blockedRuntime();
 
