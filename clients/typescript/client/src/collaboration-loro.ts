@@ -492,6 +492,18 @@ export class CollaborationDrafts<
     requireCollaborationSchemaVersion(this.entity, this.plan, actual);
   }
 
+  /** These drafts read and written as a further draft of their own. */
+  map<TNext>(
+    mapping: CollaborationDraftMapping<TDraft, TNext>
+  ): CollaborationDrafts<TPlan, TDocument, TNext> {
+    const inner = this.mapping;
+    return new CollaborationDrafts(this.entity, this.plan, {
+      toDraft: (document) => mapping.toDraft(inner.toDraft(document)),
+      toDocument: (draft, current) =>
+        inner.toDocument(mapping.toDocument(draft, inner.toDraft(current)), current)
+    });
+  }
+
   /** A new replica holding `document`. */
   fromDocument(
     document: TDocument

@@ -43,6 +43,21 @@ test("a replaced draft is written into the document, which keeps what the draft 
   assert.equal(written.boardId, board.boardId);
 });
 
+test("a mapped draft is read and written through both mappings", () => {
+  const board = boardDocument();
+  const firstColumnName = COLUMN_DRAFTS.map({
+    toDraft: (columns) => columns[0]?.name ?? "",
+    toDocument: (name: string, columns) => renamed(columns, name)
+  });
+  const replica = firstColumnName.fromDocument(board);
+  assert.equal(replica.currentDraft(), board.columns[0]?.name);
+
+  replica.replaceDraft("Backlog");
+
+  const written = BOARDS.fromUpdate(replica.exportUpdateBase64()).currentDraft();
+  assert.deepEqual(written, { ...board, columns: renamed(board.columns, "Backlog") });
+});
+
 test("a draft whose document the plan refuses leaves the replica as it was", () => {
   const board = boardDocument();
   const replica = COLUMN_DRAFTS.fromDocument(board);
