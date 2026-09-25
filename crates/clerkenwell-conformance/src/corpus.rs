@@ -103,22 +103,24 @@ impl EntityFixture {
     }
 
     /// Every edit the fixture's operations describe, in the order a replica
-    /// applies them one after another: the scalar edit, removing then
-    /// restoring the optional fields, each reorder, then each delete. Paths
-    /// with `*` apply to every item of the enclosing sequences.
+    /// applies them one after another: the scalar edit when the entity has an
+    /// editable scalar, removing then restoring the optional fields, each
+    /// reorder, then each delete. Paths with `*` apply to every item of the
+    /// enclosing sequences.
     pub fn edits(&self) -> Vec<Edit> {
         let operations = &self.operations;
         let mut edits = Vec::new();
 
         let scalar = operations["scalar"].clone();
-        let path = string(&scalar["path"]);
-        edits.push(Edit::new(format!("scalar {path}"), move |document| {
-            let mut edited = document.clone();
-            for at in pointers(document, &path) {
-                set(&mut edited, &at, scalar["value"].clone());
-            }
-            edited
-        }));
+        if let Some(path) = scalar["path"].as_str().map(str::to_string) {
+            edits.push(Edit::new(format!("scalar {path}"), move |document| {
+                let mut edited = document.clone();
+                for at in pointers(document, &path) {
+                    set(&mut edited, &at, scalar["value"].clone());
+                }
+                edited
+            }));
+        }
 
         let absent = strings(&operations["optionalAbsent"]);
         edits.push(Edit::new(
@@ -192,5 +194,47 @@ impl EntityFixture {
             }));
         }
         edits
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn fixture(scalar: Value) -> EntityFixture {
+        EntityFixture {
+            entity: "Note".to_string(),
+            schema_version: 1,
+            wire_document: json!({ "title": "Before" }),
+            client_document: json!({ "title": "Before" }),
+            operations: json!({
+                "scalar": scalar,
+                "optionalAbsent": [],
+                "optionalPresent": [],
+                "reorder": [],
+                "delete": []
+            }),
+            invalid: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn the_scalar_edit_writes_its_value_at_its_path() {
+        let edits = fixture(json!({ "path": "title", "value": "After" })).edits();
+        let edited = edits
+            .iter()
+            .fold(json!({ "title": "Before" }), |document, edit| {
+                edit.apply(&document)
+            });
+
+        assert_eq!(edited["title"], "After");
+    }
+
+    #[test]
+    fn an_entity_with_no_editable_scalar_has_no_scalar_edit() {
+        let edits = fixture(json!({ "value": "After" })).edits();
+
+        assert!(edits.iter().all(|edit| !edit.name.starts_with("scalar")));
     }
 }
