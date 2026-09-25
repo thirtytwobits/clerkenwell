@@ -497,6 +497,7 @@ test("a live session imports accepted operations before reconciling the retained
 
   session.adoptAccepted({
     updateBase64: "accepted-update",
+    acceptedFrontierBase64: "after",
     baseline: { prose: "accepted" },
     draft: { prose: "local" },
     acceptedRevision: "after"

@@ -7,7 +7,6 @@
  */
 import {
   decodeFrontiers,
-  decodeImportBlobMeta,
   encodeFrontiers,
   LoroDoc,
   LoroList,
@@ -16,6 +15,7 @@ import {
   LoroText,
   UndoManager,
   type Cursor,
+  type ImportStatus,
   type LoroEventBatch
 } from "loro-crdt";
 import { base64ToBytes, bytesToBase64 } from "./binary";
@@ -71,6 +71,25 @@ export function requireCollaborationSchemaVersion(
 }
 
 /**
+ * A replica seeded from an update that depends on operations it lacks would
+ * materialise a partial document, so the update is refused.
+ */
+function requireImportedDependencies(entityName: string, status: ImportStatus): void {
+  if (status.pending !== null && status.pending.size > 0) {
+    throw new Error(`The ${entityName} update depends on operations this replica does not hold.`);
+  }
+}
+
+function sameFrontiers(
+  left: readonly { peer: string; counter: number }[],
+  right: readonly { peer: string; counter: number }[]
+): boolean {
+  const key = ({ peer, counter }: { peer: string; counter: number }) => `${peer}:${counter}`;
+  const rightKeys = new Set(right.map(key));
+  return left.length === right.length && left.every((id) => rightKeys.has(key(id)));
+}
+
+/**
  * A browser-side collaboration replica whose layout is entirely supplied by a
  * generated entity plan. {@link CollaborationDrafts} reads and writes it as an
  * application's draft.
@@ -100,7 +119,7 @@ export class CollaborationLoroAuthoringDocument<TDocument extends ClientDocument
       }
       case "update":
         this.doc = new LoroDoc();
-        this.doc.import(base64ToBytes(source.updateBase64));
+        requireImportedDependencies(this.entityName, this.doc.import(base64ToBytes(source.updateBase64)));
         this.document = materializeCollaborationDocumentFromLoroDoc<TDocument>(
           this.doc,
           this.plan,
@@ -337,11 +356,21 @@ export class CollaborationLoroAuthoringDocument<TDocument extends ClientDocument
     return bytesToBase64(encodeFrontiers(this.doc.oplogFrontiers()));
   }
 
-  /** Frontier of the operations an update carries, once this replica holds them. */
-  updateFrontierBase64(updateBase64: string): string {
-    this.flushTextBindings();
-    const { partialEndVersionVector } = decodeImportBlobMeta(base64ToBytes(updateBase64), false);
-    return bytesToBase64(encodeFrontiers(this.doc.vvToFrontiers(partialEndVersionVector)));
+  /** The document as it stood at a frontier this replica holds. */
+  documentAt(frontierBase64: string, revision: string | null = null): TDocument {
+    if (!this.coversFrontierBase64(frontierBase64)) {
+      throw new Error(`The ${this.entityName} replica does not hold that frontier.`);
+    }
+    const frontiers = decodeFrontiers(base64ToBytes(frontierBase64));
+    if (sameFrontiers(frontiers, this.doc.oplogFrontiers())) {
+      return materializeCollaborationDocumentFromLoroDoc<TDocument>(this.doc, this.plan, revision);
+    }
+    const fork = this.doc.forkAt(frontiers);
+    try {
+      return materializeCollaborationDocumentFromLoroDoc<TDocument>(fork, this.plan, revision);
+    } finally {
+      fork.free();
+    }
   }
 
   materializedDocument(revision = "loro:materialized"): TDocument {
@@ -442,9 +471,9 @@ export class CollaborationDraftReplica<
     return this.replica.coversFrontierBase64(frontierBase64);
   }
 
-  /** Frontier of the operations an update carries, once this replica holds them. */
-  updateFrontierBase64(updateBase64: string): string {
-    return this.replica.updateFrontierBase64(updateBase64);
+  /** The draft as it stood at a frontier the replica holds. */
+  draftAt(frontierBase64: string, revision: string | null = null): TDraft {
+    return this.mapping.toDraft(this.replica.documentAt(frontierBase64, revision));
   }
 
   dispose(): void {
@@ -469,7 +498,7 @@ export class CollaborationDraftReplica<
         this.exportIncrementalUpdateBase64(acceptedFrontierBase64),
       acceptedFrontierBase64: () => this.acceptedFrontierBase64(),
       coversFrontierBase64: (frontierBase64) => this.coversFrontierBase64(frontierBase64),
-      updateFrontierBase64: (updateBase64) => this.updateFrontierBase64(updateBase64),
+      draftAt: (frontierBase64) => this.draftAt(frontierBase64),
       dispose: () => this.dispose()
     };
   }
