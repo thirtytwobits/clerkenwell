@@ -127,9 +127,13 @@ impl EntityFixture {
             format!("optionalAbsent {absent:?}"),
             move |document| {
                 let mut edited = document.clone();
+                // A field inside an optional group already removed is gone
+                // with it.
                 for path in &absent {
-                    for at in pointers(document, path) {
-                        remove(&mut edited, &at);
+                    for at in pointers(&edited, path) {
+                        if edited.pointer(&at).is_some() {
+                            remove(&mut edited, &at);
+                        }
                     }
                 }
                 edited
@@ -229,6 +233,26 @@ mod tests {
             });
 
         assert_eq!(edited["title"], "After");
+    }
+
+    #[test]
+    fn removing_the_optional_fields_removes_an_optional_group_with_its_optional_members() {
+        let mut nested = fixture(json!({ "value": "After" }));
+        nested.operations["optionalAbsent"] = json!(["group", "group.member", "items.*.note"]);
+        let document = json!({
+            "title": "Before",
+            "group": { "member": "present" },
+            "items": [{ "note": "first" }, { "note": "second" }]
+        });
+
+        let absent = nested
+            .edits()
+            .into_iter()
+            .find(|edit| edit.name.starts_with("optionalAbsent"))
+            .expect("an optionalAbsent edit")
+            .apply(&document);
+
+        assert_eq!(absent, json!({ "title": "Before", "items": [{}, {}] }));
     }
 
     #[test]
