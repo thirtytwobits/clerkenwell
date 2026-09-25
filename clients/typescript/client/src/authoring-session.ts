@@ -298,7 +298,9 @@ export class AuthoringSessionHandle<
    * Import accepted operations before reconciling the retained local draft.
    * `updateBase64` holds what the replica lacks of the state accepted at
    * `acceptedFrontierBase64`. The baseline defaults to the draft the replica
-   * holds at that frontier once it has taken the update.
+   * holds at that frontier once it has taken the update. A session that does
+   * not accept a draft takes none of it: its replica, draft and baseline stay
+   * as they are until its block is resolved.
    */
   adoptAccepted(input: {
     updateBase64: string;
@@ -310,6 +312,9 @@ export class AuthoringSessionHandle<
     validation?: unknown;
   }): void {
     const controller = this.controller();
+    if (!authoringSessionAcceptsDraft(this.state())) {
+      return;
+    }
     if (input.schemaVersion === undefined) {
       if (controller.importUpdateBase64 === undefined) {
         throw new Error(`${this.owned.resource.entity} authoring cannot import Loro updates.`);
@@ -391,12 +396,16 @@ export class AuthoringSessionHandle<
 
   /**
    * Import what the replica lacks of the state accepted at
-   * `acceptedFrontierBase64`, and materialise the draft it leaves.
+   * `acceptedFrontierBase64`, and materialise the draft it leaves. A session
+   * that does not accept a draft takes none of it.
    */
   importUpdateBase64(updateBase64: string, acceptedFrontierBase64: string): void {
     const controller = this.controller();
     if (controller.importUpdateBase64 === undefined) {
       throw new Error(`${this.owned.resource.entity} authoring cannot import Loro updates.`);
+    }
+    if (!authoringSessionAcceptsDraft(this.state())) {
+      return;
     }
     controller.importUpdateBase64(updateBase64);
     takeAcceptedFrontier(this.owned, acceptedFrontierBase64);
@@ -405,7 +414,8 @@ export class AuthoringSessionHandle<
 
   /**
    * Import what the replica lacks of the state accepted at
-   * `acceptedFrontierBase64`, and materialise the draft it leaves.
+   * `acceptedFrontierBase64`, and materialise the draft it leaves. A session
+   * that does not accept a draft takes none of it.
    */
   importVersionedUpdateBase64(
     schemaVersion: number,
@@ -415,6 +425,9 @@ export class AuthoringSessionHandle<
     const controller = this.controller();
     if (controller.importVersionedUpdateBase64 === undefined) {
       throw new Error(`${this.owned.resource.entity} authoring cannot import versioned Loro updates.`);
+    }
+    if (!authoringSessionAcceptsDraft(this.state())) {
+      return;
     }
     controller.importVersionedUpdateBase64(schemaVersion, updateBase64);
     takeAcceptedFrontier(this.owned, acceptedFrontierBase64);
@@ -668,6 +681,10 @@ export function acknowledgeAuthoringOperation<TDocument>(input: {
   };
 }
 
+/**
+ * Take an accepted baseline. A session that does not accept a draft holds its
+ * baseline, draft and queued operations until its block is resolved.
+ */
 export function adoptAuthoringBaseline<TDocument>(input: {
   session: AuthoringSession<TDocument>;
   baseline: TDocument;
@@ -675,6 +692,9 @@ export function adoptAuthoringBaseline<TDocument>(input: {
   acceptedRevision?: string;
   validation?: unknown;
 }): AuthoringSession<TDocument> {
+  if (!authoringSessionAcceptsDraft(input.session)) {
+    return input.session;
+  }
   const draft = input.draft === undefined
     ? resolveAuthoringDraftForBaselineAdoption(input.session, input.baseline)
     : input.draft;
@@ -1220,7 +1240,10 @@ export class AuthoringRuntime {
     input: Omit<Parameters<typeof adoptAuthoringBaseline<TDocument>>[0], "session">
   ): void {
     const session = this.#requireSession<TDocument>(resource);
-    this.#setSession(adoptAuthoringBaseline({ session, ...input }));
+    const adopted = adoptAuthoringBaseline({ session, ...input });
+    if (adopted !== session) {
+      this.#setSession(adopted);
+    }
   }
 
   queue<TDocument>(
@@ -1402,14 +1425,17 @@ export class AuthoringRuntime {
     });
   }
 
-  /** Materialise the controller into the serialisable draft without writing back. */
+  /**
+   * Materialise the controller into the serialisable draft without writing
+   * back. A blocked session's draft stays as it is.
+   */
   syncControllerDraft(owned: OwnedAuthoringController): void {
     const controller = owned.controller;
     if (controller.currentDraft === undefined) {
       return;
     }
     const session = this.session<unknown>(owned.resource);
-    if (session === undefined) {
+    if (session === undefined || !authoringSessionAcceptsDraft(session)) {
       return;
     }
     const draft = controller.currentDraft();

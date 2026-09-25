@@ -302,6 +302,11 @@ test("a session blocked for migration, a dependency, a resync or recovery keeps 
     const blocked = blockAuthoringSession(queuedSession(), block);
     assert.equal(authoringSessionAcceptsDraft(blocked), false, block);
     assert.throws(() => modifyAuthoringSession(blocked, { prose: "next edit" }), Error, block);
+    assert.equal(
+      adoptAuthoringBaseline({ session: blocked, baseline: { prose: "accepted" } }),
+      blocked,
+      block
+    );
   }
 });
 
@@ -553,4 +558,75 @@ test("a live session imports accepted operations before reconciling the retained
   assert.deepEqual(runtime.session(resource)?.baseline, { prose: "accepted" });
   assert.deepEqual(runtime.session(resource)?.draft, { prose: "local" });
   assert.equal(runtime.session(resource)?.acceptedRevision, "after");
+});
+
+function blockedRuntime() {
+  const runtime = new AuthoringRuntime();
+  runtime.open({
+    resource,
+    policy: "collaborative",
+    schemaVersion: 1,
+    acceptedRevision: "before",
+    supportedExchangeModes: ["incremental"],
+    baseline: { prose: "before" },
+    draft: { prose: "before" }
+  });
+  runtime.modify(resource, { prose: "local" });
+  runtime.queue(resource, {
+    operationId: "operation",
+    schemaVersion: 1,
+    exchangeMode: "incremental",
+    baseRevision: "before"
+  });
+  runtime.block(resource, "recoveryRequired");
+  return runtime;
+}
+
+test("a blocked session takes no accepted state until a discard resolves its block", () => {
+  const runtime = blockedRuntime();
+  const operations: string[] = [];
+  const session = runtime.ensureController<{ prose: string }, "prose">(
+    resource,
+    () => ({
+      importUpdateBase64: () => { operations.push("import"); },
+      replaceDraft: () => { operations.push("replace"); }
+    })
+  );
+  operations.length = 0;
+  const held = runtime.session(resource);
+
+  session.adoptAccepted({
+    updateBase64: "accepted-update",
+    acceptedFrontierBase64: "after",
+    baseline: { prose: "accepted" },
+    acceptedRevision: "after"
+  });
+  session.importUpdateBase64("accepted-update", "after");
+  runtime.adoptBaseline(resource, { baseline: { prose: "accepted" }, acceptedRevision: "after" });
+
+  assert.deepEqual(operations, []);
+  assert.equal(runtime.session(resource), held);
+
+  runtime.discard(resource);
+  session.adoptAccepted({
+    updateBase64: "accepted-update",
+    acceptedFrontierBase64: "after",
+    baseline: { prose: "accepted" },
+    draft: { prose: "accepted" },
+    acceptedRevision: "after"
+  });
+  assert.equal(runtime.session(resource)?.status, "clean");
+  assert.deepEqual(runtime.session(resource)?.draft, { prose: "accepted" });
+});
+
+test("a replica attached to a blocked session leaves its held draft in place", () => {
+  const runtime = blockedRuntime();
+
+  runtime.ensureController<{ prose: string }, "prose">(
+    resource,
+    () => ({ currentDraft: () => ({ prose: "replica" }) })
+  );
+
+  assert.equal(runtime.session(resource)?.status, "recoveryRequired");
+  assert.deepEqual(runtime.session(resource)?.draft, { prose: "local" });
 });
