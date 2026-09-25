@@ -256,6 +256,9 @@ pub struct CollaborationImportResult {
     pub duplicate: bool,
     pub schema_version: u32,
     pub accepted_frontier_base64: String,
+    /// The accepted operations the importer lacks: those beyond its base
+    /// frontier and the update it sent.
+    pub missing_update_base64: String,
     pub update_base64: String,
     pub etag: String,
     pub materialized: Value,
@@ -1010,12 +1013,20 @@ impl<S: CollaborationStoragePort> CollaborationService<S> {
                 (durable, value)
             };
             let accepted_update = durable_update;
+            let missing_update_base64 = authoring
+                .missing_update_base64(
+                    (request.exchange_mode == CollaborationExchangeMode::Incremental)
+                        .then_some(request.base_frontier_base64.as_str()),
+                    &request.update_base64,
+                )
+                .map_err(|error| collaboration_loro_error(&request.document, error))?;
             let debug = authoring.debug();
             return Ok(CollaborationImportResult {
                 operation_id: request.operation_id,
                 duplicate,
                 schema_version: accepted.schema_version,
                 accepted_frontier_base64: authoring.accepted_frontier_base64(),
+                missing_update_base64,
                 etag: collaboration_etag(&accepted_update),
                 update_base64: BASE64.encode(&accepted_update),
                 materialized,

@@ -1056,3 +1056,94 @@ fn a_move_onto_a_stored_document_is_refused_and_moves_nothing() {
     );
     assert_eq!(files_under(root.path()), before);
 }
+
+/// A writer's replica holding `state`, edited at `path`, and its import of that edit.
+fn writer_edit(
+    document: &CollaborationDocumentId,
+    seed: &Value,
+    state: &CollaborationAuthoringState,
+    operation_id: &str,
+    path: &str,
+    replacement: Value,
+) -> (LoroAuthoringDocument, CollaborationImportRequest) {
+    let mut writer = LoroAuthoringDocument::from_versioned_update_base64(
+        &NOTE_PLAN,
+        state.schema_version,
+        &state.update_base64,
+    )
+    .expect("hydrate writer");
+    let mut edited = seed.clone();
+    edited[path] = replacement;
+    writer.replace_document(&edited).expect("edit writer");
+    let request = CollaborationImportRequest {
+        document: document.clone(),
+        relative_path: RELATIVE_PATH.to_string(),
+        schema_version: state.schema_version,
+        operation_id: operation_id.to_string(),
+        exchange_mode: CollaborationExchangeMode::Incremental,
+        base_frontier_base64: state.accepted_frontier_base64.clone(),
+        update_base64: writer
+            .export_incremental_update_base64(&state.accepted_frontier_base64)
+            .expect("incremental update"),
+        fence: ImportFence::Frontier,
+    };
+    (writer, request)
+}
+
+fn update_metadata(update_base64: &str) -> loro::ImportBlobMetadata {
+    loro::LoroDoc::decode_import_blob_meta(&BASE64.decode(update_base64).unwrap(), false).unwrap()
+}
+
+#[test]
+fn an_import_reply_carries_only_the_operations_the_importer_lacks() {
+    let root = TempDir::new().unwrap();
+    let (service, document, seed, state) = initialise(root.path());
+    let (_, first_request) = writer_edit(
+        &document,
+        &seed,
+        &state,
+        "first",
+        "body",
+        json!("Bread, milk and eggs."),
+    );
+    let (second, second_request) = writer_edit(
+        &document,
+        &seed,
+        &state,
+        "second",
+        "summary",
+        json!("The weekly shop."),
+    );
+
+    let first_reply = import(&service, first_request, &seed).expect("first import");
+    assert_eq!(
+        update_metadata(&first_reply.missing_update_base64).change_num,
+        0,
+        "The first writer holds everything the store accepted"
+    );
+
+    let own = update_metadata(&second_request.update_base64).partial_end_vv;
+    for reply in [
+        import(&service, second_request.clone(), &seed).expect("second import"),
+        import(&service, second_request, &seed).expect("retried second import"),
+    ] {
+        let missing = update_metadata(&reply.missing_update_base64);
+        assert!(
+            missing.change_num > 0,
+            "The second writer lacks the first edit"
+        );
+        assert!(
+            own.iter()
+                .all(|(peer, _)| missing.partial_end_vv.get(peer).is_none()),
+            "A reply carries none of the importer's own operations"
+        );
+        second
+            .import_versioned_update_base64(reply.schema_version, &reply.missing_update_base64)
+            .expect("take the reply");
+        assert_eq!(
+            second.materialized_document(&reply.etag).unwrap(),
+            reply.materialized,
+            "The reply brings the importer to the accepted document"
+        );
+    }
+}

@@ -335,9 +335,25 @@ export class CollaborationLoroAuthoringDocument<TDocument extends ClientDocument
     this.importUpdateBase64(updateBase64);
   }
 
-  exportUpdateBase64(): string {
+  /** Every operation this replica holds, or those up to a frontier it holds. */
+  exportUpdateBase64(frontierBase64?: string): string {
     this.flushTextBindings();
-    return bytesToBase64(this.doc.export({ mode: "update" }));
+    if (frontierBase64 === undefined) {
+      return bytesToBase64(this.doc.export({ mode: "update" }));
+    }
+    if (!this.coversFrontierBase64(frontierBase64)) {
+      throw new Error(`The ${this.entityName} replica does not hold that frontier.`);
+    }
+    const frontiers = decodeFrontiers(base64ToBytes(frontierBase64));
+    if (sameFrontiers(frontiers, this.doc.oplogFrontiers())) {
+      return bytesToBase64(this.doc.export({ mode: "update" }));
+    }
+    const fork = this.doc.forkAt(frontiers);
+    try {
+      return bytesToBase64(fork.export({ mode: "update" }));
+    } finally {
+      fork.free();
+    }
   }
 
   exportIncrementalUpdateBase64(acceptedFrontierBase64: string): string {

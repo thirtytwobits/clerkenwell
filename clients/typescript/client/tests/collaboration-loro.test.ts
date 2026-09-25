@@ -460,3 +460,18 @@ test("a replica materialises its document at a frontier it holds and refuses one
   elsewhere.replaceDocument(renameTask(elsewhere.currentDocument(), "task-2", "Elsewhere"));
   assert.throws(() => replica.documentAt(elsewhere.acceptedFrontierBase64()));
 });
+
+test("an export up to a frontier seeds a replica holding the document as it stood there", () => {
+  const replica = boardReplica(boardDocument());
+  const earlier = replica.currentDocument();
+  const frontier = replica.acceptedFrontierBase64();
+  replica.replaceDocument(renameTask(earlier, "task-1", "Later"));
+
+  const seeded = boardReplicaFromUpdate(replica.exportUpdateBase64(frontier));
+  assert.deepEqual(seeded.currentDocument(), earlier);
+  assert.equal(seeded.acceptedFrontierBase64(), frontier);
+  assert.deepEqual(
+    boardReplicaFromUpdate(replica.exportUpdateBase64(replica.acceptedFrontierBase64())).currentDocument(),
+    replica.currentDocument()
+  );
+});
