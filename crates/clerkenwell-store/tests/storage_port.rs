@@ -6,9 +6,10 @@ mod support;
 use clerkenwell_doc::LoroAuthoringDocument;
 use clerkenwell_store::{
     CollaborationDocumentId, CollaborationExchangeMode, CollaborationImportRequest,
-    CollaborationRecoveryAction, CollaborationRecoveryAuditRecord, CollaborationService,
-    CollaborationStoragePort, DurableCollaborationEnvelope, ImportFence,
-    LocalFileCollaborationStorage, StoreResult, StoredEnvelope,
+    CollaborationPublicationScanCache, CollaborationRecoveryAction,
+    CollaborationRecoveryAuditRecord, CollaborationService, CollaborationStoragePort,
+    DurableCollaborationEnvelope, ImportFence, LocalFileCollaborationStorage, StoreResult,
+    StoredEnvelope,
 };
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
@@ -24,6 +25,10 @@ struct MemoryState {
     envelopes: BTreeMap<String, (String, Vec<u8>)>,
     evidence: Vec<Vec<u8>>,
     audit: Vec<CollaborationRecoveryAuditRecord>,
+    /// How many reads asked for a version as well as the bytes.
+    versioned_reads: usize,
+    /// How many reads asked for the bytes alone.
+    byte_reads: usize,
     /// Runs once, after the next write to the named source has landed.
     after_write: Option<(String, Hook)>,
 }
@@ -86,14 +91,29 @@ impl CollaborationStoragePort for MemoryPort {
     }
 
     fn read(&self, source: &str) -> StoreResult<Option<StoredEnvelope>> {
-        Ok(self
-            .state()
+        let mut state = self.state();
+        state.versioned_reads += 1;
+        Ok(state
             .envelopes
             .get(source)
             .map(|(version, bytes)| StoredEnvelope {
                 version: version.clone(),
                 bytes: bytes.clone(),
             }))
+    }
+
+    fn read_bytes(&self, source: &str) -> StoreResult<Option<Vec<u8>>> {
+        let mut state = self.state();
+        state.byte_reads += 1;
+        Ok(state.envelopes.get(source).map(|(_, bytes)| bytes.clone()))
+    }
+
+    fn stamp(&self, source: &str) -> StoreResult<Option<String>> {
+        Ok(self
+            .state()
+            .envelopes
+            .get(source)
+            .map(|(version, _)| version.clone()))
     }
 
     fn compare_and_swap(
@@ -358,6 +378,115 @@ fn quarantine_preserves_the_stored_bytes_through_the_port() {
         .expect("read")
         .expect("stored");
     assert_eq!(port.state().evidence, vec![stored.bytes]);
+}
+
+#[test]
+fn a_publication_scan_reads_bytes_without_asking_for_versions() {
+    let port = MemoryPort::default();
+    let service = CollaborationService::with_storage(port.clone(), PLANS);
+    let document = note();
+    service
+        .bootstrap(
+            &NOTE_PLAN,
+            &document,
+            RELATIVE_PATH,
+            &seed_document(),
+            accept,
+        )
+        .expect("seed");
+    port.state().versioned_reads = 0;
+
+    let scan = service.publication_scan().expect("scan");
+
+    assert!(scan
+        .publications
+        .iter()
+        .any(|publication| publication.document == document));
+    assert_eq!(port.state().versioned_reads, 0);
+}
+
+#[test]
+fn a_rescan_reads_again_only_the_envelopes_whose_bytes_changed() {
+    let port = MemoryPort::default();
+    let service = CollaborationService::with_storage(port.clone(), PLANS);
+    let edits = edits(1);
+    let document = note();
+    service
+        .bootstrap_update(
+            &NOTE_PLAN,
+            &document,
+            RELATIVE_PATH,
+            NOTE_PLAN.schema_version,
+            &edits.seed_update,
+            accept,
+        )
+        .expect("seed");
+    let neighbour = CollaborationDocumentId::new("Note", "note-2");
+    service
+        .bootstrap(
+            &NOTE_PLAN,
+            &neighbour,
+            "notes/note-2.yaml",
+            &json!({ "note_id": "note-2", "body": "Seeded.", "etag": "" }),
+            accept,
+        )
+        .expect("seed neighbour");
+    let mut cache = CollaborationPublicationScanCache::default();
+    let first = service.publication_rescan(&mut cache).expect("first scan");
+
+    port.state().byte_reads = 0;
+    let unchanged = service
+        .publication_rescan(&mut cache)
+        .expect("unchanged scan");
+    assert_eq!(unchanged.publications, first.publications);
+    assert_eq!(port.state().byte_reads, 0);
+
+    let (operation_id, base, update) = &edits.edits[0];
+    let imported = service
+        .import(&NOTE_PLAN, request(operation_id, base, update), accept)
+        .expect("commit");
+    port.state().byte_reads = 0;
+    let changed = service
+        .publication_rescan(&mut cache)
+        .expect("changed scan");
+    assert_eq!(port.state().byte_reads, 1);
+    let edited = changed
+        .publications
+        .iter()
+        .find(|publication| publication.document == document)
+        .expect("the edited document is published");
+    assert_eq!(edited.generation, imported.generation);
+    assert!(changed
+        .publications
+        .iter()
+        .any(|publication| publication.document == neighbour));
+}
+
+#[test]
+fn a_rescan_drops_an_envelope_that_is_no_longer_kept() {
+    let port = MemoryPort::default();
+    let service = CollaborationService::with_storage(port.clone(), PLANS);
+    let document = note();
+    service
+        .bootstrap(
+            &NOTE_PLAN,
+            &document,
+            RELATIVE_PATH,
+            &seed_document(),
+            accept,
+        )
+        .expect("seed");
+    let mut cache = CollaborationPublicationScanCache::default();
+    service.publication_rescan(&mut cache).expect("first scan");
+
+    let source = port.source(&document);
+    port.state().envelopes.remove(&source);
+    let scan = service.publication_rescan(&mut cache).expect("rescan");
+
+    assert!(scan
+        .publications
+        .iter()
+        .all(|publication| publication.document != document));
 }
 
 #[test]

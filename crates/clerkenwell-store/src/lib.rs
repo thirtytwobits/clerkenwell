@@ -23,6 +23,7 @@ use fs2::FileExt;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
+use std::collections::HashMap;
 use std::fs::{File, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -30,7 +31,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 #[cfg(test)]
 use std::sync::Mutex;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use uuid::Uuid;
 
 /// The envelope format this store reads and writes.
@@ -299,6 +300,27 @@ pub struct CollaborationPublicationScan {
     pub problems: Vec<CollaborationPublicationScanProblem>,
 }
 
+/// What a service's earlier publication scans read from each envelope, kept
+/// by a caller that scans repeatedly so an envelope whose stamp has not moved
+/// is not read again.
+#[derive(Debug, Default)]
+pub struct CollaborationPublicationScanCache {
+    reads: HashMap<String, StampedPublicationRead>,
+}
+
+#[derive(Debug, Clone)]
+struct StampedPublicationRead {
+    stamp: String,
+    read: PublicationRead,
+}
+
+/// What one envelope's bytes say about its publication.
+#[derive(Debug, Clone)]
+enum PublicationRead {
+    Publication(CollaborationPublication),
+    Problem(CollaborationPublicationScanProblem),
+}
+
 #[derive(Debug, Deserialize)]
 struct DurableCollaborationPublicationHeader {
     envelope_version: u32,
@@ -397,6 +419,16 @@ pub trait CollaborationStoragePort: std::fmt::Debug + Send + Sync {
 
     /// The envelope kept at `source`, or `None` when none is.
     fn read(&self, source: &str) -> StoreResult<Option<StoredEnvelope>>;
+
+    /// The bytes kept at `source`, or `None` when none are, for a reader that
+    /// will not write them back and so needs no version.
+    fn read_bytes(&self, source: &str) -> StoreResult<Option<Vec<u8>>>;
+
+    /// A token, taken without reading the bytes kept at `source`, that differs
+    /// from every earlier token for `source` once those bytes change. `None`
+    /// when the port cannot vouch for such a token now; the reader then reads
+    /// the bytes.
+    fn stamp(&self, source: &str) -> StoreResult<Option<String>>;
 
     /// Keeps `bytes` as `document`'s envelope if its stored version is still
     /// `expected` (`None`: nothing is stored), and returns their version.
@@ -1036,9 +1068,20 @@ impl<S: CollaborationStoragePort> CollaborationService<S> {
     }
 
     pub fn publication_scan(&self) -> StoreResult<CollaborationPublicationScan> {
+        self.publication_rescan(&mut CollaborationPublicationScanCache::default())
+    }
+
+    /// Scans as [`Self::publication_scan`] does, reading only the envelopes
+    /// whose stamp has moved since the scan that filled `cache`.
+    pub fn publication_rescan(
+        &self,
+        cache: &mut CollaborationPublicationScanCache,
+    ) -> StoreResult<CollaborationPublicationScan> {
+        let mut previous = std::mem::take(&mut cache.reads);
         let mut scan = CollaborationPublicationScan::default();
         for spec in self.plans {
-            let entity_scan = self.entity_publications(spec.name)?;
+            let entity_scan =
+                self.entity_publications(spec.name, &mut previous, &mut cache.reads)?;
             scan.publications.extend(entity_scan.publications);
             scan.problems.extend(entity_scan.problems);
         }
@@ -1053,64 +1096,112 @@ impl<S: CollaborationStoragePort> CollaborationService<S> {
 
     /// Reads each stored envelope of `entity` only as far as its identity
     /// and publication state, reporting one that cannot be read that far
-    /// rather than failing the scan.
-    fn entity_publications(&self, entity: &str) -> StoreResult<CollaborationPublicationScan> {
+    /// rather than failing the scan. An envelope whose stamp matches its read
+    /// in `previous` is not read again; every stamped read is kept in `next`.
+    fn entity_publications(
+        &self,
+        entity: &str,
+        previous: &mut HashMap<String, StampedPublicationRead>,
+        next: &mut HashMap<String, StampedPublicationRead>,
+    ) -> StoreResult<CollaborationPublicationScan> {
         let mut scan = CollaborationPublicationScan::default();
         for source in self.storage.sources(entity)? {
-            let bytes = match self.storage.read(&source) {
-                Ok(Some(stored)) => stored.bytes,
-                Ok(None) => continue,
-                Err(error) => {
-                    let message =
-                        format!("Could not read collaboration publication {source}: {error}");
-                    scan.problems.push(CollaborationPublicationScanProblem {
-                        source,
-                        fingerprint: sha256_hex(message.as_bytes()),
-                        code: "collaboration_publication_unreadable",
-                        message,
-                    });
-                    continue;
-                }
+            // The stamp is taken before the bytes are read, so bytes that
+            // change in between are kept under the older stamp and read again
+            // by the next scan.
+            let stamp = self.storage.stamp(&source).ok().flatten();
+            let cached = previous
+                .remove(&source)
+                .filter(|cached| stamp.as_deref() == Some(cached.stamp.as_str()));
+            let read = match cached {
+                Some(cached) => cached.read,
+                None => match self.publication_read(entity, &source) {
+                    Ok(Some(read)) => read,
+                    Ok(None) => continue,
+                    Err(problem) => {
+                        scan.problems.push(problem);
+                        continue;
+                    }
+                },
             };
-            let header: DurableCollaborationPublicationHeader = match serde_json::from_slice(&bytes)
-            {
-                Ok(header) => header,
-                Err(error) => {
-                    scan.problems.push(CollaborationPublicationScanProblem {
+            if let Some(stamp) = stamp {
+                next.insert(
+                    source,
+                    StampedPublicationRead {
+                        stamp,
+                        read: read.clone(),
+                    },
+                );
+            }
+            match read {
+                PublicationRead::Publication(publication) => scan.publications.push(publication),
+                PublicationRead::Problem(problem) => scan.problems.push(problem),
+            }
+        }
+        Ok(scan)
+    }
+
+    /// What the envelope at `source` says about its publication, or `None`
+    /// when nothing is kept there. `Err` is the problem of bytes that could
+    /// not be read at all, which a later read may not repeat.
+    fn publication_read(
+        &self,
+        entity: &str,
+        source: &str,
+    ) -> Result<Option<PublicationRead>, CollaborationPublicationScanProblem> {
+        let bytes = match self.storage.read_bytes(source) {
+            Ok(Some(bytes)) => bytes,
+            Ok(None) => return Ok(None),
+            Err(error) => {
+                let message = format!("Could not read collaboration publication {source}: {error}");
+                return Err(CollaborationPublicationScanProblem {
+                    source: source.to_string(),
+                    fingerprint: sha256_hex(message.as_bytes()),
+                    code: "collaboration_publication_unreadable",
+                    message,
+                });
+            }
+        };
+        let header: DurableCollaborationPublicationHeader = match serde_json::from_slice(&bytes) {
+            Ok(header) => header,
+            Err(error) => {
+                return Ok(Some(PublicationRead::Problem(
+                    CollaborationPublicationScanProblem {
                         message: format!(
                             "Collaboration publication {source} is invalid JSON: {error}"
                         ),
-                        source,
+                        source: source.to_string(),
                         fingerprint: sha256_hex(&bytes),
                         code: "collaboration_publication_invalid_json",
-                    });
-                    continue;
-                }
-            };
-            let document =
-                CollaborationDocumentId::new(header.entity.clone(), header.resource_id.clone());
-            if header.envelope_version != ENVELOPE_VERSION
-                || header.entity != entity
-                || self.storage.source(&document) != source
-            {
-                scan.problems.push(CollaborationPublicationScanProblem {
+                    },
+                )));
+            }
+        };
+        let document =
+            CollaborationDocumentId::new(header.entity.clone(), header.resource_id.clone());
+        if header.envelope_version != ENVELOPE_VERSION
+            || header.entity != entity
+            || self.storage.source(&document) != source
+        {
+            return Ok(Some(PublicationRead::Problem(
+                CollaborationPublicationScanProblem {
                     message: format!(
                         "Collaboration publication header in {source} does not match its storage identity"
                     ),
-                    source,
+                    source: source.to_string(),
                     fingerprint: sha256_hex(&bytes),
                     code: "collaboration_state_corrupt",
-                });
-                continue;
-            }
-            scan.publications.push(CollaborationPublication {
+                },
+            )));
+        }
+        Ok(Some(PublicationRead::Publication(
+            CollaborationPublication {
                 document,
                 schema_version: header.schema_version,
                 generation: header.generation,
                 pending: header.publication_pending,
-            });
-        }
-        Ok(scan)
+            },
+        )))
     }
 
     #[cfg(test)]
@@ -1843,6 +1934,44 @@ impl LocalFileCollaborationStorage {
     }
 }
 
+/// How long a file must have gone unchanged before its metadata alone shows
+/// any later change: a file timestamp can lag the clock by a timer tick, or by
+/// a second on a coarse file system, so a rewrite within that lag can leave
+/// the timestamp where it was.
+const SETTLED_METADATA_AGE: Duration = Duration::from_secs(2);
+
+/// When a file last changed, and a stamp of its metadata.
+#[cfg(unix)]
+fn metadata_stamp(metadata: &std::fs::Metadata) -> Option<(SystemTime, String)> {
+    use std::os::unix::fs::MetadataExt;
+    let changed = UNIX_EPOCH.checked_add(Duration::new(
+        u64::try_from(metadata.ctime()).ok()?,
+        u32::try_from(metadata.ctime_nsec()).ok()?,
+    ))?;
+    let stamp = format!(
+        "{}:{}:{}:{}.{}:{}.{}",
+        metadata.dev(),
+        metadata.ino(),
+        metadata.len(),
+        metadata.mtime(),
+        metadata.mtime_nsec(),
+        metadata.ctime(),
+        metadata.ctime_nsec(),
+    );
+    Some((changed, stamp))
+}
+
+/// When a file last changed, and a stamp of its metadata.
+#[cfg(not(unix))]
+fn metadata_stamp(metadata: &std::fs::Metadata) -> Option<(SystemTime, String)> {
+    let modified = metadata.modified().ok()?;
+    let since_epoch = modified.duration_since(UNIX_EPOCH).ok()?;
+    Some((
+        modified,
+        format!("{}:{}", metadata.len(), since_epoch.as_nanos()),
+    ))
+}
+
 /// The bytes at `path`, or `None` when there is no file.
 fn read_optional(path: &Path) -> StoreResult<Option<Vec<u8>>> {
     match std::fs::read(path) {
@@ -1897,6 +2026,28 @@ impl CollaborationStoragePort for LocalFileCollaborationStorage {
                 bytes,
             }),
         )
+    }
+
+    fn read_bytes(&self, source: &str) -> StoreResult<Option<Vec<u8>>> {
+        read_optional(Path::new(source))
+    }
+
+    fn stamp(&self, source: &str) -> StoreResult<Option<String>> {
+        let metadata = match std::fs::metadata(source) {
+            Ok(metadata) => metadata,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(error) => {
+                return Err(StoreError::internal(format!(
+                    "Could not inspect collaboration state {source}: {error}"
+                )))
+            }
+        };
+        Ok(metadata_stamp(&metadata).and_then(|(changed, stamp)| {
+            SystemTime::now()
+                .duration_since(changed)
+                .is_ok_and(|age| age >= SETTLED_METADATA_AGE)
+                .then_some(stamp)
+        }))
     }
 
     fn compare_and_swap(

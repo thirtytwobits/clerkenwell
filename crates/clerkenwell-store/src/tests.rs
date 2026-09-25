@@ -488,6 +488,48 @@ fn publication_scan_reads_identity_without_materialising_authoritative_payloads(
     );
 }
 
+#[cfg(unix)]
+#[test]
+fn a_rescan_observes_a_same_length_rewrite_that_keeps_the_modification_time() {
+    let root = TempDir::new().expect("temp workspace");
+    let (service, document, _seed, _state) = initialise(root.path());
+    let path = service.storage().envelope_path(&document);
+    let mut envelope: Value = serde_json::from_slice(&std::fs::read(&path).expect("read envelope"))
+        .expect("parse envelope");
+    let original = serde_json::to_vec(&envelope).expect("serialise envelope");
+    std::fs::write(&path, &original).expect("write envelope");
+    std::thread::sleep(SETTLED_METADATA_AGE + Duration::from_millis(100));
+    let mut cache = CollaborationPublicationScanCache::default();
+    service
+        .publication_rescan(&mut cache)
+        .expect("settled scan");
+
+    let modified = std::fs::metadata(&path)
+        .and_then(|metadata| metadata.modified())
+        .expect("modification time");
+    let generation = envelope["generation"].as_u64().expect("generation") ^ 1;
+    envelope["generation"] = json!(generation);
+    let rewritten = serde_json::to_vec(&envelope).expect("serialise rewrite");
+    assert_eq!(rewritten.len(), original.len());
+    let mut file = OpenOptions::new()
+        .write(true)
+        .truncate(true)
+        .open(&path)
+        .expect("open envelope in place");
+    file.write_all(&rewritten).expect("rewrite envelope");
+    file.set_modified(modified)
+        .expect("keep the modification time");
+    drop(file);
+
+    let scan = service.publication_rescan(&mut cache).expect("rescan");
+    let publication = scan
+        .publications
+        .iter()
+        .find(|publication| publication.document == document)
+        .expect("the rewritten document is published");
+    assert_eq!(publication.generation, generation);
+}
+
 #[test]
 fn publication_scan_isolates_an_invalid_envelope_from_healthy_publications() {
     let root = TempDir::new().expect("temp workspace");
