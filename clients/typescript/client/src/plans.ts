@@ -97,7 +97,10 @@ export function resolveCollaborationContainer(
   template: string,
   identities: Readonly<Record<string, string>>
 ): string {
-  return template.replace(/\{([^}]+)\}/g, (_match, identity: string) => {
+  return template.replace(/\{([^{}]*)\}|\{/g, (_match, identity: string | undefined) => {
+    if (identity === undefined) {
+      throw new Error(`Unclosed placeholder in collaboration container ${JSON.stringify(template)}.`);
+    }
     const value = identities[identity];
     if (value === undefined || value.length === 0) {
       throw new Error(
