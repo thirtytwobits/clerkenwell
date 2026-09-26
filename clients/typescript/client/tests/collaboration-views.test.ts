@@ -10,8 +10,8 @@ import test from "node:test";
 import type { TextBindingChange } from "@clerkenwell/client";
 import { CollaborationTextView } from "@clerkenwell/client/loro";
 
-import { NOTE_PLAN, noteDocument } from "./support/plans";
-import { noteReplica, type NoteReplica } from "./support/replicas";
+import { boardDocument, NOTE_PLAN, noteDocument } from "./support/plans";
+import { BOARD_DRAFTS, noteReplica, type NoteReplica } from "./support/replicas";
 import { insert, replaceAll } from "./support/text";
 
 /** A view whose messages to and from its replica wait until they are pumped. */
@@ -231,4 +231,40 @@ test("a replica takes nothing from a view that sends only what it holds", async 
 
   assert.equal(attached.receive(attached.snapshot), false);
   attached.detach();
+});
+
+test("a replica built from another's snapshot and linked both ways keeps in step with it", async () => {
+  const origin = BOARD_DRAFTS.fromDocument(boardDocument());
+  const toMirror: Uint8Array[] = [];
+  const toOrigin: Uint8Array[] = [];
+  const fromOrigin = origin.attachView((update) => toMirror.push(update));
+  const mirror = BOARD_DRAFTS.fromSnapshot(fromOrigin.snapshot);
+  const fromMirror = mirror.attachView((update) => toOrigin.push(update));
+  const pump = async () => {
+    await Promise.resolve();
+    while (toMirror.length > 0 || toOrigin.length > 0) {
+      const down = toMirror.shift();
+      if (down !== undefined) fromMirror.receive(down);
+      const up = toOrigin.shift();
+      if (up !== undefined) fromOrigin.receive(up);
+      await Promise.resolve();
+    }
+  };
+  const identities = { column_id: "todo", task_id: "task-1" };
+
+  assert.deepEqual(mirror.currentDraft(), origin.currentDraft());
+  const renamed = structuredClone(mirror.currentDraft());
+  renamed.title = "Renamed on the mirror";
+  mirror.replaceDraft(renamed);
+  insert(mirror.bindText("columns.*.tasks.*.notes", identities), 0, "Mirror notes. ");
+  insert(origin.bindText("columns.*.tasks.*.notes", identities), 0, "Origin notes. ");
+  await pump();
+
+  assert.deepEqual(mirror.currentDraft(), origin.currentDraft());
+  assert.equal(origin.currentDraft().title, "Renamed on the mirror");
+  const notes = origin.currentDraft().columns[0]?.tasks[0]?.notes ?? "";
+  assert.ok(notes.includes("Mirror notes. ") && notes.includes("Origin notes. "));
+  assert.equal(mirror.acceptedFrontierBase64(), origin.acceptedFrontierBase64());
+  mirror.dispose();
+  origin.dispose();
 });

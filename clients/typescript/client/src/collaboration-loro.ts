@@ -41,6 +41,8 @@ export type CollaborationLoroDoc = LoroDoc;
 export type CollaborationReplicaSource<TDocument extends ClientDocument> =
   | { kind: "document"; document: TDocument }
   | { kind: "update"; updateBase64: string }
+  /** A view's snapshot of a replica held elsewhere: see {@link CollaborationLoroAuthoringDocument.attachView}. */
+  | { kind: "snapshot"; snapshot: Uint8Array }
   | { kind: "fork"; doc: LoroDoc; document: TDocument };
 
 /** An accepted update seeds the replica; otherwise the caller's initial content must. */
@@ -166,8 +168,11 @@ export class CollaborationLoroAuthoringDocument<TDocument extends ClientDocument
         return;
       }
       case "update":
+      case "snapshot":
         this.doc = new LoroDoc();
-        requireImportedDependencies(this.entityName, this.doc.import(base64ToBytes(source.updateBase64)));
+        requireImportedDependencies(this.entityName, this.doc.import(
+          source.kind === "update" ? base64ToBytes(source.updateBase64) : source.snapshot
+        ));
         this.document = materializeCollaborationDocumentFromLoroDoc<TDocument>(
           this.doc,
           this.plan,
@@ -513,6 +518,11 @@ export class CollaborationDraftReplica<
     return this.replica.stageText(fieldPath, identities);
   }
 
+  /** Attach a view held elsewhere: see {@link CollaborationLoroAuthoringDocument.attachView}. */
+  attachView(send: (update: Uint8Array) => void): CollaborationReplicaView {
+    return this.replica.attachView(send);
+  }
+
   /** An independent replica with the same operations, editing under its own peer. */
   fork(): CollaborationDraftReplica<TDocument, TDraft, TTextFieldPath> {
     return new CollaborationDraftReplica(this.replica.fork(), this.mapping);
@@ -611,6 +621,13 @@ export class CollaborationDrafts<
     document: TDocument
   ): CollaborationDraftReplica<TDocument, TDraft, CollaborationPlanTextFieldPath<TPlan>> {
     return this.replica({ kind: "document", document });
+  }
+
+  /** A replica holding what a view's snapshot of another replica holds. */
+  fromSnapshot(
+    snapshot: Uint8Array
+  ): CollaborationDraftReplica<TDocument, TDraft, CollaborationPlanTextFieldPath<TPlan>> {
+    return this.replica({ kind: "snapshot", snapshot });
   }
 
   /** A replica holding the history an update carries. */
