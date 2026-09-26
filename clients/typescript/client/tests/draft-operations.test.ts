@@ -190,6 +190,28 @@ test("pending work a runtime starts on reaches the server once", async () => {
   assert.equal(copiesOf(notes, " From the other runtime."), 1, notes);
 });
 
+test("a replica that takes no documents restores a blocked session's pending work as its operations", async () => {
+  const server = new FakeBoardServer(boardDocument());
+  const beforeRestart = new AuthoringRuntime();
+  await append(openBoardSession(beforeRestart, server, resource), " Held.");
+  beforeRestart.block(resource, "recoveryRequired");
+  const attachWithoutDocuments = (runtime: AuthoringRuntime) => runtime.ensureController(resource, () => {
+    const { replaceDraft: _takesDocuments, ...controller } = BOARD_DRAFTS
+      .fromUpdate(server.snapshot().update_base64)
+      .controller();
+    return controller;
+  });
+
+  const afterRestart = new AuthoringRuntime(persisted(beforeRestart));
+  const restored = attachWithoutDocuments(afterRestart);
+  assert.equal(copiesOf(notesOf(restored.currentDraft()), " Held."), 1);
+  assert.equal(afterRestart.session(resource)?.status, "recoveryRequired");
+
+  // What it restored stays recorded, so a further restart restores it again.
+  const again = attachWithoutDocuments(new AuthoringRuntime(persisted(afterRestart)));
+  assert.equal(copiesOf(notesOf(again.currentDraft()), " Held."), 1);
+});
+
 test("a replica holding other history takes the draft as a document", async () => {
   const server = new FakeBoardServer(boardDocument());
   const beforeRestart = new AuthoringRuntime();

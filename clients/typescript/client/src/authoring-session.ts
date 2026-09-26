@@ -1152,12 +1152,13 @@ export class AuthoringRuntime {
     // Recorded operations are taken as themselves, so edits the replica
     // already holds are not authored again. A replica without their base holds
     // other history, and a blocked session's draft stays as it is: both take
-    // the draft as a document.
+    // the draft as a document. A replica that takes no documents holds a
+    // blocked draft only as its operations.
     const operations = session.draftOperations;
     if (
       recording
       && operations !== undefined
-      && authoringSessionAcceptsDraft(session)
+      && (authoringSessionAcceptsDraft(session) || controller.replaceDraft === undefined)
       && controller.coversFrontierBase64(operations.baseFrontierBase64)
     ) {
       controller.importUpdateBase64(operations.updateBase64);
