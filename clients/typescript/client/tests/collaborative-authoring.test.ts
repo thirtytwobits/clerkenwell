@@ -45,6 +45,7 @@ test("a save exports only its edit over the accepted frontier", () => {
   session.adoptAccepted({
     updateBase64: result.state.update_base64,
     baseline: result.board,
+    acceptedFrontierBase64: result.state.accepted_frontier_base64,
     acceptedRevision: result.state.accepted_frontier_base64
   });
 
@@ -63,6 +64,7 @@ test("a remote update merges with a retained local draft", () => {
   session.adoptAccepted({
     updateBase64: remote.update_base64,
     baseline: server.board(),
+    acceptedFrontierBase64: remote.accepted_frontier_base64,
     acceptedRevision: remote.accepted_frontier_base64
   });
 
@@ -94,6 +96,7 @@ test("a session refuses accepted state from another schema version", () => {
       updateBase64: server.snapshot().update_base64,
       schemaVersion: BOARD_PLAN.schemaVersion + 1,
       baseline: server.board(),
+      acceptedFrontierBase64: server.snapshot().accepted_frontier_base64,
       acceptedRevision: server.snapshot().accepted_frontier_base64
     }),
     /schema version/

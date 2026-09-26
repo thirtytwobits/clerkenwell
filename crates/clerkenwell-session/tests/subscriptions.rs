@@ -1,17 +1,14 @@
 use std::time::Duration;
 
 use clerkenwell_session::transport::ProjectionSubscribeResume;
-use clerkenwell_session::{CursorAhead, ProjectionSubscriptions};
+use clerkenwell_session::{CursorAhead, FollowingDelivery, ProjectionSubscriptions};
 use serde_json::{json, Value};
 
 type Patch = Value;
+type Subscriptions = ProjectionSubscriptions<Patch, String>;
 
-fn with_patches(
-    projection: &str,
-    params: &Value,
-    spans: &[(u64, u64)],
-) -> ProjectionSubscriptions<Patch> {
-    let mut subscriptions = ProjectionSubscriptions::default();
+fn with_patches(projection: &str, params: &Value, spans: &[(u64, u64)]) -> Subscriptions {
+    let mut subscriptions = Subscriptions::default();
     for (from, to) in spans {
         subscriptions.retain_patch(
             projection.to_string(),
@@ -52,7 +49,7 @@ fn retained_patches_replay_only_a_contiguous_window_for_the_same_projection_and_
 #[test]
 fn the_retained_window_evicts_the_oldest_patches() {
     let params = json!({});
-    let mut subscriptions = ProjectionSubscriptions::new(2);
+    let mut subscriptions = Subscriptions::new(2);
     for revision in 1..=3 {
         subscriptions.retain_patch(
             "notes.list".to_string(),
@@ -73,7 +70,7 @@ fn the_retained_window_evicts_the_oldest_patches() {
 #[test]
 fn the_last_retained_patch_is_matched_per_projection_and_params() {
     let params = json!({});
-    let mut subscriptions = ProjectionSubscriptions::default();
+    let mut subscriptions = Subscriptions::default();
     let first = json!({ "kind": "reset" });
     let latest = json!({ "kind": "remove", "id": "n1" });
     subscriptions.retain_patch(
@@ -109,7 +106,7 @@ fn the_last_retained_patch_is_matched_per_projection_and_params() {
 
 #[test]
 fn a_subscription_without_a_cursor_takes_a_snapshot() {
-    let mut subscriptions = ProjectionSubscriptions::<Patch>::default();
+    let mut subscriptions = Subscriptions::default();
     let revision = 7;
     let outcome = subscriptions
         .subscribe("notes.list".to_string(), json!({}), revision, None)
@@ -126,7 +123,7 @@ fn a_subscription_without_a_cursor_takes_a_snapshot() {
 
 #[test]
 fn a_cursor_ahead_of_the_projection_is_refused_without_subscribing() {
-    let mut subscriptions = ProjectionSubscriptions::<Patch>::default();
+    let mut subscriptions = Subscriptions::default();
     let refused = subscriptions
         .subscribe("notes.list".to_string(), json!({}), 3, Some(4))
         .expect_err("a cursor from the future is refused");
@@ -142,7 +139,7 @@ fn a_cursor_ahead_of_the_projection_is_refused_without_subscribing() {
 
 #[test]
 fn a_cursor_at_the_current_revision_resumes_with_nothing_to_send() {
-    let mut subscriptions = ProjectionSubscriptions::<Patch>::default();
+    let mut subscriptions = Subscriptions::default();
     let revision = 5;
     let outcome = subscriptions
         .subscribe(
@@ -255,4 +252,75 @@ fn diagnostics_count_resumes_resyncs_and_mutations_and_hash_params() {
     assert!(diagnostics.subscriptions[0]
         .params_sha256
         .starts_with("sha256:"));
+}
+
+#[test]
+fn a_subscription_remembers_where_its_last_delivery_left_the_client() {
+    let mut subscriptions = Subscriptions::default();
+    let id = subscriptions.insert("notes.authoringState".to_string(), json!({}), 3);
+    assert_eq!(
+        subscriptions.get(id).and_then(|s| s.delivered.clone()),
+        None
+    );
+
+    subscriptions.record_delivery(id, 4, "snapshot-frontier".to_string());
+    let subscription = subscriptions.get(id).expect("subscribed");
+    assert_eq!(subscription.revision, 4);
+    assert_eq!(subscription.delivered.as_deref(), Some("snapshot-frontier"));
+}
+
+#[test]
+fn a_delivery_built_on_a_superseded_one_is_not_recorded() {
+    let mut subscriptions = Subscriptions::default();
+    let id = subscriptions.insert("notes.authoringState".to_string(), json!({}), 3);
+    let built_at = subscriptions.get(id).expect("subscribed").revision;
+
+    // A resync delivers a snapshot while the patch is being built.
+    subscriptions.record_delivery(id, built_at + 1, "resync-state".to_string());
+    assert_eq!(
+        subscriptions.record_following_delivery(
+            id,
+            built_at,
+            built_at + 1,
+            "patch-state".to_string()
+        ),
+        FollowingDelivery::Superseded
+    );
+    assert_eq!(
+        subscriptions
+            .get(id)
+            .and_then(|s| s.delivered.clone())
+            .as_deref(),
+        Some("resync-state")
+    );
+
+    let current = subscriptions.get(id).expect("subscribed").revision;
+    assert_eq!(
+        subscriptions.record_following_delivery(id, current, current + 1, "next-state".to_string()),
+        FollowingDelivery::Recorded
+    );
+    let subscription = subscriptions.get(id).expect("subscribed");
+    assert_eq!(subscription.revision, current + 1);
+    assert_eq!(subscription.delivered.as_deref(), Some("next-state"));
+    assert_eq!(
+        subscriptions.record_following_delivery(99, 0, 1, "unknown".to_string()),
+        FollowingDelivery::Superseded
+    );
+}
+
+#[test]
+fn a_delivery_that_leaves_the_client_where_the_last_one_did_is_not_recorded() {
+    let mut subscriptions = Subscriptions::default();
+    let id = subscriptions.insert("notes.authoringState".to_string(), json!({}), 3);
+    subscriptions.record_delivery(id, 4, "held-state".to_string());
+
+    assert_eq!(
+        subscriptions.record_following_delivery(id, 4, 5, "held-state".to_string()),
+        FollowingDelivery::AlreadyHeld
+    );
+    assert_eq!(subscriptions.get(id).expect("subscribed").revision, 4);
+    assert_eq!(
+        subscriptions.record_following_delivery(id, 4, 5, "newer-state".to_string()),
+        FollowingDelivery::Recorded
+    );
 }

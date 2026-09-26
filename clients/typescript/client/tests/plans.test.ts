@@ -37,3 +37,12 @@ test("a missing or empty identity refuses to resolve", () => {
     /column_id/
   );
 });
+
+test("a brace that opens no placeholder refuses to resolve", () => {
+  const template = BOARD_PLAN.fields["columns.*.tasks.*.notes"].storage.containerTemplate;
+  const identities = { column_id: "todo", task_id: "task-1" };
+
+  for (const unclosed of [`{${template}`, `${template}{`, "{".repeat(100_000)]) {
+    assert.throws(() => resolveCollaborationContainer(unclosed, identities), /Unclosed placeholder/);
+  }
+});

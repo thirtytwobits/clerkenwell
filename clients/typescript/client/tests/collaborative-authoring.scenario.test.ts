@@ -34,6 +34,7 @@ test("a session converges through saves, echoes and remote edits", () => {
     session.adoptAccepted({
       updateBase64: accepted.state.update_base64,
       baseline: accepted.board,
+      acceptedFrontierBase64: accepted.state.accepted_frontier_base64,
       acceptedRevision: accepted.state.accepted_frontier_base64
     });
   };
@@ -52,6 +53,7 @@ test("a session converges through saves, echoes and remote edits", () => {
   session.adoptAccepted({
     updateBase64: remote.update_base64,
     baseline: server.board(),
+    acceptedFrontierBase64: remote.accepted_frontier_base64,
     acceptedRevision: remote.accepted_frontier_base64
   });
   save();
@@ -87,6 +89,7 @@ test("a save acknowledgement keeps typing made while the save was in flight", ()
   session.adoptAccepted({
     updateBase64: accepted.state.update_base64,
     baseline: accepted.board,
+    acceptedFrontierBase64: accepted.state.accepted_frontier_base64,
     acceptedRevision: accepted.state.accepted_frontier_base64
   });
   runtime.acknowledge({

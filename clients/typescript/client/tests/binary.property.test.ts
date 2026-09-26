@@ -19,3 +19,12 @@ test("any byte sequence round-trips through base64", () => {
     { numRuns: 200 }
   );
 });
+
+test("update-sized byte sequences encode as standard base64 and round-trip", () => {
+  for (const length of [65_535, 65_536, 65_537, 200_003]) {
+    const bytes = Uint8Array.from({ length }, (_, index) => (index * 7919 + (index >> 8)) & 0xff);
+    const encoded = bytesToBase64(bytes);
+    assert.equal(encoded, Buffer.from(bytes).toString("base64"));
+    assert.deepEqual(base64ToBytes(encoded), bytes);
+  }
+});
