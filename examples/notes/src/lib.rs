@@ -132,7 +132,7 @@ impl Notes {
 
     /// A writer holding the note as accepted now.
     pub fn writer(&self) -> Result<Writer> {
-        let read = self.service.authoring_state(NOTE, &self.note)?;
+        let read = self.service.authoring_state(NOTE, &self.note, None)?;
         let replica = LoroAuthoringDocument::from_versioned_update_base64(
             NOTE,
             read.schema_version,

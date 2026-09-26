@@ -504,7 +504,9 @@ fn commits_racing_through_one_port_both_land() {
             accept,
         )
         .expect("seed");
-    let state = first.authoring_state(&NOTE_PLAN, &document).expect("read");
+    let state = first
+        .authoring_state(&NOTE_PLAN, &document, None)
+        .expect("read");
     let edit = |body: &str| {
         let mut client = LoroAuthoringDocument::from_versioned_update_base64(
             &NOTE_PLAN,

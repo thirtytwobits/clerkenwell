@@ -220,11 +220,15 @@ pub enum CollaborationExchangeMode {
     Bootstrap,
 }
 
+/// A document's accepted state as one peer receives it.
 #[derive(Debug, Clone)]
 pub struct CollaborationAuthoringState {
     pub schema_version: u32,
     pub accepted_frontier_base64: String,
+    /// The accepted operations the peer lacks: those after the frontier it
+    /// holds, or every one when it holds none this document can place.
     pub update_base64: String,
+    /// Hashes the whole stored checkpoint, whatever the update carries.
     pub etag: String,
 }
 
@@ -705,10 +709,13 @@ impl<S: CollaborationStoragePort> CollaborationService<S> {
             .map_err(|error| collaboration_loro_error(document, error))
     }
 
+    /// The accepted state for a peer that holds every operation up to
+    /// `held_frontier_base64`, or nothing when it is `None`.
     pub fn authoring_state(
         &self,
         plan: &'static GeneratedCollaborationEntitySpec,
         document: &CollaborationDocumentId,
+        held_frontier_base64: Option<&str>,
     ) -> StoreResult<CollaborationAuthoringState> {
         let envelope = self.load(document)?.ok_or_else(|| {
             StoreError::not_found(format!(
@@ -723,10 +730,19 @@ impl<S: CollaborationStoragePort> CollaborationService<S> {
         })?;
         let update = envelope.checkpoint_update(document)?;
         let authoring = load_authoring_document(plan, document, &envelope)?;
+        let lacking = match held_frontier_base64 {
+            None => BASE64.encode(&update),
+            Some(held) => match authoring.export_incremental_update_base64(held) {
+                Ok(lacking) => lacking,
+                // A frontier from another history places nothing the peer holds.
+                Err(CollaborationLoroError::UnknownFrontier) => BASE64.encode(&update),
+                Err(error) => return Err(collaboration_loro_error(document, error)),
+            },
+        };
         Ok(CollaborationAuthoringState {
             schema_version: envelope.schema_version,
             accepted_frontier_base64: authoring.accepted_frontier_base64(),
-            update_base64: BASE64.encode(&update),
+            update_base64: lacking,
             etag: collaboration_etag(&update),
         })
     }

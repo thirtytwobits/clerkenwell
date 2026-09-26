@@ -16,6 +16,10 @@ pub struct ProjectionSubscription {
     pub projection: String,
     pub params: Value,
     pub revision: u64,
+    /// Where the last delivery left the client, for a projection that sends
+    /// only what follows it, such as a collaborative document's accepted
+    /// frontier. `None` until such a delivery.
+    pub delivered: Option<String>,
 }
 
 /// A patch the connection sent, retained so a resuming subscription can
@@ -134,6 +138,7 @@ impl<P> ProjectionSubscriptions<P> {
                 projection,
                 params,
                 revision,
+                delivered: None,
             },
         );
         subscription_id
@@ -150,6 +155,36 @@ impl<P> ProjectionSubscriptions<P> {
     pub fn update_revision(&mut self, subscription_id: u64, revision: u64) {
         if let Some(subscription) = self.subscriptions.get_mut(&subscription_id) {
             subscription.revision = revision;
+        }
+    }
+
+    /// Records a delivery that took the client to `revision` and left it at
+    /// `delivered`.
+    pub fn record_delivery(&mut self, subscription_id: u64, revision: u64, delivered: String) {
+        if let Some(subscription) = self.subscriptions.get_mut(&subscription_id) {
+            subscription.revision = revision;
+            subscription.delivered = Some(delivered);
+        }
+    }
+
+    /// Records a delivery that follows the one the client held at
+    /// `from_revision`, unless another delivery reached it since. Only a
+    /// recorded delivery may be sent: one built on a superseded delivery
+    /// would not follow what the client holds.
+    pub fn record_following_delivery(
+        &mut self,
+        subscription_id: u64,
+        from_revision: u64,
+        to_revision: u64,
+        delivered: String,
+    ) -> bool {
+        match self.subscriptions.get_mut(&subscription_id) {
+            Some(subscription) if subscription.revision == from_revision => {
+                subscription.revision = to_revision;
+                subscription.delivered = Some(delivered);
+                true
+            }
+            _ => false,
         }
     }
 

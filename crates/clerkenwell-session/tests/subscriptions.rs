@@ -256,3 +256,53 @@ fn diagnostics_count_resumes_resyncs_and_mutations_and_hash_params() {
         .params_sha256
         .starts_with("sha256:"));
 }
+
+#[test]
+fn a_subscription_remembers_where_its_last_delivery_left_the_client() {
+    let mut subscriptions = ProjectionSubscriptions::<Patch>::default();
+    let id = subscriptions.insert("notes.authoringState".to_string(), json!({}), 3);
+    assert_eq!(
+        subscriptions.get(id).and_then(|s| s.delivered.clone()),
+        None
+    );
+
+    subscriptions.record_delivery(id, 4, "snapshot-frontier".to_string());
+    let subscription = subscriptions.get(id).expect("subscribed");
+    assert_eq!(subscription.revision, 4);
+    assert_eq!(subscription.delivered.as_deref(), Some("snapshot-frontier"));
+}
+
+#[test]
+fn a_delivery_built_on_a_superseded_one_is_not_recorded() {
+    let mut subscriptions = ProjectionSubscriptions::<Patch>::default();
+    let id = subscriptions.insert("notes.authoringState".to_string(), json!({}), 3);
+    let built_at = subscriptions.get(id).expect("subscribed").revision;
+
+    // A resync delivers a snapshot while the patch is being built.
+    subscriptions.record_delivery(id, built_at + 1, "resync-frontier".to_string());
+    assert!(!subscriptions.record_following_delivery(
+        id,
+        built_at,
+        built_at + 1,
+        "patch-frontier".to_string()
+    ));
+    assert_eq!(
+        subscriptions
+            .get(id)
+            .and_then(|s| s.delivered.clone())
+            .as_deref(),
+        Some("resync-frontier")
+    );
+
+    let current = subscriptions.get(id).expect("subscribed").revision;
+    assert!(subscriptions.record_following_delivery(
+        id,
+        current,
+        current + 1,
+        "next-frontier".to_string()
+    ));
+    let subscription = subscriptions.get(id).expect("subscribed");
+    assert_eq!(subscription.revision, current + 1);
+    assert_eq!(subscription.delivered.as_deref(), Some("next-frontier"));
+    assert!(!subscriptions.record_following_delivery(99, 0, 1, "unknown".to_string()));
+}

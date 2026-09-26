@@ -109,7 +109,7 @@ fn initialise(
         .bootstrap(&NOTE_PLAN, &document, RELATIVE_PATH, &seed, accept)
         .expect("bootstrap collaboration document");
     let state = service
-        .authoring_state(&NOTE_PLAN, &document)
+        .authoring_state(&NOTE_PLAN, &document, None)
         .expect("read collaboration document");
     (service, document, seed, state)
 }
@@ -179,7 +179,7 @@ fn concurrent_explicit_scalar_edits_block_until_rebased_resolution() {
     );
 
     let current = service
-        .authoring_state(&NOTE_PLAN, &document)
+        .authoring_state(&NOTE_PLAN, &document, None)
         .expect("fresh accepted state");
     let accepted_document = service
         .detail(&NOTE_PLAN, &document)
@@ -247,6 +247,84 @@ fn import(
 }
 
 #[test]
+fn a_peer_holding_an_accepted_frontier_receives_only_the_operations_after_it() {
+    let root = TempDir::new().unwrap();
+    let (service, document, seed, held) = initialise(root.path());
+    let later = edit_request(
+        &document,
+        &seed,
+        &held,
+        "later-title",
+        &["title"],
+        json!("Errands"),
+    );
+    import(&service, later, &seed).expect("later edit");
+    let accepted = service
+        .authoring_state(&NOTE_PLAN, &document, None)
+        .unwrap();
+    let delivered = service
+        .authoring_state(&NOTE_PLAN, &document, Some(&held.accepted_frontier_base64))
+        .unwrap();
+    assert_eq!(
+        delivered.accepted_frontier_base64,
+        accepted.accepted_frontier_base64
+    );
+    assert_eq!(delivered.etag, accepted.etag);
+
+    let mut peer = LoroAuthoringDocument::from_versioned_update_base64(
+        &NOTE_PLAN,
+        held.schema_version,
+        &held.update_base64,
+    )
+    .unwrap();
+    peer.adopt_versioned_update_base64(delivered.schema_version, &delivered.update_base64)
+        .expect("what follows the held frontier applies over it");
+    assert_eq!(
+        peer.accepted_frontier_base64(),
+        accepted.accepted_frontier_base64
+    );
+    assert!(
+        matches!(
+            LoroAuthoringDocument::from_versioned_update_base64(
+                &NOTE_PLAN,
+                delivered.schema_version,
+                &delivered.update_base64,
+            ),
+            Err(CollaborationLoroError::MissingDependency)
+        ),
+        "the update carries none of the operations the peer held"
+    );
+}
+
+#[test]
+fn a_peer_holding_a_frontier_from_another_history_receives_every_operation() {
+    let root = TempDir::new().unwrap();
+    let (service, document, _seed, _) = initialise(root.path());
+    let elsewhere = TempDir::new().unwrap();
+    let (_, _, _, foreign) = initialise(elsewhere.path());
+    let accepted = service
+        .authoring_state(&NOTE_PLAN, &document, None)
+        .unwrap();
+    let delivered = service
+        .authoring_state(
+            &NOTE_PLAN,
+            &document,
+            Some(&foreign.accepted_frontier_base64),
+        )
+        .unwrap();
+    let peer = LoroAuthoringDocument::from_versioned_update_base64(
+        &NOTE_PLAN,
+        delivered.schema_version,
+        &delivered.update_base64,
+    )
+    .expect("the update stands alone");
+    assert_eq!(
+        peer.accepted_frontier_base64(),
+        accepted.accepted_frontier_base64
+    );
+}
+
+#[test]
 fn captured_text_consumption_preserves_later_edits_across_restart_and_retry() {
     let root = TempDir::new().unwrap();
     let (service, document, seed, state) = initialise(root.path());
@@ -306,7 +384,9 @@ fn captured_text_consumption_preserves_later_edits_across_restart_and_retry() {
         update_base64: prepared,
         fence: ImportFence::Frontier,
     };
-    let before = service.authoring_state(&NOTE_PLAN, &document).unwrap();
+    let before = service
+        .authoring_state(&NOTE_PLAN, &document, None)
+        .unwrap();
     // Rejection must leave accepted text and the durable frontier untouched.
     assert!(service
         .import(&NOTE_PLAN, request.clone(), |_| {
@@ -315,7 +395,7 @@ fn captured_text_consumption_preserves_later_edits_across_restart_and_retry() {
         .is_err());
     assert_eq!(
         service
-            .authoring_state(&NOTE_PLAN, &document)
+            .authoring_state(&NOTE_PLAN, &document, None)
             .unwrap()
             .accepted_frontier_base64,
         before.accepted_frontier_base64
@@ -751,7 +831,7 @@ fn reads_leave_every_stored_byte_and_timestamp_unchanged() {
     for _ in 0..2 {
         service.detail(&NOTE_PLAN, &document).expect("detail");
         service
-            .authoring_state(&NOTE_PLAN, &document)
+            .authoring_state(&NOTE_PLAN, &document, None)
             .expect("authoring state");
         service.load(&document).expect("load");
         service.envelopes("Note").expect("list entity");
@@ -899,7 +979,9 @@ fn an_etag_fenced_import_of_a_superseded_read_is_refused_and_changes_nothing() {
 
     assert_eq!(error.kind, StoreErrorKind::Conflict);
     let data = error.data.expect("the refusal carries data");
-    let accepted = service.authoring_state(&NOTE_PLAN, &document).unwrap();
+    let accepted = service
+        .authoring_state(&NOTE_PLAN, &document, None)
+        .unwrap();
     assert_eq!(data["conflict_kind"], "collaboration_revision");
     assert_eq!(data["expected_etag"], json!(state.etag));
     assert_eq!(data["current_etag"], json!(accepted.etag));
