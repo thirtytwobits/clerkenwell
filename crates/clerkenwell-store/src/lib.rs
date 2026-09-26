@@ -263,7 +263,6 @@ pub struct CollaborationImportResult {
     /// The accepted operations the importer lacks: those beyond its base
     /// frontier and the update it sent.
     pub missing_update_base64: String,
-    pub update_base64: String,
     pub etag: String,
     pub materialized: Value,
     pub generation: u64,
@@ -271,18 +270,6 @@ pub struct CollaborationImportResult {
     pub oplog_version: String,
     pub state_frontiers: String,
     pub update_bytes: usize,
-}
-
-impl CollaborationImportResult {
-    /// The accepted state this import left, as a fresh read would report it.
-    pub fn authoring_state(&self) -> CollaborationAuthoringState {
-        CollaborationAuthoringState {
-            schema_version: self.schema_version,
-            accepted_frontier_base64: self.accepted_frontier_base64.clone(),
-            update_base64: self.update_base64.clone(),
-            etag: self.etag.clone(),
-        }
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1016,7 +1003,7 @@ impl<S: CollaborationStoragePort> CollaborationService<S> {
                     .duplicate_imports
                     .fetch_add(1, Ordering::Relaxed);
             }
-            // Return the durable checkpoint, including on retries. Exporting the
+            // Report the durable checkpoint, including on retries. Exporting the
             // same history again need not reproduce its original snapshot bytes.
             let durable_update = accepted.checkpoint_update(&request.document)?;
             let (authoring, materialized) = if durable_update == accepted_update {
@@ -1044,7 +1031,6 @@ impl<S: CollaborationStoragePort> CollaborationService<S> {
                 accepted_frontier_base64: authoring.accepted_frontier_base64(),
                 missing_update_base64,
                 etag: collaboration_etag(&accepted_update),
-                update_base64: BASE64.encode(&accepted_update),
                 materialized,
                 generation: accepted.generation,
                 peer_id: debug.peer_id,
