@@ -83,7 +83,7 @@ export async function subscribeProjection<
   let subscriptionId: number | null = null;
   const earlySnapshots = new Map<number, ProjectionSnapshot<M, TProjection>>();
   let resolveSnapshot!: (snapshot: ProjectionSnapshot<M, TProjection>) => void;
-  let rejectSnapshot!: (error: Error) => void;
+  let rejectSnapshot!: (error: unknown) => void;
   const snapshotPromise = new Promise<ProjectionSnapshot<M, TProjection>>((resolve, reject) => {
     resolveSnapshot = resolve;
     rejectSnapshot = reject;
@@ -91,6 +91,24 @@ export async function subscribeProjection<
   const timeoutId = setTimeout(() => {
     rejectSnapshot(new Error(`Timed out waiting for ${options.projection} projection snapshot.`));
   }, 30_000);
+  // The first snapshot settles the subscription, so a handler that throws on
+  // it fails the subscription with that error. Later snapshots reach the
+  // handler as patches do.
+  let settled = false;
+  const receiveSnapshot = (snapshot: ProjectionSnapshot<M, TProjection>): void => {
+    if (settled) {
+      options.onSnapshot?.(snapshot);
+      return;
+    }
+    settled = true;
+    try {
+      options.onSnapshot?.(snapshot);
+    } catch (error) {
+      rejectSnapshot(error);
+      return;
+    }
+    resolveSnapshot(snapshot);
+  };
   const removeListener = options.client.addNotificationListener((notification) => {
     if (
       notification.method !== PROJECTION_UPDATE_NOTIFICATION
@@ -111,8 +129,7 @@ export async function subscribeProjection<
       if (event.subscription_id !== subscriptionId) {
         return;
       }
-      options.onSnapshot?.(snapshot);
-      resolveSnapshot(snapshot);
+      receiveSnapshot(snapshot);
       return;
     }
     if (
@@ -130,8 +147,7 @@ export async function subscribeProjection<
     subscriptionId = accepted.subscription_id;
     const earlySnapshot = earlySnapshots.get(subscriptionId);
     if (earlySnapshot !== undefined) {
-      options.onSnapshot?.(earlySnapshot);
-      resolveSnapshot(earlySnapshot);
+      receiveSnapshot(earlySnapshot);
     }
     const snapshot = await snapshotPromise;
     const activeSubscriptionId = subscriptionId;

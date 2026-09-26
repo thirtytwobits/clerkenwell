@@ -429,10 +429,49 @@ test("exporting past an update's frontier carries later edits to a replica built
   const edited = renameTask(local.currentDocument(), "task-2", "Book the hall");
   local.replaceDocument(edited);
 
-  const pending = local.exportIncrementalUpdateBase64(local.updateFrontierBase64(update));
+  const pending = local.exportIncrementalUpdateBase64(accepted.acceptedFrontierBase64());
   const elsewhere = boardReplicaFromUpdate(update);
   elsewhere.importUpdateBase64(pending);
 
-  assert.equal(local.coversFrontierBase64(local.updateFrontierBase64(update)), true);
+  assert.equal(local.coversFrontierBase64(accepted.acceptedFrontierBase64()), true);
   assert.deepEqual(elsewhere.currentDocument(), edited);
+});
+
+test("a replica is not seeded from an update whose dependencies it lacks", () => {
+  const accepted = boardReplica(boardDocument());
+  accepted.replaceDocument(renameTask(accepted.currentDocument(), "task-1", "First"));
+  const afterFirst = accepted.acceptedFrontierBase64();
+  accepted.replaceDocument(renameTask(accepted.currentDocument(), "task-2", "Second"));
+
+  assert.throws(() => boardReplicaFromUpdate(accepted.exportIncrementalUpdateBase64(afterFirst)));
+});
+
+test("a replica materialises its document at a frontier it holds and refuses one it does not", () => {
+  const replica = boardReplica(boardDocument());
+  const earlier = replica.currentDocument();
+  const earlierFrontier = replica.acceptedFrontierBase64();
+  replica.replaceDocument(renameTask(earlier, "task-1", "Later"));
+
+  assert.deepEqual(replica.documentAt(earlierFrontier), earlier);
+  assert.deepEqual(replica.documentAt(replica.acceptedFrontierBase64()), replica.currentDocument());
+  assert.notDeepEqual(replica.currentDocument(), earlier);
+
+  const elsewhere = boardReplica(boardDocument());
+  elsewhere.replaceDocument(renameTask(elsewhere.currentDocument(), "task-2", "Elsewhere"));
+  assert.throws(() => replica.documentAt(elsewhere.acceptedFrontierBase64()));
+});
+
+test("an export up to a frontier seeds a replica holding the document as it stood there", () => {
+  const replica = boardReplica(boardDocument());
+  const earlier = replica.currentDocument();
+  const frontier = replica.acceptedFrontierBase64();
+  replica.replaceDocument(renameTask(earlier, "task-1", "Later"));
+
+  const seeded = boardReplicaFromUpdate(replica.exportUpdateBase64(frontier));
+  assert.deepEqual(seeded.currentDocument(), earlier);
+  assert.equal(seeded.acceptedFrontierBase64(), frontier);
+  assert.deepEqual(
+    boardReplicaFromUpdate(replica.exportUpdateBase64(replica.acceptedFrontierBase64())).currentDocument(),
+    replica.currentDocument()
+  );
 });

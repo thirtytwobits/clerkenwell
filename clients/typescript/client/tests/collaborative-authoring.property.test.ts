@@ -62,6 +62,7 @@ test("a session converges under arbitrary saves, remote edits and echoes", () =>
         session.adoptAccepted({
           updateBase64: accepted.update_base64,
           baseline: server.board(),
+          acceptedFrontierBase64: accepted.accepted_frontier_base64,
           acceptedRevision: accepted.accepted_frontier_base64
         });
         assert.deepEqual(session.currentDraft(), server.board());

@@ -373,6 +373,7 @@ dependencies = [
  "clerkenwell-doc",
  "clerkenwell-schema",
  "fs2",
+ "loro",
  "serde",
  "serde_json",
  "sha2",

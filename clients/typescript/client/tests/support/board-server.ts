@@ -54,14 +54,22 @@ export class FakeBoardServer {
     };
   }
 
-  /** Imports an update whose base frontier the server already holds. */
-  accept(outgoing: BoardAuthoringUpdate): { state: BoardAuthoringState; board: BoardDocument } {
+  /**
+   * Imports an update whose base frontier the server already holds. The
+   * importer lacks what the server held beyond that frontier.
+   */
+  accept(outgoing: BoardAuthoringUpdate): {
+    state: BoardAuthoringState;
+    board: BoardDocument;
+    missingUpdateBase64: string;
+  } {
     if (!this.accepted.coversFrontierBase64(outgoing.baseFrontierBase64)) {
       throw new Error("Unknown base frontier.");
     }
     this.imports.push(outgoing);
+    const missingUpdateBase64 = this.accepted.exportIncrementalUpdateBase64(outgoing.baseFrontierBase64);
     this.accepted.importUpdateBase64(outgoing.updateBase64);
-    return { state: this.snapshot(), board: this.board() };
+    return { state: this.snapshot(), board: this.board(), missingUpdateBase64 };
   }
 
   /** Another writer's change, accepted by the server. */

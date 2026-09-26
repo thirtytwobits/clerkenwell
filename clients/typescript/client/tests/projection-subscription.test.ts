@@ -329,6 +329,29 @@ test("a one-shot subscription resolves its first snapshot, reports patches, and 
   assert.equal(h.listeners.size, 0);
 });
 
+for (const arrival of ["before", "after"] as const) {
+  test(`a one-shot subscription whose snapshot handler throws on a snapshot arriving ${arrival} the accept fails with that error`, async () => {
+    const h = transportHarness();
+    const failure = new Error("The handler refused the snapshot.");
+    const subscribing = subscribeProjection<Model, "notes.list">({
+      client: h.client,
+      projection: "notes.list",
+      params: {},
+      onSnapshot: () => { throw failure; }
+    });
+    const failed = assert.rejects(subscribing, (error) => error === failure);
+    await tick();
+    if (arrival === "before") h.snapshot(6, 0, accepted);
+    h.pending[0]!.resolve({ subscription_id: 6, revision: 0 });
+    await tick();
+    if (arrival === "after") h.snapshot(6, 0, accepted);
+
+    await failed;
+    assert.equal(h.listeners.size, 0);
+    assert.deepEqual(h.released, [6]);
+  });
+}
+
 test("a one-shot subscription that fails releases its listener", async () => {
   const h = transportHarness();
   const subscribing = subscribeProjection({

@@ -140,8 +140,8 @@ export interface AuthoringSessionController<
   acceptedFrontierBase64?: () => string;
   /** Whether the replica holds every operation up to a frontier. */
   coversFrontierBase64?: (frontierBase64: string) => boolean;
-  /** Frontier of the operations an update carries, once the replica holds them. */
-  updateFrontierBase64?: (updateBase64: string) => string;
+  /** The draft as it stood at a frontier the replica holds. */
+  draftAt?: (frontierBase64: string) => TDocument;
   dispose?: () => void;
 }
 
@@ -156,7 +156,6 @@ type OperationRecordingController = AuthoringSessionController<unknown, string>
     | "coversFrontierBase64"
     | "exportIncrementalUpdateBase64"
     | "importUpdateBase64"
-    | "updateFrontierBase64"
   >>;
 
 function recordsOperations(
@@ -165,8 +164,7 @@ function recordsOperations(
   return controller.acceptedFrontierBase64 !== undefined
     && controller.coversFrontierBase64 !== undefined
     && controller.exportIncrementalUpdateBase64 !== undefined
-    && controller.importUpdateBase64 !== undefined
-    && controller.updateFrontierBase64 !== undefined;
+    && controller.importUpdateBase64 !== undefined;
 }
 
 export type AuthoringTextStageConfirmation =
@@ -199,8 +197,8 @@ interface OwnedAuthoringController {
   disposed: boolean;
   /**
    * Frontier of the newest accepted state the replica holds, which a session's
-   * recorded operations extend: where the replica stood when attached, then the
-   * end of each accepted update it takes through the session handle.
+   * recorded operations extend: where the replica stood when attached, then
+   * each accepted frontier it takes through the session handle.
    */
   acceptedBaseFrontierBase64?: string;
 }
@@ -296,21 +294,35 @@ export class AuthoringSessionHandle<
     this.runtime.modify(this.owned.resource, draft, validation);
   }
 
-  /** Import accepted operations before reconciling the retained local draft. */
+  /**
+   * Import accepted operations before reconciling the retained local draft.
+   * `updateBase64` holds what the replica lacks of the state accepted at
+   * `acceptedFrontierBase64`, so a replica already holding that frontier takes
+   * nothing from it. The baseline defaults to the draft the replica holds at
+   * that frontier once it has taken the update. A session that does not
+   * accept a draft takes none of it: its replica, draft and baseline stay as
+   * they are until its block is resolved.
+   */
   adoptAccepted(input: {
     updateBase64: string;
+    acceptedFrontierBase64: string;
     schemaVersion?: number;
-    baseline: TDocument;
+    baseline?: TDocument;
     draft?: TDocument;
     acceptedRevision: string;
     validation?: unknown;
   }): void {
     const controller = this.controller();
+    if (!authoringSessionAcceptsDraft(this.state())) {
+      return;
+    }
     if (input.schemaVersion === undefined) {
       if (controller.importUpdateBase64 === undefined) {
         throw new Error(`${this.owned.resource.entity} authoring cannot import Loro updates.`);
       }
-      controller.importUpdateBase64(input.updateBase64);
+      if (!holdsFrontier(controller, input.acceptedFrontierBase64)) {
+        controller.importUpdateBase64(input.updateBase64);
+      }
     } else {
       if (controller.importVersionedUpdateBase64 === undefined) {
         throw new Error(
@@ -322,16 +334,17 @@ export class AuthoringSessionHandle<
         input.updateBase64
       );
     }
-    takeAcceptedUpdate(this.owned, input.updateBase64);
+    takeAcceptedFrontier(this.owned, input.acceptedFrontierBase64);
+    const baseline = () => input.baseline ?? this.draftAt(input.acceptedFrontierBase64);
     const draft = input.draft
       ?? controller.currentDraft?.()
-      ?? input.baseline;
+      ?? baseline();
     if (this.state().queuedOperations.length > 0) {
       this.runtime.modify(this.owned.resource, draft);
       return;
     }
     this.runtime.adoptBaseline(this.owned.resource, {
-      baseline: input.baseline,
+      baseline: baseline(),
       draft,
       acceptedRevision: input.acceptedRevision,
       validation: input.validation
@@ -384,26 +397,56 @@ export class AuthoringSessionHandle<
     controller.adoptDocument(document);
   }
 
-  /** Import accepted operations and materialise the draft they leave. */
-  importUpdateBase64(updateBase64: string): void {
+  /**
+   * Import what the replica lacks of the state accepted at
+   * `acceptedFrontierBase64`, and materialise the draft it leaves. A replica
+   * already holding that frontier takes nothing from the update. A session
+   * that does not accept a draft takes none of it.
+   */
+  importUpdateBase64(updateBase64: string, acceptedFrontierBase64: string): void {
     const controller = this.controller();
     if (controller.importUpdateBase64 === undefined) {
       throw new Error(`${this.owned.resource.entity} authoring cannot import Loro updates.`);
     }
-    controller.importUpdateBase64(updateBase64);
-    takeAcceptedUpdate(this.owned, updateBase64);
+    if (!authoringSessionAcceptsDraft(this.state())) {
+      return;
+    }
+    if (!holdsFrontier(controller, acceptedFrontierBase64)) {
+      controller.importUpdateBase64(updateBase64);
+    }
+    takeAcceptedFrontier(this.owned, acceptedFrontierBase64);
     this.runtime.syncControllerDraft(this.owned);
   }
 
-  /** Import accepted operations and materialise the draft they leave. */
-  importVersionedUpdateBase64(schemaVersion: number, updateBase64: string): void {
+  /**
+   * Import what the replica lacks of the state accepted at
+   * `acceptedFrontierBase64`, and materialise the draft it leaves. A session
+   * that does not accept a draft takes none of it.
+   */
+  importVersionedUpdateBase64(
+    schemaVersion: number,
+    updateBase64: string,
+    acceptedFrontierBase64: string
+  ): void {
     const controller = this.controller();
     if (controller.importVersionedUpdateBase64 === undefined) {
       throw new Error(`${this.owned.resource.entity} authoring cannot import versioned Loro updates.`);
     }
+    if (!authoringSessionAcceptsDraft(this.state())) {
+      return;
+    }
     controller.importVersionedUpdateBase64(schemaVersion, updateBase64);
-    takeAcceptedUpdate(this.owned, updateBase64);
+    takeAcceptedFrontier(this.owned, acceptedFrontierBase64);
     this.runtime.syncControllerDraft(this.owned);
+  }
+
+  /** The draft as it stood at a frontier the live replica holds, such as an accepted one. */
+  draftAt(frontierBase64: string): TDocument {
+    const operation = this.controller().draftAt;
+    if (operation === undefined) {
+      throw new Error(`${this.owned.resource.entity} authoring cannot read a draft at a frontier.`);
+    }
+    return operation(frontierBase64);
   }
 
   exportUpdateBase64(): string {
@@ -644,6 +687,10 @@ export function acknowledgeAuthoringOperation<TDocument>(input: {
   };
 }
 
+/**
+ * Take an accepted baseline. A session that does not accept a draft holds its
+ * baseline, draft and queued operations until its block is resolved.
+ */
 export function adoptAuthoringBaseline<TDocument>(input: {
   session: AuthoringSession<TDocument>;
   baseline: TDocument;
@@ -651,6 +698,9 @@ export function adoptAuthoringBaseline<TDocument>(input: {
   acceptedRevision?: string;
   validation?: unknown;
 }): AuthoringSession<TDocument> {
+  if (!authoringSessionAcceptsDraft(input.session)) {
+    return input.session;
+  }
   const draft = input.draft === undefined
     ? resolveAuthoringDraftForBaselineAdoption(input.session, input.baseline)
     : input.draft;
@@ -834,6 +884,16 @@ export function authoringSessionAcceptsBaseline<TDocument>(
   session: AuthoringSession<TDocument>
 ): boolean {
   return session.queuedOperations.length === 0;
+}
+
+/**
+ * Whether a session's draft may change right now. A blocked session's draft
+ * stays as it is until the block is resolved.
+ */
+export function authoringSessionAcceptsDraft<TDocument>(
+  session: AuthoringSession<TDocument>
+): boolean {
+  return MODIFIABLE_STATUSES.includes(session.status);
 }
 
 export type AuthoringReplayDecision =
@@ -1092,12 +1152,13 @@ export class AuthoringRuntime {
     // Recorded operations are taken as themselves, so edits the replica
     // already holds are not authored again. A replica without their base holds
     // other history, and a blocked session's draft stays as it is: both take
-    // the draft as a document.
+    // the draft as a document. A replica that takes no documents holds a
+    // blocked draft only as its operations.
     const operations = session.draftOperations;
     if (
       recording
       && operations !== undefined
-      && MODIFIABLE_STATUSES.includes(session.status)
+      && (authoringSessionAcceptsDraft(session) || controller.replaceDraft === undefined)
       && controller.coversFrontierBase64(operations.baseFrontierBase64)
     ) {
       controller.importUpdateBase64(operations.updateBase64);
@@ -1186,7 +1247,10 @@ export class AuthoringRuntime {
     input: Omit<Parameters<typeof adoptAuthoringBaseline<TDocument>>[0], "session">
   ): void {
     const session = this.#requireSession<TDocument>(resource);
-    this.#setSession(adoptAuthoringBaseline({ session, ...input }));
+    const adopted = adoptAuthoringBaseline({ session, ...input });
+    if (adopted !== session) {
+      this.#setSession(adopted);
+    }
   }
 
   queue<TDocument>(
@@ -1368,14 +1432,17 @@ export class AuthoringRuntime {
     });
   }
 
-  /** Materialise the controller into the serialisable draft without writing back. */
+  /**
+   * Materialise the controller into the serialisable draft without writing
+   * back. A blocked session's draft stays as it is.
+   */
   syncControllerDraft(owned: OwnedAuthoringController): void {
     const controller = owned.controller;
     if (controller.currentDraft === undefined) {
       return;
     }
     const session = this.session<unknown>(owned.resource);
-    if (session === undefined) {
+    if (session === undefined || !authoringSessionAcceptsDraft(session)) {
       return;
     }
     const draft = controller.currentDraft();
@@ -1513,10 +1580,18 @@ function recordDraftOperations<TDocument>(
   return { ...session, draftOperations: { baseFrontierBase64: base, updateBase64 } };
 }
 
-/** Moves a replica's accepted base to the end of an accepted update it has taken. */
-function takeAcceptedUpdate(owned: OwnedAuthoringController, updateBase64: string): void {
+/** Whether a controller's replica already holds every operation up to a frontier. */
+function holdsFrontier(
+  controller: Pick<AuthoringSessionController<unknown, string>, "coversFrontierBase64">,
+  frontierBase64: string
+): boolean {
+  return controller.coversFrontierBase64?.(frontierBase64) ?? false;
+}
+
+/** Moves a replica's accepted base to a frontier the server accepted. */
+function takeAcceptedFrontier(owned: OwnedAuthoringController, acceptedFrontierBase64: string): void {
   if (owned.acceptedBaseFrontierBase64 !== undefined && recordsOperations(owned.controller)) {
-    owned.acceptedBaseFrontierBase64 = owned.controller.updateFrontierBase64(updateBase64);
+    owned.acceptedBaseFrontierBase64 = acceptedFrontierBase64;
   }
 }
 

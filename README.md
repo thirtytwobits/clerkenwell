@@ -11,7 +11,7 @@ operations and forensic recovery.
 |---|---|
 | `clerkenwell-schema` | the plan types generated bindings instantiate |
 | `clerkenwell-doc` | plan-driven Loro replicas: whole-document edits written as operations, text edits at a captured frontier, forks, and field conflict policy |
-| `clerkenwell-session` | the projection session protocol: wire contracts, registry, per-connection subscriptions, retained patches and resume |
+| `clerkenwell-session` | the projection session protocol: wire contracts, registry, per-connection subscriptions and where each last delivery left its client, retained patches and resume |
 | `clerkenwell-store` | durable single-authority storage: envelopes, a replaceable storage port, fenced compare-and-swap commits, two-phase publication, quarantine, repair and an audit log |
 | `clerkenwell-codegen` | the definition language, its validation, and the Rust, TypeScript and fixture generator |
 | `clerkenwell-conformance` | cross-language conformance: Rust and TypeScript replicas of one definition's entities exchange the generated fixture operations, concurrent edits and text consumption, and must converge |

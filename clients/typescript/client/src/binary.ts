@@ -3,21 +3,18 @@
  *
  * Binary payload codecs for projection transports that carry update frames as base64 JSON fields.
  */
+/** Bytes per `String.fromCharCode` call, well inside every engine's argument limit. */
+const ENCODE_CHUNK = 0x2000;
+
 export function bytesToBase64(bytes: Uint8Array): string {
-  if (typeof Buffer !== "undefined") {
-    return Buffer.from(bytes).toString("base64");
-  }
   let binary = "";
-  bytes.forEach((byte) => {
-    binary += String.fromCharCode(byte);
-  });
+  for (let start = 0; start < bytes.length; start += ENCODE_CHUNK) {
+    binary += String.fromCharCode(...bytes.subarray(start, start + ENCODE_CHUNK));
+  }
   return btoa(binary);
 }
 
 export function base64ToBytes(value: string): Uint8Array {
-  if (typeof Buffer !== "undefined") {
-    return new Uint8Array(Buffer.from(value, "base64"));
-  }
   const binary = atob(value);
   const bytes = new Uint8Array(binary.length);
   for (let index = 0; index < binary.length; index += 1) {

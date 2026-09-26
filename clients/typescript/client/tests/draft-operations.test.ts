@@ -68,8 +68,24 @@ function save(server: FakeBoardServer, session: AuthoringSessionHandle<BoardDocu
   });
   session.adoptAccepted({
     updateBase64: result.state.update_base64,
+    acceptedFrontierBase64: result.state.accepted_frontier_base64,
     baseline: result.board,
     acceptedRevision: result.state.accepted_frontier_base64
+  });
+}
+
+/** Sends a session's pending work and adopts a reply carrying only what the session lacks. */
+function saveReceivingMissing(server: FakeBoardServer, session: AuthoringSessionHandle<BoardDocument, BoardTextFieldPath>): void {
+  const base = session.state().acceptedRevision;
+  const result = server.accept({
+    baseFrontierBase64: base,
+    updateBase64: session.exportIncrementalUpdateBase64(base)
+  });
+  const accepted = result.state.accepted_frontier_base64;
+  session.adoptAccepted({
+    updateBase64: result.missingUpdateBase64,
+    acceptedFrontierBase64: accepted,
+    acceptedRevision: accepted
   });
 }
 
@@ -101,6 +117,28 @@ function sync(
     updateBase64: session.exportIncrementalUpdateBase64(accepted)
   });
 }
+
+test("a save answered with only missing operations records later pending work from the accepted frontier", async () => {
+  const server = new FakeBoardServer(boardDocument());
+  const runtime = new AuthoringRuntime();
+  const session = openBoardSession(runtime, server, resource);
+  await append(session, " saved");
+  server.editRemotely((board) => withNotes(board, `Elsewhere ${notesOf(board)}`));
+
+  saveReceivingMissing(server, session);
+  assert.deepEqual(session.currentDraft(), server.board());
+  assert.deepEqual(runtime.session(resource)?.baseline, server.board());
+
+  await append(session, " pending");
+  const operations = runtime.session(resource)?.draftOperations;
+  assert.equal(operations?.baseFrontierBase64, server.snapshot().accepted_frontier_base64);
+  const restored = BOARD_DRAFTS.fromUpdate(server.snapshot().update_base64);
+  restored.importUpdateBase64(operations!.updateBase64);
+  const notes = notesOf(restored.currentDraft());
+  assert.equal(copiesOf(notes, " saved"), 1);
+  assert.equal(copiesOf(notes, " pending"), 1);
+  assert.equal(copiesOf(notes, "Elsewhere"), 1);
+});
 
 test("a restart takes pending edits as operations and keeps edits accepted meanwhile", async () => {
   const server = new FakeBoardServer(boardDocument());
@@ -150,6 +188,28 @@ test("pending work a runtime starts on reaches the server once", async () => {
 
   const notes = notesOf(server.board());
   assert.equal(copiesOf(notes, " From the other runtime."), 1, notes);
+});
+
+test("a replica that takes no documents restores a blocked session's pending work as its operations", async () => {
+  const server = new FakeBoardServer(boardDocument());
+  const beforeRestart = new AuthoringRuntime();
+  await append(openBoardSession(beforeRestart, server, resource), " Held.");
+  beforeRestart.block(resource, "recoveryRequired");
+  const attachWithoutDocuments = (runtime: AuthoringRuntime) => runtime.ensureController(resource, () => {
+    const { replaceDraft: _takesDocuments, ...controller } = BOARD_DRAFTS
+      .fromUpdate(server.snapshot().update_base64)
+      .controller();
+    return controller;
+  });
+
+  const afterRestart = new AuthoringRuntime(persisted(beforeRestart));
+  const restored = attachWithoutDocuments(afterRestart);
+  assert.equal(copiesOf(notesOf(restored.currentDraft()), " Held."), 1);
+  assert.equal(afterRestart.session(resource)?.status, "recoveryRequired");
+
+  // What it restored stays recorded, so a further restart restores it again.
+  const again = attachWithoutDocuments(new AuthoringRuntime(persisted(afterRestart)));
+  assert.equal(copiesOf(notesOf(again.currentDraft()), " Held."), 1);
 });
 
 test("a replica holding other history takes the draft as a document", async () => {

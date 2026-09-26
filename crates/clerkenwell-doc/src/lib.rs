@@ -15,7 +15,7 @@ use std::collections::HashMap;
 
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use clerkenwell_schema::GeneratedCollaborationEntitySpec;
-use loro::{ExportMode, Frontiers, LoroDoc, LoroValue};
+use loro::{ExportMode, Frontiers, LoroDoc, LoroValue, VersionVector};
 use serde_json::Value;
 use thiserror::Error;
 
@@ -146,6 +146,26 @@ impl LoroAuthoringDocument {
             .frontiers_to_vv(&frontiers)
             .ok_or(CollaborationLoroError::UnknownFrontier)?;
         Ok(BASE64.encode(self.doc.export(ExportMode::updates(&version))?))
+    }
+
+    /// The operations this document holds that a peer lacks, when the peer
+    /// holds every operation up to `base_frontier_base64` (nothing, when
+    /// `None`) and every operation in `update_base64`.
+    pub fn missing_update_base64(
+        &self,
+        base_frontier_base64: Option<&str>,
+        update_base64: &str,
+    ) -> Result<String, CollaborationLoroError> {
+        let mut known = match base_frontier_base64 {
+            Some(encoded) => self
+                .doc
+                .frontiers_to_vv(&Frontiers::decode(&BASE64.decode(encoded)?)?)
+                .ok_or(CollaborationLoroError::UnknownFrontier)?,
+            None => VersionVector::default(),
+        };
+        let sent = LoroDoc::decode_import_blob_meta(&BASE64.decode(update_base64)?, false)?;
+        known.merge(&sent.partial_end_vv);
+        Ok(BASE64.encode(self.doc.export(ExportMode::updates(&known))?))
     }
 
     pub fn accepted_frontier_base64(&self) -> String {

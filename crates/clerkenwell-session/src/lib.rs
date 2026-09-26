@@ -13,7 +13,7 @@ pub mod transport;
 
 pub use registry::ProjectionRegistry;
 pub use subscriptions::{
-    CursorAhead, ProjectionRuntimeDiagnostics, ProjectionSubscription,
+    CursorAhead, FollowingDelivery, ProjectionRuntimeDiagnostics, ProjectionSubscription,
     ProjectionSubscriptionDiagnostics, ProjectionSubscriptions, RetainedProjectionPatch,
     SubscribeOutcome, DEFAULT_RETAINED_PATCH_WINDOW,
 };
