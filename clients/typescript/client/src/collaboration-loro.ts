@@ -20,6 +20,7 @@ import {
 } from "loro-crdt";
 import { base64ToBytes, bytesToBase64 } from "./binary";
 import {
+  clientSegment,
   resolveCollaborationContainer,
   type CollaborationEntityPlan,
   type CollaborationFieldPlan,
@@ -1303,7 +1304,7 @@ function readCollaborationField(
     case "structuredList":
       return doc.getList(container).toArray().map((entry) =>
         typeof entry === "object" && entry !== null
-          ? mapObjectKeys(entry as ClientRecord, snakeToCamel)
+          ? mapObjectKeys(entry as ClientRecord, clientSegment)
           : entry
       );
     case "structuredMap": {
@@ -1768,7 +1769,7 @@ const CLIENT_PATH_SEGMENTS = new Map<string, readonly string[]>();
 function clientPathSegments(path: string): readonly string[] {
   let segments = CLIENT_PATH_SEGMENTS.get(path);
   if (segments === undefined) {
-    segments = path.split(".").map(snakeToCamel);
+    segments = path.split(".").map(clientSegment);
     CLIENT_PATH_SEGMENTS.set(path, segments);
   }
   return segments;
@@ -1973,10 +1974,6 @@ function uniqueStableIdentities(identities: readonly string[]): string[] {
     seen.add(identity);
     return true;
   });
-}
-
-function snakeToCamel(value: string): string {
-  return value.replace(/_([a-z])/g, (_match, letter: string) => letter.toUpperCase());
 }
 
 function camelToSnake(value: string): string {

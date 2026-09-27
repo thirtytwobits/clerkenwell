@@ -16,7 +16,7 @@ mod documents;
 
 use std::path::{Path, PathBuf};
 
-use clerkenwell_doc::LoroAuthoringDocument;
+use clerkenwell_doc::{conflicting_field_paths, LoroAuthoringDocument};
 use clerkenwell_schema::GeneratedCollaborationEntitySpec;
 use serde_json::{json, Value};
 
@@ -459,6 +459,54 @@ impl Conformance {
                     "{context}: Rust"
                 );
                 self.assert_converged(plan, &context, &authority, &typescript);
+            }
+        }
+    }
+
+    /// Rust and TypeScript judge every pair of the fixture's edits alike
+    /// against each field's conflict policy, one edit as the client's and the
+    /// other as the accepted document's. A pair writing two different values
+    /// to the fixture's explicit scalar conflicts.
+    pub fn conflict_policy(&self) {
+        for (plan, fixture) in self.fixtures() {
+            let base = &fixture.wire_document;
+            let mut edits = fixture.edits();
+            let scalar = fixture.scalar_edit(Value::Null).map(|edit| edit.name);
+            edits.extend(
+                fixture
+                    .scalar_edit(json!("divergent-value"))
+                    .map(|mut edit| {
+                        edit.name = "divergent scalar".to_string();
+                        edit
+                    }),
+            );
+            let documents = edits
+                .iter()
+                .map(|edit| (edit.name.clone(), edit.apply(base)))
+                .collect::<Vec<_>>();
+            let client_base = client_document(plan, base);
+            for (client_name, client) in &documents {
+                for (current_name, current) in &documents {
+                    let rust = conflicting_field_paths(plan, base, client, current);
+                    let typescript = self.bridge.policy_conflicts(
+                        &fixture.entity,
+                        &client_base,
+                        &client_document(plan, client),
+                        &client_document(plan, current),
+                    );
+                    assert_eq!(
+                        typescript, rust,
+                        "{}: {client_name} against {current_name}",
+                        plan.name
+                    );
+                    if Some(client_name) == scalar.as_ref() && current_name == "divergent scalar" {
+                        assert!(
+                            !rust.is_empty(),
+                            "{}: the divergent scalars conflict",
+                            plan.name
+                        );
+                    }
+                }
             }
         }
     }

@@ -88,6 +88,26 @@ impl Bridge {
         format!("replica-{next}")
     }
 
+    /// The field paths TypeScript reports an edit from `base` to `client`
+    /// conflicting on against their policy once the accepted document is
+    /// `current`. Documents are in client naming.
+    pub fn policy_conflicts(
+        &self,
+        entity: &str,
+        base: &Value,
+        client: &Value,
+        current: &Value,
+    ) -> Vec<String> {
+        let paths = self.call(json!({
+            "op": "policyConflicts",
+            "entity": entity,
+            "base": base,
+            "client": client,
+            "current": current,
+        }));
+        serde_json::from_value(paths).expect("the bridge answers a list of paths")
+    }
+
     /// A replica seeded from the fixture corpus's client document for `entity`.
     pub fn seed_fixture(&self, entity: &str) -> TypeScriptReplica<'_> {
         let name = self.name();

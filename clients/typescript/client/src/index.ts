@@ -7,6 +7,7 @@
 export * from "./authoring-persistence";
 export * from "./authoring-session";
 export * from "./binary";
+export * from "./conflict-policy";
 export * from "./json-value-equality";
 export * from "./materialize";
 export * from "./plans";

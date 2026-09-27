@@ -13,7 +13,11 @@ import { createInterface } from "node:readline";
 import { pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 
-import type { CollaborationEntityPlan, TextBinding } from "@clerkenwell/client";
+import {
+  conflictingFieldPaths,
+  type CollaborationEntityPlan,
+  type TextBinding
+} from "@clerkenwell/client";
 import {
   CollaborationLoroAuthoringDocument,
   requireCollaborationSchemaVersion
@@ -32,7 +36,8 @@ type Request =
   | { readonly op: "materialize"; readonly replica: string; readonly revision: string }
   | { readonly op: "captureText"; readonly replica: string; readonly field: string; readonly identities: Identities }
   | { readonly op: "readText"; readonly replica: string; readonly field: string; readonly identities: Identities }
-  | { readonly op: "insertText"; readonly replica: string; readonly field: string; readonly identities: Identities; readonly offset: number; readonly text: string };
+  | { readonly op: "insertText"; readonly replica: string; readonly field: string; readonly identities: Identities; readonly offset: number; readonly text: string }
+  | { readonly op: "policyConflicts"; readonly entity: string; readonly base: object; readonly client: object; readonly current: object };
 
 interface CollaborationFixtures {
   readonly entities: readonly { readonly entity: string; readonly clientDocument: object }[];
@@ -142,6 +147,8 @@ function handle(request: Request): unknown {
       });
       return null;
     }
+    case "policyConflicts":
+      return conflictingFieldPaths(plan(request.entity), request.base, request.client, request.current);
     default:
       throw new Error(`Unknown bridge operation ${(request as { readonly op: string }).op}.`);
   }

@@ -85,6 +85,11 @@ export interface CollaborationEntityPlan<
   readonly fields: Readonly<Record<string, CollaborationFieldPlan>>;
 }
 
+/** A wire path segment as client documents spell it: snake_case becomes camelCase. */
+export function clientSegment(segment: string): string {
+  return segment.replace(/_([a-z])/g, (_match, letter: string) => letter.toUpperCase());
+}
+
 /** The paths of a plan's declared text fields. */
 export type CollaborationPlanTextFieldPath<TPlan extends CollaborationEntityPlan> = {
   [TPath in keyof TPlan["fields"] & string]: TPlan["fields"][TPath] extends {

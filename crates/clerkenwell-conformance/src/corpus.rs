@@ -88,6 +88,19 @@ fn strings(value: &Value) -> Vec<String> {
 }
 
 impl EntityFixture {
+    /// The fixture's scalar edit writing `value`, when the entity has an
+    /// editable scalar.
+    pub fn scalar_edit(&self, value: Value) -> Option<Edit> {
+        let path = self.operations["scalar"]["path"].as_str()?.to_string();
+        Some(Edit::new(format!("scalar {path}"), move |document| {
+            let mut edited = document.clone();
+            for at in pointers(document, &path) {
+                set(&mut edited, &at, value.clone());
+            }
+            edited
+        }))
+    }
+
     /// The schema versions the fixture's invalid cases say a replica refuses.
     pub fn unsupported_schema_versions(&self) -> Vec<u32> {
         self.invalid
@@ -111,16 +124,7 @@ impl EntityFixture {
         let operations = &self.operations;
         let mut edits = Vec::new();
 
-        let scalar = operations["scalar"].clone();
-        if let Some(path) = scalar["path"].as_str().map(str::to_string) {
-            edits.push(Edit::new(format!("scalar {path}"), move |document| {
-                let mut edited = document.clone();
-                for at in pointers(document, &path) {
-                    set(&mut edited, &at, scalar["value"].clone());
-                }
-                edited
-            }));
-        }
+        edits.extend(self.scalar_edit(operations["scalar"]["value"].clone()));
 
         let absent = strings(&operations["optionalAbsent"]);
         edits.push(Edit::new(
