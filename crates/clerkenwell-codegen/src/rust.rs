@@ -531,7 +531,6 @@ fn collaboration_metadata(definition: &Definition) -> String {
             vec![
                 ("name", literal(entity.name)),
                 ("id_field", literal(entity_id)),
-                ("substrate", literal(entity.substrate())),
                 (
                     "schema_version",
                     Expr::atom(number_to_string(entity.schema_version())),

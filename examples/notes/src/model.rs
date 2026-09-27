@@ -372,7 +372,6 @@ pub static NOTE_COLLABORATION_SPEC: GeneratedCollaborationEntitySpec =
     GeneratedCollaborationEntitySpec {
         name: "Note",
         id_field: "note_id",
-        substrate: "loro",
         schema_version: 1,
         migration_ids: &["note-loro-layout-v1"],
         authoring_projection: NOTES_AUTHORING_STATE_PROJECTION,

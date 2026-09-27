@@ -11,7 +11,6 @@
           "importMutation": "note.importLoroUpdate",
           "projection": "notes.authoringState"
         },
-        "clientPathNaming": "camelCase",
         "fields": [
           {
             "conflict": "merge",
@@ -79,8 +78,7 @@
         ],
         "name": "Note",
         "rootContainer": "note",
-        "schemaVersion": 1,
-        "substrate": "loro"
+        "schemaVersion": 1
       }
     ],
     "version": 1
@@ -339,7 +337,6 @@
   ],
   "mutations": [
     {
-      "conflict": "optimistic",
       "name": "note.create",
       "params": {
         "$ref": "#/$defs/NoteCreateParams"
@@ -352,7 +349,6 @@
       ]
     },
     {
-      "conflict": "optimistic",
       "name": "note.importLoroUpdate",
       "params": {
         "$ref": "#/$defs/LoroUpdateParams"

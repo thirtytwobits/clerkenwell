@@ -256,7 +256,6 @@ mod nested {
     pub static PLAN: GeneratedCollaborationEntitySpec = GeneratedCollaborationEntitySpec {
         name: "Board",
         id_field: "board_id",
-        substrate: "loro",
         schema_version: 1,
         migration_ids: &[],
         authoring_projection: "boards.authoringState",

@@ -342,10 +342,6 @@ impl<'a> Mutation<'a> {
         self.raw.object_field("result")
     }
 
-    pub fn conflict(&self) -> &'a str {
-        self.raw.str_field("conflict")
-    }
-
     pub fn touches(&self) -> Vec<&'a str> {
         self.raw.strs_field("touches")
     }
@@ -426,10 +422,6 @@ pub struct CollaborationEntity<'a> {
 }
 
 impl<'a> CollaborationEntity<'a> {
-    pub fn substrate(&self) -> &'a str {
-        self.raw.str_field("substrate")
-    }
-
     pub fn schema_version(&self) -> f64 {
         self.raw.number_field("schemaVersion")
     }
@@ -452,10 +444,6 @@ impl<'a> CollaborationEntity<'a> {
 
     pub fn root_container(&self) -> &'a str {
         self.raw.str_field("rootContainer")
-    }
-
-    pub fn client_path_naming(&self) -> &'a str {
-        self.raw.str_field("clientPathNaming")
     }
 
     pub fn fields(&self) -> impl Iterator<Item = CollaborationField<'a>> {

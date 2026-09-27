@@ -294,11 +294,10 @@
     "mutation": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["params", "result", "conflict", "touches"],
+      "required": ["params", "result", "touches"],
       "properties": {
         "params": { "$ref": "#/definitions/schemaRef" },
         "result": { "$ref": "#/definitions/schemaRef" },
-        "conflict": { "enum": ["optimistic"] },
         "touches": {
           "type": "array",
           "items": { "type": "string", "minLength": 1 },
@@ -362,16 +361,13 @@
       "type": "object",
       "additionalProperties": false,
       "required": [
-        "substrate",
         "schemaVersion",
         "migrationIds",
         "authoringState",
         "rootContainer",
-        "clientPathNaming",
         "fields"
       ],
       "properties": {
-        "substrate": { "enum": ["loro"] },
         "schemaVersion": {
           "type": "integer",
           "minimum": 1
@@ -384,7 +380,6 @@
         },
         "authoringState": { "$ref": "#/definitions/collaborationAuthoringState" },
         "rootContainer": { "type": "string", "minLength": 1 },
-        "clientPathNaming": { "enum": ["camelCase"] },
         "fields": {
           "type": "object",
           "additionalProperties": { "$ref": "#/definitions/collaborationField" },

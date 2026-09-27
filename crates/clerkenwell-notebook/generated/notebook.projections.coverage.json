@@ -461,7 +461,6 @@
       "touches": [
         "Note"
       ],
-      "conflict": "optimistic",
       "generatedRegistryOwner": "GENERATED_MUTATION_SPECS"
     },
     {
@@ -471,7 +470,6 @@
       "touches": [
         "Note"
       ],
-      "conflict": "optimistic",
       "generatedRegistryOwner": "GENERATED_MUTATION_SPECS"
     },
     {
@@ -481,7 +479,6 @@
       "touches": [
         "Note"
       ],
-      "conflict": "optimistic",
       "generatedRegistryOwner": "GENERATED_MUTATION_SPECS"
     },
     {
@@ -491,7 +488,6 @@
       "touches": [
         "Note"
       ],
-      "conflict": "optimistic",
       "generatedRegistryOwner": "GENERATED_MUTATION_SPECS"
     },
     {
@@ -501,7 +497,6 @@
       "touches": [
         "Note"
       ],
-      "conflict": "optimistic",
       "generatedRegistryOwner": "GENERATED_MUTATION_SPECS"
     },
     {
@@ -512,7 +507,6 @@
         "Note",
         "Board"
       ],
-      "conflict": "optimistic",
       "generatedRegistryOwner": "GENERATED_MUTATION_SPECS"
     },
     {
@@ -522,7 +516,6 @@
       "touches": [
         "Board"
       ],
-      "conflict": "optimistic",
       "generatedRegistryOwner": "GENERATED_MUTATION_SPECS"
     },
     {
@@ -532,7 +525,6 @@
       "touches": [
         "Board"
       ],
-      "conflict": "optimistic",
       "generatedRegistryOwner": "GENERATED_MUTATION_SPECS"
     },
     {
@@ -542,7 +534,6 @@
       "touches": [
         "Board"
       ],
-      "conflict": "optimistic",
       "generatedRegistryOwner": "GENERATED_MUTATION_SPECS"
     },
     {
@@ -552,7 +543,6 @@
       "touches": [
         "Task"
       ],
-      "conflict": "optimistic",
       "generatedRegistryOwner": "GENERATED_MUTATION_SPECS"
     },
     {
@@ -562,7 +552,6 @@
       "touches": [
         "Task"
       ],
-      "conflict": "optimistic",
       "generatedRegistryOwner": "GENERATED_MUTATION_SPECS"
     },
     {
@@ -572,7 +561,6 @@
       "touches": [
         "Task"
       ],
-      "conflict": "optimistic",
       "generatedRegistryOwner": "GENERATED_MUTATION_SPECS"
     },
     {
@@ -582,7 +570,6 @@
       "touches": [
         "Workspace"
       ],
-      "conflict": "optimistic",
       "generatedRegistryOwner": "GENERATED_MUTATION_SPECS"
     },
     {
@@ -592,7 +579,6 @@
       "touches": [
         "SyncHealth"
       ],
-      "conflict": "optimistic",
       "generatedRegistryOwner": "GENERATED_MUTATION_SPECS"
     }
   ],

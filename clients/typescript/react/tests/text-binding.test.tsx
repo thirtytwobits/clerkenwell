@@ -14,12 +14,10 @@ import { CollaborationLoroAuthoringDocument } from "@clerkenwell/client/loro";
 import { replaceTextBindingValue, useTextBindingValue } from "@clerkenwell/react";
 
 const PLAN = {
-  substrate: "loro",
   schemaVersion: 1,
   migrationIds: [],
   authoringState: { projection: "memo.authoringState", importMutation: "memo.importUpdate" },
   rootContainer: "memo",
-  clientPathNaming: "camelCase",
   fields: {
     text: {
       path: "text",

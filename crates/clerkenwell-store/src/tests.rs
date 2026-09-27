@@ -44,7 +44,6 @@ const fn plan(
     GeneratedCollaborationEntitySpec {
         name,
         id_field,
-        substrate: "loro",
         schema_version: 1,
         migration_ids: &[],
         authoring_projection: "authoringState",

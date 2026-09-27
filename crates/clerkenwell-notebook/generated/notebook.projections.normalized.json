@@ -11,7 +11,6 @@
           "importMutation": "board.importLoroUpdate",
           "projection": "boards.authoringState"
         },
-        "clientPathNaming": "camelCase",
         "fields": [
           {
             "conflict": "merge",
@@ -325,15 +324,13 @@
         ],
         "name": "Board",
         "rootContainer": "board",
-        "schemaVersion": 3,
-        "substrate": "loro"
+        "schemaVersion": 3
       },
       {
         "authoringState": {
           "importMutation": "note.importLoroUpdate",
           "projection": "notes.authoringState"
         },
-        "clientPathNaming": "camelCase",
         "fields": [
           {
             "conflict": "explicit",
@@ -617,8 +614,7 @@
         ],
         "name": "Note",
         "rootContainer": "note",
-        "schemaVersion": 1,
-        "substrate": "loro"
+        "schemaVersion": 1
       }
     ],
     "version": 1
@@ -2377,7 +2373,6 @@
   ],
   "mutations": [
     {
-      "conflict": "optimistic",
       "name": "board.create",
       "params": {
         "$ref": "#/$defs/BoardCreateParams"
@@ -2390,7 +2385,6 @@
       ]
     },
     {
-      "conflict": "optimistic",
       "name": "board.importLoroUpdate",
       "params": {
         "$ref": "#/$defs/LoroUpdateParams"
@@ -2403,7 +2397,6 @@
       ]
     },
     {
-      "conflict": "optimistic",
       "name": "board.reconcileArchivedColumnOrder",
       "params": {
         "$ref": "#/$defs/BoardKeyParams"
@@ -2416,7 +2409,6 @@
       ]
     },
     {
-      "conflict": "optimistic",
       "name": "note.create",
       "params": {
         "$ref": "#/$defs/NoteCreateParams"
@@ -2429,7 +2421,6 @@
       ]
     },
     {
-      "conflict": "optimistic",
       "name": "note.delete",
       "params": {
         "$ref": "#/$defs/NoteKeyParams"
@@ -2442,7 +2433,6 @@
       ]
     },
     {
-      "conflict": "optimistic",
       "name": "note.importLoroUpdate",
       "params": {
         "$ref": "#/$defs/LoroUpdateParams"
@@ -2455,7 +2445,6 @@
       ]
     },
     {
-      "conflict": "optimistic",
       "name": "note.moveToBoard",
       "params": {
         "$ref": "#/$defs/NoteMoveParams"
@@ -2469,7 +2458,6 @@
       ]
     },
     {
-      "conflict": "optimistic",
       "name": "note.pin",
       "params": {
         "$ref": "#/$defs/NotePinParams"
@@ -2482,7 +2470,6 @@
       ]
     },
     {
-      "conflict": "optimistic",
       "name": "note.rename",
       "params": {
         "$ref": "#/$defs/NoteRenameParams"
@@ -2495,7 +2482,6 @@
       ]
     },
     {
-      "conflict": "optimistic",
       "name": "sync.reset",
       "params": {
         "$ref": "#/$defs/SyncResetParams"
@@ -2508,7 +2494,6 @@
       ]
     },
     {
-      "conflict": "optimistic",
       "name": "task.archive",
       "params": {
         "$ref": "#/$defs/TaskKeyParams"
@@ -2521,7 +2506,6 @@
       ]
     },
     {
-      "conflict": "optimistic",
       "name": "task.save",
       "params": {
         "$ref": "#/$defs/TaskSaveParams"
@@ -2534,7 +2518,6 @@
       ]
     },
     {
-      "conflict": "optimistic",
       "name": "task.schedule",
       "params": {
         "$ref": "#/$defs/TaskScheduleParams"
@@ -2547,7 +2530,6 @@
       ]
     },
     {
-      "conflict": "optimistic",
       "name": "workspace.configure",
       "params": {
         "$ref": "#/$defs/WorkspaceConfigureParams"

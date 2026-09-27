@@ -206,7 +206,6 @@ export const COLLABORATION_MINIMUM_READER_VERSION = 1 as const;
 export const COLLABORATION_MINIMUM_WRITER_VERSION = 1 as const;
 export const COLLABORATION_PLANS = {
   "Note": {
-    "substrate": "loro",
     "schemaVersion": 1,
     "migrationIds": [
       "note-loro-layout-v1"
@@ -216,7 +215,6 @@ export const COLLABORATION_PLANS = {
       "importMutation": "note.importLoroUpdate"
     },
     "rootContainer": "note",
-    "clientPathNaming": "camelCase",
     "fields": {
       "note_id": {
         "path": "note_id",

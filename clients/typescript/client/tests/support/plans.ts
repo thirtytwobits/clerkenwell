@@ -8,12 +8,10 @@ import type { CollaborationEntityPlan } from "@clerkenwell/client";
 
 /** One field of every storage kind and scalar codec a root-level document can hold. */
 export const NOTE_PLAN = {
-  substrate: "loro",
   schemaVersion: 2,
   migrationIds: ["note-v1", "note-v2"],
   authoringState: { projection: "notes.authoringState", importMutation: "note.importUpdate" },
   rootContainer: "note",
-  clientPathNaming: "camelCase",
   fields: {
     note_id: {
       path: "note_id",
@@ -266,12 +264,10 @@ export function noteDocument(): NoteDocument {
  * task sequence keyed by `id` under its own identity variable.
  */
 export const BOARD_PLAN = {
-  substrate: "loro",
   schemaVersion: 1,
   migrationIds: ["board-v1"],
   authoringState: { projection: "boards.authoringState", importMutation: "board.importUpdate" },
   rootContainer: "board",
-  clientPathNaming: "camelCase",
   fields: {
     board_id: {
       path: "board_id",

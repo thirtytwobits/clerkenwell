@@ -74,7 +74,6 @@ export interface CollaborationEntityPlan<
   TProjection extends string = string,
   TMutation extends string = string
 > {
-  readonly substrate: "loro";
   readonly schemaVersion: number;
   readonly migrationIds: readonly string[];
   readonly authoringState: {
@@ -82,8 +81,7 @@ export interface CollaborationEntityPlan<
     readonly importMutation: TMutation;
   };
   readonly rootContainer: string;
-  /** Wire paths are snake_case; client documents carry them as camelCase. */
-  readonly clientPathNaming: "camelCase";
+  /** Keyed by wire path, which is snake_case; client documents carry each path as camelCase. */
   readonly fields: Readonly<Record<string, CollaborationFieldPlan>>;
 }
 

@@ -65,7 +65,6 @@ static NOTE_FIELDS: &[GeneratedCollaborationFieldSpec] = &[
 pub static NOTE_PLAN: GeneratedCollaborationEntitySpec = GeneratedCollaborationEntitySpec {
     name: "Note",
     id_field: "note_id",
-    substrate: "loro",
     schema_version: 1,
     migration_ids: &[],
     authoring_projection: "notes.authoringState",
