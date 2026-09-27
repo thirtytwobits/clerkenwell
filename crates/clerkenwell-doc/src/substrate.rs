@@ -234,7 +234,13 @@ fn materialize_document_internal(
             set_value_at_path(&mut document, sequence.path, Value::Array(items))?;
         }
     }
-    complete_present_optional_groups(plan, &mut document)?;
+    complete_required_members(
+        plan.fields
+            .iter()
+            .filter(|field| !field.path.contains(".*.")),
+        "",
+        &mut document,
+    )?;
     validate_document(plan, &document)?;
     Ok(document)
 }
@@ -299,37 +305,46 @@ fn materialize_sequence(
                 set_value_at_path(&mut item, child_path, Value::Array(child_items))?;
             }
         }
+        complete_required_members(
+            direct_sequence_item_fields(plan, sequence)
+                .into_iter()
+                .chain(direct_child_sequences(plan, Some(sequence.path))),
+            &prefix,
+            &mut item,
+        )?;
         items.push(item);
     }
     Ok(items)
 }
 
-fn complete_present_optional_groups(
-    plan: &GeneratedCollaborationEntitySpec,
-    document: &mut Value,
+/// Gives each member of `node` that its present parent requires, but that was
+/// read as absent, the empty form its codec allows. An empty optional value
+/// reads as absent, so a member the parent requires is restored here; any
+/// other optional member stays absent. `prefix` is the path of `node` within
+/// the plan.
+fn complete_required_members<'a>(
+    members: impl Iterator<Item = &'a GeneratedCollaborationFieldSpec>,
+    prefix: &str,
+    node: &mut Value,
 ) -> Result<(), CollaborationLoroError> {
-    for field in plan.fields.iter().filter(|field| {
-        !field.required
-            && !field.path.contains(".*.")
-            && !matches!(
-                field.storage_kind,
-                GeneratedCollaborationStorageKind::DerivedIdentity
-                    | GeneratedCollaborationStorageKind::DerivedRevision
-                    | GeneratedCollaborationStorageKind::KeyedSequence
-            )
-    }) {
-        if value_at_path(document, field.path).is_some() {
+    for field in members.filter(|field| field.required_in_parent && !field.required) {
+        let path = field
+            .path
+            .strip_prefix(prefix)
+            .expect("a member lies under its node");
+        if value_at_path(node, path).is_some() {
             continue;
         }
-        let Some((parent_path, _)) = field.path.rsplit_once('.') else {
-            continue;
-        };
-        if value_at_path(document, parent_path).is_none() {
-            continue;
+        if let Some((parent, _)) = path.rsplit_once('.') {
+            if value_at_path(node, parent).is_none() {
+                continue;
+            }
         }
-        let default = match field.codec {
-            GeneratedCollaborationValueCodec::OptionalString => Value::String(String::new()),
-            GeneratedCollaborationValueCodec::StringList => Value::Array(Vec::new()),
+        let empty = match field.codec {
+            GeneratedCollaborationValueCodec::String
+            | GeneratedCollaborationValueCodec::OptionalString => Value::String(String::new()),
+            GeneratedCollaborationValueCodec::StringList
+            | GeneratedCollaborationValueCodec::KeyedSequence => Value::Array(Vec::new()),
             GeneratedCollaborationValueCodec::StructuredJson
                 if !is_object_storage_kind(field.storage_kind) =>
             {
@@ -337,7 +352,7 @@ fn complete_present_optional_groups(
             }
             _ => continue,
         };
-        set_value_at_path(document, field.path, default)?;
+        set_value_at_path(node, path, empty)?;
     }
     Ok(())
 }
@@ -437,12 +452,11 @@ fn write_sequence_changes(
         .ok_or_else(|| invalid_field(sequence.path, "an order container"))?;
     let order_container = resolve_template(sequence.path, order_template, context)?;
     let next_is_present = value_at_path(next_parent, relative_path).is_some();
+    let presence = doc.get_map(KEYED_SEQUENCE_PRESENCE_CONTAINER);
     if next_is_present || sequence.required {
-        doc.get_map(KEYED_SEQUENCE_PRESENCE_CONTAINER)
-            .insert(order_container.as_str(), true)?;
-    } else {
-        doc.get_map(KEYED_SEQUENCE_PRESENCE_CONTAINER)
-            .delete(order_container.as_str())?;
+        presence.insert(order_container.as_str(), true)?;
+    } else if presence.get(order_container.as_str()).is_some() {
+        presence.delete(order_container.as_str())?;
     }
     if previous_order != next_order {
         write_string_list(&doc.get_list(order_container.as_str()), &next_order)?;

@@ -63,7 +63,10 @@ export interface CollaborationFieldPlan {
     readonly codec: CollaborationValueCodec;
     readonly schema?: { readonly $ref: string };
   };
+  /** Every segment of the path is required, so the field is in every document. */
   readonly required: boolean;
+  /** The object holding the field requires it, so the field is present whenever that object is. */
+  readonly requiredInParent: boolean;
   readonly conflict: CollaborationConflictPolicy;
 }
 

@@ -19,6 +19,7 @@ const SCRATCH_PLAN = {
       storage: { kind: "text", container: "text" },
       value: { codec: "string" },
       required: true,
+      requiredInParent: true,
       conflict: "merge"
     }
   }

@@ -716,16 +716,22 @@ fn check_collaboration_entity(
 
     for field in &fields {
         let path = field.path;
-        let Some(resolved_required) =
-            resolve_collaboration_schema_path(definition, entity_schema, path)?
+        let Some(presence) = resolve_collaboration_schema_path(definition, entity_schema, path)?
         else {
             return refuse(format!(
                 "{context}.fields.{path} does not resolve in {schema_name}."
             ));
         };
-        if resolved_required != field.required() {
+        if presence.required != field.required() {
             return refuse(format!(
-                "{context}.fields.{path}.required must match the entity schema ({resolved_required})."
+                "{context}.fields.{path}.required must match the entity schema ({}).",
+                presence.required
+            ));
+        }
+        if presence.required_in_parent != field.required_in_parent() {
+            return refuse(format!(
+                "{context}.fields.{path}.requiredInParent must match the entity schema ({}).",
+                presence.required_in_parent
             ));
         }
         check_collaboration_storage(&format!("{context}.fields.{path}.storage"), field.storage())?;
@@ -877,15 +883,40 @@ pub(crate) fn dereference<'a>(
     resolve_ref(definition, schema, "collaboration schema")
 }
 
+/// How the entity schema requires the value at a collaboration path.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct Presence {
+    /// Every segment of the path is required.
+    pub required: bool,
+    /// The object holding the value requires it.
+    pub required_in_parent: bool,
+}
+
+/// How the schema of `entity` requires the value at `path`, or `None` when
+/// the path does not resolve in it.
+pub(crate) fn collaboration_path_presence(
+    definition: &Definition,
+    entity: &str,
+    path: &str,
+) -> Result<Option<Presence>> {
+    let schema = definition
+        .entity(entity)
+        .expect("validation requires the collaboration entity to exist")
+        .schema();
+    let root = resolve_ref(definition, schema, "collaboration schema")?;
+    resolve_collaboration_schema_path(definition, root, path)
+}
+
 /// Whether a collaboration field path resolves in the entity schema, and if
-/// so whether every segment of it is required.
+/// so how the schema requires its value.
 fn resolve_collaboration_schema_path(
     definition: &Definition,
     root: &Object,
     field_path: &str,
-) -> Result<Option<bool>> {
+) -> Result<Option<Presence>> {
     let mut schema = dereference(definition, root)?;
     let mut required = true;
+    let mut required_in_parent = true;
     for segment in field_path.split('.') {
         schema = dereference(definition, schema)?;
         if segment == "*" {
@@ -905,12 +936,16 @@ fn resolve_collaboration_schema_path(
         let Some(property) = property else {
             return Ok(None);
         };
-        required = required
-            && read_string_array(schema.get("required"), "collaboration schema required")?
+        required_in_parent =
+            read_string_array(schema.get("required"), "collaboration schema required")?
                 .contains(&segment);
+        required = required && required_in_parent;
         schema = dereference(definition, property)?;
     }
-    Ok(Some(required))
+    Ok(Some(Presence {
+        required,
+        required_in_parent,
+    }))
 }
 
 /// Every path under the entity schema a collaboration field must cover: array

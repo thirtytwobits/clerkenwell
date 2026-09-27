@@ -34,6 +34,7 @@ const fn field(
         codec: GeneratedCollaborationValueCodec::String,
         value_schema: None,
         required: true,
+        required_in_parent: true,
         conflict,
     }
 }

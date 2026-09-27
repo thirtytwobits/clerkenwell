@@ -63,7 +63,7 @@
         ],
         "authoringStateProjection": "notes.authoringState",
         "importMutation": "note.importLoroUpdate",
-        "fieldCount": 19
+        "fieldCount": 21
       },
       "diagnostics": [
         "authoring-runtime-metadata"
@@ -121,7 +121,7 @@
         ],
         "authoringStateProjection": "boards.authoringState",
         "importMutation": "board.importLoroUpdate",
-        "fieldCount": 13
+        "fieldCount": 23
       },
       "diagnostics": [
         "authoring-runtime-metadata"

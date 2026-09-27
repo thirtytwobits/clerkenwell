@@ -287,6 +287,7 @@ pub static NOTE_COLLABORATION_FIELDS: &[GeneratedCollaborationFieldSpec] = &[
         codec: GeneratedCollaborationValueCodec::Identity,
         value_schema: None,
         required: true,
+        required_in_parent: true,
         conflict: GeneratedCollaborationConflict::Immutable,
     },
     GeneratedCollaborationFieldSpec {
@@ -305,6 +306,7 @@ pub static NOTE_COLLABORATION_FIELDS: &[GeneratedCollaborationFieldSpec] = &[
         codec: GeneratedCollaborationValueCodec::String,
         value_schema: None,
         required: true,
+        required_in_parent: true,
         conflict: GeneratedCollaborationConflict::Immutable,
     },
     GeneratedCollaborationFieldSpec {
@@ -323,6 +325,7 @@ pub static NOTE_COLLABORATION_FIELDS: &[GeneratedCollaborationFieldSpec] = &[
         codec: GeneratedCollaborationValueCodec::String,
         value_schema: None,
         required: true,
+        required_in_parent: true,
         conflict: GeneratedCollaborationConflict::LastWriterWins,
     },
     GeneratedCollaborationFieldSpec {
@@ -341,6 +344,7 @@ pub static NOTE_COLLABORATION_FIELDS: &[GeneratedCollaborationFieldSpec] = &[
         codec: GeneratedCollaborationValueCodec::String,
         value_schema: None,
         required: true,
+        required_in_parent: true,
         conflict: GeneratedCollaborationConflict::Merge,
     },
     GeneratedCollaborationFieldSpec {
@@ -359,6 +363,7 @@ pub static NOTE_COLLABORATION_FIELDS: &[GeneratedCollaborationFieldSpec] = &[
         codec: GeneratedCollaborationValueCodec::String,
         value_schema: None,
         required: true,
+        required_in_parent: true,
         conflict: GeneratedCollaborationConflict::Explicit,
     },
 ];

@@ -10,7 +10,7 @@ use crate::schema::{
     has_type, object_at, primitive_union_types, read_string_array, resolve_ref,
     stringify_or_undefined,
 };
-use crate::validate::contract_property;
+use crate::validate::{collaboration_path_presence, contract_property};
 
 /// The collaboration fixture corpus.
 pub fn render_collaboration_fixtures(definition: &Definition) -> Result<String> {
@@ -53,12 +53,22 @@ fn collaboration_entity_fixture(
         set_fixture_path(&mut document, sequence.path, Json::Array(items));
     }
     // A derived field is written by whoever owns the document, never left out
-    // by a client: the substrate refuses a sequence item with no identity.
-    let optional_paths: Vec<&str> = fields
-        .iter()
-        .filter(|field| !field.required() && !field.is_derived())
-        .map(|field| field.path)
-        .collect();
+    // by a client: the substrate refuses a sequence item with no identity. A
+    // field its parent requires is left out only with the optional group
+    // holding it.
+    let mut optional_paths: Vec<String> = Vec::new();
+    for field in fields.iter().filter(|field| !field.is_derived()) {
+        let path = if !field.required_in_parent() {
+            Some(field.path.to_owned())
+        } else if !field.required() {
+            optional_group(definition, entity.name, field.path)?
+        } else {
+            None
+        };
+        if let Some(path) = path.filter(|path| !optional_paths.contains(path)) {
+            optional_paths.push(path);
+        }
+    }
 
     let mut scalar = Object::new();
     scalar.insert_some(
@@ -89,6 +99,7 @@ fn collaboration_entity_fixture(
         sequence_operation("order", Json::Array(vec![1.0.into(), 0.0.into()])),
     );
     operations.insert("delete", sequence_operation("index", 0.0.into()));
+    let optional_paths: Vec<&str> = optional_paths.iter().map(String::as_str).collect();
     operations.insert("optionalPresent", optional_paths.clone().into());
     operations.insert("optionalAbsent", optional_paths.into());
 
@@ -713,4 +724,22 @@ fn patch_for_snapshot(plan: Materialization, snapshot: &Object) -> Object {
         }
     }
     patch
+}
+
+/// The nearest group enclosing `path` that its own parent may leave out, up
+/// to the item of the innermost sequence holding it.
+fn optional_group(definition: &Definition, entity: &str, path: &str) -> Result<Option<String>> {
+    let mut group = path;
+    while let Some((parent, _)) = group.rsplit_once('.') {
+        if parent.ends_with('*') {
+            return Ok(None);
+        }
+        let presence = collaboration_path_presence(definition, entity, parent)?
+            .expect("a field's parent resolves wherever the field does");
+        if !presence.required_in_parent {
+            return Ok(Some(parent.to_owned()));
+        }
+        group = parent;
+    }
+    Ok(None)
 }

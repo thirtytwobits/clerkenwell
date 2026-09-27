@@ -227,7 +227,8 @@ export const COLLABORATION_PLANS = {
           "codec": "identity"
         },
         "required": true,
-        "conflict": "immutable"
+        "conflict": "immutable",
+        "requiredInParent": true
       },
       "etag": {
         "path": "etag",
@@ -238,7 +239,8 @@ export const COLLABORATION_PLANS = {
           "codec": "string"
         },
         "required": true,
-        "conflict": "immutable"
+        "conflict": "immutable",
+        "requiredInParent": true
       },
       "title": {
         "path": "title",
@@ -251,7 +253,8 @@ export const COLLABORATION_PLANS = {
           "codec": "string"
         },
         "required": true,
-        "conflict": "lastWriterWins"
+        "conflict": "lastWriterWins",
+        "requiredInParent": true
       },
       "body": {
         "path": "body",
@@ -263,7 +266,8 @@ export const COLLABORATION_PLANS = {
           "codec": "string"
         },
         "required": true,
-        "conflict": "merge"
+        "conflict": "merge",
+        "requiredInParent": true
       },
       "status": {
         "path": "status",
@@ -276,7 +280,8 @@ export const COLLABORATION_PLANS = {
           "codec": "string"
         },
         "required": true,
-        "conflict": "explicit"
+        "conflict": "explicit",
+        "requiredInParent": true
       }
     }
   }

@@ -271,6 +271,7 @@ fn collaboration_metadata(definition: &Definition) -> String {
                     let mut plan = Object::new();
                     plan.insert("path", field.path.into());
                     plan.spread(field.raw);
+                    plan.insert("requiredInParent", field.required_in_parent().into());
                     (field.path, Json::from(plan))
                 })
                 .collect();

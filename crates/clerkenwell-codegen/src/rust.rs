@@ -503,6 +503,10 @@ fn collaboration_metadata(definition: &Definition) -> String {
                         ),
                         ("required", Expr::atom(field.required().to_string())),
                         (
+                            "required_in_parent",
+                            Expr::atom(field.required_in_parent().to_string()),
+                        ),
+                        (
                             "conflict",
                             Expr::atom(format!(
                                 "GeneratedCollaborationConflict::{}",

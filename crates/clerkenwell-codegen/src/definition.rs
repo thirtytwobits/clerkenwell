@@ -507,11 +507,23 @@ impl<'a> CollaborationField<'a> {
         self.value().get("schema").and_then(Json::as_object)
     }
 
+    /// Whether every segment of the path is required, so the field is in
+    /// every document.
     pub fn required(&self) -> bool {
         self.raw
             .get("required")
             .and_then(Json::as_bool)
             .expect("the meta-schema requires boolean \"required\"")
+    }
+
+    /// Whether the object holding the field requires it, so the field is
+    /// present whenever that object is. A required field always is; the
+    /// definition says so of an optional field its parent requires.
+    pub fn required_in_parent(&self) -> bool {
+        self.raw
+            .get("requiredInParent")
+            .and_then(Json::as_bool)
+            .unwrap_or_else(|| self.required())
     }
 
     pub fn conflict(&self) -> &'a str {

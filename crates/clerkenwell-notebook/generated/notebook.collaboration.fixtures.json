@@ -55,6 +55,10 @@
         "meta": {
           "owner": "meta-owner-value",
           "reviewer": "meta-reviewer-value"
+        },
+        "source": {
+          "url": "source-url-value",
+          "excerpt": "source-excerpt-value"
         }
       },
       "clientDocument": {
@@ -105,6 +109,10 @@
         "meta": {
           "owner": "meta-owner-value",
           "reviewer": "meta-reviewer-value"
+        },
+        "source": {
+          "url": "source-url-value",
+          "excerpt": "source-excerpt-value"
         }
       },
       "operations": {
@@ -118,13 +126,17 @@
           "summary",
           "estimate",
           "archived_at",
-          "meta.reviewer"
+          "meta.reviewer",
+          "source",
+          "source.excerpt"
         ],
         "optionalAbsent": [
           "summary",
           "estimate",
           "archived_at",
-          "meta.reviewer"
+          "meta.reviewer",
+          "source",
+          "source.excerpt"
         ]
       },
       "invalid": [
@@ -213,6 +225,70 @@
               }
             ]
           }
+        ],
+        "archive": [
+          {
+            "column_id": "board-one",
+            "title": "archive-title-one",
+            "wip_limit": 1.5,
+            "cards": [
+              {
+                "card_id": "board-one",
+                "text": "archive-cards-text-one",
+                "done": true,
+                "note": {
+                  "$mime": "text/markdown",
+                  "value": "archive.*.cards.*.note one"
+                },
+                "labels": [
+                  "archive-cards-labels-one"
+                ]
+              },
+              {
+                "card_id": "board-two",
+                "text": "archive-cards-text-two",
+                "done": true,
+                "note": {
+                  "$mime": "text/markdown",
+                  "value": "archive.*.cards.*.note two"
+                },
+                "labels": [
+                  "archive-cards-labels-two"
+                ]
+              }
+            ]
+          },
+          {
+            "column_id": "board-two",
+            "title": "archive-title-two",
+            "wip_limit": 1.5,
+            "cards": [
+              {
+                "card_id": "board-one",
+                "text": "archive-cards-text-one",
+                "done": true,
+                "note": {
+                  "$mime": "text/markdown",
+                  "value": "archive.*.cards.*.note one"
+                },
+                "labels": [
+                  "archive-cards-labels-one"
+                ]
+              },
+              {
+                "card_id": "board-two",
+                "text": "archive-cards-text-two",
+                "done": true,
+                "note": {
+                  "$mime": "text/markdown",
+                  "value": "archive.*.cards.*.note two"
+                },
+                "labels": [
+                  "archive-cards-labels-two"
+                ]
+              }
+            ]
+          }
         ]
       },
       "clientDocument": {
@@ -280,6 +356,70 @@
               }
             ]
           }
+        ],
+        "archive": [
+          {
+            "columnId": "board-one",
+            "title": "archive-title-one",
+            "wipLimit": 1.5,
+            "cards": [
+              {
+                "cardId": "board-one",
+                "text": "archive-cards-text-one",
+                "done": true,
+                "note": {
+                  "$mime": "text/markdown",
+                  "value": "archive.*.cards.*.note one"
+                },
+                "labels": [
+                  "archive-cards-labels-one"
+                ]
+              },
+              {
+                "cardId": "board-two",
+                "text": "archive-cards-text-two",
+                "done": true,
+                "note": {
+                  "$mime": "text/markdown",
+                  "value": "archive.*.cards.*.note two"
+                },
+                "labels": [
+                  "archive-cards-labels-two"
+                ]
+              }
+            ]
+          },
+          {
+            "columnId": "board-two",
+            "title": "archive-title-two",
+            "wipLimit": 1.5,
+            "cards": [
+              {
+                "cardId": "board-one",
+                "text": "archive-cards-text-one",
+                "done": true,
+                "note": {
+                  "$mime": "text/markdown",
+                  "value": "archive.*.cards.*.note one"
+                },
+                "labels": [
+                  "archive-cards-labels-one"
+                ]
+              },
+              {
+                "cardId": "board-two",
+                "text": "archive-cards-text-two",
+                "done": true,
+                "note": {
+                  "$mime": "text/markdown",
+                  "value": "archive.*.cards.*.note two"
+                },
+                "labels": [
+                  "archive-cards-labels-two"
+                ]
+              }
+            ]
+          }
         ]
       },
       "operations": {
@@ -301,6 +441,20 @@
               1,
               0
             ]
+          },
+          {
+            "path": "archive",
+            "order": [
+              1,
+              0
+            ]
+          },
+          {
+            "path": "archive.*.cards",
+            "order": [
+              1,
+              0
+            ]
           }
         ],
         "delete": [
@@ -311,15 +465,29 @@
           {
             "path": "columns.*.cards",
             "index": 0
+          },
+          {
+            "path": "archive",
+            "index": 0
+          },
+          {
+            "path": "archive.*.cards",
+            "index": 0
           }
         ],
         "optionalPresent": [
           "columns.*.wip_limit",
-          "columns.*.cards.*.labels"
+          "columns.*.cards.*.labels",
+          "archive",
+          "archive.*.wip_limit",
+          "archive.*.cards.*.labels"
         ],
         "optionalAbsent": [
           "columns.*.wip_limit",
-          "columns.*.cards.*.labels"
+          "columns.*.cards.*.labels",
+          "archive",
+          "archive.*.wip_limit",
+          "archive.*.cards.*.labels"
         ]
       },
       "invalid": [

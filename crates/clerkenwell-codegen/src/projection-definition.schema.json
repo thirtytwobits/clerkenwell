@@ -409,6 +409,7 @@
         "storage": { "$ref": "#/definitions/collaborationStorage" },
         "value": { "$ref": "#/definitions/collaborationValue" },
         "required": { "type": "boolean" },
+        "requiredInParent": { "type": "boolean" },
         "conflict": {
           "enum": ["immutable", "explicit", "merge", "lastWriterWins"]
         }

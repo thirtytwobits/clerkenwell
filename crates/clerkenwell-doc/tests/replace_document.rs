@@ -32,6 +32,7 @@ const fn field(
         codec,
         value_schema: None,
         required,
+        required_in_parent: required,
         conflict: GeneratedCollaborationConflict::LastWriterWins,
     }
 }

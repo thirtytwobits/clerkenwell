@@ -72,6 +72,11 @@ export type NoteMeta = {
   "reviewer"?: string;
 };
 
+export type NoteSource = {
+  "url": string;
+  "excerpt"?: string;
+};
+
 export type NoteDocument = {
   "note_id": string;
   "etag": string;
@@ -91,6 +96,7 @@ export type NoteDocument = {
   "layout": NoteLayout;
   "extras": NoteExtras;
   "meta": NoteMeta;
+  "source"?: NoteSource;
 };
 
 export type NoteSummary = {
@@ -196,6 +202,7 @@ export type BoardDocument = {
   "etag": string;
   "name": string;
   "columns": BoardColumn[];
+  "archive"?: BoardColumn[];
 };
 
 export type BoardAuthoringState = {
@@ -913,7 +920,8 @@ export const COLLABORATION_PLANS = {
           "codec": "identity"
         },
         "required": true,
-        "conflict": "immutable"
+        "conflict": "immutable",
+        "requiredInParent": true
       },
       "etag": {
         "path": "etag",
@@ -924,7 +932,8 @@ export const COLLABORATION_PLANS = {
           "codec": "string"
         },
         "required": true,
-        "conflict": "immutable"
+        "conflict": "immutable",
+        "requiredInParent": true
       },
       "title": {
         "path": "title",
@@ -937,7 +946,8 @@ export const COLLABORATION_PLANS = {
           "codec": "string"
         },
         "required": true,
-        "conflict": "explicit"
+        "conflict": "explicit",
+        "requiredInParent": true
       },
       "body": {
         "path": "body",
@@ -951,7 +961,8 @@ export const COLLABORATION_PLANS = {
           "codec": "propertyText"
         },
         "required": true,
-        "conflict": "merge"
+        "conflict": "merge",
+        "requiredInParent": true
       },
       "summary": {
         "path": "summary",
@@ -963,7 +974,8 @@ export const COLLABORATION_PLANS = {
           "codec": "optionalString"
         },
         "required": false,
-        "conflict": "merge"
+        "conflict": "merge",
+        "requiredInParent": false
       },
       "tags": {
         "path": "tags",
@@ -975,7 +987,8 @@ export const COLLABORATION_PLANS = {
           "codec": "stringList"
         },
         "required": true,
-        "conflict": "merge"
+        "conflict": "merge",
+        "requiredInParent": true
       },
       "pinned": {
         "path": "pinned",
@@ -988,7 +1001,8 @@ export const COLLABORATION_PLANS = {
           "codec": "boolean"
         },
         "required": true,
-        "conflict": "lastWriterWins"
+        "conflict": "lastWriterWins",
+        "requiredInParent": true
       },
       "priority": {
         "path": "priority",
@@ -1001,7 +1015,8 @@ export const COLLABORATION_PLANS = {
           "codec": "integer"
         },
         "required": true,
-        "conflict": "explicit"
+        "conflict": "explicit",
+        "requiredInParent": true
       },
       "weight": {
         "path": "weight",
@@ -1014,7 +1029,8 @@ export const COLLABORATION_PLANS = {
           "codec": "number"
         },
         "required": true,
-        "conflict": "lastWriterWins"
+        "conflict": "lastWriterWins",
+        "requiredInParent": true
       },
       "estimate": {
         "path": "estimate",
@@ -1027,7 +1043,8 @@ export const COLLABORATION_PLANS = {
           "codec": "optionalNumber"
         },
         "required": false,
-        "conflict": "lastWriterWins"
+        "conflict": "lastWriterWins",
+        "requiredInParent": false
       },
       "status": {
         "path": "status",
@@ -1040,7 +1057,8 @@ export const COLLABORATION_PLANS = {
           "codec": "string"
         },
         "required": true,
-        "conflict": "explicit"
+        "conflict": "explicit",
+        "requiredInParent": true
       },
       "created_at": {
         "path": "created_at",
@@ -1053,7 +1071,8 @@ export const COLLABORATION_PLANS = {
           "codec": "string"
         },
         "required": true,
-        "conflict": "immutable"
+        "conflict": "immutable",
+        "requiredInParent": true
       },
       "archived_at": {
         "path": "archived_at",
@@ -1066,7 +1085,8 @@ export const COLLABORATION_PLANS = {
           "codec": "optionalString"
         },
         "required": false,
-        "conflict": "explicit"
+        "conflict": "explicit",
+        "requiredInParent": false
       },
       "attachments": {
         "path": "attachments",
@@ -1081,7 +1101,8 @@ export const COLLABORATION_PLANS = {
           }
         },
         "required": true,
-        "conflict": "merge"
+        "conflict": "merge",
+        "requiredInParent": true
       },
       "properties": {
         "path": "properties",
@@ -1096,7 +1117,8 @@ export const COLLABORATION_PLANS = {
           }
         },
         "required": true,
-        "conflict": "merge"
+        "conflict": "merge",
+        "requiredInParent": true
       },
       "layout": {
         "path": "layout",
@@ -1111,7 +1133,8 @@ export const COLLABORATION_PLANS = {
           }
         },
         "required": true,
-        "conflict": "merge"
+        "conflict": "merge",
+        "requiredInParent": true
       },
       "extras": {
         "path": "extras",
@@ -1126,7 +1149,8 @@ export const COLLABORATION_PLANS = {
           }
         },
         "required": true,
-        "conflict": "lastWriterWins"
+        "conflict": "lastWriterWins",
+        "requiredInParent": true
       },
       "meta.owner": {
         "path": "meta.owner",
@@ -1139,7 +1163,8 @@ export const COLLABORATION_PLANS = {
           "codec": "string"
         },
         "required": true,
-        "conflict": "explicit"
+        "conflict": "explicit",
+        "requiredInParent": true
       },
       "meta.reviewer": {
         "path": "meta.reviewer",
@@ -1152,7 +1177,35 @@ export const COLLABORATION_PLANS = {
           "codec": "optionalString"
         },
         "required": false,
+        "conflict": "explicit",
+        "requiredInParent": false
+      },
+      "source.url": {
+        "path": "source.url",
+        "storage": {
+          "kind": "scalar",
+          "container": "note",
+          "key": "source.url"
+        },
+        "value": {
+          "codec": "optionalString"
+        },
+        "required": false,
+        "requiredInParent": true,
         "conflict": "explicit"
+      },
+      "source.excerpt": {
+        "path": "source.excerpt",
+        "storage": {
+          "kind": "text",
+          "container": "source.excerpt"
+        },
+        "value": {
+          "codec": "optionalString"
+        },
+        "required": false,
+        "conflict": "merge",
+        "requiredInParent": false
       }
     }
   },
@@ -1180,7 +1233,8 @@ export const COLLABORATION_PLANS = {
           "codec": "identity"
         },
         "required": true,
-        "conflict": "immutable"
+        "conflict": "immutable",
+        "requiredInParent": true
       },
       "etag": {
         "path": "etag",
@@ -1191,7 +1245,8 @@ export const COLLABORATION_PLANS = {
           "codec": "string"
         },
         "required": true,
-        "conflict": "immutable"
+        "conflict": "immutable",
+        "requiredInParent": true
       },
       "name": {
         "path": "name",
@@ -1204,7 +1259,8 @@ export const COLLABORATION_PLANS = {
           "codec": "string"
         },
         "required": true,
-        "conflict": "explicit"
+        "conflict": "explicit",
+        "requiredInParent": true
       },
       "columns": {
         "path": "columns",
@@ -1219,7 +1275,8 @@ export const COLLABORATION_PLANS = {
           "codec": "keyedSequence"
         },
         "required": true,
-        "conflict": "merge"
+        "conflict": "merge",
+        "requiredInParent": true
       },
       "columns.*.column_id": {
         "path": "columns.*.column_id",
@@ -1231,7 +1288,8 @@ export const COLLABORATION_PLANS = {
           "codec": "identity"
         },
         "required": true,
-        "conflict": "immutable"
+        "conflict": "immutable",
+        "requiredInParent": true
       },
       "columns.*.title": {
         "path": "columns.*.title",
@@ -1244,7 +1302,8 @@ export const COLLABORATION_PLANS = {
           "codec": "string"
         },
         "required": true,
-        "conflict": "explicit"
+        "conflict": "explicit",
+        "requiredInParent": true
       },
       "columns.*.wip_limit": {
         "path": "columns.*.wip_limit",
@@ -1257,7 +1316,8 @@ export const COLLABORATION_PLANS = {
           "codec": "optionalNumber"
         },
         "required": false,
-        "conflict": "lastWriterWins"
+        "conflict": "lastWriterWins",
+        "requiredInParent": false
       },
       "columns.*.cards": {
         "path": "columns.*.cards",
@@ -1272,7 +1332,8 @@ export const COLLABORATION_PLANS = {
           "codec": "keyedSequence"
         },
         "required": true,
-        "conflict": "merge"
+        "conflict": "merge",
+        "requiredInParent": true
       },
       "columns.*.cards.*.card_id": {
         "path": "columns.*.cards.*.card_id",
@@ -1284,7 +1345,8 @@ export const COLLABORATION_PLANS = {
           "codec": "identity"
         },
         "required": true,
-        "conflict": "immutable"
+        "conflict": "immutable",
+        "requiredInParent": true
       },
       "columns.*.cards.*.text": {
         "path": "columns.*.cards.*.text",
@@ -1296,7 +1358,8 @@ export const COLLABORATION_PLANS = {
           "codec": "string"
         },
         "required": true,
-        "conflict": "merge"
+        "conflict": "merge",
+        "requiredInParent": true
       },
       "columns.*.cards.*.done": {
         "path": "columns.*.cards.*.done",
@@ -1309,7 +1372,8 @@ export const COLLABORATION_PLANS = {
           "codec": "boolean"
         },
         "required": true,
-        "conflict": "lastWriterWins"
+        "conflict": "lastWriterWins",
+        "requiredInParent": true
       },
       "columns.*.cards.*.note": {
         "path": "columns.*.cards.*.note",
@@ -1323,7 +1387,8 @@ export const COLLABORATION_PLANS = {
           "codec": "propertyText"
         },
         "required": true,
-        "conflict": "merge"
+        "conflict": "merge",
+        "requiredInParent": true
       },
       "columns.*.cards.*.labels": {
         "path": "columns.*.cards.*.labels",
@@ -1335,7 +1400,149 @@ export const COLLABORATION_PLANS = {
           "codec": "stringList"
         },
         "required": false,
+        "conflict": "merge",
+        "requiredInParent": false
+      },
+      "archive": {
+        "path": "archive",
+        "storage": {
+          "kind": "keyedSequence",
+          "identityPath": "column_id",
+          "identityVariable": "column_id",
+          "orderContainer": "archive_order",
+          "itemContainerTemplate": "archive.{column_id}"
+        },
+        "value": {
+          "codec": "keyedSequence"
+        },
+        "required": false,
+        "conflict": "merge",
+        "requiredInParent": false
+      },
+      "archive.*.column_id": {
+        "path": "archive.*.column_id",
+        "storage": {
+          "kind": "derivedIdentity",
+          "identityPath": "column_id"
+        },
+        "value": {
+          "codec": "identity"
+        },
+        "required": false,
+        "requiredInParent": true,
+        "conflict": "immutable"
+      },
+      "archive.*.title": {
+        "path": "archive.*.title",
+        "storage": {
+          "kind": "scalar",
+          "containerTemplate": "archive.{column_id}",
+          "key": "title"
+        },
+        "value": {
+          "codec": "string"
+        },
+        "required": false,
+        "requiredInParent": true,
+        "conflict": "explicit"
+      },
+      "archive.*.wip_limit": {
+        "path": "archive.*.wip_limit",
+        "storage": {
+          "kind": "scalar",
+          "containerTemplate": "archive.{column_id}",
+          "key": "wip_limit"
+        },
+        "value": {
+          "codec": "optionalNumber"
+        },
+        "required": false,
+        "conflict": "lastWriterWins",
+        "requiredInParent": false
+      },
+      "archive.*.cards": {
+        "path": "archive.*.cards",
+        "storage": {
+          "kind": "keyedSequence",
+          "identityPath": "card_id",
+          "identityVariable": "card_id",
+          "orderContainer": "archive.{column_id}.card_order",
+          "itemContainerTemplate": "archive.{column_id}.card.{card_id}"
+        },
+        "value": {
+          "codec": "keyedSequence"
+        },
+        "required": false,
+        "requiredInParent": true,
         "conflict": "merge"
+      },
+      "archive.*.cards.*.card_id": {
+        "path": "archive.*.cards.*.card_id",
+        "storage": {
+          "kind": "derivedIdentity",
+          "identityPath": "card_id"
+        },
+        "value": {
+          "codec": "identity"
+        },
+        "required": false,
+        "requiredInParent": true,
+        "conflict": "immutable"
+      },
+      "archive.*.cards.*.text": {
+        "path": "archive.*.cards.*.text",
+        "storage": {
+          "kind": "text",
+          "containerTemplate": "archive.{column_id}.card.{card_id}.text"
+        },
+        "value": {
+          "codec": "string"
+        },
+        "required": false,
+        "requiredInParent": true,
+        "conflict": "merge"
+      },
+      "archive.*.cards.*.done": {
+        "path": "archive.*.cards.*.done",
+        "storage": {
+          "kind": "scalar",
+          "containerTemplate": "archive.{column_id}.card.{card_id}",
+          "key": "done"
+        },
+        "value": {
+          "codec": "boolean"
+        },
+        "required": false,
+        "requiredInParent": true,
+        "conflict": "lastWriterWins"
+      },
+      "archive.*.cards.*.note": {
+        "path": "archive.*.cards.*.note",
+        "storage": {
+          "kind": "text",
+          "containerTemplate": "archive.{column_id}.card.{card_id}.note",
+          "metadataContainerTemplate": "archive.{column_id}.card.{card_id}",
+          "metadataKey": "note.$mime"
+        },
+        "value": {
+          "codec": "propertyText"
+        },
+        "required": false,
+        "requiredInParent": true,
+        "conflict": "merge"
+      },
+      "archive.*.cards.*.labels": {
+        "path": "archive.*.cards.*.labels",
+        "storage": {
+          "kind": "orderedList",
+          "containerTemplate": "archive.{column_id}.card.{card_id}.labels"
+        },
+        "value": {
+          "codec": "stringList"
+        },
+        "required": false,
+        "conflict": "merge",
+        "requiredInParent": false
       }
     }
   }

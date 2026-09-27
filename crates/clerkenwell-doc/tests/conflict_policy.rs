@@ -224,6 +224,7 @@ mod nested {
             codec,
             value_schema: None,
             required: true,
+            required_in_parent: true,
             conflict,
         }
     }
