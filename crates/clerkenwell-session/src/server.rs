@@ -1,10 +1,13 @@
 //! Serving the projection session protocol on one connection.
 //!
-//! A transport hands each request to [`serve_request`] with the connection's
-//! [`ProjectionHost`]. It answers the request with the reply's result and sends
-//! each of the reply's events as a `projection.update` notification.
+//! A transport hands each request to [`serve_request`] with the application's
+//! [`ProjectionHost`] and the connection's subscriptions. It answers the
+//! request with the reply's result and sends each of the reply's events as a
+//! `projection.update` notification. A mutation the reply accepted reaches the
+//! subscriptions of every other connection through [`publish`].
 
 use std::future::Future;
+use std::sync::{Mutex, PoisonError};
 use std::time::Instant;
 
 use serde::de::DeserializeOwned;
@@ -108,7 +111,7 @@ pub trait ProjectionFailure: Sized {
     fn described(self, envelope: ProjectionErrorEnvelope) -> Self;
 }
 
-/// What an application provides to serve projections on one connection.
+/// What an application provides to serve projections.
 pub trait ProjectionHost: Sync {
     type Snapshot: Serialize + Send;
     type Patch: Serialize + Clone + PartialEq + Send;
@@ -120,13 +123,6 @@ pub trait ProjectionHost: Sync {
 
     /// The projections and mutations served.
     fn registry(&self) -> &ProjectionRegistry;
-
-    /// Runs `transition` on the connection's subscriptions, holding them for
-    /// the transition only.
-    fn with_subscriptions<R: Send>(
-        &self,
-        transition: impl FnOnce(&mut ProjectionSubscriptions<Self::Patch, Self::Delivery>) -> R + Send,
-    ) -> impl Future<Output = R> + Send;
 
     fn snapshot(
         &self,
@@ -166,46 +162,93 @@ pub trait ProjectionHost: Sync {
     ) -> impl Future<Output = Option<Self::Patch>> + Send;
 }
 
+/// A connection's subscriptions, which the session changes one transition at
+/// a time.
+pub trait ProjectionConnection<P, D>: Sync {
+    /// Runs `transition` on the subscriptions, holding them for the
+    /// transition only.
+    fn with_subscriptions<R: Send>(
+        &self,
+        transition: impl FnOnce(&mut ProjectionSubscriptions<P, D>) -> R + Send,
+    ) -> impl Future<Output = R> + Send;
+}
+
+impl<P: Send, D: Send> ProjectionConnection<P, D> for Mutex<ProjectionSubscriptions<P, D>> {
+    async fn with_subscriptions<R: Send>(
+        &self,
+        transition: impl FnOnce(&mut ProjectionSubscriptions<P, D>) -> R + Send,
+    ) -> R {
+        transition(&mut self.lock().unwrap_or_else(PoisonError::into_inner))
+    }
+}
+
+/// A mutation one connection accepted, as every connection publishes it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct AcceptedMutation<M> {
+    pub mutation: String,
+    pub result: M,
+    /// The lowest revision its effects may reach.
+    pub floor: u64,
+}
+
 /// A served command's result and the updates it sends.
 #[derive(Debug, Clone, PartialEq)]
-pub struct ProjectionReply<S, P> {
+pub struct ProjectionReply<S, P, M> {
     /// The accepted command, as the protocol encodes it.
     pub result: Value,
     /// The updates to send the connection's subscriptions, in order.
     pub events: Vec<ProjectionTransportEvent<S, P>>,
+    /// The mutation the command made, for the other connections to publish.
+    pub accepted: Option<AcceptedMutation<M>>,
 }
 
-type Reply<H> = ProjectionReply<<H as ProjectionHost>::Snapshot, <H as ProjectionHost>::Patch>;
+type Reply<H> = ProjectionReply<
+    <H as ProjectionHost>::Snapshot,
+    <H as ProjectionHost>::Patch,
+    <H as ProjectionHost>::MutationResult,
+>;
+type Event<H> =
+    ProjectionTransportEvent<<H as ProjectionHost>::Snapshot, <H as ProjectionHost>::Patch>;
 
-/// Serves the request `method` names with `params`, or returns `None` when the
-/// method is not part of the protocol. A request whose params do not decode is
-/// refused like a command that fails.
-pub async fn serve_request<H: ProjectionHost>(
+/// Serves the request `method` names with `params` on `connection`, or
+/// returns `None` when the method is not part of the protocol. A request
+/// whose params do not decode is refused like a command that fails.
+pub async fn serve_request<H, C>(
     host: &H,
+    connection: &C,
     method: &str,
     params: Option<Value>,
-) -> Option<Result<Reply<H>, H::Failure>> {
+) -> Option<Result<Reply<H>, H::Failure>>
+where
+    H: ProjectionHost,
+    C: ProjectionConnection<H::Patch, H::Delivery>,
+{
     let operation = ProjectionOperation::for_method(method)?;
     Some(match ProjectionCommand::decode(method, params)? {
-        Ok(command) => serve(host, command).await,
+        Ok(command) => serve(host, connection, command).await,
         Err(refusal) => Err(addressed(H::Failure::refused(refusal), operation, None)),
     })
 }
 
-/// Serves one command. A failure reaches its client described by a
-/// [`ProjectionErrorEnvelope`] addressed to the command.
-pub async fn serve<H: ProjectionHost>(
+/// Serves one command on `connection`. A failure reaches its client described
+/// by a [`ProjectionErrorEnvelope`] addressed to the command.
+pub async fn serve<H, C>(
     host: &H,
+    connection: &C,
     command: ProjectionCommand,
-) -> Result<Reply<H>, H::Failure> {
+) -> Result<Reply<H>, H::Failure>
+where
+    H: ProjectionHost,
+    C: ProjectionConnection<H::Patch, H::Delivery>,
+{
     let operation = command.operation();
     let name = command.name().map(str::to_owned);
     let started = Instant::now();
     let outcome = match command {
-        ProjectionCommand::Subscribe(command) => subscribe(host, command).await,
-        ProjectionCommand::Resync(command) => resync(host, command).await,
-        ProjectionCommand::Unsubscribe(command) => unsubscribe(host, command).await,
-        ProjectionCommand::Mutate(command) => mutate(host, command).await,
+        ProjectionCommand::Subscribe(command) => subscribe(host, connection, command).await,
+        ProjectionCommand::Resync(command) => resync(host, connection, command).await,
+        ProjectionCommand::Unsubscribe(command) => unsubscribe::<H, C>(connection, command).await,
+        ProjectionCommand::Mutate(command) => mutate(host, connection, command).await,
     };
     let outcome = outcome.map_err(|failure| addressed(failure, operation, name.as_deref()));
     if operation == ProjectionOperation::Mutate {
@@ -214,12 +257,105 @@ pub async fn serve<H: ProjectionHost>(
             .as_ref()
             .err()
             .map(|failure| failure.describe().code.as_str());
-        host.with_subscriptions(move |subscriptions| {
-            subscriptions.record_mutation(latency, rejection);
-        })
-        .await;
+        connection
+            .with_subscriptions(move |subscriptions| {
+                subscriptions.record_mutation(latency, rejection);
+            })
+            .await;
     }
     outcome
+}
+
+/// Sends the subscriptions on `connection` the patches an accepted mutation
+/// brings them. Returns the revision the mutation's effects reach there and
+/// the updates to send, in order.
+pub async fn publish<H, C>(
+    host: &H,
+    connection: &C,
+    accepted: &AcceptedMutation<H::MutationResult>,
+) -> (u64, Vec<Event<H>>)
+where
+    H: ProjectionHost,
+    C: ProjectionConnection<H::Patch, H::Delivery>,
+{
+    let registry = host.registry();
+    let mutation = accepted.mutation.as_str();
+    let publishes = !registry.plans_only(mutation);
+    let floor = accepted.floor;
+    let revision = connection
+        .with_subscriptions(move |subscriptions| subscriptions.mutation_revision(floor, publishes))
+        .await;
+    let mut events = Vec::new();
+    if !publishes {
+        return (revision, events);
+    }
+    let affected = connection
+        .with_subscriptions(|subscriptions| {
+            let mut affected = subscriptions
+                .all()
+                .iter()
+                .filter(|(_, subscription)| {
+                    registry.mutation_affects_projection(mutation, &subscription.projection)
+                })
+                .map(|(subscription_id, subscription)| (*subscription_id, subscription.clone()))
+                .collect::<Vec<_>>();
+            affected.sort_by_key(|(subscription_id, _)| *subscription_id);
+            affected
+        })
+        .await;
+    for (subscription_id, subscription) in affected {
+        let Some(patch) = host
+            .mutation_patch(mutation, &accepted.result, &subscription)
+            .await
+        else {
+            continue;
+        };
+        let delivered = connection
+            .with_subscriptions(move |subscriptions| {
+                subscriptions.deliver_patch(subscription_id, revision, patch)
+            })
+            .await;
+        events.extend(delivered);
+    }
+    (revision, events)
+}
+
+/// Sends every subscription on `connection` a snapshot, as after the
+/// connection missed updates, recording `reason` as why. A subscription whose
+/// snapshot cannot be built keeps the revision it holds.
+pub async fn resync_all<H, C>(host: &H, connection: &C, reason: &str) -> Vec<Event<H>>
+where
+    H: ProjectionHost,
+    C: ProjectionConnection<H::Patch, H::Delivery>,
+{
+    let mut subscriptions = connection
+        .with_subscriptions(|subscriptions| {
+            subscriptions
+                .all()
+                .iter()
+                .map(|(subscription_id, subscription)| (*subscription_id, subscription.clone()))
+                .collect::<Vec<_>>()
+        })
+        .await;
+    subscriptions.sort_by_key(|(subscription_id, _)| *subscription_id);
+    let mut events = Vec::new();
+    for (subscription_id, subscription) in subscriptions {
+        let Ok(snapshot) = host
+            .snapshot(&subscription.projection, &subscription.params)
+            .await
+        else {
+            continue;
+        };
+        let delivered = host.delivered(&snapshot);
+        let reason = reason.to_owned();
+        let resynced = connection
+            .with_subscriptions(move |subscriptions| {
+                subscriptions.resync(subscription_id, snapshot, delivered, &reason)
+            })
+            .await;
+        events.extend(resynced.map(|(_, event)| event));
+    }
+    events
 }
 
 /// `failure` described to the client of the command it answers.
@@ -238,10 +374,15 @@ fn addressed<F: ProjectionFailure>(
     ))
 }
 
-async fn subscribe<H: ProjectionHost>(
+async fn subscribe<H, C>(
     host: &H,
+    connection: &C,
     command: ProjectionSubscribeCommand,
-) -> Result<Reply<H>, H::Failure> {
+) -> Result<Reply<H>, H::Failure>
+where
+    H: ProjectionHost,
+    C: ProjectionConnection<H::Patch, H::Delivery>,
+{
     if host.registry().projection(&command.projection).is_none() {
         return Err(H::Failure::refused(ProjectionRefusal::new(
             ProjectionErrorCode::UnknownProjection,
@@ -255,7 +396,7 @@ async fn subscribe<H: ProjectionHost>(
     let floor = host.revision_floor(&command.projection, &params).await?;
     let projection = command.projection;
     let cursor = command.cursor.map(|cursor| cursor.revision);
-    let (accepted, events) = host
+    let (accepted, events) = connection
         .with_subscriptions(move |subscriptions| {
             subscriptions
                 .accept_subscription(projection, params, cursor, floor, snapshot, delivered)
@@ -277,15 +418,21 @@ async fn subscribe<H: ProjectionHost>(
     Ok(ProjectionReply {
         result: encode::<H, _>(&accepted)?,
         events,
+        accepted: None,
     })
 }
 
-async fn resync<H: ProjectionHost>(
+async fn resync<H, C>(
     host: &H,
+    connection: &C,
     command: ProjectionResyncCommand,
-) -> Result<Reply<H>, H::Failure> {
+) -> Result<Reply<H>, H::Failure>
+where
+    H: ProjectionHost,
+    C: ProjectionConnection<H::Patch, H::Delivery>,
+{
     let subscription_id = command.subscription_id;
-    let subscription = host
+    let subscription = connection
         .with_subscriptions(move |subscriptions| subscriptions.get(subscription_id).cloned())
         .await
         .ok_or_else(|| subscription_not_found::<H>(subscription_id))?;
@@ -293,7 +440,7 @@ async fn resync<H: ProjectionHost>(
         .snapshot(&subscription.projection, &subscription.params)
         .await?;
     let delivered = host.delivered(&snapshot);
-    let (accepted, event) = host
+    let (accepted, event) = connection
         .with_subscriptions(move |subscriptions| {
             subscriptions.resync(subscription_id, snapshot, delivered, "clientRequested")
         })
@@ -302,6 +449,7 @@ async fn resync<H: ProjectionHost>(
     Ok(ProjectionReply {
         result: encode::<H, _>(&accepted)?,
         events: vec![event],
+        accepted: None,
     })
 }
 
@@ -313,75 +461,59 @@ fn subscription_not_found<H: ProjectionHost>(subscription_id: u64) -> H::Failure
     ))
 }
 
-async fn unsubscribe<H: ProjectionHost>(
-    host: &H,
+async fn unsubscribe<H, C>(
+    connection: &C,
     command: ProjectionUnsubscribeCommand,
-) -> Result<Reply<H>, H::Failure> {
-    let removed = host
+) -> Result<Reply<H>, H::Failure>
+where
+    H: ProjectionHost,
+    C: ProjectionConnection<H::Patch, H::Delivery>,
+{
+    let removed = connection
         .with_subscriptions(move |subscriptions| subscriptions.remove(command.subscription_id))
         .await;
     Ok(ProjectionReply {
         result: encode::<H, _>(&ProjectionUnsubscribeAccepted { removed })?,
         events: Vec::new(),
+        accepted: None,
     })
 }
 
-async fn mutate<H: ProjectionHost>(
+async fn mutate<H, C>(
     host: &H,
+    connection: &C,
     command: ProjectionMutationCommand,
-) -> Result<Reply<H>, H::Failure> {
-    let registry = host.registry();
-    let mutation = command.mutation.as_str();
-    if registry.mutation(mutation).is_none() {
+) -> Result<Reply<H>, H::Failure>
+where
+    H: ProjectionHost,
+    C: ProjectionConnection<H::Patch, H::Delivery>,
+{
+    let mutation = command.mutation;
+    if host.registry().mutation(&mutation).is_none() {
         return Err(H::Failure::refused(ProjectionRefusal::new(
             ProjectionErrorCode::UnknownMutation,
             format!("Unknown mutation \"{mutation}\"."),
             Some(json!({ "mutation": mutation })),
         )));
     }
-    let result = host.mutate(mutation, command.params).await?;
-    let publishes = !registry.plans_only(mutation);
+    let result = host.mutate(&mutation, command.params).await?;
     let floor = host.mutation_revision_floor().await?;
-    let revision = host
-        .with_subscriptions(move |subscriptions| subscriptions.mutation_revision(floor, publishes))
-        .await;
-    let mut events = Vec::new();
-    if publishes {
-        let affected = host
-            .with_subscriptions(|subscriptions| {
-                let mut affected = subscriptions
-                    .all()
-                    .iter()
-                    .filter(|(_, subscription)| {
-                        registry.mutation_affects_projection(mutation, &subscription.projection)
-                    })
-                    .map(|(subscription_id, subscription)| (*subscription_id, subscription.clone()))
-                    .collect::<Vec<_>>();
-                affected.sort_by_key(|(subscription_id, _)| *subscription_id);
-                affected
-            })
-            .await;
-        for (subscription_id, subscription) in affected {
-            let Some(patch) = host.mutation_patch(mutation, &result, &subscription).await else {
-                continue;
-            };
-            let delivered = host
-                .with_subscriptions(move |subscriptions| {
-                    subscriptions.deliver_patch(subscription_id, revision, patch)
-                })
-                .await;
-            events.extend(delivered);
-        }
-    }
-    let accepted = ProjectionMutationAccepted {
+    let accepted = AcceptedMutation {
+        mutation,
+        result,
+        floor,
+    };
+    let (revision, events) = publish(host, connection, &accepted).await;
+    let reply = ProjectionMutationAccepted {
         operation_id: command.operation_id,
         base_revision: command.base_revision,
         revision,
-        result,
+        result: &accepted.result,
     };
     Ok(ProjectionReply {
-        result: encode::<H, _>(&accepted)?,
+        result: encode::<H, _>(&reply)?,
         events,
+        accepted: Some(accepted),
     })
 }
 

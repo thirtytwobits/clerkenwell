@@ -18,8 +18,9 @@ use clerkenwell_session::transport::{
     PROJECTION_SUBSCRIBE_METHOD,
 };
 use clerkenwell_session::{
-    serve, serve_request, ProjectionCommand, ProjectionFailure, ProjectionHost, ProjectionRefusal,
-    ProjectionRegistry, ProjectionReply, ProjectionSubscription, ProjectionSubscriptions,
+    publish, resync_all, serve, serve_request, AcceptedMutation, ProjectionCommand,
+    ProjectionFailure, ProjectionHost, ProjectionRefusal, ProjectionRegistry, ProjectionReply,
+    ProjectionSubscription, ProjectionSubscriptions,
 };
 use serde_json::{json, Value};
 
@@ -137,13 +138,6 @@ impl ProjectionHost for Notes {
         &REGISTRY
     }
 
-    async fn with_subscriptions<R: Send>(
-        &self,
-        transition: impl FnOnce(&mut ProjectionSubscriptions<Value, String>) -> R + Send,
-    ) -> R {
-        transition(&mut self.subscriptions.lock().expect("subscriptions"))
-    }
-
     fn snapshot(
         &self,
         projection: &str,
@@ -220,7 +214,7 @@ fn block_on<F: Future>(future: F) -> F::Output {
     }
 }
 
-type Reply = ProjectionReply<Value, Value>;
+type Reply = ProjectionReply<Value, Value, Value>;
 
 fn subscribe(
     host: &Notes,
@@ -229,6 +223,7 @@ fn subscribe(
 ) -> (ProjectionSubscribeAccepted, Reply) {
     let reply = block_on(serve(
         host,
+        &host.subscriptions,
         ProjectionCommand::Subscribe(ProjectionSubscribeCommand {
             projection: projection.to_owned(),
             params: Some(json!({})),
@@ -249,6 +244,7 @@ fn mutate(
 ) -> Result<(ProjectionMutationAccepted<Value>, Reply), Failure> {
     let reply = block_on(serve(
         host,
+        &host.subscriptions,
         ProjectionCommand::Mutate(ProjectionMutationCommand {
             mutation: mutation.to_owned(),
             operation_id: Some(format!("{mutation}-op")),
@@ -435,6 +431,7 @@ fn a_cursor_ahead_of_the_projection_is_refused() {
 
     let failure = block_on(serve(
         &host,
+        &host.subscriptions,
         ProjectionCommand::Subscribe(ProjectionSubscribeCommand {
             projection: "notes.list".to_owned(),
             params: None,
@@ -458,6 +455,7 @@ fn an_unknown_projection_is_refused_before_the_host_builds_anything() {
 
     let failure = block_on(serve(
         &host,
+        &host.subscriptions,
         ProjectionCommand::Subscribe(ProjectionSubscribeCommand {
             projection: "notes.missing".to_owned(),
             params: None,
@@ -485,6 +483,7 @@ fn a_resync_sends_a_snapshot_past_the_revision_the_client_holds() {
 
     let reply = block_on(serve(
         &host,
+        &host.subscriptions,
         ProjectionCommand::Resync(ProjectionResyncCommand {
             subscription_id: accepted.subscription_id,
         }),
@@ -511,6 +510,7 @@ fn resyncing_a_subscription_that_does_not_exist_is_refused_as_not_found() {
 
     let failure = block_on(serve(
         &host,
+        &host.subscriptions,
         ProjectionCommand::Resync(ProjectionResyncCommand { subscription_id: 9 }),
     ))
     .expect_err("no such subscription");
@@ -527,6 +527,7 @@ fn unsubscribing_reports_whether_the_subscription_was_there() {
     let unsubscribe = |subscription_id| {
         let reply = block_on(serve(
             &host,
+            &host.subscriptions,
             ProjectionCommand::Unsubscribe(ProjectionUnsubscribeCommand { subscription_id }),
         ))
         .expect("unsubscribe");
@@ -691,16 +692,27 @@ fn a_command_without_valid_params_is_refused_as_invalid_params() {
 fn a_request_outside_the_protocol_is_left_to_the_transport() {
     let host = Notes::new();
 
-    assert!(block_on(serve_request(&host, "session.list", Some(json!({})))).is_none());
+    assert!(block_on(serve_request(
+        &host,
+        &host.subscriptions,
+        "session.list",
+        Some(json!({}))
+    ))
+    .is_none());
 }
 
 #[test]
 fn a_request_whose_params_do_not_decode_is_refused_addressed_to_its_operation() {
     let host = Notes::new();
 
-    let failure = block_on(serve_request(&host, PROJECTION_MUTATE_METHOD, None))
-        .expect("a protocol method")
-        .expect_err("missing params");
+    let failure = block_on(serve_request(
+        &host,
+        &host.subscriptions,
+        PROJECTION_MUTATE_METHOD,
+        None,
+    ))
+    .expect("a protocol method")
+    .expect_err("missing params");
 
     let envelope = envelope(&failure);
     assert_eq!(envelope.code, ProjectionErrorCode::InvalidParams);
@@ -713,6 +725,7 @@ fn a_request_is_served_as_the_command_it_names() {
 
     let reply = block_on(serve_request(
         &host,
+        &host.subscriptions,
         PROJECTION_SUBSCRIBE_METHOD,
         Some(json!({ "projection": "notes.list" })),
     ))
@@ -727,4 +740,81 @@ fn a_request_is_served_as_the_command_it_names() {
         .expect("subscriptions")
         .get(accepted.subscription_id)
         .is_some());
+}
+
+#[test]
+fn a_mutation_accepted_elsewhere_patches_the_subscriptions_it_affects() {
+    let host = Notes::new();
+    let elsewhere = Mutex::new(ProjectionSubscriptions::<Value, String>::default());
+    let (notes, _) = subscribe(&host, "notes.list", None);
+    let reply = block_on(serve(
+        &host,
+        &elsewhere,
+        ProjectionCommand::Mutate(ProjectionMutationCommand {
+            mutation: "note.rename".to_owned(),
+            operation_id: None,
+            base_revision: None,
+            params: json!({ "title": "Errands" }),
+        }),
+    ))
+    .expect("rename elsewhere");
+    let accepted = reply
+        .accepted
+        .expect("the reply names the mutation it accepted");
+
+    let (revision, events) = block_on(publish(&host, &host.subscriptions, &accepted));
+
+    assert_eq!(
+        patch_spans(&events),
+        [(notes.subscription_id, notes.revision, revision)]
+    );
+    assert_eq!(host.subscription(notes.subscription_id).revision, revision);
+}
+
+#[test]
+fn only_a_mutation_is_offered_to_other_connections() {
+    let host = Notes::new();
+
+    let (_, subscribed) = subscribe(&host, "notes.list", None);
+    let (_, renamed) = rename(&host, "Errands");
+
+    assert!(subscribed.accepted.is_none());
+    let accepted: AcceptedMutation<Value> = renamed.accepted.expect("an accepted mutation");
+    assert_eq!(accepted.mutation, "note.rename");
+    assert_eq!(accepted.result, json!({ "title": "Errands" }));
+}
+
+#[test]
+fn resyncing_a_connection_sends_every_subscription_a_snapshot() {
+    let host = Notes::new();
+    let (notes, _) = subscribe(&host, "notes.list", None);
+    let (boards, _) = subscribe(&host, "boards.list", None);
+
+    let events = block_on(resync_all(&host, &host.subscriptions, "broadcastLag"));
+
+    let resynced = events
+        .iter()
+        .map(|event| match event {
+            ProjectionTransportEvent::Snapshot {
+                subscription_id,
+                revision,
+                ..
+            } => (*subscription_id, *revision),
+            other => panic!("a snapshot: {other:?}"),
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(resynced.len(), 2);
+    for (accepted, (subscription_id, revision)) in [notes, boards].iter().zip(resynced) {
+        assert_eq!(subscription_id, accepted.subscription_id);
+        assert!(revision > accepted.revision);
+    }
+    let diagnostics = host
+        .subscriptions
+        .lock()
+        .expect("subscriptions")
+        .diagnostics();
+    assert_eq!(
+        diagnostics.last_resync_reason.as_deref(),
+        Some("broadcastLag")
+    );
 }
