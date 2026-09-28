@@ -15,7 +15,7 @@ operations and forensic recovery.
 | `clerkenwell-axum` | a reference transport: the session protocol as JSON-RPC 2.0 over axum WebSocket connections, each mutation published to every connection's subscriptions |
 | `clerkenwell-store` | durable single-authority storage: envelopes, a replaceable storage port, fenced compare-and-swap commits, two-phase publication, quarantine, repair and an audit log |
 | `clerkenwell-codegen` | the definition language, its validation, and the Rust, TypeScript and fixture generator |
-| `clerkenwell-conformance` | cross-language conformance: Rust and TypeScript replicas of one definition's entities exchange the generated fixture operations, concurrent edits and text consumption, and must converge |
+| `clerkenwell-conformance` | cross-language conformance: Rust and TypeScript replicas of one definition's entities exchange the generated fixture operations, concurrent edits and text consumption, and must converge; TypeScript clients sync a note through the Rust notes server |
 
 `loro-release.json` records the approved Rust and npm Loro release pair. Consumers take
 `loro` through `clerkenwell-doc`.
@@ -34,7 +34,7 @@ and `npm test` run from the repository root.
 
 | Package | Owns |
 |---|---|
-| `@clerkenwell/client` | plan types, projection materialisation and subscriptions, the authoring state machine and its persisted form, text bindings, field conflict policy |
+| `@clerkenwell/client` | plan types, projection materialisation and subscriptions, the projection protocol over a JSON-RPC WebSocket with reconnection, the authoring state machine and its persisted form, text bindings, field conflict policy |
 | `@clerkenwell/client/loro` | plan-driven Loro replicas, read and written as an application's drafts; the package's only importer of `loro-crdt` |
 | `@clerkenwell/react` | React stores, edit overlays, text-binding hooks, autosync and the authoring runtime provider |
 

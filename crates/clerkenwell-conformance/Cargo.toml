@@ -13,6 +13,10 @@ clerkenwell-schema = { path = "../clerkenwell-schema" }
 serde_json.workspace = true
 
 [dev-dependencies]
+axum = { version = "0.8.8", default-features = false, features = ["tokio", "http1"] }
 base64.workspace = true
+clerkenwell-axum = { path = "../clerkenwell-axum" }
 clerkenwell-example-notes = { path = "../../examples/notes" }
 clerkenwell-notebook = { path = "../clerkenwell-notebook" }
+tempfile.workspace = true
+tokio = { version = "1.50.0", features = ["macros", "net", "process", "rt-multi-thread"] }
