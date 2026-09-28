@@ -32,7 +32,7 @@ pub(crate) fn check_meta_schema(document: &Json) -> Result<()> {
     let errors: Vec<String> = validator
         .iter_errors(&instance)
         .map(|error| {
-            let path = error.instance_path.as_str();
+            let path = error.instance_path().as_str();
             format!("{} {error}", if path.is_empty() { "/" } else { path })
         })
         .collect();
