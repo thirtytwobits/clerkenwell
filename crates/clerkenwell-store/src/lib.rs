@@ -930,6 +930,13 @@ impl<S: CollaborationStoragePort> CollaborationService<S> {
                     let current_document = authoring
                         .materialized_document(&current_etag)
                         .map_err(|error| collaboration_loro_error(&request.document, error))?;
+                    // The refused client rebases its edit on what it lacks and sends it again.
+                    let missing_update_base64 = authoring
+                        .missing_update_base64(
+                            Some(&request.base_frontier_base64),
+                            &request.update_base64,
+                        )
+                        .map_err(|error| collaboration_loro_error(&request.document, error))?;
                     return Err(StoreError::conflict(format!(
                         "Concurrent {} edits require explicit resolution for: {}.",
                         request.document.entity,
@@ -944,6 +951,8 @@ impl<S: CollaborationStoragePort> CollaborationService<S> {
                         "current": current_document,
                         "current_etag": current_etag,
                         "base_frontier_base64": request.base_frontier_base64,
+                        "accepted_frontier_base64": authoring.accepted_frontier_base64(),
+                        "missing_update_base64": missing_update_base64,
                         "draft_retained": true,
                     }))
                     .into());

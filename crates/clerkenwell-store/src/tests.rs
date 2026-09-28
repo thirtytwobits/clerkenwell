@@ -203,6 +203,112 @@ fn concurrent_explicit_scalar_edits_block_until_rebased_resolution() {
     );
 }
 
+#[test]
+fn an_edit_refused_under_conflict_policy_is_accepted_once_rebased_on_what_the_refusal_carries() {
+    let root = TempDir::new().expect("temp workspace");
+    let (service, document, seed, state) = initialise(root.path());
+    let first = edit_request(
+        &document,
+        &seed,
+        &state,
+        "explicit-first",
+        &["title"],
+        json!("First Writer"),
+    );
+    let second = edit_request(
+        &document,
+        &seed,
+        &state,
+        "explicit-second",
+        &["title"],
+        json!("Second Writer"),
+    );
+    import(&service, first, &seed).expect("first explicit edit");
+
+    let refusal = import(&service, second.clone(), &seed)
+        .expect_err("explicit conflict")
+        .data
+        .expect("refusal data");
+    let accepted = service
+        .authoring_state(&NOTE_PLAN, &document, None)
+        .expect("accepted state");
+    assert_eq!(
+        refusal["accepted_frontier_base64"],
+        json!(accepted.accepted_frontier_base64),
+        "a policy refusal names the accepted frontier"
+    );
+
+    // The refused client holds its base and its own edit, then takes what the refusal carries.
+    let client = LoroAuthoringDocument::from_versioned_update_base64(
+        &NOTE_PLAN,
+        state.schema_version,
+        &state.update_base64,
+    )
+    .expect("hydrate client");
+    client
+        .import_versioned_update_base64(state.schema_version, &second.update_base64)
+        .expect("the client's own edit");
+    client
+        .import_versioned_update_base64(
+            state.schema_version,
+            refusal["missing_update_base64"]
+                .as_str()
+                .expect("the operations the client lacks"),
+        )
+        .expect("take the refusal's operations");
+    assert!(client
+        .frontier_includes(
+            &client.accepted_frontier_base64(),
+            &accepted.accepted_frontier_base64
+        )
+        .expect("the accepted frontier is known to the client"));
+
+    let rebased = CollaborationImportRequest {
+        operation_id: "explicit-rebased".to_string(),
+        base_frontier_base64: accepted.accepted_frontier_base64.clone(),
+        update_base64: client
+            .export_incremental_update_base64(&accepted.accepted_frontier_base64)
+            .expect("rebased update"),
+        ..second
+    };
+    import(&service, rebased, &seed).expect("the rebased edit is accepted");
+    assert_eq!(
+        service
+            .detail(&NOTE_PLAN, &document)
+            .expect("accepted projection")
+            .expect("accepted document")["title"],
+        client
+            .materialized_document("client")
+            .expect("client document")["title"],
+        "the accepted document is the rebased client's"
+    );
+}
+
+#[test]
+fn a_policy_refusal_no_concurrent_edit_caused_names_the_refused_edit_base_as_accepted() {
+    let root = TempDir::new().expect("temp workspace");
+    let (service, document, seed, state) = initialise(root.path());
+    let immutable = edit_request(
+        &document,
+        &seed,
+        &state,
+        "immutable-rewrite",
+        &["note_id"],
+        json!("note-2"),
+    );
+
+    let refusal = import(&service, immutable, &seed)
+        .expect_err("an immutable field cannot change")
+        .data
+        .expect("refusal data");
+
+    assert_eq!(refusal["conflict_kind"], json!("collaboration_policy"));
+    assert_eq!(
+        refusal["accepted_frontier_base64"],
+        refusal["base_frontier_base64"]
+    );
+}
+
 fn edit_request(
     document: &CollaborationDocumentId,
     seed: &Value,
