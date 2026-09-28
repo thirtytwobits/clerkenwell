@@ -18,7 +18,7 @@ use clerkenwell_session::transport::{
     PROJECTION_SUBSCRIBE_METHOD,
 };
 use clerkenwell_session::{
-    serve, ProjectionCommand, ProjectionFailure, ProjectionHost, ProjectionRefusal,
+    serve, serve_request, ProjectionCommand, ProjectionFailure, ProjectionHost, ProjectionRefusal,
     ProjectionRegistry, ProjectionReply, ProjectionSubscription, ProjectionSubscriptions,
 };
 use serde_json::{json, Value};
@@ -685,4 +685,46 @@ fn a_command_without_valid_params_is_refused_as_invalid_params() {
             .expect_err("invalid params");
         assert_eq!(refusal.code, ProjectionErrorCode::InvalidParams);
     }
+}
+
+#[test]
+fn a_request_outside_the_protocol_is_left_to_the_transport() {
+    let host = Notes::new();
+
+    assert!(block_on(serve_request(&host, "session.list", Some(json!({})))).is_none());
+}
+
+#[test]
+fn a_request_whose_params_do_not_decode_is_refused_addressed_to_its_operation() {
+    let host = Notes::new();
+
+    let failure = block_on(serve_request(&host, PROJECTION_MUTATE_METHOD, None))
+        .expect("a protocol method")
+        .expect_err("missing params");
+
+    let envelope = envelope(&failure);
+    assert_eq!(envelope.code, ProjectionErrorCode::InvalidParams);
+    assert_eq!(envelope.operation, ProjectionOperation::Mutate);
+}
+
+#[test]
+fn a_request_is_served_as_the_command_it_names() {
+    let host = Notes::new();
+
+    let reply = block_on(serve_request(
+        &host,
+        PROJECTION_SUBSCRIBE_METHOD,
+        Some(json!({ "projection": "notes.list" })),
+    ))
+    .expect("a protocol method")
+    .expect("subscribe");
+
+    let accepted: ProjectionSubscribeAccepted =
+        serde_json::from_value(reply.result).expect("an accepted subscription");
+    assert!(host
+        .subscriptions
+        .lock()
+        .expect("subscriptions")
+        .get(accepted.subscription_id)
+        .is_some());
 }

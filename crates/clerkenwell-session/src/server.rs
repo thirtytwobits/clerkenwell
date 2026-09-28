@@ -1,9 +1,8 @@
 //! Serving the projection session protocol on one connection.
 //!
-//! A transport decodes each request into a [`ProjectionCommand`] and hands it
-//! to [`serve`] with the connection's [`ProjectionHost`]. It answers the
-//! request with the reply's result and sends each of the reply's events as a
-//! `projection.update` notification.
+//! A transport hands each request to [`serve_request`] with the connection's
+//! [`ProjectionHost`]. It answers the request with the reply's result and sends
+//! each of the reply's events as a `projection.update` notification.
 
 use std::future::Future;
 use std::time::Instant;
@@ -18,8 +17,7 @@ use crate::transport::{
     ProjectionErrorCode, ProjectionErrorEnvelope, ProjectionMutationAccepted,
     ProjectionMutationCommand, ProjectionOperation, ProjectionResyncCommand,
     ProjectionSubscribeCommand, ProjectionTransportEvent, ProjectionUnsubscribeAccepted,
-    ProjectionUnsubscribeCommand, PROJECTION_MUTATE_METHOD, PROJECTION_RESYNC_METHOD,
-    PROJECTION_SUBSCRIBE_METHOD, PROJECTION_UNSUBSCRIBE_METHOD,
+    ProjectionUnsubscribeCommand,
 };
 
 /// A projection protocol request.
@@ -35,12 +33,11 @@ impl ProjectionCommand {
     /// The command `method` names with `params`, or `None` when the method is
     /// not part of the protocol.
     pub fn decode(method: &str, params: Option<Value>) -> Option<Result<Self, ProjectionRefusal>> {
-        Some(match method {
-            PROJECTION_SUBSCRIBE_METHOD => decode_params(params).map(Self::Subscribe),
-            PROJECTION_RESYNC_METHOD => decode_params(params).map(Self::Resync),
-            PROJECTION_UNSUBSCRIBE_METHOD => decode_params(params).map(Self::Unsubscribe),
-            PROJECTION_MUTATE_METHOD => decode_params(params).map(Self::Mutate),
-            _ => return None,
+        Some(match ProjectionOperation::for_method(method)? {
+            ProjectionOperation::Subscribe => decode_params(params).map(Self::Subscribe),
+            ProjectionOperation::Resync => decode_params(params).map(Self::Resync),
+            ProjectionOperation::Unsubscribe => decode_params(params).map(Self::Unsubscribe),
+            ProjectionOperation::Mutate => decode_params(params).map(Self::Mutate),
         })
     }
 
@@ -180,6 +177,21 @@ pub struct ProjectionReply<S, P> {
 
 type Reply<H> = ProjectionReply<<H as ProjectionHost>::Snapshot, <H as ProjectionHost>::Patch>;
 
+/// Serves the request `method` names with `params`, or returns `None` when the
+/// method is not part of the protocol. A request whose params do not decode is
+/// refused like a command that fails.
+pub async fn serve_request<H: ProjectionHost>(
+    host: &H,
+    method: &str,
+    params: Option<Value>,
+) -> Option<Result<Reply<H>, H::Failure>> {
+    let operation = ProjectionOperation::for_method(method)?;
+    Some(match ProjectionCommand::decode(method, params)? {
+        Ok(command) => serve(host, command).await,
+        Err(refusal) => Err(addressed(H::Failure::refused(refusal), operation, None)),
+    })
+}
+
 /// Serves one command. A failure reaches its client described by a
 /// [`ProjectionErrorEnvelope`] addressed to the command.
 pub async fn serve<H: ProjectionHost>(
@@ -195,16 +207,7 @@ pub async fn serve<H: ProjectionHost>(
         ProjectionCommand::Unsubscribe(command) => unsubscribe(host, command).await,
         ProjectionCommand::Mutate(command) => mutate(host, command).await,
     };
-    let outcome = outcome.map_err(|failure| {
-        let refusal = failure.describe();
-        failure.described(ProjectionErrorEnvelope::new(
-            refusal.code,
-            refusal.message,
-            operation,
-            name.as_deref(),
-            refusal.details,
-        ))
-    });
+    let outcome = outcome.map_err(|failure| addressed(failure, operation, name.as_deref()));
     if operation == ProjectionOperation::Mutate {
         let latency = started.elapsed();
         let rejection = outcome
@@ -217,6 +220,22 @@ pub async fn serve<H: ProjectionHost>(
         .await;
     }
     outcome
+}
+
+/// `failure` described to the client of the command it answers.
+fn addressed<F: ProjectionFailure>(
+    failure: F,
+    operation: ProjectionOperation,
+    name: Option<&str>,
+) -> F {
+    let refusal = failure.describe();
+    failure.described(ProjectionErrorEnvelope::new(
+        refusal.code,
+        refusal.message,
+        operation,
+        name,
+        refusal.details,
+    ))
 }
 
 async fn subscribe<H: ProjectionHost>(

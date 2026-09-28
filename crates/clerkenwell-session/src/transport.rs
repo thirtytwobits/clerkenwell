@@ -194,6 +194,20 @@ pub enum ProjectionOperation {
     Mutate,
 }
 
+impl ProjectionOperation {
+    /// The operation a request method names, or `None` when the method is not
+    /// part of the protocol.
+    pub fn for_method(method: &str) -> Option<Self> {
+        match method {
+            PROJECTION_SUBSCRIBE_METHOD => Some(Self::Subscribe),
+            PROJECTION_RESYNC_METHOD => Some(Self::Resync),
+            PROJECTION_UNSUBSCRIBE_METHOD => Some(Self::Unsubscribe),
+            PROJECTION_MUTATE_METHOD => Some(Self::Mutate),
+            _ => None,
+        }
+    }
+}
+
 /// A refused command as its client reads it.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
