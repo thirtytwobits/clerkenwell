@@ -332,6 +332,37 @@ fn the_projection_revision_floor_passes_every_checkpoint_a_service_commits() {
 }
 
 #[test]
+fn an_envelope_names_the_accepted_state_it_holds_by_the_etag_readers_are_given() {
+    let root = TempDir::new().expect("temp workspace");
+    let (service, document, seed, state) = initialise(root.path());
+    let edit = edit_request(
+        &document,
+        &seed,
+        &state,
+        "etag-edit",
+        &["title"],
+        json!("Errands"),
+    );
+    let imported = import(&service, edit, &seed).expect("an edit");
+
+    let stored = service
+        .load(&document)
+        .expect("read the note")
+        .expect("the note");
+    let read = service
+        .authoring_state(&NOTE_PLAN, &document, None)
+        .expect("authoring state");
+
+    assert_eq!(stored.etag(), imported.etag);
+    assert_eq!(stored.etag(), read.etag);
+    assert_ne!(
+        stored.etag(),
+        state.etag,
+        "an edit changes the accepted state"
+    );
+}
+
+#[test]
 fn a_derived_service_raises_the_floor_of_the_service_it_came_from() {
     let root = TempDir::new().expect("temp workspace");
     let parent = open_service(root.path());

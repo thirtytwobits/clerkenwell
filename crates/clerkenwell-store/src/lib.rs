@@ -184,6 +184,12 @@ impl DurableCollaborationEnvelope {
     pub fn projection_revision_floor(&self) -> u64 {
         self.checkpoint_sequence.saturating_add(1).max(2)
     }
+
+    /// The etag of the accepted state this envelope holds, as imports and
+    /// authoring states report it.
+    pub fn etag(&self) -> String {
+        checkpoint_etag(&self.checkpoint_sha256)
+    }
 }
 
 /// One operation to commit over the envelope the service read.
@@ -1829,7 +1835,11 @@ fn load_authoring_document(
 }
 
 fn collaboration_etag(accepted_update: &[u8]) -> String {
-    format!("loro:{}", sha256_hex(accepted_update))
+    checkpoint_etag(&sha256_hex(accepted_update))
+}
+
+fn checkpoint_etag(checkpoint_sha256: &str) -> String {
+    format!("loro:{checkpoint_sha256}")
 }
 
 fn collaboration_loro_error(
