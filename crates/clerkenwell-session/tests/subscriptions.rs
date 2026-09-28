@@ -68,43 +68,6 @@ fn the_retained_window_evicts_the_oldest_patches() {
 }
 
 #[test]
-fn the_last_retained_patch_is_matched_per_projection_and_params() {
-    let params = json!({});
-    let mut subscriptions = Subscriptions::default();
-    let first = json!({ "kind": "reset" });
-    let latest = json!({ "kind": "remove", "id": "n1" });
-    subscriptions.retain_patch(
-        "notes.list".to_string(),
-        params.clone(),
-        1,
-        2,
-        first.clone(),
-    );
-    subscriptions.retain_patch(
-        "notes.byId".to_string(),
-        params.clone(),
-        2,
-        3,
-        first.clone(),
-    );
-    subscriptions.retain_patch(
-        "notes.list".to_string(),
-        params.clone(),
-        3,
-        4,
-        latest.clone(),
-    );
-
-    assert!(subscriptions.last_retained_patch_matches("notes.list", &params, &latest));
-    assert!(!subscriptions.last_retained_patch_matches("notes.list", &params, &first));
-    assert!(!subscriptions.last_retained_patch_matches(
-        "notes.list",
-        &json!({ "filter": true }),
-        &latest
-    ));
-}
-
-#[test]
 fn a_subscription_without_a_cursor_takes_a_snapshot() {
     let mut subscriptions = Subscriptions::default();
     let revision = 7;

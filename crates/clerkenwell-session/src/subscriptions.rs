@@ -399,7 +399,7 @@ impl<P, D: PartialEq> ProjectionSubscriptions<P, D> {
     }
 }
 
-impl<P: Clone + PartialEq, D> ProjectionSubscriptions<P, D> {
+impl<P: Clone, D> ProjectionSubscriptions<P, D> {
     /// Accepts a subscription at the projection's current `revision` and
     /// decides how its client catches up from `cursor`: nothing to send, the
     /// retained patches it missed, or a snapshot when those are no longer
@@ -510,16 +510,6 @@ impl<P: Clone + PartialEq, D> ProjectionSubscriptions<P, D> {
             },
             events,
         ))
-    }
-
-    /// Whether the most recent patch retained for this projection and these
-    /// parameters is `patch`.
-    pub fn last_retained_patch_matches(&self, projection: &str, params: &Value, patch: &P) -> bool {
-        self.retained_patches
-            .iter()
-            .rev()
-            .find(|retained| retained.projection == projection && &retained.params == params)
-            .is_some_and(|retained| &retained.patch == patch)
     }
 
     /// The retained patches that carry this projection and these parameters
