@@ -26,6 +26,7 @@ use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::fs::{File, OpenOptions};
 use std::io::Write;
+use std::num::NonZeroU32;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
@@ -36,7 +37,6 @@ use uuid::Uuid;
 
 /// The envelope format this store reads and writes.
 pub const ENVELOPE_VERSION: u32 = 1;
-const RETAINED_OPERATION_COUNT: usize = 8;
 
 #[cfg(test)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -463,6 +463,20 @@ pub trait CollaborationStoragePort: std::fmt::Debug + Send + Sync {
     fn recovery_audit(&self) -> StoreResult<Vec<CollaborationRecoveryAuditRecord>>;
 }
 
+/// How a service commits imports: the history each envelope keeps, and how
+/// it tries again when another writer commits first.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CommitPolicy {
+    /// Operations an envelope keeps past its checkpoint. An import retried
+    /// while its operation is kept is recognised as a duplicate.
+    pub retained_operations: usize,
+    /// Commits an import attempts before it is refused as contended.
+    pub attempts: NonZeroU32,
+    /// The bound on the pause before an import's second attempt. Each later
+    /// bound doubles, and each pause is a random fraction of its bound.
+    pub backoff: Duration,
+}
+
 /// Entity-neutral collaboration transaction service.
 ///
 /// Generated plans define document layout. Resource adapters provide only
@@ -471,6 +485,7 @@ pub trait CollaborationStoragePort: std::fmt::Debug + Send + Sync {
 pub struct CollaborationService<S = LocalFileCollaborationStorage> {
     storage: S,
     plans: &'static [GeneratedCollaborationEntitySpec],
+    policy: CommitPolicy,
     counters: Arc<CollaborationRuntimeCounters>,
     /// The highest checkpoint sequence written or observed, shared with every
     /// service derived from this one.
@@ -480,8 +495,8 @@ pub struct CollaborationService<S = LocalFileCollaborationStorage> {
 }
 
 impl CollaborationService<LocalFileCollaborationStorage> {
-    /// A service over the same plans, sharing this one's counters and
-    /// projection revision floor, whose envelopes live under `root`.
+    /// A service over the same plans and policy, sharing this one's counters
+    /// and projection revision floor, whose envelopes live under `root`.
     pub fn with_storage_root(&self, root: &Path) -> Self {
         let storage = LocalFileCollaborationStorage::new(root);
         Self {
@@ -489,19 +504,25 @@ impl CollaborationService<LocalFileCollaborationStorage> {
             faults: storage.faults.clone(),
             storage,
             plans: self.plans,
+            policy: self.policy,
             counters: self.counters.clone(),
             checkpoints: self.checkpoints.clone(),
         }
     }
 
     /// A service for documents of `plans` whose envelopes live under `root`.
-    pub fn new(root: &Path, plans: &'static [GeneratedCollaborationEntitySpec]) -> Self {
+    pub fn new(
+        root: &Path,
+        plans: &'static [GeneratedCollaborationEntitySpec],
+        policy: CommitPolicy,
+    ) -> Self {
         let storage = LocalFileCollaborationStorage::new(root);
         Self {
             #[cfg(test)]
             faults: storage.faults.clone(),
             storage,
             plans,
+            policy,
             counters: Arc::new(CollaborationRuntimeCounters::default()),
             checkpoints: Arc::new(AtomicU64::new(0)),
         }
@@ -511,10 +532,15 @@ impl CollaborationService<LocalFileCollaborationStorage> {
 impl<S: CollaborationStoragePort> CollaborationService<S> {
     /// A service for documents of `plans` committing through any
     /// implementation of the storage port.
-    pub fn with_storage(storage: S, plans: &'static [GeneratedCollaborationEntitySpec]) -> Self {
+    pub fn with_storage(
+        storage: S,
+        plans: &'static [GeneratedCollaborationEntitySpec],
+        policy: CommitPolicy,
+    ) -> Self {
         Self {
             storage,
             plans,
+            policy,
             counters: Arc::new(CollaborationRuntimeCounters::default()),
             checkpoints: Arc::new(AtomicU64::new(0)),
             #[cfg(test)]
@@ -681,9 +707,9 @@ impl<S: CollaborationStoragePort> CollaborationService<S> {
             commit.schema_version,
             &commit.imported_update,
         ));
-        if retained_operations.len() > RETAINED_OPERATION_COUNT {
-            let remove_count = retained_operations.len() - RETAINED_OPERATION_COUNT;
-            retained_operations.drain(0..remove_count);
+        let kept = self.policy.retained_operations;
+        if retained_operations.len() > kept {
+            retained_operations.drain(0..retained_operations.len() - kept);
         }
         let retained_from = retained_operations
             .first()
@@ -839,7 +865,10 @@ impl<S: CollaborationStoragePort> CollaborationService<S> {
                     }))
             })?;
 
-        for _attempt in 0..8 {
+        for attempt in 0..self.policy.attempts.get() {
+            if attempt > 0 {
+                self.pause_before_attempt(attempt);
+            }
             let read = self.read_envelope(&request.document)?;
             let current = match read.as_ref().map(|read| &read.envelope) {
                 Some(_) if request.exchange_mode == CollaborationExchangeMode::Bootstrap => {
@@ -1094,6 +1123,17 @@ impl<S: CollaborationStoragePort> CollaborationService<S> {
             "resource_id": request.document.resource_id,
             "draft_retained": true,
         })).into())
+    }
+
+    /// Sleeps a random fraction of the bound before commit `attempt`, which
+    /// doubles from the policy's backoff with each attempt after the second.
+    fn pause_before_attempt(&self, attempt: u32) {
+        let bound = self
+            .policy
+            .backoff
+            .saturating_mul(1 << (attempt - 1).min(16));
+        let (random, _) = Uuid::new_v4().as_u64_pair();
+        std::thread::sleep(bound.mul_f64(random as f64 / u64::MAX as f64));
     }
 
     pub fn acknowledge_publication(

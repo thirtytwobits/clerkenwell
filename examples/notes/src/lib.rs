@@ -9,13 +9,15 @@
 pub mod model;
 pub mod server;
 
+use std::num::NonZeroU32;
 use std::path::Path;
+use std::time::Duration;
 
 use clerkenwell_doc::{CollaborationLoroError, LoroAuthoringDocument};
 use clerkenwell_store::{
     CollaborationDocumentId, CollaborationExchangeMode, CollaborationImportRequest,
-    CollaborationImportResult, CollaborationRecoveryAuditRecord, CollaborationService, ImportFence,
-    StoreError,
+    CollaborationImportResult, CollaborationRecoveryAuditRecord, CollaborationService,
+    CommitPolicy, ImportFence, StoreError,
 };
 use model::{GeneratedCollaborationEntitySpec, NoteDocumentStatus};
 use serde_json::{json, Value};
@@ -27,6 +29,16 @@ pub const NOTE: &GeneratedCollaborationEntitySpec = &model::NOTE_COLLABORATION_S
 pub const NOTE_ID: &str = "launch-plan";
 
 const RELATIVE_PATH: &str = "notes/launch-plan.json";
+
+/// How the example's store commits.
+pub const COMMIT_POLICY: CommitPolicy = CommitPolicy {
+    retained_operations: 8,
+    attempts: match NonZeroU32::new(8) {
+        Some(attempts) => attempts,
+        None => panic!("attempts are non-zero"),
+    },
+    backoff: Duration::from_millis(2),
+};
 
 /// Why a step failed.
 #[derive(Debug)]
@@ -198,7 +210,8 @@ impl Notes {
 
 /// Step 1: a store under `root` holding the note.
 pub fn create_note(root: &Path) -> Result<Notes> {
-    let service = CollaborationService::new(root, model::GENERATED_COLLABORATION_SPECS);
+    let service =
+        CollaborationService::new(root, model::GENERATED_COLLABORATION_SPECS, COMMIT_POLICY);
     let note = CollaborationDocumentId::new(NOTE.name, NOTE_ID);
     service.bootstrap(NOTE, &note, RELATIVE_PATH, &seed(), validate)?;
     Ok(Notes { service, note })

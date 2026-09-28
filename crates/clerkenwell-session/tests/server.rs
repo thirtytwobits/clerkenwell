@@ -105,7 +105,7 @@ struct Notes {
 impl Notes {
     fn new() -> Self {
         Self {
-            subscriptions: Mutex::new(ProjectionSubscriptions::default()),
+            subscriptions: Mutex::new(ProjectionSubscriptions::new(RETAINED_PATCHES)),
             title: Mutex::new("Shopping".to_owned()),
             floor: 0,
             refusal: None,
@@ -215,6 +215,9 @@ fn block_on<F: Future>(future: F) -> F::Output {
 }
 
 type Reply = ProjectionReply<Value, Value, Value>;
+
+/// The patches these tests' subscriptions retain.
+const RETAINED_PATCHES: usize = 64;
 
 fn subscribe(
     host: &Notes,
@@ -640,7 +643,7 @@ fn mutations_and_their_refusals_are_counted() {
 
 #[test]
 fn a_patch_starts_from_the_revision_its_client_holds_when_it_is_delivered() {
-    let mut subscriptions = ProjectionSubscriptions::<Value, String>::default();
+    let mut subscriptions = ProjectionSubscriptions::<Value, String>::new(RETAINED_PATCHES);
     let subscription_id = subscriptions.insert("notes.list".to_owned(), json!({}), 5);
 
     // A delivery reached the client after the mutation chose its revision.
@@ -745,7 +748,9 @@ fn a_request_is_served_as_the_command_it_names() {
 #[test]
 fn a_mutation_accepted_elsewhere_patches_the_subscriptions_it_affects() {
     let host = Notes::new();
-    let elsewhere = Mutex::new(ProjectionSubscriptions::<Value, String>::default());
+    let elsewhere = Mutex::new(ProjectionSubscriptions::<Value, String>::new(
+        RETAINED_PATCHES,
+    ));
     let (notes, _) = subscribe(&host, "notes.list", None);
     let reply = block_on(serve(
         &host,

@@ -8,8 +8,10 @@ use clerkenwell_schema::{
     GeneratedCollaborationFieldSpec, GeneratedCollaborationStorageKind,
     GeneratedCollaborationValueCodec,
 };
-use clerkenwell_store::StoreResult;
+use clerkenwell_store::{CommitPolicy, StoreResult};
 use serde_json::Value;
+use std::num::NonZeroU32;
+use std::time::Duration;
 
 const fn field(
     path: &'static str,
@@ -78,3 +80,13 @@ pub fn accept(_: &Value) -> StoreResult<()> {
 }
 
 pub static PLANS: &[GeneratedCollaborationEntitySpec] = &[NOTE_PLAN];
+
+/// The commit policy these tests run under.
+pub const POLICY: CommitPolicy = CommitPolicy {
+    retained_operations: 8,
+    attempts: match NonZeroU32::new(8) {
+        Some(attempts) => attempts,
+        None => panic!("attempts are non-zero"),
+    },
+    backoff: Duration::from_millis(2),
+};

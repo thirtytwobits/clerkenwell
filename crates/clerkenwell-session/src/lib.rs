@@ -20,5 +20,5 @@ pub use server::{
 pub use subscriptions::{
     CursorAhead, FollowingDelivery, ProjectionRuntimeDiagnostics, ProjectionSubscription,
     ProjectionSubscriptionDiagnostics, ProjectionSubscriptions, RetainedProjectionPatch,
-    SubscribeOutcome, DEFAULT_RETAINED_PATCH_WINDOW,
+    SubscribeOutcome,
 };

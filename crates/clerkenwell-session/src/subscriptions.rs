@@ -9,10 +9,6 @@ use crate::transport::{
     ProjectionTransportEvent,
 };
 
-/// How many patches a connection retains for resuming subscriptions, unless
-/// the application chooses otherwise.
-pub const DEFAULT_RETAINED_PATCH_WINDOW: usize = 64;
-
 /// One projection subscription and the revision its client holds.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProjectionSubscription<D> {
@@ -124,12 +120,6 @@ pub struct ProjectionSubscriptions<P, D> {
     retained_patch_window: usize,
     retained_patches: VecDeque<RetainedProjectionPatch<P>>,
     counters: Counters,
-}
-
-impl<P, D> Default for ProjectionSubscriptions<P, D> {
-    fn default() -> Self {
-        Self::new(DEFAULT_RETAINED_PATCH_WINDOW)
-    }
 }
 
 impl<P, D> ProjectionSubscriptions<P, D> {

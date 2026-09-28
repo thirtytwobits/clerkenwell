@@ -7,8 +7,11 @@ use serde_json::{json, Value};
 type Patch = Value;
 type Subscriptions = ProjectionSubscriptions<Patch, String>;
 
+/// The patches these tests' subscriptions retain.
+const RETAINED_PATCHES: usize = 64;
+
 fn with_patches(projection: &str, params: &Value, spans: &[(u64, u64)]) -> Subscriptions {
-    let mut subscriptions = Subscriptions::default();
+    let mut subscriptions = Subscriptions::new(RETAINED_PATCHES);
     for (from, to) in spans {
         subscriptions.retain_patch(
             projection.to_string(),
@@ -69,7 +72,7 @@ fn the_retained_window_evicts_the_oldest_patches() {
 
 #[test]
 fn a_subscription_without_a_cursor_takes_a_snapshot() {
-    let mut subscriptions = Subscriptions::default();
+    let mut subscriptions = Subscriptions::new(RETAINED_PATCHES);
     let revision = 7;
     let outcome = subscriptions
         .subscribe("notes.list".to_string(), json!({}), revision, None)
@@ -86,7 +89,7 @@ fn a_subscription_without_a_cursor_takes_a_snapshot() {
 
 #[test]
 fn a_cursor_ahead_of_the_projection_is_refused_without_subscribing() {
-    let mut subscriptions = Subscriptions::default();
+    let mut subscriptions = Subscriptions::new(RETAINED_PATCHES);
     let refused = subscriptions
         .subscribe("notes.list".to_string(), json!({}), 3, Some(4))
         .expect_err("a cursor from the future is refused");
@@ -102,7 +105,7 @@ fn a_cursor_ahead_of_the_projection_is_refused_without_subscribing() {
 
 #[test]
 fn a_cursor_at_the_current_revision_resumes_with_nothing_to_send() {
-    let mut subscriptions = Subscriptions::default();
+    let mut subscriptions = Subscriptions::new(RETAINED_PATCHES);
     let revision = 5;
     let outcome = subscriptions
         .subscribe(
@@ -219,7 +222,7 @@ fn diagnostics_count_resumes_resyncs_and_mutations_and_hash_params() {
 
 #[test]
 fn a_subscription_remembers_where_its_last_delivery_left_the_client() {
-    let mut subscriptions = Subscriptions::default();
+    let mut subscriptions = Subscriptions::new(RETAINED_PATCHES);
     let id = subscriptions.insert("notes.authoringState".to_string(), json!({}), 3);
     assert_eq!(
         subscriptions.get(id).and_then(|s| s.delivered.clone()),
@@ -234,7 +237,7 @@ fn a_subscription_remembers_where_its_last_delivery_left_the_client() {
 
 #[test]
 fn a_delivery_built_on_a_superseded_one_is_not_recorded() {
-    let mut subscriptions = Subscriptions::default();
+    let mut subscriptions = Subscriptions::new(RETAINED_PATCHES);
     let id = subscriptions.insert("notes.authoringState".to_string(), json!({}), 3);
     let built_at = subscriptions.get(id).expect("subscribed").revision;
 
@@ -273,7 +276,7 @@ fn a_delivery_built_on_a_superseded_one_is_not_recorded() {
 
 #[test]
 fn a_delivery_that_leaves_the_client_where_the_last_one_did_is_not_recorded() {
-    let mut subscriptions = Subscriptions::default();
+    let mut subscriptions = Subscriptions::new(RETAINED_PATCHES);
     let id = subscriptions.insert("notes.authoringState".to_string(), json!({}), 3);
     subscriptions.record_delivery(id, 4, "held-state".to_string());
 

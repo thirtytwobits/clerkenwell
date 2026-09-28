@@ -72,6 +72,16 @@ static NOTE_PLAN: GeneratedCollaborationEntitySpec = plan("Note", "note_id", "no
 static TASK_PLAN: GeneratedCollaborationEntitySpec = plan("Task", "task_id", "task", TASK_FIELDS);
 static PLANS: &[GeneratedCollaborationEntitySpec] = &[NOTE_PLAN, TASK_PLAN];
 
+/// The commit policy these tests run under.
+const POLICY: CommitPolicy = CommitPolicy {
+    retained_operations: 8,
+    attempts: match NonZeroU32::new(8) {
+        Some(attempts) => attempts,
+        None => panic!("attempts are non-zero"),
+    },
+    backoff: Duration::from_millis(2),
+};
+
 /// A validator that accepts every document.
 fn accept(_: &Value) -> StoreResult<()> {
     Ok(())
@@ -90,7 +100,7 @@ fn note_seed() -> Value {
 }
 
 fn open_service(root: &Path) -> CollaborationService {
-    CollaborationService::new(root, PLANS)
+    CollaborationService::new(root, PLANS, POLICY)
 }
 
 fn initialise(

@@ -4,10 +4,11 @@
 //! the operations its replica recorded. Every subscriber to a note takes its
 //! new authoring state when any client's operations are accepted.
 
+use std::num::NonZeroUsize;
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use clerkenwell_axum::RpcFailure;
+use clerkenwell_axum::{RpcFailure, ServerWindows};
 use clerkenwell_session::transport::ProjectionErrorCode;
 use clerkenwell_session::{ProjectionHost, ProjectionRegistry, ProjectionSubscription};
 use clerkenwell_store::{
@@ -25,7 +26,16 @@ use crate::model::{
     GENERATED_MUTATION_SPECS, GENERATED_PROJECTION_SPECS, NOTE_CREATE_MUTATION,
     NOTE_IMPORT_LORO_UPDATE_MUTATION,
 };
-use crate::{validate, NOTE};
+use crate::{validate, COMMIT_POLICY, NOTE};
+
+/// How far the example's server lets a connection fall behind.
+pub const SERVER_WINDOWS: ServerWindows = ServerWindows {
+    publications: match NonZeroUsize::new(256) {
+        Some(publications) => publications,
+        None => panic!("the publication window is non-zero"),
+    },
+    retained_patches: 64,
+};
 
 static REGISTRY: ProjectionRegistry = ProjectionRegistry::new(
     GENERATED_PROJECTION_SPECS,
@@ -43,7 +53,11 @@ impl NotesServer {
     /// Notes kept in a store under `root`.
     pub fn new(root: &Path) -> Self {
         Self {
-            service: CollaborationService::new(root, crate::model::GENERATED_COLLABORATION_SPECS),
+            service: CollaborationService::new(
+                root,
+                crate::model::GENERATED_COLLABORATION_SPECS,
+                COMMIT_POLICY,
+            ),
             created: AtomicU64::new(1),
         }
     }

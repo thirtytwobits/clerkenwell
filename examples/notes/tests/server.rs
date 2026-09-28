@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use clerkenwell_axum::ProjectionServer;
 use clerkenwell_doc::LoroAuthoringDocument;
-use clerkenwell_example_notes::server::NotesServer;
+use clerkenwell_example_notes::server::{NotesServer, SERVER_WINDOWS};
 use clerkenwell_example_notes::NOTE;
 use futures_util::{SinkExt, StreamExt};
 use serde_json::{json, Value};
@@ -97,7 +97,7 @@ impl Client {
 
 async fn start() -> (String, tempfile::TempDir) {
     let root = tempfile::tempdir().expect("a store directory");
-    let server = ProjectionServer::new(NotesServer::new(root.path()));
+    let server = ProjectionServer::new(NotesServer::new(root.path()), SERVER_WINDOWS);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
         .await
         .expect("a listener");

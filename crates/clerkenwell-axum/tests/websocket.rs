@@ -1,10 +1,11 @@
 //! The projection protocol served over WebSocket connections.
 
 use std::collections::HashMap;
+use std::num::NonZeroUsize;
 use std::sync::Mutex;
 use std::time::Duration;
 
-use clerkenwell_axum::{ProjectionServer, RpcFailure};
+use clerkenwell_axum::{ProjectionServer, RpcFailure, ServerWindows};
 use clerkenwell_schema::{
     GeneratedMaterializationPlan, GeneratedMutationSpec, GeneratedProjectionSpec,
 };
@@ -118,7 +119,11 @@ impl ProjectionHost for Counters {
 type Socket = WebSocketStream<MaybeTlsStream<TcpStream>>;
 
 async fn start(window: usize) -> (String, std::sync::Arc<ProjectionServer<Counters>>) {
-    let server = ProjectionServer::with_publication_window(Counters::default(), window);
+    let windows = ServerWindows {
+        publications: NonZeroUsize::new(window).expect("a publication window"),
+        retained_patches: 64,
+    };
+    let server = ProjectionServer::new(Counters::default(), windows);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
         .await
         .expect("a listener");
