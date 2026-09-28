@@ -11,7 +11,9 @@
           "etag": "fixture",
           "exchange_modes": [
             "incremental"
-          ]
+          ],
+          "accepted_frontier_base64": "fixture",
+          "update_base64": "fixture"
         }
       },
       "cases": [
@@ -26,7 +28,9 @@
                 "etag": "fixture",
                 "exchange_modes": [
                   "incremental"
-                ]
+                ],
+                "accepted_frontier_base64": "fixture",
+                "update_base64": "fixture"
               }
             }
           },
@@ -35,7 +39,9 @@
             "etag": "fixture",
             "exchange_modes": [
               "incremental"
-            ]
+            ],
+            "accepted_frontier_base64": "fixture",
+            "update_base64": "fixture"
           }
         },
         {

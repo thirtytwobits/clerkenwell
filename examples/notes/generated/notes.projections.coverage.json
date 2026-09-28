@@ -77,7 +77,6 @@
       "touches": [
         "Note"
       ],
-      "conflict": "optimistic",
       "generatedRegistryOwner": "GENERATED_MUTATION_SPECS"
     },
     {
@@ -87,7 +86,6 @@
       "touches": [
         "Note"
       ],
-      "conflict": "optimistic",
       "generatedRegistryOwner": "GENERATED_MUTATION_SPECS"
     }
   ],

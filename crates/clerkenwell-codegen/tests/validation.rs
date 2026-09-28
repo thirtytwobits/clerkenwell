@@ -603,6 +603,27 @@ fn every_semantic_rule_refuses_naming_the_definition_path() {
             &["collaboration.entities.Note.fields.summary.required"],
         ),
         (
+            "field its parent requires, undeclared",
+            |d| {
+                remove(
+                    d,
+                    "/collaboration/entities/Note/fields/source.url/requiredInParent",
+                )
+            },
+            &["collaboration.entities.Note.fields.source.url.requiredInParent"],
+        ),
+        (
+            "field its parent leaves optional, declared required there",
+            |d| {
+                set(
+                    d,
+                    "/collaboration/entities/Note/fields/meta.reviewer/requiredInParent",
+                    json("true"),
+                )
+            },
+            &["collaboration.entities.Note.fields.meta.reviewer.requiredInParent"],
+        ),
+        (
             "scalar key",
             |d| remove(d, "/collaboration/entities/Note/fields/title/storage/key"),
             &["collaboration.entities.Note.fields.title.storage.key"],

@@ -151,7 +151,12 @@ pub struct GeneratedCollaborationFieldSpec {
     pub metadata_key: Option<&'static str>,
     pub codec: GeneratedCollaborationValueCodec,
     pub value_schema: Option<&'static str>,
+    /// Every segment of the path is required, so the field is in every
+    /// document.
     pub required: bool,
+    /// The object holding the field requires it, so the field is present
+    /// whenever that object is.
+    pub required_in_parent: bool,
     pub conflict: GeneratedCollaborationConflict,
 }
 
@@ -160,7 +165,6 @@ pub struct GeneratedCollaborationFieldSpec {
 pub struct GeneratedCollaborationEntitySpec {
     pub name: &'static str,
     pub id_field: &'static str,
-    pub substrate: &'static str,
     pub schema_version: u32,
     pub migration_ids: &'static [&'static str],
     pub authoring_projection: &'static str,

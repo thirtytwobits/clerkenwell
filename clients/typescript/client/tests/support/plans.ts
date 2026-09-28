@@ -8,18 +8,17 @@ import type { CollaborationEntityPlan } from "@clerkenwell/client";
 
 /** One field of every storage kind and scalar codec a root-level document can hold. */
 export const NOTE_PLAN = {
-  substrate: "loro",
   schemaVersion: 2,
   migrationIds: ["note-v1", "note-v2"],
   authoringState: { projection: "notes.authoringState", importMutation: "note.importUpdate" },
   rootContainer: "note",
-  clientPathNaming: "camelCase",
   fields: {
     note_id: {
       path: "note_id",
       storage: { kind: "scalar", container: "note", key: "note_id" },
       value: { codec: "string" },
       required: true,
+      requiredInParent: true,
       conflict: "immutable"
     },
     title: {
@@ -27,6 +26,7 @@ export const NOTE_PLAN = {
       storage: { kind: "scalar", container: "note", key: "title" },
       value: { codec: "string" },
       required: true,
+      requiredInParent: true,
       conflict: "explicit"
     },
     pinned: {
@@ -34,6 +34,7 @@ export const NOTE_PLAN = {
       storage: { kind: "scalar", container: "note", key: "pinned" },
       value: { codec: "boolean" },
       required: true,
+      requiredInParent: true,
       conflict: "explicit"
     },
     priority: {
@@ -41,6 +42,7 @@ export const NOTE_PLAN = {
       storage: { kind: "scalar", container: "note", key: "priority" },
       value: { codec: "integer" },
       required: true,
+      requiredInParent: true,
       conflict: "explicit"
     },
     weight: {
@@ -48,6 +50,7 @@ export const NOTE_PLAN = {
       storage: { kind: "scalar", container: "note", key: "weight" },
       value: { codec: "number" },
       required: true,
+      requiredInParent: true,
       conflict: "lastWriterWins"
     },
     rating: {
@@ -55,6 +58,7 @@ export const NOTE_PLAN = {
       storage: { kind: "scalar", container: "note", key: "rating" },
       value: { codec: "optionalNumber" },
       required: false,
+      requiredInParent: false,
       conflict: "explicit"
     },
     subtitle: {
@@ -62,6 +66,7 @@ export const NOTE_PLAN = {
       storage: { kind: "scalar", container: "note", key: "subtitle" },
       value: { codec: "optionalString" },
       required: false,
+      requiredInParent: false,
       conflict: "explicit"
     },
     "style.font_family": {
@@ -69,6 +74,7 @@ export const NOTE_PLAN = {
       storage: { kind: "scalar", container: "note", key: "style.font_family" },
       value: { codec: "string" },
       required: true,
+      requiredInParent: true,
       conflict: "explicit"
     },
     "style.accent_colour": {
@@ -76,6 +82,7 @@ export const NOTE_PLAN = {
       storage: { kind: "scalar", container: "note", key: "style.accent_colour" },
       value: { codec: "optionalString" },
       required: false,
+      requiredInParent: false,
       conflict: "explicit"
     },
     body: {
@@ -83,6 +90,7 @@ export const NOTE_PLAN = {
       storage: { kind: "text", container: "body" },
       value: { codec: "string" },
       required: true,
+      requiredInParent: true,
       conflict: "merge"
     },
     summary: {
@@ -90,6 +98,7 @@ export const NOTE_PLAN = {
       storage: { kind: "text", container: "summary" },
       value: { codec: "optionalString" },
       required: false,
+      requiredInParent: false,
       conflict: "merge"
     },
     abstract: {
@@ -102,6 +111,7 @@ export const NOTE_PLAN = {
       },
       value: { codec: "propertyText" },
       required: true,
+      requiredInParent: true,
       conflict: "merge"
     },
     tags: {
@@ -109,6 +119,7 @@ export const NOTE_PLAN = {
       storage: { kind: "orderedList", container: "tags" },
       value: { codec: "stringList" },
       required: true,
+      requiredInParent: true,
       conflict: "merge"
     },
     links: {
@@ -116,6 +127,7 @@ export const NOTE_PLAN = {
       storage: { kind: "structuredList", container: "links" },
       value: { codec: "structuredJson", schema: { $ref: "#/$defs/NoteLink" } },
       required: true,
+      requiredInParent: true,
       conflict: "merge"
     },
     attributes: {
@@ -123,6 +135,7 @@ export const NOTE_PLAN = {
       storage: { kind: "structuredMap", container: "attributes" },
       value: { codec: "structuredJson" },
       required: false,
+      requiredInParent: false,
       conflict: "merge"
     },
     outline: {
@@ -130,6 +143,7 @@ export const NOTE_PLAN = {
       storage: { kind: "structuredDocument", container: "outline" },
       value: { codec: "structuredJson" },
       required: false,
+      requiredInParent: false,
       conflict: "merge"
     },
     author: {
@@ -137,6 +151,7 @@ export const NOTE_PLAN = {
       storage: { kind: "scalar", container: "note", key: "author" },
       value: { codec: "string" },
       required: false,
+      requiredInParent: false,
       conflict: "explicit"
     },
     footnote: {
@@ -144,6 +159,7 @@ export const NOTE_PLAN = {
       storage: { kind: "text", container: "footnote" },
       value: { codec: "string" },
       required: false,
+      requiredInParent: false,
       conflict: "merge"
     },
     caption: {
@@ -156,6 +172,7 @@ export const NOTE_PLAN = {
       },
       value: { codec: "propertyText" },
       required: false,
+      requiredInParent: false,
       conflict: "merge"
     },
     aliases: {
@@ -163,6 +180,7 @@ export const NOTE_PLAN = {
       storage: { kind: "orderedList", container: "aliases" },
       value: { codec: "stringList" },
       required: false,
+      requiredInParent: false,
       conflict: "merge"
     },
     references: {
@@ -170,6 +188,7 @@ export const NOTE_PLAN = {
       storage: { kind: "structuredList", container: "references" },
       value: { codec: "structuredJson", schema: { $ref: "#/$defs/NoteLink" } },
       required: false,
+      requiredInParent: false,
       conflict: "merge"
     },
     etag: {
@@ -177,6 +196,7 @@ export const NOTE_PLAN = {
       storage: { kind: "derivedRevision" },
       value: { codec: "string" },
       required: true,
+      requiredInParent: true,
       conflict: "immutable"
     }
   }
@@ -244,18 +264,17 @@ export function noteDocument(): NoteDocument {
  * task sequence keyed by `id` under its own identity variable.
  */
 export const BOARD_PLAN = {
-  substrate: "loro",
   schemaVersion: 1,
   migrationIds: ["board-v1"],
   authoringState: { projection: "boards.authoringState", importMutation: "board.importUpdate" },
   rootContainer: "board",
-  clientPathNaming: "camelCase",
   fields: {
     board_id: {
       path: "board_id",
       storage: { kind: "scalar", container: "board", key: "board_id" },
       value: { codec: "string" },
       required: true,
+      requiredInParent: true,
       conflict: "immutable"
     },
     title: {
@@ -263,6 +282,7 @@ export const BOARD_PLAN = {
       storage: { kind: "scalar", container: "board", key: "title" },
       value: { codec: "string" },
       required: true,
+      requiredInParent: true,
       conflict: "explicit"
     },
     description: {
@@ -270,6 +290,7 @@ export const BOARD_PLAN = {
       storage: { kind: "text", container: "board.description" },
       value: { codec: "optionalString" },
       required: false,
+      requiredInParent: false,
       conflict: "merge"
     },
     columns: {
@@ -282,6 +303,7 @@ export const BOARD_PLAN = {
       },
       value: { codec: "keyedSequence" },
       required: true,
+      requiredInParent: true,
       conflict: "merge"
     },
     "columns.*.column_id": {
@@ -289,6 +311,7 @@ export const BOARD_PLAN = {
       storage: { kind: "derivedIdentity", identityPath: "column_id" },
       value: { codec: "identity" },
       required: true,
+      requiredInParent: true,
       conflict: "immutable"
     },
     "columns.*.name": {
@@ -296,6 +319,7 @@ export const BOARD_PLAN = {
       storage: { kind: "scalar", containerTemplate: "board.column.{column_id}", key: "name" },
       value: { codec: "string" },
       required: true,
+      requiredInParent: true,
       conflict: "explicit"
     },
     "columns.*.brief": {
@@ -303,6 +327,7 @@ export const BOARD_PLAN = {
       storage: { kind: "text", containerTemplate: "board.column.{column_id}.brief" },
       value: { codec: "string" },
       required: true,
+      requiredInParent: true,
       conflict: "merge"
     },
     "columns.*.tasks": {
@@ -316,6 +341,7 @@ export const BOARD_PLAN = {
       },
       value: { codec: "keyedSequence" },
       required: true,
+      requiredInParent: true,
       conflict: "merge"
     },
     "columns.*.tasks.*.id": {
@@ -323,6 +349,7 @@ export const BOARD_PLAN = {
       storage: { kind: "derivedIdentity", identityPath: "id", identityVariable: "task_id" },
       value: { codec: "identity" },
       required: true,
+      requiredInParent: true,
       conflict: "immutable"
     },
     "columns.*.tasks.*.title": {
@@ -334,6 +361,7 @@ export const BOARD_PLAN = {
       },
       value: { codec: "string" },
       required: true,
+      requiredInParent: true,
       conflict: "explicit"
     },
     "columns.*.tasks.*.estimate_hours": {
@@ -345,6 +373,7 @@ export const BOARD_PLAN = {
       },
       value: { codec: "optionalNumber" },
       required: false,
+      requiredInParent: false,
       conflict: "explicit"
     },
     "columns.*.tasks.*.notes": {
@@ -355,6 +384,7 @@ export const BOARD_PLAN = {
       },
       value: { codec: "string" },
       required: true,
+      requiredInParent: true,
       conflict: "merge"
     },
     "columns.*.tasks.*.labels": {
@@ -365,6 +395,7 @@ export const BOARD_PLAN = {
       },
       value: { codec: "stringList" },
       required: true,
+      requiredInParent: true,
       conflict: "merge"
     },
     archive: {
@@ -378,6 +409,7 @@ export const BOARD_PLAN = {
       },
       value: { codec: "keyedSequence" },
       required: false,
+      requiredInParent: false,
       conflict: "merge"
     },
     "archive.*.id": {
@@ -385,6 +417,7 @@ export const BOARD_PLAN = {
       storage: { kind: "derivedIdentity", identityPath: "id", identityVariable: "archived_id" },
       value: { codec: "identity" },
       required: false,
+      requiredInParent: true,
       conflict: "immutable"
     },
     "archive.*.title": {
@@ -392,6 +425,7 @@ export const BOARD_PLAN = {
       storage: { kind: "scalar", containerTemplate: "board.archived.{archived_id}", key: "title" },
       value: { codec: "string" },
       required: true,
+      requiredInParent: true,
       conflict: "explicit"
     },
     etag: {
@@ -399,6 +433,7 @@ export const BOARD_PLAN = {
       storage: { kind: "derivedRevision" },
       value: { codec: "string" },
       required: true,
+      requiredInParent: true,
       conflict: "immutable"
     }
   }

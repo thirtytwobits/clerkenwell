@@ -35,6 +35,8 @@ export type NoteAuthoringState = {
   "note_id": string;
   "etag": string;
   "exchange_modes": ("incremental" | "bootstrap")[];
+  "accepted_frontier_base64": string;
+  "update_base64": string;
 };
 
 export type NoteAuthoringStatePatch = {
@@ -53,8 +55,10 @@ export type NoteMutationResult = {
 
 export type LoroUpdateParams = {
   "note_id": string;
-  "update": string;
+  "operation_id": string;
   "exchange_mode": "incremental" | "bootstrap";
+  "base_frontier_base64"?: string;
+  "update_base64": string;
 };
 
 export type SessionDrafts = {
@@ -69,7 +73,10 @@ export type DraftEntry = {
 };
 
 export type LoroUpdateResult = {
+  "note_id": string;
   "etag": string;
+  "accepted_frontier_base64": string;
+  "missing_update_base64": string;
 };
 
 export const NOTE_ENTITY = "Note";
@@ -206,7 +213,6 @@ export const COLLABORATION_MINIMUM_READER_VERSION = 1 as const;
 export const COLLABORATION_MINIMUM_WRITER_VERSION = 1 as const;
 export const COLLABORATION_PLANS = {
   "Note": {
-    "substrate": "loro",
     "schemaVersion": 1,
     "migrationIds": [
       "note-loro-layout-v1"
@@ -216,7 +222,6 @@ export const COLLABORATION_PLANS = {
       "importMutation": "note.importLoroUpdate"
     },
     "rootContainer": "note",
-    "clientPathNaming": "camelCase",
     "fields": {
       "note_id": {
         "path": "note_id",
@@ -227,7 +232,8 @@ export const COLLABORATION_PLANS = {
           "codec": "identity"
         },
         "required": true,
-        "conflict": "immutable"
+        "conflict": "immutable",
+        "requiredInParent": true
       },
       "etag": {
         "path": "etag",
@@ -238,7 +244,8 @@ export const COLLABORATION_PLANS = {
           "codec": "string"
         },
         "required": true,
-        "conflict": "immutable"
+        "conflict": "immutable",
+        "requiredInParent": true
       },
       "title": {
         "path": "title",
@@ -251,7 +258,8 @@ export const COLLABORATION_PLANS = {
           "codec": "string"
         },
         "required": true,
-        "conflict": "lastWriterWins"
+        "conflict": "lastWriterWins",
+        "requiredInParent": true
       },
       "body": {
         "path": "body",
@@ -263,7 +271,8 @@ export const COLLABORATION_PLANS = {
           "codec": "string"
         },
         "required": true,
-        "conflict": "merge"
+        "conflict": "merge",
+        "requiredInParent": true
       },
       "status": {
         "path": "status",
@@ -276,7 +285,8 @@ export const COLLABORATION_PLANS = {
           "codec": "string"
         },
         "required": true,
-        "conflict": "explicit"
+        "conflict": "explicit",
+        "requiredInParent": true
       }
     }
   }

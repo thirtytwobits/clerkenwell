@@ -11,8 +11,145 @@
           "importMutation": "board.importLoroUpdate",
           "projection": "boards.authoringState"
         },
-        "clientPathNaming": "camelCase",
         "fields": [
+          {
+            "conflict": "merge",
+            "path": "archive",
+            "required": false,
+            "storage": {
+              "identityPath": "column_id",
+              "identityVariable": "column_id",
+              "itemContainerTemplate": "archive.{column_id}",
+              "kind": "keyedSequence",
+              "orderContainer": "archive_order"
+            },
+            "value": {
+              "codec": "keyedSequence"
+            }
+          },
+          {
+            "conflict": "merge",
+            "path": "archive.*.cards",
+            "required": false,
+            "requiredInParent": true,
+            "storage": {
+              "identityPath": "card_id",
+              "identityVariable": "card_id",
+              "itemContainerTemplate": "archive.{column_id}.card.{card_id}",
+              "kind": "keyedSequence",
+              "orderContainer": "archive.{column_id}.card_order"
+            },
+            "value": {
+              "codec": "keyedSequence"
+            }
+          },
+          {
+            "conflict": "immutable",
+            "path": "archive.*.cards.*.card_id",
+            "required": false,
+            "requiredInParent": true,
+            "storage": {
+              "identityPath": "card_id",
+              "kind": "derivedIdentity"
+            },
+            "value": {
+              "codec": "identity"
+            }
+          },
+          {
+            "conflict": "lastWriterWins",
+            "path": "archive.*.cards.*.done",
+            "required": false,
+            "requiredInParent": true,
+            "storage": {
+              "containerTemplate": "archive.{column_id}.card.{card_id}",
+              "key": "done",
+              "kind": "scalar"
+            },
+            "value": {
+              "codec": "boolean"
+            }
+          },
+          {
+            "conflict": "merge",
+            "path": "archive.*.cards.*.labels",
+            "required": false,
+            "storage": {
+              "containerTemplate": "archive.{column_id}.card.{card_id}.labels",
+              "kind": "orderedList"
+            },
+            "value": {
+              "codec": "stringList"
+            }
+          },
+          {
+            "conflict": "merge",
+            "path": "archive.*.cards.*.note",
+            "required": false,
+            "requiredInParent": true,
+            "storage": {
+              "containerTemplate": "archive.{column_id}.card.{card_id}.note",
+              "kind": "text",
+              "metadataContainerTemplate": "archive.{column_id}.card.{card_id}",
+              "metadataKey": "note.$mime"
+            },
+            "value": {
+              "codec": "propertyText"
+            }
+          },
+          {
+            "conflict": "merge",
+            "path": "archive.*.cards.*.text",
+            "required": false,
+            "requiredInParent": true,
+            "storage": {
+              "containerTemplate": "archive.{column_id}.card.{card_id}.text",
+              "kind": "text"
+            },
+            "value": {
+              "codec": "string"
+            }
+          },
+          {
+            "conflict": "immutable",
+            "path": "archive.*.column_id",
+            "required": false,
+            "requiredInParent": true,
+            "storage": {
+              "identityPath": "column_id",
+              "kind": "derivedIdentity"
+            },
+            "value": {
+              "codec": "identity"
+            }
+          },
+          {
+            "conflict": "explicit",
+            "path": "archive.*.title",
+            "required": false,
+            "requiredInParent": true,
+            "storage": {
+              "containerTemplate": "archive.{column_id}",
+              "key": "title",
+              "kind": "scalar"
+            },
+            "value": {
+              "codec": "string"
+            }
+          },
+          {
+            "conflict": "lastWriterWins",
+            "path": "archive.*.wip_limit",
+            "required": false,
+            "storage": {
+              "containerTemplate": "archive.{column_id}",
+              "key": "wip_limit",
+              "kind": "scalar"
+            },
+            "value": {
+              "codec": "optionalNumber"
+            }
+          },
           {
             "conflict": "immutable",
             "path": "board_id",
@@ -187,15 +324,13 @@
         ],
         "name": "Board",
         "rootContainer": "board",
-        "schemaVersion": 3,
-        "substrate": "loro"
+        "schemaVersion": 3
       },
       {
         "authoringState": {
           "importMutation": "note.importLoroUpdate",
           "projection": "notes.authoringState"
         },
-        "clientPathNaming": "camelCase",
         "fields": [
           {
             "conflict": "explicit",
@@ -385,6 +520,32 @@
             }
           },
           {
+            "conflict": "merge",
+            "path": "source.excerpt",
+            "required": false,
+            "storage": {
+              "container": "source.excerpt",
+              "kind": "text"
+            },
+            "value": {
+              "codec": "optionalString"
+            }
+          },
+          {
+            "conflict": "explicit",
+            "path": "source.url",
+            "required": false,
+            "requiredInParent": true,
+            "storage": {
+              "container": "note",
+              "key": "source.url",
+              "kind": "scalar"
+            },
+            "value": {
+              "codec": "optionalString"
+            }
+          },
+          {
             "conflict": "explicit",
             "path": "status",
             "required": true,
@@ -453,8 +614,7 @@
         ],
         "name": "Note",
         "rootContainer": "note",
-        "schemaVersion": 1,
-        "substrate": "loro"
+        "schemaVersion": 1
       }
     ],
     "version": 1
@@ -767,6 +927,12 @@
       "additionalProperties": false,
       "name": "BoardDocument",
       "properties": {
+        "archive": {
+          "items": {
+            "$ref": "#/$defs/BoardColumn"
+          },
+          "type": "array"
+        },
         "board_id": {
           "type": "string"
         },
@@ -1163,6 +1329,9 @@
         "properties": {
           "$ref": "#/$defs/NoteProperties"
         },
+        "source": {
+          "$ref": "#/$defs/NoteSource"
+        },
         "status": {
           "enum": [
             "draft",
@@ -1450,6 +1619,22 @@
       },
       "required": [
         "notes"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "name": "NoteSource",
+      "properties": {
+        "excerpt": {
+          "type": "string"
+        },
+        "url": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "url"
       ],
       "type": "object"
     },
@@ -2188,7 +2373,6 @@
   ],
   "mutations": [
     {
-      "conflict": "optimistic",
       "name": "board.create",
       "params": {
         "$ref": "#/$defs/BoardCreateParams"
@@ -2201,7 +2385,6 @@
       ]
     },
     {
-      "conflict": "optimistic",
       "name": "board.importLoroUpdate",
       "params": {
         "$ref": "#/$defs/LoroUpdateParams"
@@ -2214,7 +2397,6 @@
       ]
     },
     {
-      "conflict": "optimistic",
       "name": "board.reconcileArchivedColumnOrder",
       "params": {
         "$ref": "#/$defs/BoardKeyParams"
@@ -2227,7 +2409,6 @@
       ]
     },
     {
-      "conflict": "optimistic",
       "name": "note.create",
       "params": {
         "$ref": "#/$defs/NoteCreateParams"
@@ -2240,7 +2421,6 @@
       ]
     },
     {
-      "conflict": "optimistic",
       "name": "note.delete",
       "params": {
         "$ref": "#/$defs/NoteKeyParams"
@@ -2253,7 +2433,6 @@
       ]
     },
     {
-      "conflict": "optimistic",
       "name": "note.importLoroUpdate",
       "params": {
         "$ref": "#/$defs/LoroUpdateParams"
@@ -2266,7 +2445,6 @@
       ]
     },
     {
-      "conflict": "optimistic",
       "name": "note.moveToBoard",
       "params": {
         "$ref": "#/$defs/NoteMoveParams"
@@ -2280,7 +2458,6 @@
       ]
     },
     {
-      "conflict": "optimistic",
       "name": "note.pin",
       "params": {
         "$ref": "#/$defs/NotePinParams"
@@ -2293,7 +2470,6 @@
       ]
     },
     {
-      "conflict": "optimistic",
       "name": "note.rename",
       "params": {
         "$ref": "#/$defs/NoteRenameParams"
@@ -2306,7 +2482,6 @@
       ]
     },
     {
-      "conflict": "optimistic",
       "name": "sync.reset",
       "params": {
         "$ref": "#/$defs/SyncResetParams"
@@ -2319,7 +2494,6 @@
       ]
     },
     {
-      "conflict": "optimistic",
       "name": "task.archive",
       "params": {
         "$ref": "#/$defs/TaskKeyParams"
@@ -2332,7 +2506,6 @@
       ]
     },
     {
-      "conflict": "optimistic",
       "name": "task.save",
       "params": {
         "$ref": "#/$defs/TaskSaveParams"
@@ -2345,7 +2518,6 @@
       ]
     },
     {
-      "conflict": "optimistic",
       "name": "task.schedule",
       "params": {
         "$ref": "#/$defs/TaskScheduleParams"
@@ -2358,7 +2530,6 @@
       ]
     },
     {
-      "conflict": "optimistic",
       "name": "workspace.configure",
       "params": {
         "$ref": "#/$defs/WorkspaceConfigureParams"

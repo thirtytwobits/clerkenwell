@@ -63,7 +63,10 @@ export interface CollaborationFieldPlan {
     readonly codec: CollaborationValueCodec;
     readonly schema?: { readonly $ref: string };
   };
+  /** Every segment of the path is required, so the field is in every document. */
   readonly required: boolean;
+  /** The object holding the field requires it, so the field is present whenever that object is. */
+  readonly requiredInParent: boolean;
   readonly conflict: CollaborationConflictPolicy;
 }
 
@@ -71,7 +74,6 @@ export interface CollaborationEntityPlan<
   TProjection extends string = string,
   TMutation extends string = string
 > {
-  readonly substrate: "loro";
   readonly schemaVersion: number;
   readonly migrationIds: readonly string[];
   readonly authoringState: {
@@ -79,9 +81,13 @@ export interface CollaborationEntityPlan<
     readonly importMutation: TMutation;
   };
   readonly rootContainer: string;
-  /** Wire paths are snake_case; client documents carry them as camelCase. */
-  readonly clientPathNaming: "camelCase";
+  /** Keyed by wire path, which is snake_case; client documents carry each path as camelCase. */
   readonly fields: Readonly<Record<string, CollaborationFieldPlan>>;
+}
+
+/** A wire path segment as client documents spell it: snake_case becomes camelCase. */
+export function clientSegment(segment: string): string {
+  return segment.replace(/_([a-z])/g, (_match, letter: string) => letter.toUpperCase());
 }
 
 /** The paths of a plan's declared text fields. */

@@ -331,7 +331,6 @@ pub fn render_coverage_report(definition: &Definition, project: &Project) -> Res
             entry.insert("params", ref_string(mutation.params()).into());
             entry.insert("result", ref_string(mutation.result()).into());
             entry.insert("touches", mutation.touches().into());
-            entry.insert("conflict", mutation.conflict().into());
             entry.insert("generatedRegistryOwner", "GENERATED_MUTATION_SPECS".into());
             entry.into()
         })

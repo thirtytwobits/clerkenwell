@@ -46,3 +46,8 @@ fn concurrent_typing_in_both_languages_keeps_both_insertions() {
 fn typing_survives_the_consumption_of_captured_text() {
     Conformance::start(&bindings()).text_consumption();
 }
+
+#[test]
+fn both_languages_judge_concurrent_edits_alike_against_conflict_policy() {
+    Conformance::start(&bindings()).conflict_policy();
+}

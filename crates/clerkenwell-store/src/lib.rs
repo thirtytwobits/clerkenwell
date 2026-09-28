@@ -930,6 +930,13 @@ impl<S: CollaborationStoragePort> CollaborationService<S> {
                     let current_document = authoring
                         .materialized_document(&current_etag)
                         .map_err(|error| collaboration_loro_error(&request.document, error))?;
+                    // The refused client rebases its edit on what it lacks and sends it again.
+                    let missing_update_base64 = authoring
+                        .missing_update_base64(
+                            Some(&request.base_frontier_base64),
+                            &request.update_base64,
+                        )
+                        .map_err(|error| collaboration_loro_error(&request.document, error))?;
                     return Err(StoreError::conflict(format!(
                         "Concurrent {} edits require explicit resolution for: {}.",
                         request.document.entity,
@@ -944,6 +951,8 @@ impl<S: CollaborationStoragePort> CollaborationService<S> {
                         "current": current_document,
                         "current_etag": current_etag,
                         "base_frontier_base64": request.base_frontier_base64,
+                        "accepted_frontier_base64": authoring.accepted_frontier_base64(),
+                        "missing_update_base64": missing_update_base64,
                         "draft_retained": true,
                     }))
                     .into());
@@ -1951,11 +1960,14 @@ impl LocalFileCollaborationStorage {
 /// any later change: a file timestamp can lag the clock by a timer tick, or by
 /// a second on a coarse file system, so a rewrite within that lag can leave
 /// the timestamp where it was.
-const SETTLED_METADATA_AGE: Duration = Duration::from_secs(2);
+pub const SETTLED_METADATA_AGE: Duration = Duration::from_secs(2);
 
-/// When a file last changed, and a stamp of its metadata.
+/// When a file last changed, and a stamp of its metadata. The stamp differs
+/// from every earlier stamp of the file once its bytes change, provided the
+/// earlier one was taken at least [`SETTLED_METADATA_AGE`] after the file last
+/// changed.
 #[cfg(unix)]
-fn metadata_stamp(metadata: &std::fs::Metadata) -> Option<(SystemTime, String)> {
+pub fn metadata_stamp(metadata: &std::fs::Metadata) -> Option<(SystemTime, String)> {
     use std::os::unix::fs::MetadataExt;
     let changed = UNIX_EPOCH.checked_add(Duration::new(
         u64::try_from(metadata.ctime()).ok()?,
@@ -1974,9 +1986,12 @@ fn metadata_stamp(metadata: &std::fs::Metadata) -> Option<(SystemTime, String)> 
     Some((changed, stamp))
 }
 
-/// When a file last changed, and a stamp of its metadata.
+/// When a file last changed, and a stamp of its metadata. The stamp differs
+/// from every earlier stamp of the file once its bytes change, provided the
+/// earlier one was taken at least [`SETTLED_METADATA_AGE`] after the file last
+/// changed.
 #[cfg(not(unix))]
-fn metadata_stamp(metadata: &std::fs::Metadata) -> Option<(SystemTime, String)> {
+pub fn metadata_stamp(metadata: &std::fs::Metadata) -> Option<(SystemTime, String)> {
     let modified = metadata.modified().ok()?;
     let since_epoch = modified.duration_since(UNIX_EPOCH).ok()?;
     Some((

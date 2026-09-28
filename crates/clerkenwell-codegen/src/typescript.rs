@@ -271,16 +271,15 @@ fn collaboration_metadata(definition: &Definition) -> String {
                     let mut plan = Object::new();
                     plan.insert("path", field.path.into());
                     plan.spread(field.raw);
+                    plan.insert("requiredInParent", field.required_in_parent().into());
                     (field.path, Json::from(plan))
                 })
                 .collect();
             let mut plan = Object::new();
-            plan.insert("substrate", entity.substrate().into());
             plan.insert("schemaVersion", entity.schema_version().into());
             plan.insert("migrationIds", entity.migration_ids().into());
             plan.insert("authoringState", entity.authoring_state().clone().into());
             plan.insert("rootContainer", entity.root_container().into());
-            plan.insert("clientPathNaming", entity.client_path_naming().into());
             plan.insert("fields", fields.into());
             (entity.name, Json::from(plan))
         })

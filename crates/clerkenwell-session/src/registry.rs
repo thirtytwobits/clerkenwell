@@ -1,20 +1,26 @@
-use clerkenwell_schema::{GeneratedMutationSpec, GeneratedProjectionSpec};
+use clerkenwell_schema::{
+    GeneratedEntityAuthoringSpec, GeneratedMutationSpec, GeneratedProjectionSpec,
+};
 
-/// The projections and mutations an application serves, by wire name.
+/// The projections and mutations an application serves, by wire name, and how
+/// each entity is authored.
 #[derive(Debug)]
 pub struct ProjectionRegistry {
     projections: &'static [GeneratedProjectionSpec],
     mutations: &'static [GeneratedMutationSpec],
+    authoring: &'static [GeneratedEntityAuthoringSpec],
 }
 
 impl ProjectionRegistry {
     pub const fn new(
         projections: &'static [GeneratedProjectionSpec],
         mutations: &'static [GeneratedMutationSpec],
+        authoring: &'static [GeneratedEntityAuthoringSpec],
     ) -> Self {
         Self {
             projections,
             mutations,
+            authoring,
         }
     }
 
@@ -48,6 +54,14 @@ impl ProjectionRegistry {
             .iter()
             .map(|mutation| mutation.name)
             .collect()
+    }
+
+    /// Whether a mutation only plans a change: it writes nothing, so no
+    /// subscriber sees it.
+    pub fn plans_only(&self, mutation: &str) -> bool {
+        self.authoring
+            .iter()
+            .any(|entity| entity.planning_mutations.contains(&mutation))
     }
 
     /// Whether a mutation can change a projection: whether it writes an

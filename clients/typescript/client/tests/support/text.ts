@@ -7,18 +7,17 @@ import type { CollaborationEntityPlan, TextBinding } from "@clerkenwell/client";
 import { CollaborationLoroAuthoringDocument } from "@clerkenwell/client/loro";
 
 const SCRATCH_PLAN = {
-  substrate: "loro",
   schemaVersion: 1,
   migrationIds: [],
   authoringState: { projection: "scratch.authoringState", importMutation: "scratch.importUpdate" },
   rootContainer: "scratch",
-  clientPathNaming: "camelCase",
   fields: {
     text: {
       path: "text",
       storage: { kind: "text", container: "text" },
       value: { codec: "string" },
       required: true,
+      requiredInParent: true,
       conflict: "merge"
     }
   }

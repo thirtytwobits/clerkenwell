@@ -224,6 +224,7 @@ mod nested {
             codec,
             value_schema: None,
             required: true,
+            required_in_parent: true,
             conflict,
         }
     }
@@ -255,7 +256,6 @@ mod nested {
     pub static PLAN: GeneratedCollaborationEntitySpec = GeneratedCollaborationEntitySpec {
         name: "Board",
         id_field: "board_id",
-        substrate: "loro",
         schema_version: 1,
         migration_ids: &[],
         authoring_projection: "boards.authoringState",

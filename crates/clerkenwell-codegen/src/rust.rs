@@ -503,6 +503,10 @@ fn collaboration_metadata(definition: &Definition) -> String {
                         ),
                         ("required", Expr::atom(field.required().to_string())),
                         (
+                            "required_in_parent",
+                            Expr::atom(field.required_in_parent().to_string()),
+                        ),
+                        (
                             "conflict",
                             Expr::atom(format!(
                                 "GeneratedCollaborationConflict::{}",
@@ -527,7 +531,6 @@ fn collaboration_metadata(definition: &Definition) -> String {
             vec![
                 ("name", literal(entity.name)),
                 ("id_field", literal(entity_id)),
-                ("substrate", literal(entity.substrate())),
                 (
                     "schema_version",
                     Expr::atom(number_to_string(entity.schema_version())),

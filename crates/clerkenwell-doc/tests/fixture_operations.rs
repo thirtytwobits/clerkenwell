@@ -36,12 +36,8 @@ fn is_group_member(path: &str) -> bool {
 type Edit = Box<dyn Fn(&Value) -> Value>;
 
 /// Every edit the fixture's operations describe, in order, each applied to
-/// the document the previous one left. `optional` selects the optional paths
-/// the presence operations cover.
-fn fixture_edits(
-    plan: &GeneratedCollaborationEntitySpec,
-    optional: impl Fn(&str) -> bool,
-) -> Vec<(String, Edit)> {
+/// the document the previous one left.
+fn fixture_edits(plan: &GeneratedCollaborationEntitySpec) -> Vec<(String, Edit)> {
     let operations = operations(plan);
     let fixture = wire_document(plan);
     let mut edits: Vec<(String, Edit)> = Vec::new();
@@ -59,27 +55,24 @@ fn fixture_edits(
         }),
     ));
 
-    let absent = string_list(&operations["optionalAbsent"])
-        .into_iter()
-        .filter(|path| optional(path))
-        .collect::<Vec<_>>();
+    let absent = string_list(&operations["optionalAbsent"]);
     edits.push((
         format!("optionalAbsent {absent:?}"),
         Box::new(move |document| {
             let mut edited = document.clone();
+            // A member of an optional group already removed is gone with it.
             for path in &absent {
-                for at in pointers(document, path) {
-                    remove(&mut edited, &at);
+                for at in pointers(&edited, path) {
+                    if edited.pointer(&at).is_some() {
+                        remove(&mut edited, &at);
+                    }
                 }
             }
             edited
         }),
     ));
 
-    let present = string_list(&operations["optionalPresent"])
-        .into_iter()
-        .filter(|path| optional(path))
-        .collect::<Vec<_>>();
+    let present = string_list(&operations["optionalPresent"]);
     edits.push((
         format!("optionalPresent {present:?}"),
         Box::new(move |document| {
@@ -138,7 +131,7 @@ fn every_fixture_operation_reads_back_as_written() {
     for plan in GENERATED_COLLABORATION_SPECS {
         let mut document = wire_document(plan);
         let mut replica = seed(plan, &document);
-        for (name, edit) in fixture_edits(plan, |path| !is_group_member(path)) {
+        for (name, edit) in fixture_edits(plan) {
             let edited = edit(&document);
             assert_ne!(
                 edited, document,
@@ -160,7 +153,6 @@ fn every_fixture_operation_reads_back_as_written() {
 }
 
 #[test]
-#[ignore = "defect: both replicas complete a present group with the empty value of each absent optional member"]
 fn an_absent_optional_member_of_a_present_group_reads_back_absent() {
     for plan in GENERATED_COLLABORATION_SPECS {
         let document = wire_document(plan);
@@ -194,7 +186,7 @@ fn an_absent_optional_member_of_a_present_group_reads_back_absent() {
 fn fixture_operations_from_two_replicas_converge_in_both_import_orders() {
     for plan in GENERATED_COLLABORATION_SPECS {
         let base = wire_document(plan);
-        let edits = fixture_edits(plan, |_| true);
+        let edits = fixture_edits(plan);
         for (one_name, one) in &edits {
             for (two_name, two) in &edits {
                 if one_name == two_name {

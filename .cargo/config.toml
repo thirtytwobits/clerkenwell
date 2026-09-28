@@ -1,0 +1,5 @@
+# Keep macOS debug info in a `.dSYM` beside each binary. Cargo's macOS
+# default, `unpacked`, leaves every build's object files in `target/*/deps`
+# and never removes them.
+[target.'cfg(target_os = "macos")']
+rustflags = ["-C", "split-debuginfo=packed"]

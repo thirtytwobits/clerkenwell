@@ -342,10 +342,6 @@ impl<'a> Mutation<'a> {
         self.raw.object_field("result")
     }
 
-    pub fn conflict(&self) -> &'a str {
-        self.raw.str_field("conflict")
-    }
-
     pub fn touches(&self) -> Vec<&'a str> {
         self.raw.strs_field("touches")
     }
@@ -426,10 +422,6 @@ pub struct CollaborationEntity<'a> {
 }
 
 impl<'a> CollaborationEntity<'a> {
-    pub fn substrate(&self) -> &'a str {
-        self.raw.str_field("substrate")
-    }
-
     pub fn schema_version(&self) -> f64 {
         self.raw.number_field("schemaVersion")
     }
@@ -452,10 +444,6 @@ impl<'a> CollaborationEntity<'a> {
 
     pub fn root_container(&self) -> &'a str {
         self.raw.str_field("rootContainer")
-    }
-
-    pub fn client_path_naming(&self) -> &'a str {
-        self.raw.str_field("clientPathNaming")
     }
 
     pub fn fields(&self) -> impl Iterator<Item = CollaborationField<'a>> {
@@ -507,11 +495,23 @@ impl<'a> CollaborationField<'a> {
         self.value().get("schema").and_then(Json::as_object)
     }
 
+    /// Whether every segment of the path is required, so the field is in
+    /// every document.
     pub fn required(&self) -> bool {
         self.raw
             .get("required")
             .and_then(Json::as_bool)
             .expect("the meta-schema requires boolean \"required\"")
+    }
+
+    /// Whether the object holding the field requires it, so the field is
+    /// present whenever that object is. A required field always is; the
+    /// definition says so of an optional field its parent requires.
+    pub fn required_in_parent(&self) -> bool {
+        self.raw
+            .get("requiredInParent")
+            .and_then(Json::as_bool)
+            .unwrap_or_else(|| self.required())
     }
 
     pub fn conflict(&self) -> &'a str {

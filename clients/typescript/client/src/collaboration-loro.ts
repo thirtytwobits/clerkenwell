@@ -20,6 +20,7 @@ import {
 } from "loro-crdt";
 import { base64ToBytes, bytesToBase64 } from "./binary";
 import {
+  clientSegment,
   resolveCollaborationContainer,
   type CollaborationEntityPlan,
   type CollaborationFieldPlan,
@@ -933,41 +934,58 @@ export function materializeCollaborationDocumentFromLoroDoc<
       setClientValueAtPath(document, sequence.path, items);
     }
   }
-  completePresentOptionalGroups(index.fields, document);
+  completeRequiredMembers(
+    index.fields.filter((field) => !field.path.includes("*")),
+    "",
+    document
+  );
   validateCollaborationDocument(plan, document);
   return document as TDocument;
 }
 
-function completePresentOptionalGroups(
-  fields: readonly CollaborationFieldPlan[],
-  document: ClientRecord
+/**
+ * Gives each member of `node` that its present parent requires, but that was
+ * read as absent, the empty form its codec allows. An empty optional value
+ * reads as absent, so a member the parent requires is restored here; any other
+ * optional member stays absent. `prefix` is the path of `node` within the plan.
+ */
+function completeRequiredMembers(
+  members: readonly CollaborationFieldPlan[],
+  prefix: string,
+  node: ClientRecord
 ): void {
-  for (const field of fields) {
-    if (field.required || field.path.includes("*")) {
+  for (const field of members) {
+    if (field.required || !field.requiredInParent) {
       continue;
     }
-    if (clientValueAtPath(document, field.path) !== undefined) {
+    const path = field.path.slice(prefix.length);
+    if (clientValueAtPath(node, path) !== undefined) {
       continue;
     }
-    const separator = field.path.lastIndexOf(".");
-    if (separator < 0) {
+    const separator = path.lastIndexOf(".");
+    if (separator >= 0 && clientValueAtPath(node, path.slice(0, separator)) === undefined) {
       continue;
     }
-    const parentPath = field.path.slice(0, separator);
-    if (clientValueAtPath(document, parentPath) === undefined) {
-      continue;
+    const empty = emptyMemberValue(field);
+    if (empty !== undefined) {
+      setClientValueAtPath(node, path, empty);
     }
-    if (field.value.codec === "optionalString") {
-      setClientValueAtPath(document, field.path, "");
-    } else if (
-      field.value.codec === "stringList"
-      || (
-        field.value.codec === "structuredJson"
-        && !isObjectStorageKind(field.storage.kind)
-      )
-    ) {
-      setClientValueAtPath(document, field.path, []);
-    }
+  }
+}
+
+/** The empty form of a member's codec, when it has one. */
+function emptyMemberValue(field: CollaborationFieldPlan): unknown {
+  switch (field.value.codec) {
+    case "string":
+    case "optionalString":
+      return "";
+    case "stringList":
+    case "keyedSequence":
+      return [];
+    case "structuredJson":
+      return isObjectStorageKind(field.storage.kind) ? undefined : [];
+    default:
+      return undefined;
   }
 }
 
@@ -1057,6 +1075,7 @@ function materializeCollaborationSequence(
         setClientValueAtPath(item, childPath, childItems);
       }
     }
+    completeRequiredMembers([...itemFields, ...childSequences], `${sequence.path}.*.`, item);
     return item;
   });
 }
@@ -1285,7 +1304,7 @@ function readCollaborationField(
     case "structuredList":
       return doc.getList(container).toArray().map((entry) =>
         typeof entry === "object" && entry !== null
-          ? mapObjectKeys(entry as ClientRecord, snakeToCamel)
+          ? mapObjectKeys(entry as ClientRecord, clientSegment)
           : entry
       );
     case "structuredMap": {
@@ -1750,7 +1769,7 @@ const CLIENT_PATH_SEGMENTS = new Map<string, readonly string[]>();
 function clientPathSegments(path: string): readonly string[] {
   let segments = CLIENT_PATH_SEGMENTS.get(path);
   if (segments === undefined) {
-    segments = path.split(".").map(snakeToCamel);
+    segments = path.split(".").map(clientSegment);
     CLIENT_PATH_SEGMENTS.set(path, segments);
   }
   return segments;
@@ -1955,10 +1974,6 @@ function uniqueStableIdentities(identities: readonly string[]): string[] {
     seen.add(identity);
     return true;
   });
-}
-
-function snakeToCamel(value: string): string {
-  return value.replace(/_([a-z])/g, (_match, letter: string) => letter.toUpperCase());
 }
 
 function camelToSnake(value: string): string {

@@ -57,7 +57,6 @@
       "result": {
         "$ref": "#/$defs/NoteMutationResult"
       },
-      "conflict": "optimistic",
       "touches": [
         "Note"
       ]
@@ -69,7 +68,6 @@
       "result": {
         "$ref": "#/$defs/LoroUpdateResult"
       },
-      "conflict": "optimistic",
       "touches": [
         "Note"
       ]
@@ -98,7 +96,6 @@
     },
     "entities": {
       "Note": {
-        "substrate": "loro",
         "schemaVersion": 1,
         "migrationIds": [
           "note-loro-layout-v1"
@@ -108,7 +105,6 @@
           "importMutation": "note.importLoroUpdate"
         },
         "rootContainer": "note",
-        "clientPathNaming": "camelCase",
         "fields": {
           "note_id": {
             "storage": {
@@ -222,7 +218,9 @@
       "required": [
         "note_id",
         "etag",
-        "exchange_modes"
+        "exchange_modes",
+        "accepted_frontier_base64",
+        "update_base64"
       ],
       "properties": {
         "note_id": {
@@ -240,6 +238,12 @@
               "bootstrap"
             ]
           }
+        },
+        "accepted_frontier_base64": {
+          "type": "string"
+        },
+        "update_base64": {
+          "type": "string"
         }
       }
     },
@@ -296,14 +300,15 @@
       "additionalProperties": false,
       "required": [
         "note_id",
-        "update",
-        "exchange_mode"
+        "operation_id",
+        "exchange_mode",
+        "update_base64"
       ],
       "properties": {
         "note_id": {
           "type": "string"
         },
-        "update": {
+        "operation_id": {
           "type": "string",
           "minLength": 1
         },
@@ -313,6 +318,13 @@
             "incremental",
             "bootstrap"
           ]
+        },
+        "base_frontier_base64": {
+          "type": "string"
+        },
+        "update_base64": {
+          "type": "string",
+          "minLength": 1
         }
       }
     },
@@ -360,10 +372,22 @@
       "type": "object",
       "additionalProperties": false,
       "required": [
-        "etag"
+        "note_id",
+        "etag",
+        "accepted_frontier_base64",
+        "missing_update_base64"
       ],
       "properties": {
+        "note_id": {
+          "type": "string"
+        },
         "etag": {
+          "type": "string"
+        },
+        "accepted_frontier_base64": {
+          "type": "string"
+        },
+        "missing_update_base64": {
           "type": "string"
         }
       }
