@@ -91,3 +91,32 @@ fn resume_outcomes_are_explicit_and_bounded() {
         );
     }
 }
+
+#[test]
+fn a_refusal_envelope_encodes_as_the_client_reads_it() {
+    use clerkenwell_session::transport::{
+        ProjectionErrorCode, ProjectionErrorEnvelope, ProjectionOperation,
+    };
+
+    for code in ProjectionErrorCode::ALL {
+        let envelope = ProjectionErrorEnvelope::new(
+            code,
+            "Refused.",
+            ProjectionOperation::Mutate,
+            Some("note.delete"),
+            None,
+        );
+
+        let encoded = serde_json::to_value(&envelope).expect("encode envelope");
+
+        assert_eq!(encoded["code"], json!(code.as_str()));
+        assert_eq!(ProjectionErrorCode::parse(code.as_str()), Some(code));
+        assert_eq!(encoded["operation"], json!("mutate"));
+        assert_eq!(encoded["retryable"], json!(code.retryable()));
+        assert!(encoded.get("details").is_none());
+        assert_eq!(
+            serde_json::from_value::<ProjectionErrorEnvelope>(encoded).expect("decode envelope"),
+            envelope
+        );
+    }
+}

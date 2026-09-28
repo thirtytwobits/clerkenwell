@@ -117,3 +117,113 @@ pub enum ProjectionTransportEvent<S, P> {
         patch: P,
     },
 }
+
+/// Why a command was refused.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[serde(rename_all = "snake_case")]
+pub enum ProjectionErrorCode {
+    UnknownMutation,
+    UnsupportedMutation,
+    UnknownProjection,
+    UnsupportedProjection,
+    InvalidParams,
+    NotFound,
+    Conflict,
+    ValidationFailed,
+    BaseRevisionInFuture,
+    CursorAhead,
+    StaleWrite,
+    RateLimit,
+    InternalError,
+}
+
+impl ProjectionErrorCode {
+    pub const ALL: [Self; 13] = [
+        Self::UnknownMutation,
+        Self::UnsupportedMutation,
+        Self::UnknownProjection,
+        Self::UnsupportedProjection,
+        Self::InvalidParams,
+        Self::NotFound,
+        Self::Conflict,
+        Self::ValidationFailed,
+        Self::BaseRevisionInFuture,
+        Self::CursorAhead,
+        Self::StaleWrite,
+        Self::RateLimit,
+        Self::InternalError,
+    ];
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::UnknownMutation => "unknown_mutation",
+            Self::UnsupportedMutation => "unsupported_mutation",
+            Self::UnknownProjection => "unknown_projection",
+            Self::UnsupportedProjection => "unsupported_projection",
+            Self::InvalidParams => "invalid_params",
+            Self::NotFound => "not_found",
+            Self::Conflict => "conflict",
+            Self::ValidationFailed => "validation_failed",
+            Self::BaseRevisionInFuture => "base_revision_in_future",
+            Self::CursorAhead => "cursor_ahead",
+            Self::StaleWrite => "stale_write",
+            Self::RateLimit => "rate_limit",
+            Self::InternalError => "internal_error",
+        }
+    }
+
+    pub fn parse(code: &str) -> Option<Self> {
+        Self::ALL
+            .into_iter()
+            .find(|candidate| candidate.as_str() == code)
+    }
+
+    /// Whether the same command may succeed if sent again unchanged.
+    pub fn retryable(self) -> bool {
+        matches!(self, Self::BaseRevisionInFuture | Self::RateLimit)
+    }
+}
+
+/// The command a refusal answers.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ProjectionOperation {
+    Subscribe,
+    Resync,
+    Unsubscribe,
+    Mutate,
+}
+
+/// A refused command as its client reads it.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct ProjectionErrorEnvelope {
+    pub code: ProjectionErrorCode,
+    pub message: String,
+    pub operation: ProjectionOperation,
+    pub retryable: bool,
+    /// The projection or mutation the command named.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub details: Option<Value>,
+}
+
+impl ProjectionErrorEnvelope {
+    pub fn new(
+        code: ProjectionErrorCode,
+        message: impl Into<String>,
+        operation: ProjectionOperation,
+        name: Option<&str>,
+        details: Option<Value>,
+    ) -> Self {
+        Self {
+            code,
+            message: message.into(),
+            operation,
+            retryable: code.retryable(),
+            name: name.map(str::to_owned),
+            details,
+        }
+    }
+}

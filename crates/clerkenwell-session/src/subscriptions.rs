@@ -4,7 +4,10 @@ use std::time::Duration;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
-use crate::transport::ProjectionSubscribeResume;
+use crate::transport::{
+    ProjectionResyncAccepted, ProjectionSubscribeAccepted, ProjectionSubscribeResume,
+    ProjectionTransportEvent,
+};
 
 /// How many patches a connection retains for resuming subscriptions, unless
 /// the application chooses otherwise.
@@ -295,6 +298,82 @@ impl<P, D> ProjectionSubscriptions<P, D> {
     }
 }
 
+impl<P: Clone, D> ProjectionSubscriptions<P, D> {
+    /// The revision a mutation's effects reach: past every revision this
+    /// connection has sent when it publishes a change, where they stand when it
+    /// changes nothing, and never below `floor`.
+    pub fn mutation_revision(&self, floor: u64, publishes: bool) -> u64 {
+        let current = self.current_revision().max(1);
+        let revision = if publishes { current + 1 } else { current };
+        revision.max(floor)
+    }
+
+    /// Sends `patch` to a subscription, taking its client from the revision it
+    /// holds now to `to_revision`, or to the next revision when it already
+    /// holds `to_revision` or later, and retains the patch for resuming. `None`
+    /// when the subscription is gone.
+    pub fn deliver_patch<S>(
+        &mut self,
+        subscription_id: u64,
+        to_revision: u64,
+        patch: P,
+    ) -> Option<ProjectionTransportEvent<S, P>> {
+        let subscription = self.subscriptions.get_mut(&subscription_id)?;
+        let from_revision = subscription.revision;
+        let to_revision = to_revision.max(from_revision + 1);
+        subscription.revision = to_revision;
+        let (projection, params) = (subscription.projection.clone(), subscription.params.clone());
+        self.retain_patch(
+            projection,
+            params,
+            from_revision,
+            to_revision,
+            patch.clone(),
+        );
+        Some(ProjectionTransportEvent::Patch {
+            subscription_id,
+            from_revision,
+            to_revision,
+            patch,
+        })
+    }
+
+    /// Sends `snapshot` to a subscription at the revision after the one its
+    /// client holds, recording `delivered` as what it leaves the client
+    /// holding and `reason` as why. `None` when the subscription is gone.
+    pub fn resync<S>(
+        &mut self,
+        subscription_id: u64,
+        snapshot: S,
+        delivered: Option<D>,
+        reason: &str,
+    ) -> Option<(ProjectionResyncAccepted, ProjectionTransportEvent<S, P>)> {
+        let from_revision = self.subscriptions.get(&subscription_id)?.revision;
+        let revision = from_revision + 1;
+        self.record_snapshot(subscription_id, revision, delivered);
+        self.record_resync(reason);
+        Some((
+            ProjectionResyncAccepted {
+                subscription_id,
+                from_revision,
+                revision,
+            },
+            ProjectionTransportEvent::Snapshot {
+                subscription_id,
+                revision,
+                snapshot,
+            },
+        ))
+    }
+
+    fn record_snapshot(&mut self, subscription_id: u64, revision: u64, delivered: Option<D>) {
+        match delivered {
+            Some(delivered) => self.record_delivery(subscription_id, revision, delivered),
+            None => self.update_revision(subscription_id, revision),
+        }
+    }
+}
+
 impl<P, D: PartialEq> ProjectionSubscriptions<P, D> {
     /// Records a delivery that follows the one the client held at
     /// `from_revision` and leaves it holding `delivered`. Only a recorded
@@ -380,6 +459,57 @@ impl<P: Clone + PartialEq, D> ProjectionSubscriptions<P, D> {
             resume: Some(resume),
             replay,
         })
+    }
+
+    /// Accepts a subscription at the projection's current revision, never
+    /// below `floor`, and sends its client what it needs from `cursor`:
+    /// `snapshot`, recording `delivered` as what it leaves the client holding,
+    /// or the retained patches it missed.
+    pub fn accept_subscription<S>(
+        &mut self,
+        projection: String,
+        params: Value,
+        cursor: Option<u64>,
+        floor: u64,
+        snapshot: S,
+        delivered: Option<D>,
+    ) -> Result<
+        (
+            ProjectionSubscribeAccepted,
+            Vec<ProjectionTransportEvent<S, P>>,
+        ),
+        CursorAhead,
+    > {
+        let revision = self.current_revision().max(1).max(floor);
+        let outcome = self.subscribe(projection, params, revision, cursor)?;
+        let subscription_id = outcome.subscription_id;
+        let events = match outcome.replay {
+            Some(patches) => patches
+                .into_iter()
+                .map(|patch| ProjectionTransportEvent::Patch {
+                    subscription_id,
+                    from_revision: patch.from_revision,
+                    to_revision: patch.to_revision,
+                    patch: patch.patch,
+                })
+                .collect(),
+            None => {
+                self.record_snapshot(subscription_id, revision, delivered);
+                vec![ProjectionTransportEvent::Snapshot {
+                    subscription_id,
+                    revision,
+                    snapshot,
+                }]
+            }
+        };
+        Ok((
+            ProjectionSubscribeAccepted {
+                subscription_id,
+                revision,
+                resume: outcome.resume,
+            },
+            events,
+        ))
     }
 
     /// Whether the most recent patch retained for this projection and these

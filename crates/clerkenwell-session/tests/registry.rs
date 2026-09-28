@@ -25,7 +25,7 @@ static MUTATIONS: &[GeneratedMutationSpec] = &[
         touches: &["Board", "Note"],
     },
 ];
-static REGISTRY: ProjectionRegistry = ProjectionRegistry::new(PROJECTIONS, MUTATIONS);
+static REGISTRY: ProjectionRegistry = ProjectionRegistry::new(PROJECTIONS, MUTATIONS, &[]);
 
 #[test]
 fn every_registered_name_resolves_to_its_spec() {
