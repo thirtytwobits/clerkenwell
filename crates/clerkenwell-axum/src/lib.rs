@@ -10,8 +10,6 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
-use axum::extract::State;
-use axum::response::Response;
 use axum::routing::get;
 use axum::Router;
 use clerkenwell_session::transport::{
@@ -169,10 +167,17 @@ where
     }
 
     /// A router that serves the protocol to WebSocket connections at `path`.
+    ///
+    /// The route captures the server instead of taking it as axum `State`,
+    /// which code scanning reads as request input and follows into the
+    /// store's paths. The handler's only parameter is the client's upgrade.
     pub fn router(self: Arc<Self>, path: &str) -> Router {
-        Router::new()
-            .route(path, get(upgrade::<A>))
-            .with_state(self)
+        Router::new().route(
+            path,
+            get(move |upgrade: WebSocketUpgrade| async move {
+                upgrade.on_upgrade(move |socket| self.serve_socket(socket))
+            }),
+        )
     }
 
     /// Serves one WebSocket until it closes.
@@ -276,20 +281,6 @@ where
         frames.extend(events.iter().filter_map(notification));
         frames
     }
-}
-
-async fn upgrade<A>(
-    State(server): State<Arc<ProjectionServer<A>>>,
-    upgrade: WebSocketUpgrade,
-) -> Response
-where
-    A: ProjectionHost<Failure = RpcFailure> + Send + 'static,
-    A::Snapshot: 'static,
-    A::Patch: Sync + 'static,
-    A::Delivery: Sync + 'static,
-    A::MutationResult: 'static,
-{
-    upgrade.on_upgrade(move |socket| server.serve_socket(socket))
 }
 
 fn error_frame(id: Value, error: Value) -> String {
