@@ -77,6 +77,8 @@ export interface RpcSocketOptions {
   readonly closedMessage?: string;
   /** The message a failed attempt to open the socket is rejected with. */
   readonly unreachableMessage?: string;
+  /** Builds the error a refused request is rejected with; an {@link RpcError} when absent. */
+  readonly refusal?: (error: { code: number; message: string; data?: unknown }) => RpcError;
   /** Called each time the socket closes. */
   readonly onClose?: () => void;
   /** Called each time the socket opens after having closed. */
@@ -252,9 +254,7 @@ export class RpcSocket {
   private receive(raw: string): void {
     const frame = JSON.parse(raw) as Response & Partial<RpcNotification>;
     if (typeof frame.method === "string") {
-      const notification: RpcNotification = frame.params === undefined
-        ? { method: frame.method }
-        : { method: frame.method, params: frame.params };
+      const notification = frame as RpcNotification;
       this.notificationListeners.forEach((listener) => listener(notification));
       return;
     }
@@ -263,7 +263,7 @@ export class RpcSocket {
     if (!pending) return;
     this.pending.delete(id);
     if (frame.error) {
-      pending.reject(new RpcError(frame.error));
+      pending.reject(this.options.refusal?.(frame.error) ?? new RpcError(frame.error));
     } else {
       pending.resolve(frame.result);
     }

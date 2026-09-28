@@ -40,6 +40,20 @@ test("a refused request rejects with the error and envelope its response carries
   assert.deepEqual(error.projectionError, envelope);
 });
 
+test("a refused request rejects with the error the application builds for it", async () => {
+  class ServerRefusal extends RpcError {}
+  const { socket, latest } = fakeSocket({ refusal: (error) => new ServerRefusal(error) });
+
+  const called = socket.call("notes.delete", { note_id: "n1" });
+  latest().accept();
+  await settle();
+  latest().refuseRequest(0, { code: -32004, message: "No such note." });
+
+  const error = await called.then(() => assert.fail("the request resolved"), (error: unknown) => error);
+  assert.ok(error instanceof ServerRefusal);
+  assert.equal(error.message, "No such note.");
+});
+
 test("each response settles its own request, whatever order they arrive in", async () => {
   const { socket, latest } = fakeSocket();
 
