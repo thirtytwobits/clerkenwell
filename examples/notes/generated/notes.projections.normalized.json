@@ -119,6 +119,9 @@
       "additionalProperties": false,
       "name": "LoroUpdateParams",
       "properties": {
+        "base_frontier_base64": {
+          "type": "string"
+        },
         "exchange_mode": {
           "enum": [
             "incremental",
@@ -129,15 +132,20 @@
         "note_id": {
           "type": "string"
         },
-        "update": {
+        "operation_id": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "update_base64": {
           "minLength": 1,
           "type": "string"
         }
       },
       "required": [
         "note_id",
-        "update",
-        "exchange_mode"
+        "operation_id",
+        "exchange_mode",
+        "update_base64"
       ],
       "type": "object"
     },
@@ -145,12 +153,24 @@
       "additionalProperties": false,
       "name": "LoroUpdateResult",
       "properties": {
+        "accepted_frontier_base64": {
+          "type": "string"
+        },
         "etag": {
+          "type": "string"
+        },
+        "missing_update_base64": {
+          "type": "string"
+        },
+        "note_id": {
           "type": "string"
         }
       },
       "required": [
-        "etag"
+        "note_id",
+        "etag",
+        "accepted_frontier_base64",
+        "missing_update_base64"
       ],
       "type": "object"
     },
@@ -158,6 +178,9 @@
       "additionalProperties": false,
       "name": "NoteAuthoringState",
       "properties": {
+        "accepted_frontier_base64": {
+          "type": "string"
+        },
         "etag": {
           "type": "string"
         },
@@ -173,12 +196,17 @@
         },
         "note_id": {
           "type": "string"
+        },
+        "update_base64": {
+          "type": "string"
         }
       },
       "required": [
         "note_id",
         "etag",
-        "exchange_modes"
+        "exchange_modes",
+        "accepted_frontier_base64",
+        "update_base64"
       ],
       "type": "object"
     },

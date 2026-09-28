@@ -22,6 +22,19 @@ The binary runs these steps against a store in a temporary directory:
 
 Each step is a function in `src/lib.rs`; `tests/walkthrough.rs` checks each outcome.
 
+## Server
+
+```bash
+cargo run -p clerkenwell-example-notes --bin notes-server
+```
+
+`notes-server` serves the notes through `clerkenwell-axum` and prints the WebSocket address.
+A client creates a note with `note.create`, subscribes to `notes.authoringState` for the
+accepted frontier and operations, and sends its replica's operations with
+`note.importLoroUpdate`. Every subscriber to the note takes the new state. A refused edit
+carries the operations its writer lacks, which the writer takes before sending its edit
+again. `src/server.rs` holds the application; `tests/server.rs` runs two clients against it.
+
 ## Files
 
 | Path | Holds |
@@ -29,6 +42,7 @@ Each step is a function in `src/lib.rs`; `tests/walkthrough.rs` checks each outc
 | `notes.projections.json` | the definition |
 | `clerkenwell-codegen.json` | the generator configuration |
 | `src/model.rs`, `generated/` | the bindings generated from the definition |
+| `src/server.rs`, `src/bin/notes-server.rs` | the notes served over the projection protocol |
 
 `tests/generated.rs` fails when the bindings are stale. Regenerate them from the repository
 root with `cargo run -p clerkenwell-codegen -- --config examples/notes/clerkenwell-codegen.json`.

@@ -71,6 +71,8 @@ pub struct NoteAuthoringState {
     pub note_id: String,
     pub etag: String,
     pub exchange_modes: Vec<NoteAuthoringStateExchangeModes>,
+    pub accepted_frontier_base64: String,
+    pub update_base64: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, PartialEq)]
@@ -100,8 +102,12 @@ pub struct NoteMutationResult {
 pub struct LoroUpdateParams {
     pub note_id: String,
     #[schemars(length(min = 1))]
-    pub update: String,
+    pub operation_id: String,
     pub exchange_mode: LoroUpdateParamsExchangeMode,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub base_frontier_base64: Option<String>,
+    #[schemars(length(min = 1))]
+    pub update_base64: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, PartialEq)]
@@ -122,7 +128,10 @@ pub struct DraftEntry {
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct LoroUpdateResult {
+    pub note_id: String,
     pub etag: String,
+    pub accepted_frontier_base64: String,
+    pub missing_update_base64: String,
 }
 
 pub const NOTE_ENTITY: &str = "Note";

@@ -35,6 +35,8 @@ export type NoteAuthoringState = {
   "note_id": string;
   "etag": string;
   "exchange_modes": ("incremental" | "bootstrap")[];
+  "accepted_frontier_base64": string;
+  "update_base64": string;
 };
 
 export type NoteAuthoringStatePatch = {
@@ -53,8 +55,10 @@ export type NoteMutationResult = {
 
 export type LoroUpdateParams = {
   "note_id": string;
-  "update": string;
+  "operation_id": string;
   "exchange_mode": "incremental" | "bootstrap";
+  "base_frontier_base64"?: string;
+  "update_base64": string;
 };
 
 export type SessionDrafts = {
@@ -69,7 +73,10 @@ export type DraftEntry = {
 };
 
 export type LoroUpdateResult = {
+  "note_id": string;
   "etag": string;
+  "accepted_frontier_base64": string;
+  "missing_update_base64": string;
 };
 
 export const NOTE_ENTITY = "Note";

@@ -8,12 +8,13 @@ Every section is a hard constraint.
 crates/clerkenwell-schema       plan types generated bindings instantiate
 crates/clerkenwell-doc          plan-driven Loro replicas, text at a frontier, conflict policy; re-exports loro
 crates/clerkenwell-session      projection wire contracts, registry, subscriptions, retained patches, resume, serving commands
+crates/clerkenwell-axum         the session protocol over axum WebSocket connections
 crates/clerkenwell-store        durable envelopes, storage port, fenced commits, publication, recovery
 crates/clerkenwell-codegen      the definition language, its validation, and the generator
 crates/clerkenwell-notebook     the example definition the tests share, and its generated bindings
 crates/clerkenwell-conformance  Rust and TypeScript replicas of one definition driven against each other
 conformance/                    the Node bridges the conformance tests drive
-examples/notes                  a runnable walk-through of the framework over one note
+examples/notes                  a runnable walk-through of the framework over one note, and a server of notes
 clients/typescript/             @clerkenwell/client (React-free) and @clerkenwell/react
 ```
 

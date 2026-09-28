@@ -7,6 +7,7 @@
 //! here; the binary runs them in order and the tests check each outcome.
 
 pub mod model;
+pub mod server;
 
 use std::path::Path;
 
