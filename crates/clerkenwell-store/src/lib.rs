@@ -466,13 +466,16 @@ pub struct CollaborationService<S = LocalFileCollaborationStorage> {
     storage: S,
     plans: &'static [GeneratedCollaborationEntitySpec],
     counters: Arc<CollaborationRuntimeCounters>,
+    /// The highest checkpoint sequence written or observed, shared with every
+    /// service derived from this one.
+    checkpoints: Arc<AtomicU64>,
     #[cfg(test)]
     faults: CollaborationFaults,
 }
 
 impl CollaborationService<LocalFileCollaborationStorage> {
-    /// A service over the same plans, sharing this one's counters, whose
-    /// envelopes live under `root`.
+    /// A service over the same plans, sharing this one's counters and
+    /// projection revision floor, whose envelopes live under `root`.
     pub fn with_storage_root(&self, root: &Path) -> Self {
         let storage = LocalFileCollaborationStorage::new(root);
         Self {
@@ -481,6 +484,7 @@ impl CollaborationService<LocalFileCollaborationStorage> {
             storage,
             plans: self.plans,
             counters: self.counters.clone(),
+            checkpoints: self.checkpoints.clone(),
         }
     }
 
@@ -493,6 +497,7 @@ impl CollaborationService<LocalFileCollaborationStorage> {
             storage,
             plans,
             counters: Arc::new(CollaborationRuntimeCounters::default()),
+            checkpoints: Arc::new(AtomicU64::new(0)),
         }
     }
 }
@@ -505,6 +510,7 @@ impl<S: CollaborationStoragePort> CollaborationService<S> {
             storage,
             plans,
             counters: Arc::new(CollaborationRuntimeCounters::default()),
+            checkpoints: Arc::new(AtomicU64::new(0)),
             #[cfg(test)]
             faults: CollaborationFaults::default(),
         }
@@ -595,7 +601,28 @@ impl<S: CollaborationStoragePort> CollaborationService<S> {
         validate_envelope(document, envelope)?;
         let bytes = serde_json::to_vec_pretty(envelope)
             .map_err(|error| StoreError::internal(error.to_string()))?;
-        self.storage.compare_and_swap(document, expected, &bytes)
+        let written = self.storage.compare_and_swap(document, expected, &bytes)?;
+        if written.is_some() {
+            self.observe_checkpoint_sequence(envelope.checkpoint_sequence);
+        }
+        Ok(written)
+    }
+
+    /// The lowest revision a projection over this service's documents may be
+    /// served at: past every checkpoint it, or a service derived from it, has
+    /// written or observed. It never falls.
+    pub fn projection_revision_floor(&self) -> u64 {
+        self.checkpoints
+            .load(Ordering::Relaxed)
+            .saturating_add(1)
+            .max(2)
+    }
+
+    /// Raises the projection revision floor past `sequence`, a checkpoint this
+    /// service did not write, such as one already stored when the application
+    /// started.
+    pub fn observe_checkpoint_sequence(&self, sequence: u64) {
+        self.checkpoints.fetch_max(sequence, Ordering::Relaxed);
     }
 
     /// Appends `commit`'s operation to the envelope the service read, or
