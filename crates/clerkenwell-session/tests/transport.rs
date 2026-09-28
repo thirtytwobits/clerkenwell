@@ -1,6 +1,6 @@
 use clerkenwell_session::transport::{
-    ProjectionMutationAccepted, ProjectionMutationCommand, ProjectionSubscribeCommand,
-    ProjectionSubscribeCursor, ProjectionSubscribeResume, ProjectionTransportEvent,
+    ProjectionMutationAccepted, ProjectionMutationCommand, ProjectionSubscribeAccepted,
+    ProjectionSubscribeCommand, ProjectionTransportEvent,
 };
 use serde_json::{json, Value};
 
@@ -9,7 +9,7 @@ fn commands_round_trip_without_hidden_defaults() {
     let subscribe = ProjectionSubscribeCommand {
         projection: "notes.list".to_owned(),
         params: Some(json!({})),
-        cursor: Some(ProjectionSubscribeCursor { revision: 42 }),
+        held: Some(json!({ "frontier_base64": "AAE=", "etag": "loro:1" })),
     };
     let subscribe_json = serde_json::to_value(&subscribe).expect("encode subscribe");
     assert_eq!(
@@ -52,12 +52,14 @@ fn accepted_mutations_and_events_carry_the_application_payload_intact() {
             subscription_id: 7,
             revision: 4,
             snapshot: json!({ "notes": [] }),
+            held: Some(json!({ "etag": "loro:4" })),
         },
         ProjectionTransportEvent::Patch {
             subscription_id: 7,
             from_revision: 4,
             to_revision: 5,
             patch: json!({ "kind": "remove", "note_id": "note-1" }),
+            held: None,
         },
     ] {
         let encoded = serde_json::to_value(&event).expect("encode event");
@@ -70,24 +72,19 @@ fn accepted_mutations_and_events_carry_the_application_payload_intact() {
 }
 
 #[test]
-fn resume_outcomes_are_explicit_and_bounded() {
-    let outcomes = [
-        ProjectionSubscribeResume::UpToDate { revision: 9 },
-        ProjectionSubscribeResume::Patches {
-            from_revision: 4,
+fn an_accepted_subscription_says_only_when_no_snapshot_follows() {
+    for up_to_date in [false, true] {
+        let accepted = ProjectionSubscribeAccepted {
+            subscription_id: 3,
             revision: 9,
-            patch_count: 5,
-        },
-        ProjectionSubscribeResume::Snapshot {
-            from_revision: 1,
-            revision: 9,
-        },
-    ];
-    for outcome in outcomes {
-        let value = serde_json::to_value(&outcome).expect("encode resume");
+            up_to_date,
+        };
+        let encoded = serde_json::to_value(&accepted).expect("encode accepted");
+        assert_eq!(encoded.get("up_to_date").is_some(), up_to_date);
         assert_eq!(
-            serde_json::from_value::<ProjectionSubscribeResume>(value).expect("decode resume"),
-            outcome
+            serde_json::from_value::<ProjectionSubscribeAccepted>(encoded)
+                .expect("decode accepted"),
+            accepted
         );
     }
 }

@@ -27,16 +27,6 @@ use serde_json::{json, Value};
 use tokio::sync::broadcast;
 use tokio::sync::broadcast::error::RecvError;
 
-/// How far a server lets its connections fall behind.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ServerWindows {
-    /// Mutations a connection may fall behind the others before it
-    /// resynchronises.
-    pub publications: NonZeroUsize,
-    /// Patches each connection retains for a subscription that resumes.
-    pub retained_patches: usize,
-}
-
 const PARSE_ERROR: i64 = -32700;
 const INVALID_REQUEST: i64 = -32600;
 const METHOD_NOT_FOUND: i64 = -32601;
@@ -103,8 +93,7 @@ fn rpc_code(code: ProjectionErrorCode) -> i64 {
         | ProjectionErrorCode::UnknownProjection
         | ProjectionErrorCode::UnsupportedProjection
         | ProjectionErrorCode::InvalidParams
-        | ProjectionErrorCode::ValidationFailed
-        | ProjectionErrorCode::CursorAhead => -32602,
+        | ProjectionErrorCode::ValidationFailed => -32602,
         ProjectionErrorCode::NotFound => -32004,
         ProjectionErrorCode::Conflict
         | ProjectionErrorCode::StaleWrite
@@ -143,7 +132,6 @@ type Subscriptions<A> =
 pub struct ProjectionServer<A: ProjectionHost> {
     application: A,
     published: broadcast::Sender<Arc<Publication<A::MutationResult>>>,
-    retained_patches: usize,
     connections: AtomicU64,
 }
 
@@ -155,13 +143,13 @@ where
     A::Delivery: Sync + 'static,
     A::MutationResult: 'static,
 {
-    /// A server whose connections fall behind no further than `windows`.
-    pub fn new(application: A, windows: ServerWindows) -> Arc<Self> {
-        let (published, _) = broadcast::channel(windows.publications.get());
+    /// A server whose connections resynchronise once they fall more than
+    /// `publication_window` mutations behind the others.
+    pub fn new(application: A, publication_window: NonZeroUsize) -> Arc<Self> {
+        let (published, _) = broadcast::channel(publication_window.get());
         Arc::new(Self {
             application,
             published,
-            retained_patches: windows.retained_patches,
             connections: AtomicU64::new(1),
         })
     }
@@ -187,8 +175,7 @@ where
     /// Serves one WebSocket until it closes.
     pub async fn serve_socket(self: Arc<Self>, socket: WebSocket) {
         let origin = self.connections.fetch_add(1, Ordering::Relaxed);
-        let subscriptions: Subscriptions<A> =
-            Mutex::new(ProjectionSubscriptions::new(self.retained_patches));
+        let subscriptions: Subscriptions<A> = Mutex::new(ProjectionSubscriptions::default());
         let mut published = self.published.subscribe();
         let (mut sink, mut stream) = socket.split();
         loop {

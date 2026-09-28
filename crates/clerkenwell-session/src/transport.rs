@@ -18,14 +18,11 @@ pub struct ProjectionSubscribeCommand {
     pub projection: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub params: Option<Value>,
+    /// What an earlier subscription's last update said the client holds. The
+    /// subscription then sends only what the client lacks. A value the server
+    /// cannot read counts as holding nothing.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub cursor: Option<ProjectionSubscribeCursor>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(deny_unknown_fields)]
-pub struct ProjectionSubscribeCursor {
-    pub revision: u64,
+    pub held: Option<Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -56,25 +53,14 @@ pub struct ProjectionMutationCommand {
 pub struct ProjectionSubscribeAccepted {
     pub subscription_id: u64,
     pub revision: u64,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub resume: Option<ProjectionSubscribeResume>,
+    /// The client already holds what the subscription would send, so no
+    /// snapshot follows: it keeps what it holds, at `revision`.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub up_to_date: bool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
-pub enum ProjectionSubscribeResume {
-    UpToDate {
-        revision: u64,
-    },
-    Patches {
-        from_revision: u64,
-        revision: u64,
-        patch_count: usize,
-    },
-    Snapshot {
-        from_revision: u64,
-        revision: u64,
-    },
+fn is_false(value: &bool) -> bool {
+    !value
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -109,12 +95,18 @@ pub enum ProjectionTransportEvent<S, P> {
         subscription_id: u64,
         revision: u64,
         snapshot: S,
+        /// What the update leaves the client holding, for it to send back when
+        /// it subscribes again. Absent when the server does not name it.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        held: Option<Value>,
     },
     Patch {
         subscription_id: u64,
         from_revision: u64,
         to_revision: u64,
         patch: P,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        held: Option<Value>,
     },
 }
 
@@ -131,14 +123,13 @@ pub enum ProjectionErrorCode {
     Conflict,
     ValidationFailed,
     BaseRevisionInFuture,
-    CursorAhead,
     StaleWrite,
     RateLimit,
     InternalError,
 }
 
 impl ProjectionErrorCode {
-    pub const ALL: [Self; 13] = [
+    pub const ALL: [Self; 12] = [
         Self::UnknownMutation,
         Self::UnsupportedMutation,
         Self::UnknownProjection,
@@ -148,7 +139,6 @@ impl ProjectionErrorCode {
         Self::Conflict,
         Self::ValidationFailed,
         Self::BaseRevisionInFuture,
-        Self::CursorAhead,
         Self::StaleWrite,
         Self::RateLimit,
         Self::InternalError,
@@ -165,7 +155,6 @@ impl ProjectionErrorCode {
             Self::Conflict => "conflict",
             Self::ValidationFailed => "validation_failed",
             Self::BaseRevisionInFuture => "base_revision_in_future",
-            Self::CursorAhead => "cursor_ahead",
             Self::StaleWrite => "stale_write",
             Self::RateLimit => "rate_limit",
             Self::InternalError => "internal_error",

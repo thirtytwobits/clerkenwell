@@ -115,36 +115,31 @@ pub trait ProjectionFailure: Sized {
 pub trait ProjectionHost: Sync {
     type Snapshot: Serialize + Send;
     type Patch: Serialize + Clone + PartialEq + Send;
-    /// What a snapshot leaves its client holding, for a projection whose
-    /// patches carry only what follows it.
-    type Delivery: Clone + Send;
+    /// What an update leaves its client holding. A client sends it back when
+    /// it subscribes again, and is sent only what it lacks.
+    type Delivery: Clone + PartialEq + Serialize + DeserializeOwned + Send;
     type MutationResult: Serialize + Send + Sync;
     type Failure: ProjectionFailure + Send;
 
     /// The projections and mutations served.
     fn registry(&self) -> &ProjectionRegistry;
 
+    /// `projection`'s state for a client that holds `held`, which may carry
+    /// only what that client lacks.
     fn snapshot(
         &self,
         projection: &str,
         params: &Value,
+        held: Option<&Self::Delivery>,
     ) -> impl Future<Output = Result<Self::Snapshot, Self::Failure>> + Send;
 
-    /// What `snapshot` leaves its client holding, when its projection's
-    /// patches carry only what follows it.
+    /// What `snapshot` leaves its client holding, for a projection that names
+    /// it.
     fn delivered(&self, snapshot: &Self::Snapshot) -> Option<Self::Delivery>;
 
-    /// The lowest revision a new subscription to `projection` may start at,
-    /// from state that outlives connections.
-    fn revision_floor(
-        &self,
-        projection: &str,
-        params: &Value,
-    ) -> impl Future<Output = Result<u64, Self::Failure>> + Send;
-
-    /// The lowest revision a mutation's effects may reach, from state that
-    /// outlives connections.
-    fn mutation_revision_floor(&self) -> impl Future<Output = Result<u64, Self::Failure>> + Send;
+    /// What `patch` leaves its client holding, for a projection that names
+    /// it.
+    fn delivered_by_patch(&self, patch: &Self::Patch) -> Option<Self::Delivery>;
 
     fn mutate(
         &self,
@@ -187,8 +182,6 @@ impl<P: Send, D: Send> ProjectionConnection<P, D> for Mutex<ProjectionSubscripti
 pub struct AcceptedMutation<M> {
     pub mutation: String,
     pub result: M,
-    /// The lowest revision its effects may reach.
-    pub floor: u64,
 }
 
 /// A served command's result and the updates it sends.
@@ -281,9 +274,8 @@ where
     let registry = host.registry();
     let mutation = accepted.mutation.as_str();
     let publishes = !registry.plans_only(mutation);
-    let floor = accepted.floor;
     let revision = connection
-        .with_subscriptions(move |subscriptions| subscriptions.mutation_revision(floor, publishes))
+        .with_subscriptions(move |subscriptions| subscriptions.mutation_revision(publishes))
         .await;
     let mut events = Vec::new();
     if !publishes {
@@ -310,12 +302,13 @@ where
         else {
             continue;
         };
-        let delivered = connection
+        let delivered = host.delivered_by_patch(&patch);
+        let event = connection
             .with_subscriptions(move |subscriptions| {
-                subscriptions.deliver_patch(subscription_id, revision, patch)
+                subscriptions.deliver_patch(subscription_id, revision, patch, delivered)
             })
             .await;
-        events.extend(delivered);
+        events.extend(event);
     }
     (revision, events)
 }
@@ -341,7 +334,7 @@ where
     let mut events = Vec::new();
     for (subscription_id, subscription) in subscriptions {
         let Ok(snapshot) = host
-            .snapshot(&subscription.projection, &subscription.params)
+            .snapshot(&subscription.projection, &subscription.params, None)
             .await
         else {
             continue;
@@ -391,30 +384,19 @@ where
         )));
     }
     let params = command.params.unwrap_or_else(|| json!({}));
-    let snapshot = host.snapshot(&command.projection, &params).await?;
+    let held = command
+        .held
+        .and_then(|held| serde_json::from_value::<H::Delivery>(held).ok());
+    let snapshot = host
+        .snapshot(&command.projection, &params, held.as_ref())
+        .await?;
     let delivered = host.delivered(&snapshot);
-    let floor = host.revision_floor(&command.projection, &params).await?;
     let projection = command.projection;
-    let cursor = command.cursor.map(|cursor| cursor.revision);
     let (accepted, events) = connection
         .with_subscriptions(move |subscriptions| {
-            subscriptions
-                .accept_subscription(projection, params, cursor, floor, snapshot, delivered)
+            subscriptions.accept_subscription(projection, params, held, snapshot, delivered)
         })
-        .await
-        .map_err(|ahead| {
-            H::Failure::refused(ProjectionRefusal::new(
-                ProjectionErrorCode::CursorAhead,
-                format!(
-                    "Projection cursor {} is ahead of current revision {}.",
-                    ahead.cursor_revision, ahead.current_revision
-                ),
-                Some(json!({
-                    "cursor_revision": ahead.cursor_revision,
-                    "current_revision": ahead.current_revision,
-                })),
-            ))
-        })?;
+        .await;
     Ok(ProjectionReply {
         result: encode::<H, _>(&accepted)?,
         events,
@@ -437,7 +419,7 @@ where
         .await
         .ok_or_else(|| subscription_not_found::<H>(subscription_id))?;
     let snapshot = host
-        .snapshot(&subscription.projection, &subscription.params)
+        .snapshot(&subscription.projection, &subscription.params, None)
         .await?;
     let delivered = host.delivered(&snapshot);
     let (accepted, event) = connection
@@ -497,12 +479,7 @@ where
         )));
     }
     let result = host.mutate(&mutation, command.params).await?;
-    let floor = host.mutation_revision_floor().await?;
-    let accepted = AcceptedMutation {
-        mutation,
-        result,
-        floor,
-    };
+    let accepted = AcceptedMutation { mutation, result };
     let (revision, events) = publish(host, connection, &accepted).await;
     let reply = ProjectionMutationAccepted {
         operation_id: command.operation_id,

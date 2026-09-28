@@ -320,28 +320,6 @@ fn a_policy_refusal_no_concurrent_edit_caused_names_the_refused_edit_base_as_acc
 }
 
 #[test]
-fn the_projection_revision_floor_passes_every_checkpoint_a_service_commits() {
-    let root = TempDir::new().expect("temp workspace");
-    let (service, document, seed, state) = initialise(root.path());
-    let edit = edit_request(
-        &document,
-        &seed,
-        &state,
-        "floor-edit",
-        &["title"],
-        json!("Errands"),
-    );
-    import(&service, edit, &seed).expect("an edit");
-
-    let stored = service
-        .load(&document)
-        .expect("read the note")
-        .expect("the note");
-
-    assert!(service.projection_revision_floor() >= stored.projection_revision_floor());
-}
-
-#[test]
 fn an_envelope_names_the_accepted_state_it_holds_by_the_etag_readers_are_given() {
     let root = TempDir::new().expect("temp workspace");
     let (service, document, seed, state) = initialise(root.path());
@@ -370,37 +348,6 @@ fn an_envelope_names_the_accepted_state_it_holds_by_the_etag_readers_are_given()
         state.etag,
         "an edit changes the accepted state"
     );
-}
-
-#[test]
-fn a_derived_service_raises_the_floor_of_the_service_it_came_from() {
-    let root = TempDir::new().expect("temp workspace");
-    let parent = open_service(root.path());
-    let derived = parent.with_storage_root(&root.path().join("elsewhere"));
-    let document = CollaborationDocumentId::new("Note", "note-1");
-    derived
-        .bootstrap(&NOTE_PLAN, &document, RELATIVE_PATH, &note_seed(), accept)
-        .expect("bootstrap through the derived service");
-
-    let stored = derived
-        .load(&document)
-        .expect("read the note")
-        .expect("the note");
-
-    assert!(parent.projection_revision_floor() >= stored.projection_revision_floor());
-}
-
-#[test]
-fn an_observed_checkpoint_raises_the_floor_and_an_older_one_leaves_it() {
-    let root = TempDir::new().expect("temp workspace");
-    let service = open_service(root.path());
-
-    service.observe_checkpoint_sequence(40);
-    let raised = service.projection_revision_floor();
-    service.observe_checkpoint_sequence(3);
-
-    assert!(raised > 40);
-    assert_eq!(service.projection_revision_floor(), raised);
 }
 
 fn edit_request(
@@ -882,7 +829,6 @@ fn two_services_over_one_store_serialise_concurrent_commits_and_converge() {
         .expect("retained window")
         .expect("envelope");
     assert!(envelope.retained_operations.len() >= 3);
-    assert!(envelope.projection_revision_floor() > 1);
 }
 
 #[test]

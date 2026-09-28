@@ -5,7 +5,7 @@ use std::num::NonZeroUsize;
 use std::sync::Mutex;
 use std::time::Duration;
 
-use clerkenwell_axum::{ProjectionServer, RpcFailure, ServerWindows};
+use clerkenwell_axum::{ProjectionServer, RpcFailure};
 use clerkenwell_schema::{
     GeneratedMaterializationPlan, GeneratedMutationSpec, GeneratedProjectionSpec,
 };
@@ -69,7 +69,12 @@ impl ProjectionHost for Counters {
         &REGISTRY
     }
 
-    async fn snapshot(&self, projection: &str, params: &Value) -> Result<Value, RpcFailure> {
+    async fn snapshot(
+        &self,
+        projection: &str,
+        params: &Value,
+        _held: Option<&()>,
+    ) -> Result<Value, RpcFailure> {
         if projection == "clock.held" {
             let _released = self.released.acquire().await.expect("the release");
             return Ok(json!({ "held": false }));
@@ -89,12 +94,8 @@ impl ProjectionHost for Counters {
         None
     }
 
-    async fn revision_floor(&self, _projection: &str, _params: &Value) -> Result<u64, RpcFailure> {
-        Ok(0)
-    }
-
-    async fn mutation_revision_floor(&self) -> Result<u64, RpcFailure> {
-        Ok(0)
+    fn delivered_by_patch(&self, _patch: &Value) -> Option<()> {
+        None
     }
 
     async fn mutate(&self, _mutation: &str, params: Value) -> Result<Value, RpcFailure> {
@@ -119,11 +120,8 @@ impl ProjectionHost for Counters {
 type Socket = WebSocketStream<MaybeTlsStream<TcpStream>>;
 
 async fn start(window: usize) -> (String, std::sync::Arc<ProjectionServer<Counters>>) {
-    let windows = ServerWindows {
-        publications: NonZeroUsize::new(window).expect("a publication window"),
-        retained_patches: 64,
-    };
-    let server = ProjectionServer::new(Counters::default(), windows);
+    let window = NonZeroUsize::new(window).expect("a publication window");
+    let server = ProjectionServer::new(Counters::default(), window);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
         .await
         .expect("a listener");

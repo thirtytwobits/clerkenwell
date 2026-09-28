@@ -8,7 +8,7 @@ use std::num::NonZeroUsize;
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use clerkenwell_axum::{RpcFailure, ServerWindows};
+use clerkenwell_axum::RpcFailure;
 use clerkenwell_session::transport::ProjectionErrorCode;
 use clerkenwell_session::{ProjectionHost, ProjectionRegistry, ProjectionSubscription};
 use clerkenwell_store::{
@@ -16,6 +16,7 @@ use clerkenwell_store::{
     CollaborationService, ImportFence, StoreError, StoreErrorKind,
 };
 use serde::de::DeserializeOwned;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use crate::model::{
@@ -28,14 +29,28 @@ use crate::model::{
 };
 use crate::{validate, COMMIT_POLICY, NOTE};
 
-/// How far the example's server lets a connection fall behind.
-pub const SERVER_WINDOWS: ServerWindows = ServerWindows {
-    publications: match NonZeroUsize::new(256) {
-        Some(publications) => publications,
-        None => panic!("the publication window is non-zero"),
-    },
-    retained_patches: 64,
+/// Mutations a connection of the example's server may fall behind before it
+/// resynchronises.
+pub const PUBLICATION_WINDOW: NonZeroUsize = match NonZeroUsize::new(256) {
+    Some(window) => window,
+    None => panic!("the publication window is non-zero"),
 };
+
+/// The note an authoring-state update leaves a client holding.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HeldNote {
+    pub frontier_base64: String,
+    pub etag: String,
+}
+
+impl From<&NoteAuthoringState> for HeldNote {
+    fn from(state: &NoteAuthoringState) -> Self {
+        Self {
+            frontier_base64: state.accepted_frontier_base64.clone(),
+            etag: state.etag.clone(),
+        }
+    }
+}
 
 static REGISTRY: ProjectionRegistry = ProjectionRegistry::new(
     GENERATED_PROJECTION_SPECS,
@@ -62,10 +77,20 @@ impl NotesServer {
         }
     }
 
-    fn authoring_state(&self, note_id: &str) -> Result<NoteAuthoringState, RpcFailure> {
+    /// A note's authoring state for a client that holds `held`: only the
+    /// operations it lacks.
+    fn authoring_state(
+        &self,
+        note_id: &str,
+        held: Option<&HeldNote>,
+    ) -> Result<NoteAuthoringState, RpcFailure> {
         let read = self
             .service
-            .authoring_state(NOTE, &note(note_id), None)
+            .authoring_state(
+                NOTE,
+                &note(note_id),
+                held.map(|held| held.frontier_base64.as_str()),
+            )
             .map_err(refused)?;
         Ok(NoteAuthoringState {
             note_id: note_id.to_owned(),
@@ -91,7 +116,7 @@ impl NotesServer {
                 validate,
             )
             .map_err(refused)?;
-        let etag = self.authoring_state(&note_id)?.etag;
+        let etag = self.authoring_state(&note_id, None)?.etag;
         Ok(NoteMutationResult { note_id, etag })
     }
 
@@ -109,7 +134,7 @@ impl NotesServer {
                         validate,
                     )
                     .map_err(refused)?;
-                let state = self.authoring_state(&params.note_id)?;
+                let state = self.authoring_state(&params.note_id, None)?;
                 Ok(LoroUpdateResult {
                     note_id: params.note_id,
                     etag: state.etag,
@@ -156,7 +181,7 @@ impl NotesServer {
 impl ProjectionHost for NotesServer {
     type Snapshot = ProjectionTransportSnapshot;
     type Patch = ProjectionTransportPatch;
-    type Delivery = ();
+    type Delivery = HeldNote;
     type MutationResult = ProjectionTransportMutationResult;
     type Failure = RpcFailure;
 
@@ -168,23 +193,22 @@ impl ProjectionHost for NotesServer {
         &self,
         _projection: &str,
         params: &Value,
+        held: Option<&HeldNote>,
     ) -> Result<ProjectionTransportSnapshot, RpcFailure> {
         let params: NoteKeyParams = decode(params.clone())?;
         Ok(ProjectionTransportSnapshot::NotesAuthoringState(
-            self.authoring_state(&params.note_id)?,
+            self.authoring_state(&params.note_id, held)?,
         ))
     }
 
-    fn delivered(&self, _snapshot: &ProjectionTransportSnapshot) -> Option<()> {
-        None
+    fn delivered(&self, snapshot: &ProjectionTransportSnapshot) -> Option<HeldNote> {
+        let ProjectionTransportSnapshot::NotesAuthoringState(state) = snapshot;
+        Some(state.into())
     }
 
-    async fn revision_floor(&self, _projection: &str, _params: &Value) -> Result<u64, RpcFailure> {
-        Ok(0)
-    }
-
-    async fn mutation_revision_floor(&self) -> Result<u64, RpcFailure> {
-        Ok(0)
+    fn delivered_by_patch(&self, patch: &ProjectionTransportPatch) -> Option<HeldNote> {
+        let ProjectionTransportPatch::NotesAuthoringState(patch) = patch;
+        patch.state.as_ref().map(HeldNote::from)
     }
 
     async fn mutate(
@@ -211,7 +235,7 @@ impl ProjectionHost for NotesServer {
         &self,
         _mutation: &str,
         result: &ProjectionTransportMutationResult,
-        subscription: &ProjectionSubscription<()>,
+        subscription: &ProjectionSubscription<HeldNote>,
     ) -> Option<ProjectionTransportPatch> {
         let note_id = match result {
             ProjectionTransportMutationResult::NoteCreate(created) => &created.note_id,
@@ -220,7 +244,7 @@ impl ProjectionHost for NotesServer {
         if subscription.params["note_id"].as_str() != Some(note_id) {
             return None;
         }
-        let state = self.authoring_state(note_id).ok()?;
+        let state = self.authoring_state(note_id, None).ok()?;
         Some(ProjectionTransportPatch::NotesAuthoringState(
             NoteAuthoringStatePatch {
                 kind: NoteAuthoringStatePatchKind::Replace,

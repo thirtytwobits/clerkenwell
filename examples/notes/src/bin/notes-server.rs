@@ -5,7 +5,7 @@ use std::path::PathBuf;
 
 use clap::Parser;
 use clerkenwell_axum::ProjectionServer;
-use clerkenwell_example_notes::server::{NotesServer, SERVER_WINDOWS};
+use clerkenwell_example_notes::server::{NotesServer, PUBLICATION_WINDOW};
 
 /// Serves notes over the projection protocol.
 #[derive(Parser)]
@@ -25,7 +25,7 @@ async fn main() -> std::io::Result<()> {
     let store = arguments
         .store
         .unwrap_or_else(|| temporary.path().to_path_buf());
-    let server = ProjectionServer::new(NotesServer::new(&store), SERVER_WINDOWS);
+    let server = ProjectionServer::new(NotesServer::new(&store), PUBLICATION_WINDOW);
     let listener = tokio::net::TcpListener::bind(("127.0.0.1", arguments.port)).await?;
     println!("ws://{}/projections", listener.local_addr()?);
     axum::serve(listener, server.router("/projections")).await

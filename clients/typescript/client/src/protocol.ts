@@ -22,11 +22,11 @@ export const PROJECTION_UPDATE_NOTIFICATION = "projection.update";
 export interface ProjectionSubscribeCommand {
   projection: string;
   params?: unknown;
-  cursor?: ProjectionSubscribeCursor;
-}
-
-export interface ProjectionSubscribeCursor {
-  revision: number;
+  /**
+   * What an earlier subscription's last update said the client holds. The
+   * subscription then sends only what the client lacks.
+   */
+  held?: unknown;
 }
 
 export interface ProjectionResyncCommand {
@@ -50,25 +50,12 @@ export interface ProjectionMutationCommand<
 export interface ProjectionSubscribeAccepted {
   subscription_id: number;
   revision: number;
-  resume?: ProjectionSubscribeResume;
+  /**
+   * The client already holds what the subscription would send, so no
+   * snapshot follows: it keeps what it holds, at `revision`.
+   */
+  up_to_date?: boolean;
 }
-
-export type ProjectionSubscribeResume =
-  | {
-    kind: "up_to_date";
-    revision: number;
-  }
-  | {
-    kind: "patches";
-    from_revision: number;
-    revision: number;
-    patch_count: number;
-  }
-  | {
-    kind: "snapshot";
-    from_revision: number;
-    revision: number;
-  };
 
 export interface ProjectionResyncAccepted {
   subscription_id: number;
@@ -93,6 +80,8 @@ export type ProjectionTransportEvent<M extends ProjectionModel = ProjectionModel
     subscription_id: number;
     revision: number;
     snapshot: ProjectionTransportSnapshot<M>;
+    /** What the update leaves the client holding, to send back when it subscribes again. */
+    held?: unknown;
   }
   | {
     kind: "patch";
@@ -100,6 +89,7 @@ export type ProjectionTransportEvent<M extends ProjectionModel = ProjectionModel
     from_revision: number;
     to_revision: number;
     patch: ProjectionTransportPatch<M>;
+    held?: unknown;
   };
 
 export type ProjectionErrorCode =
@@ -112,7 +102,6 @@ export type ProjectionErrorCode =
   | "conflict"
   | "validation_failed"
   | "base_revision_in_future"
-  | "cursor_ahead"
   | "stale_write"
   | "rate_limit"
   | "internal_error";

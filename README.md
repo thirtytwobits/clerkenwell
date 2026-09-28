@@ -11,7 +11,7 @@ operations and forensic recovery.
 |---|---|
 | `clerkenwell-schema` | the plan types generated bindings instantiate |
 | `clerkenwell-doc` | plan-driven Loro replicas: whole-document edits written as operations, text edits at a captured frontier, forks, and field conflict policy |
-| `clerkenwell-session` | the projection session protocol: wire contracts, registry, per-connection subscriptions and where each last delivery left its client, retained patches and resume, and serving each command against an application's host |
+| `clerkenwell-session` | the projection session protocol: wire contracts, registry, per-connection subscriptions and what each update left its client holding, resuming a subscription from that, and serving each command against an application's host |
 | `clerkenwell-axum` | a reference transport: the session protocol as JSON-RPC 2.0 over axum WebSocket connections, each mutation published to every connection's subscriptions |
 | `clerkenwell-store` | durable single-authority storage: envelopes, a replaceable storage port, fenced compare-and-swap commits, two-phase publication, quarantine, repair and an audit log |
 | `clerkenwell-codegen` | the definition language, its validation, and the Rust, TypeScript and fixture generator |

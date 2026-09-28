@@ -16,20 +16,21 @@ function projectionClient() {
   return { ...harness, client: new ProjectionClient<TestProjectionModel>(harness.socket) };
 }
 
-test("a subscription names its projection, its params and the revision it resumes from", async () => {
+test("a subscription names its projection, its params and what the client holds", async () => {
   const { client, latest } = projectionClient();
+  const held = { frontier_base64: "AAE=", etag: "loro:4" };
 
-  const subscribed = client.projectionSubscribe("notes.byId", { note_id: "n1" }, { cursorRevision: 4 });
+  const subscribed = client.projectionSubscribe("notes.byId", { note_id: "n1" }, { held });
   latest().accept();
   await settle();
-  latest().answer(0, { subscription_id: 7, revision: 5 });
+  latest().answer(0, { subscription_id: 7, revision: 5, up_to_date: true });
 
-  assert.deepEqual(await subscribed, { subscription_id: 7, revision: 5 });
+  assert.deepEqual(await subscribed, { subscription_id: 7, revision: 5, up_to_date: true });
   assert.deepEqual(latest().request(0), {
     jsonrpc: "2.0",
     id: latest().request(0).id,
     method: "projection.subscribe",
-    params: { projection: "notes.byId", params: { note_id: "n1" }, cursor: { revision: 4 } }
+    params: { projection: "notes.byId", params: { note_id: "n1" }, held }
   });
 });
 
