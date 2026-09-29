@@ -415,6 +415,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "clerkenwell-events"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "clerkenwell-example-notes"
 version = "0.1.0"
 dependencies = [
@@ -466,6 +474,7 @@ dependencies = [
  "base64 0.23.1",
  "chrono",
  "clerkenwell-doc",
+ "clerkenwell-events",
  "clerkenwell-schema",
  "fs2",
  "loro",

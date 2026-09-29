@@ -343,11 +343,12 @@ fn a_port_that_keeps_only_bytes_carries_the_protocol_as_the_file_store_does() {
             LocalFileCollaborationStorage::new(root.path()),
             PLANS,
             POLICY,
+            "file-port",
         ),
         &edits,
     );
     let in_memory = drive(
-        &CollaborationService::with_storage(MemoryPort::default(), PLANS, POLICY),
+        &CollaborationService::with_storage(MemoryPort::default(), PLANS, POLICY, "memory-port"),
         &edits,
     );
 
@@ -370,7 +371,7 @@ fn a_port_that_keeps_only_bytes_carries_the_protocol_as_the_file_store_does() {
 #[test]
 fn quarantine_preserves_the_stored_bytes_through_the_port() {
     let port = MemoryPort::default();
-    let service = CollaborationService::with_storage(port.clone(), PLANS, POLICY);
+    let service = CollaborationService::with_storage(port.clone(), PLANS, POLICY, "memory-port");
     let document = note();
     service
         .bootstrap(
@@ -396,7 +397,7 @@ fn quarantine_preserves_the_stored_bytes_through_the_port() {
 #[test]
 fn a_publication_scan_reads_bytes_without_asking_for_versions() {
     let port = MemoryPort::default();
-    let service = CollaborationService::with_storage(port.clone(), PLANS, POLICY);
+    let service = CollaborationService::with_storage(port.clone(), PLANS, POLICY, "memory-port");
     let document = note();
     service
         .bootstrap(
@@ -421,7 +422,7 @@ fn a_publication_scan_reads_bytes_without_asking_for_versions() {
 #[test]
 fn a_rescan_reads_again_only_the_envelopes_whose_bytes_changed() {
     let port = MemoryPort::default();
-    let service = CollaborationService::with_storage(port.clone(), PLANS, POLICY);
+    let service = CollaborationService::with_storage(port.clone(), PLANS, POLICY, "memory-port");
     let edits = edits(1);
     let document = note();
     service
@@ -478,7 +479,7 @@ fn a_rescan_reads_again_only_the_envelopes_whose_bytes_changed() {
 #[test]
 fn a_rescan_drops_an_envelope_that_is_no_longer_kept() {
     let port = MemoryPort::default();
-    let service = CollaborationService::with_storage(port.clone(), PLANS, POLICY);
+    let service = CollaborationService::with_storage(port.clone(), PLANS, POLICY, "memory-port");
     let document = note();
     service
         .bootstrap(
@@ -505,8 +506,8 @@ fn a_rescan_drops_an_envelope_that_is_no_longer_kept() {
 #[test]
 fn commits_racing_through_one_port_both_land() {
     let port = MemoryPort::default();
-    let first = CollaborationService::with_storage(port.clone(), PLANS, POLICY);
-    let second = CollaborationService::with_storage(port, PLANS, POLICY);
+    let first = CollaborationService::with_storage(port.clone(), PLANS, POLICY, "memory-port");
+    let second = CollaborationService::with_storage(port, PLANS, POLICY, "memory-port");
     let document = note();
     first
         .bootstrap(
@@ -554,7 +555,7 @@ fn commits_racing_through_one_port_both_land() {
 fn a_move_takes_the_source_as_it_stands_when_another_writer_commits_during_it() {
     let edits = edits(1);
     let port = MemoryPort::default();
-    let service = CollaborationService::with_storage(port.clone(), PLANS, POLICY);
+    let service = CollaborationService::with_storage(port.clone(), PLANS, POLICY, "memory-port");
     let document = note();
     service
         .bootstrap_update(
@@ -607,7 +608,7 @@ fn an_import_that_keeps_losing_its_commit_is_refused_after_the_attempts_its_poli
         attempts: NonZeroU32::new(3).expect("attempts"),
         ..POLICY
     };
-    let service = CollaborationService::with_storage(port.clone(), PLANS, policy);
+    let service = CollaborationService::with_storage(port.clone(), PLANS, policy, "memory-port");
     service
         .bootstrap_update(
             &NOTE_PLAN,
@@ -643,7 +644,8 @@ fn an_envelope_keeps_the_latest_operations_its_policy_retains() {
         retained_operations: 3,
         ..POLICY
     };
-    let service = CollaborationService::with_storage(MemoryPort::default(), PLANS, policy);
+    let service =
+        CollaborationService::with_storage(MemoryPort::default(), PLANS, policy, "memory-port");
     service
         .bootstrap_update(
             &NOTE_PLAN,
