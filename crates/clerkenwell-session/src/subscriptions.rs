@@ -1,17 +1,14 @@
-use std::collections::{BTreeMap, HashMap, VecDeque};
+use std::collections::{BTreeMap, HashMap};
+use std::marker::PhantomData;
 use std::time::Duration;
 
+use serde::Serialize;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
 use crate::transport::{
-    ProjectionResyncAccepted, ProjectionSubscribeAccepted, ProjectionSubscribeResume,
-    ProjectionTransportEvent,
+    ProjectionResyncAccepted, ProjectionSubscribeAccepted, ProjectionTransportEvent,
 };
-
-/// How many patches a connection retains for resuming subscriptions, unless
-/// the application chooses otherwise.
-pub const DEFAULT_RETAINED_PATCH_WINDOW: usize = 64;
 
 /// One projection subscription and the revision its client holds.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -19,51 +16,20 @@ pub struct ProjectionSubscription<D> {
     pub projection: String,
     pub params: Value,
     pub revision: u64,
-    /// What the last delivery left the client holding, for a projection that
-    /// sends only what follows it, such as a collaborative document's accepted
-    /// state. `None` until such a delivery.
+    /// What the last update left the client holding, for a projection whose
+    /// host names it. `None` until such an update, or after one the host
+    /// could not name.
     pub delivered: Option<D>,
 }
 
-/// What becomes of a delivery that follows the one its client held.
+/// Why a delivery that follows the one its client held is not sent.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FollowingDelivery {
-    /// Recorded: send it.
-    Recorded,
     /// Another delivery reached the client since this one was built, so it
-    /// would not follow what the client holds. Do not send it.
+    /// would not follow what the client holds.
     Superseded,
-    /// It would leave the client where the last delivery did. Do not send it.
+    /// It would leave the client where the last delivery did.
     AlreadyHeld,
-}
-
-/// A patch the connection sent, retained so a resuming subscription can
-/// replay it instead of taking a snapshot.
-#[derive(Debug, Clone, PartialEq)]
-pub struct RetainedProjectionPatch<P> {
-    pub projection: String,
-    pub params: Value,
-    pub from_revision: u64,
-    pub to_revision: u64,
-    pub patch: P,
-}
-
-/// A subscription's cursor is ahead of the projection's current revision.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct CursorAhead {
-    pub cursor_revision: u64,
-    pub current_revision: u64,
-}
-
-/// An accepted subscription and how its client catches up.
-#[derive(Debug, Clone, PartialEq)]
-pub struct SubscribeOutcome<P> {
-    pub subscription_id: u64,
-    /// Absent when the client subscribed without a cursor.
-    pub resume: Option<ProjectionSubscribeResume>,
-    /// The retained patches to replay, in order. `None` means the client
-    /// needs a snapshot; an empty list means it is up to date.
-    pub replay: Option<Vec<RetainedProjectionPatch<P>>>,
 }
 
 /// Counters describing one connection's subscriptions. Parameters are
@@ -72,15 +38,13 @@ pub struct SubscribeOutcome<P> {
 pub struct ProjectionRuntimeDiagnostics {
     pub subscriptions: Vec<ProjectionSubscriptionDiagnostics>,
     pub current_revision: u64,
-    pub retained_window_floor: u64,
-    pub retained_window_ceiling: u64,
-    pub retained_patch_count: u64,
     pub dropped_update_count: u64,
-    pub gapped_update_count: u64,
     pub resync_count: u64,
     pub last_resync_reason: Option<String>,
+    /// Subscriptions whose client already held what they would have sent.
     pub resume_up_to_date_count: u64,
-    pub resume_patch_count: u64,
+    /// Subscriptions whose client held something, and was sent what it
+    /// lacked.
     pub resume_snapshot_count: u64,
     pub mutation_count: u64,
     pub mutation_rejection_count: u64,
@@ -101,11 +65,9 @@ pub struct ProjectionSubscriptionDiagnostics {
 #[derive(Debug, Default)]
 struct Counters {
     dropped_update_count: u64,
-    gapped_update_count: u64,
     resync_count: u64,
     last_resync_reason: Option<String>,
     resume_up_to_date_count: u64,
-    resume_patch_count: u64,
     resume_snapshot_count: u64,
     mutation_count: u64,
     mutation_rejection_count: u64,
@@ -114,37 +76,33 @@ struct Counters {
     rejections: BTreeMap<String, u64>,
 }
 
-/// One connection's projection subscriptions and the patches retained for
-/// resuming them. `P` is the application's patch payload, and `D` what a
-/// delivery leaves a client holding.
+/// One connection's projection subscriptions. `P` is the application's patch
+/// payload, and `D` what an update leaves a client holding.
+///
+/// A subscription's revisions order the updates it sends its client. What a
+/// client holds is named by `D`, which the client sends back when it
+/// subscribes again.
 #[derive(Debug)]
 pub struct ProjectionSubscriptions<P, D> {
     next_subscription_id: u64,
     subscriptions: HashMap<u64, ProjectionSubscription<D>>,
-    retained_patch_window: usize,
-    retained_patches: VecDeque<RetainedProjectionPatch<P>>,
     counters: Counters,
+    patches: PhantomData<P>,
 }
 
 impl<P, D> Default for ProjectionSubscriptions<P, D> {
     fn default() -> Self {
-        Self::new(DEFAULT_RETAINED_PATCH_WINDOW)
+        Self {
+            next_subscription_id: 1,
+            subscriptions: HashMap::new(),
+            counters: Counters::default(),
+            patches: PhantomData,
+        }
     }
 }
 
 impl<P, D> ProjectionSubscriptions<P, D> {
-    /// Subscriptions that retain up to `retained_patch_window` patches.
-    pub fn new(retained_patch_window: usize) -> Self {
-        Self {
-            next_subscription_id: 1,
-            subscriptions: HashMap::new(),
-            retained_patch_window,
-            retained_patches: VecDeque::new(),
-            counters: Counters::default(),
-        }
-    }
-
-    /// Registers a subscription at `revision` without a resume decision.
+    /// Registers a subscription at `revision`.
     pub fn insert(&mut self, projection: String, params: Value, revision: u64) -> u64 {
         let subscription_id = self.next_subscription_id;
         self.next_subscription_id += 1;
@@ -168,18 +126,12 @@ impl<P, D> ProjectionSubscriptions<P, D> {
         &self.subscriptions
     }
 
-    pub fn update_revision(&mut self, subscription_id: u64, revision: u64) {
-        if let Some(subscription) = self.subscriptions.get_mut(&subscription_id) {
-            subscription.revision = revision;
-        }
-    }
-
-    /// Records a delivery that took the client to `revision` and left it
+    /// Records an update that took the client to `revision` and left it
     /// holding `delivered`.
-    pub fn record_delivery(&mut self, subscription_id: u64, revision: u64, delivered: D) {
+    pub fn record_delivery(&mut self, subscription_id: u64, revision: u64, delivered: Option<D>) {
         if let Some(subscription) = self.subscriptions.get_mut(&subscription_id) {
             subscription.revision = revision;
-            subscription.delivered = Some(delivered);
+            subscription.delivered = delivered;
         }
     }
 
@@ -187,39 +139,25 @@ impl<P, D> ProjectionSubscriptions<P, D> {
         self.subscriptions.remove(&subscription_id).is_some()
     }
 
-    /// Retains a sent patch, evicting the oldest beyond the window.
-    pub fn retain_patch(
-        &mut self,
-        projection: String,
-        params: Value,
-        from_revision: u64,
-        to_revision: u64,
-        patch: P,
-    ) {
-        if self.retained_patch_window == 0 {
-            self.retained_patches.clear();
-            return;
-        }
-        self.retained_patches.push_back(RetainedProjectionPatch {
-            projection,
-            params,
-            from_revision,
-            to_revision,
-            patch,
-        });
-        while self.retained_patches.len() > self.retained_patch_window {
-            self.retained_patches.pop_front();
-        }
-    }
-
-    /// The highest revision any subscription or retained patch has reached.
+    /// The highest revision any subscription has reached.
     pub fn current_revision(&self) -> u64 {
         self.subscriptions
             .values()
             .map(|subscription| subscription.revision)
-            .chain(self.retained_patches.iter().map(|patch| patch.to_revision))
             .max()
             .unwrap_or(0)
+    }
+
+    /// The revision a mutation's effects reach: past every revision this
+    /// connection has sent when it publishes a change, and where they stand
+    /// when it changes nothing.
+    pub fn mutation_revision(&self, publishes: bool) -> u64 {
+        let current = self.current_revision().max(1);
+        if publishes {
+            current + 1
+        } else {
+            current
+        }
     }
 
     pub fn record_resync(&mut self, reason: &str) {
@@ -268,26 +206,14 @@ impl<P, D> ProjectionSubscriptions<P, D> {
         subscriptions.sort_by(|left, right| {
             (&left.projection, &left.params_sha256).cmp(&(&right.projection, &right.params_sha256))
         });
-        let current_revision = self.current_revision();
         let counters = &self.counters;
         ProjectionRuntimeDiagnostics {
             subscriptions,
-            current_revision,
-            retained_window_floor: self
-                .retained_patches
-                .front()
-                .map_or(current_revision, |patch| patch.from_revision),
-            retained_window_ceiling: self
-                .retained_patches
-                .back()
-                .map_or(current_revision, |patch| patch.to_revision),
-            retained_patch_count: self.retained_patches.len() as u64,
+            current_revision: self.current_revision(),
             dropped_update_count: counters.dropped_update_count,
-            gapped_update_count: counters.gapped_update_count,
             resync_count: counters.resync_count,
             last_resync_reason: counters.last_resync_reason.clone(),
             resume_up_to_date_count: counters.resume_up_to_date_count,
-            resume_patch_count: counters.resume_patch_count,
             resume_snapshot_count: counters.resume_snapshot_count,
             mutation_count: counters.mutation_count,
             mutation_rejection_count: counters.mutation_rejection_count,
@@ -298,43 +224,30 @@ impl<P, D> ProjectionSubscriptions<P, D> {
     }
 }
 
-impl<P: Clone, D> ProjectionSubscriptions<P, D> {
-    /// The revision a mutation's effects reach: past every revision this
-    /// connection has sent when it publishes a change, where they stand when it
-    /// changes nothing, and never below `floor`.
-    pub fn mutation_revision(&self, floor: u64, publishes: bool) -> u64 {
-        let current = self.current_revision().max(1);
-        let revision = if publishes { current + 1 } else { current };
-        revision.max(floor)
-    }
-
+impl<P, D: Serialize> ProjectionSubscriptions<P, D> {
     /// Sends `patch` to a subscription, taking its client from the revision it
     /// holds now to `to_revision`, or to the next revision when it already
-    /// holds `to_revision` or later, and retains the patch for resuming. `None`
+    /// holds `to_revision` or later, and leaving it holding `delivered`. `None`
     /// when the subscription is gone.
     pub fn deliver_patch<S>(
         &mut self,
         subscription_id: u64,
         to_revision: u64,
         patch: P,
+        delivered: Option<D>,
     ) -> Option<ProjectionTransportEvent<S, P>> {
         let subscription = self.subscriptions.get_mut(&subscription_id)?;
         let from_revision = subscription.revision;
         let to_revision = to_revision.max(from_revision + 1);
+        let held = held_token(delivered.as_ref());
         subscription.revision = to_revision;
-        let (projection, params) = (subscription.projection.clone(), subscription.params.clone());
-        self.retain_patch(
-            projection,
-            params,
-            from_revision,
-            to_revision,
-            patch.clone(),
-        );
+        subscription.delivered = delivered;
         Some(ProjectionTransportEvent::Patch {
             subscription_id,
             from_revision,
             to_revision,
             patch,
+            held,
         })
     }
 
@@ -350,7 +263,8 @@ impl<P: Clone, D> ProjectionSubscriptions<P, D> {
     ) -> Option<(ProjectionResyncAccepted, ProjectionTransportEvent<S, P>)> {
         let from_revision = self.subscriptions.get(&subscription_id)?.revision;
         let revision = from_revision + 1;
-        self.record_snapshot(subscription_id, revision, delivered);
+        let held = held_token(delivered.as_ref());
+        self.record_delivery(subscription_id, revision, delivered);
         self.record_resync(reason);
         Some((
             ProjectionResyncAccepted {
@@ -362,197 +276,95 @@ impl<P: Clone, D> ProjectionSubscriptions<P, D> {
                 subscription_id,
                 revision,
                 snapshot,
+                held,
             },
         ))
     }
-
-    fn record_snapshot(&mut self, subscription_id: u64, revision: u64, delivered: Option<D>) {
-        match delivered {
-            Some(delivered) => self.record_delivery(subscription_id, revision, delivered),
-            None => self.update_revision(subscription_id, revision),
-        }
-    }
 }
 
-impl<P, D: PartialEq> ProjectionSubscriptions<P, D> {
-    /// Records a delivery that follows the one the client held at
-    /// `from_revision` and leaves it holding `delivered`. Only a recorded
-    /// delivery may be sent.
-    pub fn record_following_delivery(
-        &mut self,
-        subscription_id: u64,
-        from_revision: u64,
-        to_revision: u64,
-        delivered: D,
-    ) -> FollowingDelivery {
-        match self.subscriptions.get_mut(&subscription_id) {
-            Some(subscription) if subscription.revision == from_revision => {
-                if subscription.delivered.as_ref() == Some(&delivered) {
-                    return FollowingDelivery::AlreadyHeld;
-                }
-                subscription.revision = to_revision;
-                subscription.delivered = Some(delivered);
-                FollowingDelivery::Recorded
-            }
-            _ => FollowingDelivery::Superseded,
-        }
-    }
-}
-
-impl<P: Clone + PartialEq, D> ProjectionSubscriptions<P, D> {
-    /// Accepts a subscription at the projection's current `revision` and
-    /// decides how its client catches up from `cursor`: nothing to send, the
-    /// retained patches it missed, or a snapshot when those are no longer
-    /// retained. A client without a cursor takes a snapshot.
-    pub fn subscribe(
-        &mut self,
-        projection: String,
-        params: Value,
-        revision: u64,
-        cursor: Option<u64>,
-    ) -> Result<SubscribeOutcome<P>, CursorAhead> {
-        let Some(cursor) = cursor else {
-            let subscription_id = self.insert(projection, params, revision);
-            return Ok(SubscribeOutcome {
-                subscription_id,
-                resume: None,
-                replay: None,
-            });
-        };
-        if cursor > revision {
-            return Err(CursorAhead {
-                cursor_revision: cursor,
-                current_revision: revision,
-            });
-        }
-        let replay = self.retained_patches(&projection, &params, cursor, revision);
-        let resume = match &replay {
-            Some(patches) if patches.is_empty() => {
-                self.counters.resume_up_to_date_count =
-                    self.counters.resume_up_to_date_count.saturating_add(1);
-                ProjectionSubscribeResume::UpToDate { revision }
-            }
-            Some(patches) => {
-                self.counters.resume_patch_count =
-                    self.counters.resume_patch_count.saturating_add(1);
-                ProjectionSubscribeResume::Patches {
-                    from_revision: cursor,
-                    revision,
-                    patch_count: patches.len(),
-                }
-            }
-            None => {
-                self.counters.resume_snapshot_count =
-                    self.counters.resume_snapshot_count.saturating_add(1);
-                self.counters.gapped_update_count =
-                    self.counters.gapped_update_count.saturating_add(1);
-                self.record_resync("retainedWindowExpired");
-                ProjectionSubscribeResume::Snapshot {
-                    from_revision: cursor,
-                    revision,
-                }
-            }
-        };
-        let subscription_id = self.insert(projection, params, revision);
-        Ok(SubscribeOutcome {
-            subscription_id,
-            resume: Some(resume),
-            replay,
-        })
-    }
-
-    /// Accepts a subscription at the projection's current revision, never
-    /// below `floor`, and sends its client what it needs from `cursor`:
-    /// `snapshot`, recording `delivered` as what it leaves the client holding,
-    /// or the retained patches it missed.
+impl<P, D: PartialEq + Serialize> ProjectionSubscriptions<P, D> {
+    /// Accepts a subscription and sends its client `snapshot`, which leaves it
+    /// holding `delivered`, unless the client already holds that: `held` is
+    /// what an earlier subscription's last update left it holding.
     pub fn accept_subscription<S>(
         &mut self,
         projection: String,
         params: Value,
-        cursor: Option<u64>,
-        floor: u64,
+        held: Option<D>,
         snapshot: S,
         delivered: Option<D>,
-    ) -> Result<
-        (
-            ProjectionSubscribeAccepted,
-            Vec<ProjectionTransportEvent<S, P>>,
-        ),
-        CursorAhead,
-    > {
-        let revision = self.current_revision().max(1).max(floor);
-        let outcome = self.subscribe(projection, params, revision, cursor)?;
-        let subscription_id = outcome.subscription_id;
-        let events = match outcome.replay {
-            Some(patches) => patches
-                .into_iter()
-                .map(|patch| ProjectionTransportEvent::Patch {
-                    subscription_id,
-                    from_revision: patch.from_revision,
-                    to_revision: patch.to_revision,
-                    patch: patch.patch,
-                })
-                .collect(),
-            None => {
-                self.record_snapshot(subscription_id, revision, delivered);
-                vec![ProjectionTransportEvent::Snapshot {
-                    subscription_id,
-                    revision,
-                    snapshot,
-                }]
-            }
+    ) -> (
+        ProjectionSubscribeAccepted,
+        Vec<ProjectionTransportEvent<S, P>>,
+    ) {
+        let revision = self.current_revision().max(1);
+        let subscription_id = self.insert(projection, params, revision);
+        let up_to_date = held.is_some() && held == delivered;
+        if held.is_some() {
+            let count = if up_to_date {
+                &mut self.counters.resume_up_to_date_count
+            } else {
+                &mut self.counters.resume_snapshot_count
+            };
+            *count = count.saturating_add(1);
+        }
+        let events = if up_to_date {
+            Vec::new()
+        } else {
+            vec![ProjectionTransportEvent::Snapshot {
+                subscription_id,
+                revision,
+                snapshot,
+                held: held_token(delivered.as_ref()),
+            }]
         };
-        Ok((
+        self.record_delivery(subscription_id, revision, delivered);
+        (
             ProjectionSubscribeAccepted {
                 subscription_id,
                 revision,
-                resume: outcome.resume,
+                up_to_date,
             },
             events,
-        ))
+        )
     }
 
-    /// Whether the most recent patch retained for this projection and these
-    /// parameters is `patch`.
-    pub fn last_retained_patch_matches(&self, projection: &str, params: &Value, patch: &P) -> bool {
-        self.retained_patches
-            .iter()
-            .rev()
-            .find(|retained| retained.projection == projection && &retained.params == params)
-            .is_some_and(|retained| &retained.patch == patch)
-    }
-
-    /// The retained patches that carry this projection and these parameters
-    /// from `from_revision` to exactly `to_revision`, or `None` when the
-    /// retained window no longer covers that span.
-    pub fn retained_patches(
-        &self,
-        projection: &str,
-        params: &Value,
+    /// Records a delivery that follows the one the client held at
+    /// `from_revision` and leaves it holding `delivered`, and returns the
+    /// update that carries it as `patch`.
+    pub fn deliver_following<S>(
+        &mut self,
+        subscription_id: u64,
         from_revision: u64,
-        to_revision: u64,
-    ) -> Option<Vec<RetainedProjectionPatch<P>>> {
-        if from_revision == to_revision {
-            return Some(Vec::new());
-        }
-        let mut cursor = from_revision;
-        let mut patches = Vec::new();
-        for patch in &self.retained_patches {
-            if patch.projection != projection
-                || &patch.params != params
-                || patch.from_revision != cursor
-                || patch.to_revision > to_revision
-            {
-                continue;
+        patch: P,
+        delivered: D,
+    ) -> Result<ProjectionTransportEvent<S, P>, FollowingDelivery> {
+        match self.subscriptions.get_mut(&subscription_id) {
+            Some(subscription) if subscription.revision == from_revision => {
+                if subscription.delivered.as_ref() == Some(&delivered) {
+                    return Err(FollowingDelivery::AlreadyHeld);
+                }
+                let to_revision = from_revision + 1;
+                let held = held_token(Some(&delivered));
+                subscription.revision = to_revision;
+                subscription.delivered = Some(delivered);
+                Ok(ProjectionTransportEvent::Patch {
+                    subscription_id,
+                    from_revision,
+                    to_revision,
+                    patch,
+                    held,
+                })
             }
-            cursor = patch.to_revision;
-            patches.push(patch.clone());
-            if cursor == to_revision {
-                return Some(patches);
-            }
+            _ => Err(FollowingDelivery::Superseded),
         }
-        None
     }
+}
+
+/// What an update tells its client it holds, for it to send back when it
+/// subscribes again.
+fn held_token<D: Serialize>(delivered: Option<&D>) -> Option<Value> {
+    delivered.and_then(|delivered| serde_json::to_value(delivered).ok())
 }
 
 fn sha256_hex(bytes: &[u8]) -> String {

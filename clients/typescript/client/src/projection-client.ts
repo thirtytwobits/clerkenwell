@@ -44,12 +44,12 @@ export class ProjectionClient<M extends ProjectionModel = ProjectionModel> imple
   projectionSubscribe<K extends ProjectionName<M>>(
     projection: K,
     params: ProjectionParams<M, K>,
-    options: { readonly cursorRevision?: number } = {}
+    options: { readonly held?: unknown } = {}
   ): Promise<ProjectionSubscribeAccepted> {
     return this.socket.call(PROJECTION_SUBSCRIBE_METHOD, {
       projection,
       params,
-      ...(options.cursorRevision === undefined ? {} : { cursor: { revision: options.cursorRevision } })
+      ...(options.held === undefined ? {} : { held: options.held })
     });
   }
 

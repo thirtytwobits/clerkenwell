@@ -7,7 +7,7 @@ Every section is a hard constraint.
 ```
 crates/clerkenwell-schema       plan types generated bindings instantiate
 crates/clerkenwell-doc          plan-driven Loro replicas, text at a frontier, conflict policy; re-exports loro
-crates/clerkenwell-session      projection wire contracts, registry, subscriptions, retained patches, resume, serving commands
+crates/clerkenwell-session      projection wire contracts, registry, subscriptions, resume from what a client holds, serving commands
 crates/clerkenwell-axum         the session protocol over axum WebSocket connections
 crates/clerkenwell-store        durable envelopes, storage port, fenced commits, publication, recovery
 crates/clerkenwell-codegen      the definition language, its validation, and the generator

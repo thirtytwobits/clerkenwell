@@ -72,6 +72,16 @@ static NOTE_PLAN: GeneratedCollaborationEntitySpec = plan("Note", "note_id", "no
 static TASK_PLAN: GeneratedCollaborationEntitySpec = plan("Task", "task_id", "task", TASK_FIELDS);
 static PLANS: &[GeneratedCollaborationEntitySpec] = &[NOTE_PLAN, TASK_PLAN];
 
+/// The commit policy these tests run under.
+const POLICY: CommitPolicy = CommitPolicy {
+    retained_operations: 8,
+    attempts: match NonZeroU32::new(8) {
+        Some(attempts) => attempts,
+        None => panic!("attempts are non-zero"),
+    },
+    backoff: Duration::from_millis(2),
+};
+
 /// A validator that accepts every document.
 fn accept(_: &Value) -> StoreResult<()> {
     Ok(())
@@ -90,7 +100,7 @@ fn note_seed() -> Value {
 }
 
 fn open_service(root: &Path) -> CollaborationService {
-    CollaborationService::new(root, PLANS)
+    CollaborationService::new(root, PLANS, POLICY)
 }
 
 fn initialise(
@@ -306,6 +316,37 @@ fn a_policy_refusal_no_concurrent_edit_caused_names_the_refused_edit_base_as_acc
     assert_eq!(
         refusal["accepted_frontier_base64"],
         refusal["base_frontier_base64"]
+    );
+}
+
+#[test]
+fn an_envelope_names_the_accepted_state_it_holds_by_the_etag_readers_are_given() {
+    let root = TempDir::new().expect("temp workspace");
+    let (service, document, seed, state) = initialise(root.path());
+    let edit = edit_request(
+        &document,
+        &seed,
+        &state,
+        "etag-edit",
+        &["title"],
+        json!("Errands"),
+    );
+    let imported = import(&service, edit, &seed).expect("an edit");
+
+    let stored = service
+        .load(&document)
+        .expect("read the note")
+        .expect("the note");
+    let read = service
+        .authoring_state(&NOTE_PLAN, &document, None)
+        .expect("authoring state");
+
+    assert_eq!(stored.etag(), imported.etag);
+    assert_eq!(stored.etag(), read.etag);
+    assert_ne!(
+        stored.etag(),
+        state.etag,
+        "an edit changes the accepted state"
     );
 }
 
@@ -739,62 +780,55 @@ fn publication_scan_isolates_an_invalid_envelope_from_healthy_publications() {
 }
 
 #[test]
-fn two_process_adapters_serialise_concurrent_commits_and_converge() {
+fn two_services_over_one_store_serialise_concurrent_commits_and_converge() {
     let root = TempDir::new().expect("temp workspace");
-    let (process_a, document, seed, state) = initialise(root.path());
-    let process_b = open_service(root.path());
+    let (writer_a, document, seed, state) = initialise(root.path());
+    let writer_b = open_service(root.path());
     let request_a = edit_request(
         &document,
         &seed,
         &state,
-        "process-a",
+        "writer-a",
         &["body"],
-        json!("edit from process A"),
+        json!("edit from writer A"),
     );
     let replay_a = request_a.clone();
     let request_b = edit_request(
         &document,
         &seed,
         &state,
-        "process-b",
+        "writer-b",
         &["summary"],
-        json!("edit from process B"),
+        json!("edit from writer B"),
     );
     let seed_a = seed.clone();
     let seed_b = seed.clone();
-    let thread_a = std::thread::spawn(move || import(&process_a, request_a, &seed_a));
-    let process_b_import = process_b.clone();
-    let thread_b = std::thread::spawn(move || import(&process_b_import, request_b, &seed_b));
-    let accepted_a = thread_a
-        .join()
-        .expect("process A thread")
-        .expect("process A");
-    let accepted_b = thread_b
-        .join()
-        .expect("process B thread")
-        .expect("process B");
+    let thread_a = std::thread::spawn(move || import(&writer_a, request_a, &seed_a));
+    let writer_b_import = writer_b.clone();
+    let thread_b = std::thread::spawn(move || import(&writer_b_import, request_b, &seed_b));
+    let accepted_a = thread_a.join().expect("writer A thread").expect("writer A");
+    let accepted_b = thread_b.join().expect("writer B thread").expect("writer B");
 
     assert_ne!(accepted_a.generation, accepted_b.generation);
     let converged_a = open_service(root.path())
         .detail(&NOTE_PLAN, &document)
-        .expect("process A projection")
-        .expect("process A detail");
-    let converged_b = process_b
+        .expect("writer A projection")
+        .expect("writer A detail");
+    let converged_b = writer_b
         .detail(&NOTE_PLAN, &document)
-        .expect("process B projection")
-        .expect("process B detail");
+        .expect("writer B projection")
+        .expect("writer B detail");
     assert_eq!(converged_a, converged_b);
-    assert_eq!(converged_a["body"], json!("edit from process A"));
-    assert_eq!(converged_a["summary"], json!("edit from process B"));
+    assert_eq!(converged_a["body"], json!("edit from writer A"));
+    assert_eq!(converged_a["summary"], json!("edit from writer B"));
 
-    let duplicate = import(&process_b, replay_a, &seed).expect("cross-process retry");
+    let duplicate = import(&writer_b, replay_a, &seed).expect("a retry through the other service");
     assert!(duplicate.duplicate);
-    let envelope = process_b
+    let envelope = writer_b
         .load(&document)
         .expect("retained window")
         .expect("envelope");
     assert!(envelope.retained_operations.len() >= 3);
-    assert!(envelope.projection_revision_floor() > 1);
 }
 
 #[test]
@@ -1122,10 +1156,10 @@ fn a_retried_etag_fenced_import_is_a_duplicate_not_a_stale_read() {
 }
 
 #[test]
-fn etag_fenced_imports_racing_from_one_read_in_two_processes_commit_exactly_once() {
+fn etag_fenced_imports_racing_from_one_read_through_two_services_commit_exactly_once() {
     let root = TempDir::new().expect("temp workspace");
-    let (process_a, document, seed, state) = initialise(root.path());
-    let process_b = open_service(root.path());
+    let (writer_a, document, seed, state) = initialise(root.path());
+    let writer_b = open_service(root.path());
     let request_a = on_read(
         edit_request(
             &document,
@@ -1133,7 +1167,7 @@ fn etag_fenced_imports_racing_from_one_read_in_two_processes_commit_exactly_once
             &state,
             "race-a",
             &["body"],
-            json!("from process A"),
+            json!("from writer A"),
         ),
         &state,
     );
@@ -1144,16 +1178,16 @@ fn etag_fenced_imports_racing_from_one_read_in_two_processes_commit_exactly_once
             &state,
             "race-b",
             &["summary"],
-            json!("from process B"),
+            json!("from writer B"),
         ),
         &state,
     );
     let (seed_a, seed_b) = (seed.clone(), seed.clone());
-    let thread_a = std::thread::spawn(move || import(&process_a, request_a, &seed_a));
-    let thread_b = std::thread::spawn(move || import(&process_b, request_b, &seed_b));
+    let thread_a = std::thread::spawn(move || import(&writer_a, request_a, &seed_a));
+    let thread_b = std::thread::spawn(move || import(&writer_b, request_b, &seed_b));
     let outcomes = [
-        thread_a.join().expect("process A thread"),
-        thread_b.join().expect("process B thread"),
+        thread_a.join().expect("writer A thread"),
+        thread_b.join().expect("writer B thread"),
     ];
 
     let committed = outcomes.iter().filter(|outcome| outcome.is_ok()).count();

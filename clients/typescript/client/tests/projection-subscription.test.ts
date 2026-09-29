@@ -33,9 +33,11 @@ function transportHarness() {
   const listeners = new Set<(notification: ProjectionNotification) => void>();
   const connections = new Set<(state: ProjectionConnectionState) => void>();
   const pending: Array<{
-    resolve: (value: { subscription_id: number; revision: number }) => void;
+    resolve: (value: { subscription_id: number; revision: number; up_to_date?: boolean }) => void;
     reject: (error: unknown) => void;
   }> = [];
+  // What each subscribe said the client holds.
+  const heldSent: unknown[] = [];
   const released: number[] = [];
   const resynced: number[] = [];
   const client: ProjectionTransport<Model> = {
@@ -47,7 +49,10 @@ function transportHarness() {
       connections.add(listener);
       return () => { connections.delete(listener); };
     },
-    projectionSubscribe: async () => new Promise((resolve, reject) => pending.push({ resolve, reject })),
+    projectionSubscribe: async (_projection, _params, options) => {
+      heldSent.push(options?.held);
+      return new Promise((resolve, reject) => pending.push({ resolve, reject }));
+    },
     projectionUnsubscribe: async (id) => { released.push(id); return { removed: true }; },
     projectionResync: async (id) => {
       resynced.push(id);
@@ -57,14 +62,15 @@ function transportHarness() {
   };
   const emit = (params: ProjectionTransportEvent<Model>) => listeners.forEach((listener) =>
     listener({ method: PROJECTION_UPDATE_NOTIFICATION, params }));
-  const snapshot = (id: number, revision: number, notes: NoteSummary[]) => emit({
+  const snapshot = (id: number, revision: number, notes: NoteSummary[], held?: unknown) => emit({
     kind: "snapshot",
     subscription_id: id,
     revision,
-    snapshot: { projection: "notes.list", value: { notes } }
+    snapshot: { projection: "notes.list", value: { notes } },
+    ...(held === undefined ? {} : { held })
   });
   const connection = (status: string) => connections.forEach((listener) => listener({ status }));
-  return { client, pending, released, resynced, listeners, connections, emit, snapshot, connection };
+  return { client, pending, heldSent, released, resynced, listeners, connections, emit, snapshot, connection };
 }
 
 const accepted = [{ note_id: "accepted", title: "Accepted" }];
@@ -210,6 +216,67 @@ test("a watch folds patches through the projection's composition plan", async ()
 
   assert.deepEqual(values, [accepted, [...accepted, added]]);
   assert.deepEqual(patches, [undefined, upsert]);
+});
+
+test("a reconnecting watch sends what it holds and keeps its value when the server has nothing newer", async () => {
+  const h = transportHarness();
+  const values: NoteSummary[][] = [];
+  const ready = watchProjection({
+    client: h.client,
+    plans: TEST_COMPOSITION_PLANS,
+    projection: "notes.list",
+    params: {},
+    onValue: (value) => values.push(value.notes),
+    onError: (error) => assert.fail(String(error))
+  });
+  await tick();
+  const held = { etag: "loro:1" };
+  h.pending[0]!.resolve({ subscription_id: 1, revision: 1 });
+  await tick();
+  h.snapshot(1, 1, accepted, held);
+  const watch = await ready;
+
+  h.connection("disconnected");
+  h.connection("connected");
+  await tick();
+  assert.deepEqual(h.heldSent, [undefined, held]);
+  h.pending[1]!.resolve({ subscription_id: 5, revision: 9, up_to_date: true });
+  await tick();
+  assert.deepEqual(values, [accepted], "an up-to-date client is sent nothing and changes nothing");
+
+  const added = { note_id: "added", title: "Added" };
+  h.emit({
+    kind: "patch",
+    subscription_id: 5,
+    from_revision: 9,
+    to_revision: 10,
+    patch: { projection: "notes.list", value: { kind: "upsert", summary: added } }
+  });
+  assert.deepEqual(values, [accepted, [...accepted, added]]);
+  await watch.unsubscribe();
+});
+
+test("a watch whose last update named nothing it holds resubscribes holding nothing", async () => {
+  const h = transportHarness();
+  const ready = watchProjection({
+    client: h.client,
+    plans: TEST_COMPOSITION_PLANS,
+    projection: "notes.list",
+    params: {},
+    onValue: () => undefined,
+    onError: (error) => assert.fail(String(error))
+  });
+  await tick();
+  h.pending[0]!.resolve({ subscription_id: 1, revision: 1 });
+  await tick();
+  h.snapshot(1, 1, accepted);
+  const watch = await ready;
+
+  h.connection("disconnected");
+  h.connection("connected");
+  await tick();
+  assert.deepEqual(h.heldSent, [undefined, undefined]);
+  await watch.unsubscribe();
 });
 
 test("a refused subscribe fails the watch; a lost one waits for the next connection", async () => {

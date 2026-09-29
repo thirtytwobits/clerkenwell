@@ -6,6 +6,7 @@
 //! connection that falls behind the mutations of others takes a snapshot for
 //! each of its subscriptions.
 
+use std::num::NonZeroUsize;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -25,10 +26,6 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tokio::sync::broadcast;
 use tokio::sync::broadcast::error::RecvError;
-
-/// How many mutations a connection may fall behind before it resynchronises,
-/// unless the application chooses otherwise.
-pub const DEFAULT_PUBLICATION_WINDOW: usize = 256;
 
 const PARSE_ERROR: i64 = -32700;
 const INVALID_REQUEST: i64 = -32600;
@@ -96,8 +93,7 @@ fn rpc_code(code: ProjectionErrorCode) -> i64 {
         | ProjectionErrorCode::UnknownProjection
         | ProjectionErrorCode::UnsupportedProjection
         | ProjectionErrorCode::InvalidParams
-        | ProjectionErrorCode::ValidationFailed
-        | ProjectionErrorCode::CursorAhead => -32602,
+        | ProjectionErrorCode::ValidationFailed => -32602,
         ProjectionErrorCode::NotFound => -32004,
         ProjectionErrorCode::Conflict
         | ProjectionErrorCode::StaleWrite
@@ -147,14 +143,10 @@ where
     A::Delivery: Sync + 'static,
     A::MutationResult: 'static,
 {
-    pub fn new(application: A) -> Arc<Self> {
-        Self::with_publication_window(application, DEFAULT_PUBLICATION_WINDOW)
-    }
-
     /// A server whose connections resynchronise once they fall more than
-    /// `window` mutations behind the others.
-    pub fn with_publication_window(application: A, window: usize) -> Arc<Self> {
-        let (published, _) = broadcast::channel(window);
+    /// `publication_window` mutations behind the others.
+    pub fn new(application: A, publication_window: NonZeroUsize) -> Arc<Self> {
+        let (published, _) = broadcast::channel(publication_window.get());
         Arc::new(Self {
             application,
             published,

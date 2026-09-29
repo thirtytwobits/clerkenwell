@@ -13,9 +13,8 @@ use clerkenwell_session::transport::{
     ProjectionErrorCode, ProjectionErrorEnvelope, ProjectionMutationAccepted,
     ProjectionMutationCommand, ProjectionOperation, ProjectionResyncAccepted,
     ProjectionResyncCommand, ProjectionSubscribeAccepted, ProjectionSubscribeCommand,
-    ProjectionSubscribeCursor, ProjectionSubscribeResume, ProjectionTransportEvent,
-    ProjectionUnsubscribeAccepted, ProjectionUnsubscribeCommand, PROJECTION_MUTATE_METHOD,
-    PROJECTION_SUBSCRIBE_METHOD,
+    ProjectionTransportEvent, ProjectionUnsubscribeAccepted, ProjectionUnsubscribeCommand,
+    PROJECTION_MUTATE_METHOD, PROJECTION_SUBSCRIBE_METHOD,
 };
 use clerkenwell_session::{
     publish, resync_all, serve, serve_request, AcceptedMutation, ProjectionCommand,
@@ -97,7 +96,6 @@ impl ProjectionFailure for Failure {
 struct Notes {
     subscriptions: Mutex<ProjectionSubscriptions<Value, String>>,
     title: Mutex<String>,
-    floor: u64,
     refusal: Option<ProjectionRefusal>,
     mutations_run: Mutex<usize>,
 }
@@ -107,7 +105,6 @@ impl Notes {
         Self {
             subscriptions: Mutex::new(ProjectionSubscriptions::default()),
             title: Mutex::new("Shopping".to_owned()),
-            floor: 0,
             refusal: None,
             mutations_run: Mutex::new(0),
         }
@@ -142,6 +139,7 @@ impl ProjectionHost for Notes {
         &self,
         projection: &str,
         _params: &Value,
+        _held: Option<&String>,
     ) -> impl Future<Output = Result<Value, Failure>> + Send {
         let snapshot = match projection {
             "notes.authoringState" => json!({ "frontier": format!("frontier:{}", self.title()) }),
@@ -155,18 +153,8 @@ impl ProjectionHost for Notes {
         snapshot["frontier"].as_str().map(str::to_owned)
     }
 
-    fn revision_floor(
-        &self,
-        _projection: &str,
-        _params: &Value,
-    ) -> impl Future<Output = Result<u64, Failure>> + Send {
-        let floor = self.floor;
-        async move { Ok(floor) }
-    }
-
-    fn mutation_revision_floor(&self) -> impl Future<Output = Result<u64, Failure>> + Send {
-        let floor = self.floor;
-        async move { Ok(floor) }
+    fn delivered_by_patch(&self, patch: &Value) -> Option<String> {
+        patch["frontier"].as_str().map(str::to_owned)
     }
 
     fn mutate(
@@ -219,7 +207,7 @@ type Reply = ProjectionReply<Value, Value, Value>;
 fn subscribe(
     host: &Notes,
     projection: &str,
-    cursor: Option<u64>,
+    held: Option<Value>,
 ) -> (ProjectionSubscribeAccepted, Reply) {
     let reply = block_on(serve(
         host,
@@ -227,7 +215,7 @@ fn subscribe(
         ProjectionCommand::Subscribe(ProjectionSubscribeCommand {
             projection: projection.to_owned(),
             params: Some(json!({})),
-            cursor: cursor.map(|revision| ProjectionSubscribeCursor { revision }),
+            held,
         }),
     ))
     .expect("subscribe");
@@ -269,6 +257,14 @@ fn envelope(failure: &Failure) -> &ProjectionErrorEnvelope {
         .expect("a failure reaches its client described")
 }
 
+/// What `event` says its client holds.
+fn held_by(event: &ProjectionTransportEvent<Value, Value>) -> Option<Value> {
+    match event {
+        ProjectionTransportEvent::Snapshot { held, .. }
+        | ProjectionTransportEvent::Patch { held, .. } => held.clone(),
+    }
+}
+
 fn patch_spans(events: &[ProjectionTransportEvent<Value, Value>]) -> Vec<(u64, u64, u64)> {
     events
         .iter()
@@ -293,31 +289,20 @@ fn a_subscription_receives_a_snapshot_at_the_revision_it_is_accepted_at() {
     let (accepted, reply) = subscribe(&host, "notes.list", None);
 
     assert!(accepted.revision >= 1);
-    assert_eq!(accepted.resume, None);
+    assert!(!accepted.up_to_date);
     assert_eq!(
         reply.events,
         [ProjectionTransportEvent::Snapshot {
             subscription_id: accepted.subscription_id,
             revision: accepted.revision,
             snapshot: json!({ "title": host.title() }),
+            held: None,
         }]
     );
     assert_eq!(
         host.subscription(accepted.subscription_id).revision,
         accepted.revision
     );
-}
-
-#[test]
-fn a_subscription_starts_no_lower_than_the_hosts_floor() {
-    let host = Notes {
-        floor: 40,
-        ..Notes::new()
-    };
-
-    let (accepted, _) = subscribe(&host, "notes.list", None);
-
-    assert!(accepted.revision >= host.floor);
 }
 
 #[test]
@@ -370,83 +355,49 @@ fn a_subscription_whose_changes_arrive_another_way_takes_no_mutation_patch() {
 }
 
 #[test]
-fn a_resuming_subscription_replays_the_patches_it_missed() {
+fn a_subscriber_that_holds_the_current_state_is_sent_nothing() {
     let host = Notes::new();
-    let (first, _) = subscribe(&host, "notes.list", None);
-    let (_, one) = rename(&host, "Errands");
-    let (latest, two) = rename(&host, "Chores");
+    let (_, first) = subscribe(&host, "notes.authoringState", None);
+    let held = held_by(&first.events[0]).expect("the snapshot names what it leaves held");
 
-    let (resumed, reply) = subscribe(&host, "notes.list", Some(first.revision));
+    let (resumed, reply) = subscribe(&host, "notes.authoringState", Some(held));
 
+    assert!(resumed.up_to_date);
+    assert!(reply.events.is_empty(), "{:?}", reply.events);
     assert_eq!(
-        resumed.resume,
-        Some(ProjectionSubscribeResume::Patches {
-            from_revision: first.revision,
-            revision: latest.revision,
-            patch_count: 2,
-        })
+        host.subscription(resumed.subscription_id).delivered,
+        Some(format!("frontier:{}", host.title()))
     );
-    let sent = one
-        .events
-        .into_iter()
-        .chain(two.events)
-        .map(|event| match event {
-            ProjectionTransportEvent::Patch { patch, .. } => patch,
-            other => panic!("a patch: {other:?}"),
-        });
-    let replayed = reply.events.into_iter().map(|event| match event {
-        ProjectionTransportEvent::Patch {
-            subscription_id,
-            patch,
-            ..
-        } => {
-            assert_eq!(subscription_id, resumed.subscription_id);
-            patch
-        }
-        other => panic!("a patch: {other:?}"),
-    });
-    assert!(sent.eq(replayed));
 }
 
 #[test]
-fn a_subscription_already_at_the_current_revision_resumes_with_nothing_to_send() {
+fn a_subscriber_that_holds_an_earlier_state_is_sent_a_snapshot() {
     let host = Notes::new();
-    let (first, _) = subscribe(&host, "notes.list", None);
+    let (_, first) = subscribe(&host, "notes.authoringState", None);
+    let held = held_by(&first.events[0]).expect("the snapshot names what it leaves held");
+    rename(&host, "Errands");
 
-    let (resumed, reply) = subscribe(&host, "notes.list", Some(first.revision));
+    let (resumed, reply) = subscribe(&host, "notes.authoringState", Some(held));
 
+    assert!(!resumed.up_to_date);
+    let [event] = reply.events.as_slice() else {
+        panic!("one snapshot: {:?}", reply.events);
+    };
+    assert!(matches!(event, ProjectionTransportEvent::Snapshot { .. }));
     assert_eq!(
-        resumed.resume,
-        Some(ProjectionSubscribeResume::UpToDate {
-            revision: resumed.revision
-        })
+        held_by(event),
+        Some(json!(format!("frontier:{}", host.title())))
     );
-    assert!(reply.events.is_empty());
 }
 
 #[test]
-fn a_cursor_ahead_of_the_projection_is_refused() {
+fn a_held_state_the_host_cannot_read_counts_as_holding_nothing() {
     let host = Notes::new();
-    let (current, _) = subscribe(&host, "notes.list", None);
 
-    let failure = block_on(serve(
-        &host,
-        &host.subscriptions,
-        ProjectionCommand::Subscribe(ProjectionSubscribeCommand {
-            projection: "notes.list".to_owned(),
-            params: None,
-            cursor: Some(ProjectionSubscribeCursor {
-                revision: current.revision + 10,
-            }),
-        }),
-    ))
-    .expect_err("a cursor ahead is refused");
+    let (resumed, reply) = subscribe(&host, "notes.authoringState", Some(json!(42)));
 
-    let envelope = envelope(&failure);
-    assert_eq!(envelope.code, ProjectionErrorCode::CursorAhead);
-    assert_eq!(envelope.operation, ProjectionOperation::Subscribe);
-    assert_eq!(envelope.name.as_deref(), Some("notes.list"));
-    assert!(!envelope.retryable);
+    assert!(!resumed.up_to_date);
+    assert_eq!(reply.events.len(), 1);
 }
 
 #[test]
@@ -459,7 +410,7 @@ fn an_unknown_projection_is_refused_before_the_host_builds_anything() {
         ProjectionCommand::Subscribe(ProjectionSubscribeCommand {
             projection: "notes.missing".to_owned(),
             params: None,
-            cursor: None,
+            held: None,
         }),
     ))
     .expect_err("an unknown projection is refused");
@@ -500,6 +451,7 @@ fn a_resync_sends_a_snapshot_past_the_revision_the_client_holds() {
             subscription_id: accepted.subscription_id,
             revision: resynced.revision,
             snapshot: json!({ "title": host.title() }),
+            held: None,
         }]
     );
 }
@@ -605,18 +557,6 @@ fn a_planning_mutation_advances_no_revision_and_sends_nothing() {
 }
 
 #[test]
-fn a_mutation_reaches_no_lower_than_the_hosts_floor() {
-    let host = Notes {
-        floor: 90,
-        ..Notes::new()
-    };
-
-    let (accepted, _) = rename(&host, "Errands");
-
-    assert!(accepted.revision >= host.floor);
-}
-
-#[test]
 fn mutations_and_their_refusals_are_counted() {
     let host = Notes::new();
     rename(&host, "Errands");
@@ -645,7 +585,7 @@ fn a_patch_starts_from_the_revision_its_client_holds_when_it_is_delivered() {
 
     // A delivery reached the client after the mutation chose its revision.
     let event = subscriptions
-        .deliver_patch::<Value>(subscription_id, 3, json!({ "title": "Errands" }))
+        .deliver_patch::<Value>(subscription_id, 3, json!({ "title": "Errands" }), None)
         .expect("the subscription is there");
 
     let ProjectionTransportEvent::Patch {

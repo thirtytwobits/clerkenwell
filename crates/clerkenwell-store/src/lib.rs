@@ -26,6 +26,7 @@ use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::fs::{File, OpenOptions};
 use std::io::Write;
+use std::num::NonZeroU32;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
@@ -36,7 +37,6 @@ use uuid::Uuid;
 
 /// The envelope format this store reads and writes.
 pub const ENVELOPE_VERSION: u32 = 1;
-const RETAINED_OPERATION_COUNT: usize = 8;
 
 #[cfg(test)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -181,8 +181,10 @@ impl DurableCollaborationEnvelope {
         Ok(update)
     }
 
-    pub fn projection_revision_floor(&self) -> u64 {
-        self.checkpoint_sequence.saturating_add(1).max(2)
+    /// The etag of the accepted state this envelope holds, as imports and
+    /// authoring states report it.
+    pub fn etag(&self) -> String {
+        checkpoint_etag(&self.checkpoint_sha256)
     }
 }
 
@@ -457,6 +459,20 @@ pub trait CollaborationStoragePort: std::fmt::Debug + Send + Sync {
     fn recovery_audit(&self) -> StoreResult<Vec<CollaborationRecoveryAuditRecord>>;
 }
 
+/// How a service commits imports: the history each envelope keeps, and how
+/// it tries again when another writer commits first.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CommitPolicy {
+    /// Operations an envelope keeps past its checkpoint. An import retried
+    /// while its operation is kept is recognised as a duplicate.
+    pub retained_operations: usize,
+    /// Commits an import attempts before it is refused as contended.
+    pub attempts: NonZeroU32,
+    /// The bound on the pause before an import's second attempt. Each later
+    /// bound doubles, and each pause is a random fraction of its bound.
+    pub backoff: Duration,
+}
+
 /// Entity-neutral collaboration transaction service.
 ///
 /// Generated plans define document layout. Resource adapters provide only
@@ -465,14 +481,15 @@ pub trait CollaborationStoragePort: std::fmt::Debug + Send + Sync {
 pub struct CollaborationService<S = LocalFileCollaborationStorage> {
     storage: S,
     plans: &'static [GeneratedCollaborationEntitySpec],
+    policy: CommitPolicy,
     counters: Arc<CollaborationRuntimeCounters>,
     #[cfg(test)]
     faults: CollaborationFaults,
 }
 
 impl CollaborationService<LocalFileCollaborationStorage> {
-    /// A service over the same plans, sharing this one's counters, whose
-    /// envelopes live under `root`.
+    /// A service over the same plans and policy, sharing this one's
+    /// counters, whose envelopes live under `root`.
     pub fn with_storage_root(&self, root: &Path) -> Self {
         let storage = LocalFileCollaborationStorage::new(root);
         Self {
@@ -480,18 +497,24 @@ impl CollaborationService<LocalFileCollaborationStorage> {
             faults: storage.faults.clone(),
             storage,
             plans: self.plans,
+            policy: self.policy,
             counters: self.counters.clone(),
         }
     }
 
     /// A service for documents of `plans` whose envelopes live under `root`.
-    pub fn new(root: &Path, plans: &'static [GeneratedCollaborationEntitySpec]) -> Self {
+    pub fn new(
+        root: &Path,
+        plans: &'static [GeneratedCollaborationEntitySpec],
+        policy: CommitPolicy,
+    ) -> Self {
         let storage = LocalFileCollaborationStorage::new(root);
         Self {
             #[cfg(test)]
             faults: storage.faults.clone(),
             storage,
             plans,
+            policy,
             counters: Arc::new(CollaborationRuntimeCounters::default()),
         }
     }
@@ -500,10 +523,15 @@ impl CollaborationService<LocalFileCollaborationStorage> {
 impl<S: CollaborationStoragePort> CollaborationService<S> {
     /// A service for documents of `plans` committing through any
     /// implementation of the storage port.
-    pub fn with_storage(storage: S, plans: &'static [GeneratedCollaborationEntitySpec]) -> Self {
+    pub fn with_storage(
+        storage: S,
+        plans: &'static [GeneratedCollaborationEntitySpec],
+        policy: CommitPolicy,
+    ) -> Self {
         Self {
             storage,
             plans,
+            policy,
             counters: Arc::new(CollaborationRuntimeCounters::default()),
             #[cfg(test)]
             faults: CollaborationFaults::default(),
@@ -648,9 +676,9 @@ impl<S: CollaborationStoragePort> CollaborationService<S> {
             commit.schema_version,
             &commit.imported_update,
         ));
-        if retained_operations.len() > RETAINED_OPERATION_COUNT {
-            let remove_count = retained_operations.len() - RETAINED_OPERATION_COUNT;
-            retained_operations.drain(0..remove_count);
+        let kept = self.policy.retained_operations;
+        if retained_operations.len() > kept {
+            retained_operations.drain(0..retained_operations.len() - kept);
         }
         let retained_from = retained_operations
             .first()
@@ -806,7 +834,10 @@ impl<S: CollaborationStoragePort> CollaborationService<S> {
                     }))
             })?;
 
-        for _attempt in 0..8 {
+        for attempt in 0..self.policy.attempts.get() {
+            if attempt > 0 {
+                self.pause_before_attempt(attempt);
+            }
             let read = self.read_envelope(&request.document)?;
             let current = match read.as_ref().map(|read| &read.envelope) {
                 Some(_) if request.exchange_mode == CollaborationExchangeMode::Bootstrap => {
@@ -1061,6 +1092,17 @@ impl<S: CollaborationStoragePort> CollaborationService<S> {
             "resource_id": request.document.resource_id,
             "draft_retained": true,
         })).into())
+    }
+
+    /// Sleeps a random fraction of the bound before commit `attempt`, which
+    /// doubles from the policy's backoff with each attempt after the second.
+    fn pause_before_attempt(&self, attempt: u32) {
+        let bound = self
+            .policy
+            .backoff
+            .saturating_mul(1 << (attempt - 1).min(16));
+        let (random, _) = Uuid::new_v4().as_u64_pair();
+        std::thread::sleep(bound.mul_f64(random as f64 / u64::MAX as f64));
     }
 
     pub fn acknowledge_publication(
@@ -1802,7 +1844,11 @@ fn load_authoring_document(
 }
 
 fn collaboration_etag(accepted_update: &[u8]) -> String {
-    format!("loro:{}", sha256_hex(accepted_update))
+    checkpoint_etag(&sha256_hex(accepted_update))
+}
+
+fn checkpoint_etag(checkpoint_sha256: &str) -> String {
+    format!("loro:{checkpoint_sha256}")
 }
 
 fn collaboration_loro_error(

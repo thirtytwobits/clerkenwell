@@ -39,9 +39,11 @@ export interface ProjectionConnectionState {
 /** What a one-shot subscription needs from a transport. */
 export interface ProjectionSubscribeTransport<M extends ProjectionModel = ProjectionModel> {
   addNotificationListener(listener: (notification: ProjectionNotification) => void): () => void;
+  /** Subscribes; `held` is what an earlier subscription's last update said the client holds. */
   projectionSubscribe<K extends ProjectionName<M>>(
     projection: K,
-    params: ProjectionParams<M, K>
+    params: ProjectionParams<M, K>,
+    options?: { readonly held?: unknown }
   ): Promise<ProjectionSubscribeAccepted>;
   projectionUnsubscribe(subscriptionId: number): Promise<ProjectionUnsubscribeAccepted>;
 }
@@ -206,6 +208,10 @@ export async function watchProjection<
   let resyncing = false;
   const earlyEvents: ProjectionTransportEvent<M>[] = [];
   let state = createProjectionMaterializerState<M>(options.plans);
+  // What the last update the watch took says its client holds, with the value
+  // it left. Kept across a reconnect, so the next subscription sends only what
+  // the client lacks.
+  let held: { readonly token: unknown; readonly snapshot: ProjectionSnapshot<M, TProjection> } | undefined;
   const receive = (event: ProjectionTransportEvent<M>): void => {
     if (event.subscription_id !== subscriptionId) return;
     const previous = state.subscriptions.get(event.subscription_id);
@@ -216,8 +222,10 @@ export async function watchProjection<
       if (update.projection !== options.projection) throw new Error("Projection subscription changed its contract.");
       const snapshot = update.value.snapshot as ProjectionSnapshot<M, TProjection>;
       options.onValue(snapshot, event.kind === "patch" ? event.patch.value as ProjectionPatch<M, TProjection> : undefined);
+      held = event.held === undefined ? undefined : { token: event.held, snapshot };
       resolveFirst();
     } catch (error) {
+      held = undefined;
       options.onError(error);
       if (subscriptionId !== null && !resyncing) {
         resyncing = true;
@@ -238,7 +246,12 @@ export async function watchProjection<
     if (connecting) return connecting;
     const current = generation;
     connecting = Promise.resolve().then(async () => {
-      const accepted = await options.client.projectionSubscribe(options.projection, options.params);
+      const resumeFrom = held;
+      const accepted = await options.client.projectionSubscribe(
+        options.projection,
+        options.params,
+        resumeFrom === undefined ? {} : { held: resumeFrom.token }
+      );
       // A previous connection owns its subscription ids; they may be reused after reconnect.
       if (current !== generation) return;
       if (disposed) {
@@ -246,6 +259,15 @@ export async function watchProjection<
         return;
       }
       subscriptionId = accepted.subscription_id;
+      if (accepted.up_to_date === true && resumeFrom !== undefined) {
+        // The client holds what the subscription would send: keep its value at the new revision.
+        applyProjectionEvent(state, {
+          kind: "snapshot",
+          subscription_id: accepted.subscription_id,
+          revision: accepted.revision,
+          snapshot: { projection: options.projection, value: resumeFrom.snapshot }
+        } as ProjectionTransportEvent<M>);
+      }
       for (const event of earlyEvents.splice(0)) receive(event);
     }).finally(() => { if (current === generation) connecting = null; });
     return connecting;

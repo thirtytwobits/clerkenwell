@@ -4,7 +4,7 @@ mod support;
 
 use clerkenwell_store::{CollaborationDocumentId, CollaborationService, StoreError};
 use serde_json::{json, Value};
-use support::{NOTE_PLAN, PLANS};
+use support::{NOTE_PLAN, PLANS, POLICY};
 
 #[derive(Debug)]
 enum AppError {
@@ -21,7 +21,7 @@ impl From<StoreError> for AppError {
 #[test]
 fn a_rejecting_validator_fails_the_commit_with_its_own_error() {
     let root = tempfile::tempdir().expect("temp store");
-    let service = CollaborationService::new(root.path(), PLANS);
+    let service = CollaborationService::new(root.path(), PLANS, POLICY);
     let document = CollaborationDocumentId::new("Note", "note-1");
     let reason = "notes must not be empty";
     let seed = json!({ "note_id": "note-1", "body": "", "etag": "" });
