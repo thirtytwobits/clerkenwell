@@ -211,3 +211,27 @@ fn a_deletion_announces_the_state_it_removed() {
     assert_eq!(deleted.data.etag_before, created.data.etag_after);
     assert_eq!(deleted.data.etag_after, None);
 }
+
+#[test]
+fn a_repair_announces_the_state_it_left_the_document_in() {
+    let (_root, service, heard) = heard_service();
+    bootstrap(&service);
+    edit(&service, "edit-once", "Once.");
+    let before = heard.lock().unwrap().last().cloned().expect("the edit");
+
+    service
+        .repair(&note("note-1"), "a test repair")
+        .expect("repair");
+
+    let repaired = service
+        .load(&note("note-1"))
+        .expect("load")
+        .expect("the repaired document");
+    let heard = heard.lock().unwrap();
+    let announced = heard.last().expect("an announcement");
+    assert_eq!(announced.kind, ChangeKind::Committed);
+    assert_eq!(announced.generation, Some(repaired.generation));
+    assert_eq!(announced.data.etag_before, before.data.etag_after);
+    assert_eq!(announced.data.etag_after, Some(repaired.etag()));
+    assert_eq!(announced.data.frontier_before, before.data.frontier_after);
+}

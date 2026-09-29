@@ -652,7 +652,7 @@ impl<S: CollaborationStoragePort> CollaborationService<S> {
     }
 
     /// The feed this service announces each change to a document's accepted
-    /// state on: a commit, a move or a deletion.
+    /// state on: a commit, a repair, a move or a deletion.
     pub fn changes(&self) -> &ChangeFeed {
         &self.changes
     }
@@ -1764,6 +1764,8 @@ impl<S: CollaborationStoragePort> CollaborationService<S> {
         let evidence = self
             .storage
             .preserve(document, &evidence_label(reason), &stored.bytes)?;
+        let etag_before = envelope.etag();
+        let frontier_before = self.accepted_frontier(&envelope);
         envelope.retained_operations.clear();
         envelope.compacted_through_sequence = envelope.checkpoint_sequence;
         envelope.generation = envelope.generation.saturating_add(1);
@@ -1782,6 +1784,18 @@ impl<S: CollaborationStoragePort> CollaborationService<S> {
                 "resource_id": document.resource_id,
             })));
         }
+        self.announce(ChangeKind::Committed, Some(envelope.generation), || {
+            ChangeData {
+                entity: document.entity.clone(),
+                resource_id: document.resource_id.clone(),
+                moved_from: None,
+                etag_before: Some(etag_before),
+                etag_after: Some(envelope.etag()),
+                frontier_before,
+                frontier_after: self.accepted_frontier(&envelope),
+                operation_id: None,
+            }
+        });
         Ok(evidence)
     }
 
