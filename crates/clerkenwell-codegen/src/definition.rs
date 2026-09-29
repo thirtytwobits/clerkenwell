@@ -89,7 +89,9 @@ impl Definition {
                 "Projection definition must be a JSON object.".to_owned(),
             ));
         };
-        let definition = Definition { document };
+        let definition = Definition {
+            document: crate::expand::expand(document)?,
+        };
         validate::check_semantics(&definition, project)?;
         validate::check_project_names(&definition, project)?;
         Ok(definition)
@@ -440,6 +442,19 @@ impl<'a> CollaborationEntity<'a> {
 
     pub fn import_mutation(&self) -> &'a str {
         self.authoring_state().str_field("importMutation")
+    }
+
+    /// The resource id of the one document every subscription to the
+    /// authoring state follows, when the entity declares one.
+    pub fn authoring_document(&self) -> Option<&'a str> {
+        self.authoring_state().opt_str("document")
+    }
+
+    /// The authoring state's parameters that choose a document's store.
+    pub fn authoring_store_params(&self) -> Vec<&'a str> {
+        self.authoring_state()
+            .opt_strs_field("storeParams")
+            .unwrap_or_default()
     }
 
     pub fn root_container(&self) -> &'a str {

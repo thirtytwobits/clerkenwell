@@ -259,6 +259,8 @@ mod nested {
         schema_version: 1,
         migration_ids: &[],
         authoring_projection: "boards.authoringState",
+        authoring_document: None,
+        authoring_store_params: &[],
         import_mutation: "board.importLoroUpdate",
         root_container: "board",
         fields: FIELDS,

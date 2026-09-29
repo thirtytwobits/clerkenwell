@@ -81,55 +81,6 @@
       ]
     },
     {
-      "projection": "notes.authoringState",
-      "strategy": "replaceOrRemove",
-      "snapshot": {
-        "projection": "notes.authoringState",
-        "value": {
-          "note_id": "fixture",
-          "etag": "fixture",
-          "exchange_modes": [
-            "incremental"
-          ]
-        }
-      },
-      "cases": [
-        {
-          "kind": "replace",
-          "patch": {
-            "projection": "notes.authoringState",
-            "value": {
-              "kind": "replace",
-              "state": {
-                "note_id": "fixture",
-                "etag": "fixture",
-                "exchange_modes": [
-                  "incremental"
-                ]
-              }
-            }
-          },
-          "expectedSnapshot": {
-            "note_id": "fixture",
-            "etag": "fixture",
-            "exchange_modes": [
-              "incremental"
-            ]
-          }
-        },
-        {
-          "kind": "remove",
-          "patch": {
-            "projection": "notes.authoringState",
-            "value": {
-              "kind": "remove"
-            }
-          },
-          "expectedSnapshot": null
-        }
-      ]
-    },
-    {
       "projection": "notes.byId",
       "strategy": "replaceOrRemove",
       "snapshot": {
@@ -177,55 +128,6 @@
               "tags": []
             }
           }
-        }
-      ]
-    },
-    {
-      "projection": "boards.authoringState",
-      "strategy": "replaceOrRemove",
-      "snapshot": {
-        "projection": "boards.authoringState",
-        "value": {
-          "board_id": "fixture",
-          "etag": "fixture",
-          "exchange_modes": [
-            "incremental"
-          ]
-        }
-      },
-      "cases": [
-        {
-          "kind": "replace",
-          "patch": {
-            "projection": "boards.authoringState",
-            "value": {
-              "kind": "replace",
-              "state": {
-                "board_id": "fixture",
-                "etag": "fixture",
-                "exchange_modes": [
-                  "incremental"
-                ]
-              }
-            }
-          },
-          "expectedSnapshot": {
-            "board_id": "fixture",
-            "etag": "fixture",
-            "exchange_modes": [
-              "incremental"
-            ]
-          }
-        },
-        {
-          "kind": "remove",
-          "patch": {
-            "projection": "boards.authoringState",
-            "value": {
-              "kind": "remove"
-            }
-          },
-          "expectedSnapshot": null
         }
       ]
     },
@@ -654,6 +556,116 @@
               "fixture"
             ]
           }
+        }
+      ]
+    },
+    {
+      "projection": "notes.authoringState",
+      "strategy": "replaceOrRemove",
+      "snapshot": {
+        "projection": "notes.authoringState",
+        "value": {
+          "schema_version": 1,
+          "accepted_frontier_base64": "fixture",
+          "update_base64": "fixture",
+          "etag": "fixture",
+          "exchange_modes": [
+            "incremental"
+          ]
+        }
+      },
+      "cases": [
+        {
+          "kind": "replace",
+          "patch": {
+            "projection": "notes.authoringState",
+            "value": {
+              "kind": "replace",
+              "state": {
+                "schema_version": 1,
+                "accepted_frontier_base64": "fixture",
+                "update_base64": "fixture",
+                "etag": "fixture",
+                "exchange_modes": [
+                  "incremental"
+                ]
+              }
+            }
+          },
+          "expectedSnapshot": {
+            "schema_version": 1,
+            "accepted_frontier_base64": "fixture",
+            "update_base64": "fixture",
+            "etag": "fixture",
+            "exchange_modes": [
+              "incremental"
+            ]
+          }
+        },
+        {
+          "kind": "remove",
+          "patch": {
+            "projection": "notes.authoringState",
+            "value": {
+              "kind": "remove"
+            }
+          },
+          "expectedSnapshot": null
+        }
+      ]
+    },
+    {
+      "projection": "boards.authoringState",
+      "strategy": "replaceOrRemove",
+      "snapshot": {
+        "projection": "boards.authoringState",
+        "value": {
+          "schema_version": 1,
+          "accepted_frontier_base64": "fixture",
+          "update_base64": "fixture",
+          "etag": "fixture",
+          "exchange_modes": [
+            "incremental"
+          ]
+        }
+      },
+      "cases": [
+        {
+          "kind": "replace",
+          "patch": {
+            "projection": "boards.authoringState",
+            "value": {
+              "kind": "replace",
+              "state": {
+                "schema_version": 1,
+                "accepted_frontier_base64": "fixture",
+                "update_base64": "fixture",
+                "etag": "fixture",
+                "exchange_modes": [
+                  "incremental"
+                ]
+              }
+            }
+          },
+          "expectedSnapshot": {
+            "schema_version": 1,
+            "accepted_frontier_base64": "fixture",
+            "update_base64": "fixture",
+            "etag": "fixture",
+            "exchange_modes": [
+              "incremental"
+            ]
+          }
+        },
+        {
+          "kind": "remove",
+          "patch": {
+            "projection": "boards.authoringState",
+            "value": {
+              "kind": "remove"
+            }
+          },
+          "expectedSnapshot": null
         }
       ]
     }

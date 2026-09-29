@@ -168,6 +168,12 @@ pub struct GeneratedCollaborationEntitySpec {
     pub schema_version: u32,
     pub migration_ids: &'static [&'static str],
     pub authoring_projection: &'static str,
+    /// The resource id of the one document every subscription to the
+    /// authoring state follows, when the entity has exactly one.
+    pub authoring_document: Option<&'static str>,
+    /// The authoring state's parameters that choose the store a document
+    /// lives in, beside the one that names it.
+    pub authoring_store_params: &'static [&'static str],
     pub import_mutation: &'static str,
     pub root_container: &'static str,
     pub fields: &'static [GeneratedCollaborationFieldSpec],

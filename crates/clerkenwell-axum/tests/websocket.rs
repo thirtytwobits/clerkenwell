@@ -10,7 +10,7 @@ use clerkenwell_schema::{
     GeneratedMaterializationPlan, GeneratedMutationSpec, GeneratedProjectionSpec,
 };
 use clerkenwell_session::transport::ProjectionErrorCode;
-use clerkenwell_session::{ProjectionHost, ProjectionRegistry, ProjectionSubscription};
+use clerkenwell_session::{Held, ProjectionHost, ProjectionRegistry, ProjectionSubscription};
 use futures_util::{SinkExt, StreamExt};
 use serde_json::{json, Value};
 use tokio::net::TcpStream;
@@ -110,7 +110,7 @@ impl ProjectionHost for Counters {
         &self,
         _mutation: &str,
         result: &Value,
-        subscription: &ProjectionSubscription<()>,
+        subscription: &ProjectionSubscription<Held<()>>,
     ) -> Option<Value> {
         (subscription.params["counter_id"] == result["counter_id"])
             .then(|| json!({ "value": result["value"] }))

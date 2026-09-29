@@ -27,6 +27,16 @@ pub fn notebook_document() -> Json {
     Json::parse(&text).expect("the notebook definition is JSON")
 }
 
+/// The notebook definition with the declarations its collaboration section
+/// implies, as the generator renders it.
+pub fn expanded_notebook() -> Json {
+    validate(notebook_document())
+        .expect("the notebook definition is valid")
+        .document()
+        .clone()
+        .into()
+}
+
 pub fn json(text: &str) -> Json {
     Json::parse(text).expect("test JSON parses")
 }

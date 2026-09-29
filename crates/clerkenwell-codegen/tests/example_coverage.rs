@@ -7,7 +7,7 @@ use std::collections::BTreeSet;
 
 use clerkenwell_codegen::json::Json;
 use clerkenwell_codegen::{schema_keywords, META_SCHEMA};
-use common::notebook_document;
+use common::{expanded_notebook, notebook_document};
 
 /// The values the meta-schema's enum at `pointer` admits.
 fn admitted(pointer: &str) -> BTreeSet<String> {
@@ -112,7 +112,7 @@ fn every_collaboration_storage_kind_codec_and_conflict_policy_is_used() {
 
 #[test]
 fn every_entity_projection_and_mnemonic_policy_is_used() {
-    let document = notebook_document();
+    let document = expanded_notebook();
     assert_covers(
         "authoring kind",
         admitted("/definitions/authoringPolicy/properties/kind/enum"),

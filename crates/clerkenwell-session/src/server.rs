@@ -14,6 +14,9 @@ use serde::de::DeserializeOwned;
 use serde::Serialize;
 use serde_json::{json, Value};
 
+use clerkenwell_events::{ChangeEvent, ChangeKind};
+
+use crate::authoring::{AuthoringHeld, AuthoringState, AuthoringStates, Held};
 use crate::registry::ProjectionRegistry;
 use crate::subscriptions::{ProjectionSubscription, ProjectionSubscriptions};
 use crate::transport::{
@@ -113,8 +116,8 @@ pub trait ProjectionFailure: Sized {
 
 /// What an application provides to serve projections.
 pub trait ProjectionHost: Sync {
-    type Snapshot: Serialize + Send;
-    type Patch: Serialize + Clone + PartialEq + Send;
+    type Snapshot: Serialize + DeserializeOwned + Send;
+    type Patch: Serialize + DeserializeOwned + Clone + PartialEq + Send;
     /// What an update leaves its client holding. A client sends it back when
     /// it subscribes again, and is sent only what it lacks.
     type Delivery: Clone + PartialEq + Serialize + DeserializeOwned + Send;
@@ -124,8 +127,14 @@ pub trait ProjectionHost: Sync {
     /// The projections and mutations served.
     fn registry(&self) -> &ProjectionRegistry;
 
+    /// The authoring states of the collaborative documents served, which the
+    /// session answers and delivers itself; `None` when none are served.
+    fn authoring_states(&self) -> Option<&AuthoringStates> {
+        None
+    }
+
     /// `projection`'s state for a client that holds `held`, which may carry
-    /// only what that client lacks.
+    /// only what that client lacks. The session asks for no authoring state.
     fn snapshot(
         &self,
         projection: &str,
@@ -148,12 +157,13 @@ pub trait ProjectionHost: Sync {
     ) -> impl Future<Output = Result<Self::MutationResult, Self::Failure>> + Send;
 
     /// The patch an accepted mutation sends `subscription`, or `None` when its
-    /// change reaches that subscription some other way.
+    /// change reaches that subscription some other way. The session asks for
+    /// no authoring state: those take each change their store announces.
     fn mutation_patch(
         &self,
         mutation: &str,
         result: &Self::MutationResult,
-        subscription: &ProjectionSubscription<Self::Delivery>,
+        subscription: &ProjectionSubscription<Held<Self::Delivery>>,
     ) -> impl Future<Output = Option<Self::Patch>> + Send;
 }
 
@@ -214,7 +224,7 @@ pub async fn serve_request<H, C>(
 ) -> Option<Result<Reply<H>, H::Failure>>
 where
     H: ProjectionHost,
-    C: ProjectionConnection<H::Patch, H::Delivery>,
+    C: ProjectionConnection<H::Patch, Held<H::Delivery>>,
 {
     let operation = ProjectionOperation::for_method(method)?;
     Some(match ProjectionCommand::decode(method, params)? {
@@ -232,7 +242,7 @@ pub async fn serve<H, C>(
 ) -> Result<Reply<H>, H::Failure>
 where
     H: ProjectionHost,
-    C: ProjectionConnection<H::Patch, H::Delivery>,
+    C: ProjectionConnection<H::Patch, Held<H::Delivery>>,
 {
     let operation = command.operation();
     let name = command.name().map(str::to_owned);
@@ -269,7 +279,7 @@ pub async fn publish<H, C>(
 ) -> (u64, Vec<Event<H>>)
 where
     H: ProjectionHost,
-    C: ProjectionConnection<H::Patch, H::Delivery>,
+    C: ProjectionConnection<H::Patch, Held<H::Delivery>>,
 {
     let registry = host.registry();
     let mutation = accepted.mutation.as_str();
@@ -288,6 +298,7 @@ where
                 .iter()
                 .filter(|(_, subscription)| {
                     registry.mutation_affects_projection(mutation, &subscription.projection)
+                        && !is_authoring(host, &subscription.projection)
                 })
                 .map(|(subscription_id, subscription)| (*subscription_id, subscription.clone()))
                 .collect::<Vec<_>>();
@@ -302,7 +313,7 @@ where
         else {
             continue;
         };
-        let delivered = host.delivered_by_patch(&patch);
+        let delivered = host.delivered_by_patch(&patch).map(Held::Host);
         let event = connection
             .with_subscriptions(move |subscriptions| {
                 subscriptions.deliver_patch(subscription_id, revision, patch, delivered)
@@ -319,7 +330,7 @@ where
 pub async fn resync_all<H, C>(host: &H, connection: &C, reason: &str) -> Vec<Event<H>>
 where
     H: ProjectionHost,
-    C: ProjectionConnection<H::Patch, H::Delivery>,
+    C: ProjectionConnection<H::Patch, Held<H::Delivery>>,
 {
     let mut subscriptions = connection
         .with_subscriptions(|subscriptions| {
@@ -333,13 +344,11 @@ where
     subscriptions.sort_by_key(|(subscription_id, _)| *subscription_id);
     let mut events = Vec::new();
     for (subscription_id, subscription) in subscriptions {
-        let Ok(snapshot) = host
-            .snapshot(&subscription.projection, &subscription.params, None)
-            .await
+        let Ok((snapshot, delivered)) =
+            snapshot_for(host, &subscription.projection, &subscription.params, None).await
         else {
             continue;
         };
-        let delivered = host.delivered(&snapshot);
         let reason = reason.to_owned();
         let resynced = connection
             .with_subscriptions(move |subscriptions| {
@@ -349,6 +358,146 @@ where
         events.extend(resynced.map(|(_, event)| event));
     }
     events
+}
+
+/// Sends the subscriptions on `connection` that follow the document `change`
+/// names what the change brings them: the accepted operations a commit adds,
+/// the document where it moved to, or its removal where it was deleted or
+/// moved from. A subscription whose client already holds the change is sent
+/// nothing.
+pub async fn deliver_change<H, C>(host: &H, connection: &C, change: &ChangeEvent) -> Vec<Event<H>>
+where
+    H: ProjectionHost,
+    C: ProjectionConnection<H::Patch, Held<H::Delivery>>,
+{
+    let Some(authoring) = host.authoring_states() else {
+        return Vec::new();
+    };
+    let mut subscriptions = connection
+        .with_subscriptions(|subscriptions| {
+            subscriptions
+                .all()
+                .iter()
+                .filter(|(_, subscription)| {
+                    authoring
+                        .plan(&subscription.projection)
+                        .is_some_and(|plan| plan.name == change.data.entity)
+                })
+                .map(|(subscription_id, subscription)| (*subscription_id, subscription.clone()))
+                .collect::<Vec<_>>()
+        })
+        .await;
+    subscriptions.sort_by_key(|(subscription_id, _)| *subscription_id);
+    let mut events = Vec::new();
+    for (subscription_id, subscription) in subscriptions {
+        let Some(Ok(document)) = authoring.follow(&subscription.projection, &subscription.params)
+        else {
+            continue;
+        };
+        if document.store != change.source {
+            continue;
+        }
+        let named_now = document.id.resource_id == change.data.resource_id;
+        let named_before = change.kind == ChangeKind::Moved
+            && change.data.moved_from.as_deref() == Some(document.id.resource_id.as_str());
+        if named_before || (named_now && change.kind == ChangeKind::Deleted) {
+            if subscription.delivered.is_none() {
+                continue;
+            }
+            let Ok(patch) = authoring_patch::<H>(&subscription.projection, None) else {
+                continue;
+            };
+            events.extend(
+                connection
+                    .with_subscriptions(move |subscriptions| {
+                        subscriptions.deliver_patch(subscription_id, 0, patch, None)
+                    })
+                    .await,
+            );
+            continue;
+        }
+        if !named_now {
+            continue;
+        }
+        // A document moved here shares no history with one its client held.
+        let held = match change.kind {
+            ChangeKind::Moved => None,
+            _ => subscription.delivered.as_ref().and_then(Held::authoring),
+        };
+        let Ok(state) = authoring.state(&document, held) else {
+            continue;
+        };
+        let Ok(patch) = authoring_patch::<H>(&subscription.projection, Some(&state)) else {
+            continue;
+        };
+        let delivered = Held::Authoring(AuthoringHeld::from(&state));
+        let from_revision = subscription.revision;
+        let delivery = connection
+            .with_subscriptions(move |subscriptions| {
+                subscriptions.deliver_following(subscription_id, from_revision, patch, delivered)
+            })
+            .await;
+        events.extend(delivery.ok());
+    }
+    events
+}
+
+fn is_authoring<H: ProjectionHost>(host: &H, projection: &str) -> bool {
+    host.authoring_states()
+        .is_some_and(|authoring| authoring.plan(projection).is_some())
+}
+
+/// A subscription's snapshot for a client that holds `held`, and what it
+/// leaves the client holding.
+async fn snapshot_for<H: ProjectionHost>(
+    host: &H,
+    projection: &str,
+    params: &Value,
+    held: Option<&Held<H::Delivery>>,
+) -> Result<(H::Snapshot, Option<Held<H::Delivery>>), H::Failure> {
+    let authoring = host.authoring_states();
+    if let Some(document) = authoring.and_then(|authoring| authoring.follow(projection, params)) {
+        let document = document.map_err(H::Failure::refused)?;
+        let state = authoring
+            .expect("a followed document is an authoring state's")
+            .state(&document, held.and_then(Held::authoring))
+            .map_err(H::Failure::refused)?;
+        let delivered = Held::Authoring(AuthoringHeld::from(&state));
+        return Ok((
+            typed::<H, _>(json!({ "projection": projection, "value": state }))?,
+            Some(delivered),
+        ));
+    }
+    let held = match held {
+        Some(Held::Host(held)) => Some(held),
+        _ => None,
+    };
+    let snapshot = host.snapshot(projection, params, held).await?;
+    let delivered = host.delivered(&snapshot).map(Held::Host);
+    Ok((snapshot, delivered))
+}
+
+/// The authoring-state patch delivering `state`, or removing the document.
+fn authoring_patch<H: ProjectionHost>(
+    projection: &str,
+    state: Option<&AuthoringState>,
+) -> Result<H::Patch, H::Failure> {
+    let value = match state {
+        Some(state) => json!({ "kind": "replace", "state": state }),
+        None => json!({ "kind": "remove" }),
+    };
+    typed::<H, _>(json!({ "projection": projection, "value": value }))
+}
+
+/// `value` as the host's type for it.
+fn typed<H: ProjectionHost, T: DeserializeOwned>(value: Value) -> Result<T, H::Failure> {
+    serde_json::from_value(value).map_err(|error| {
+        H::Failure::refused(ProjectionRefusal::new(
+            ProjectionErrorCode::InternalError,
+            format!("The host's model does not hold the authoring state: {error}"),
+            None,
+        ))
+    })
 }
 
 /// `failure` described to the client of the command it answers.
@@ -374,7 +523,7 @@ async fn subscribe<H, C>(
 ) -> Result<Reply<H>, H::Failure>
 where
     H: ProjectionHost,
-    C: ProjectionConnection<H::Patch, H::Delivery>,
+    C: ProjectionConnection<H::Patch, Held<H::Delivery>>,
 {
     if host.registry().projection(&command.projection).is_none() {
         return Err(H::Failure::refused(ProjectionRefusal::new(
@@ -384,13 +533,15 @@ where
         )));
     }
     let params = command.params.unwrap_or_else(|| json!({}));
-    let held = command
-        .held
-        .and_then(|held| serde_json::from_value::<H::Delivery>(held).ok());
-    let snapshot = host
-        .snapshot(&command.projection, &params, held.as_ref())
-        .await?;
-    let delivered = host.delivered(&snapshot);
+    let held = command.held.and_then(|held| {
+        if is_authoring(host, &command.projection) {
+            serde_json::from_value(held).ok().map(Held::Authoring)
+        } else {
+            serde_json::from_value(held).ok().map(Held::Host)
+        }
+    });
+    let (snapshot, delivered) =
+        snapshot_for(host, &command.projection, &params, held.as_ref()).await?;
     let projection = command.projection;
     let (accepted, events) = connection
         .with_subscriptions(move |subscriptions| {
@@ -411,17 +562,15 @@ async fn resync<H, C>(
 ) -> Result<Reply<H>, H::Failure>
 where
     H: ProjectionHost,
-    C: ProjectionConnection<H::Patch, H::Delivery>,
+    C: ProjectionConnection<H::Patch, Held<H::Delivery>>,
 {
     let subscription_id = command.subscription_id;
     let subscription = connection
         .with_subscriptions(move |subscriptions| subscriptions.get(subscription_id).cloned())
         .await
         .ok_or_else(|| subscription_not_found::<H>(subscription_id))?;
-    let snapshot = host
-        .snapshot(&subscription.projection, &subscription.params, None)
-        .await?;
-    let delivered = host.delivered(&snapshot);
+    let (snapshot, delivered) =
+        snapshot_for(host, &subscription.projection, &subscription.params, None).await?;
     let (accepted, event) = connection
         .with_subscriptions(move |subscriptions| {
             subscriptions.resync(subscription_id, snapshot, delivered, "clientRequested")
@@ -449,7 +598,7 @@ async fn unsubscribe<H, C>(
 ) -> Result<Reply<H>, H::Failure>
 where
     H: ProjectionHost,
-    C: ProjectionConnection<H::Patch, H::Delivery>,
+    C: ProjectionConnection<H::Patch, Held<H::Delivery>>,
 {
     let removed = connection
         .with_subscriptions(move |subscriptions| subscriptions.remove(command.subscription_id))
@@ -468,7 +617,7 @@ async fn mutate<H, C>(
 ) -> Result<Reply<H>, H::Failure>
 where
     H: ProjectionHost,
-    C: ProjectionConnection<H::Patch, H::Delivery>,
+    C: ProjectionConnection<H::Patch, Held<H::Delivery>>,
 {
     let mutation = command.mutation;
     if host.registry().mutation(&mutation).is_none() {

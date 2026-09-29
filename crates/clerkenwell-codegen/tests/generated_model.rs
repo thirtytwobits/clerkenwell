@@ -6,7 +6,7 @@ mod common;
 use clerkenwell_notebook as model;
 
 use clerkenwell_codegen::json::Json;
-use common::{notebook_dir, notebook_document};
+use common::{expanded_notebook, notebook_dir, notebook_document};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 
@@ -66,7 +66,7 @@ fn every_public_name_parses_to_the_variant_that_spells_it() {
 
 #[test]
 fn the_registries_list_every_definition_entry() {
-    let document = notebook_document();
+    let document = expanded_notebook();
     let count = |pointer: &str| {
         document
             .pointer(pointer)

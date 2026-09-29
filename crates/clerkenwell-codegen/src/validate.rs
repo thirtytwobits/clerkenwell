@@ -97,6 +97,11 @@ pub(crate) fn check_semantics(definition: &Definition, project: &Project) -> Res
         collaboration.compatibility(),
         "collaboration.compatibility",
     )?;
+    if definition.projection_count() == 0 {
+        return refuse(
+            "projections must declare a projection, or collaboration an entity whose authoring state is one.".to_owned(),
+        );
+    }
 
     // Every `$defs` entry must be renderable, and generated type names must be
     // collision-free after identifier normalisation.

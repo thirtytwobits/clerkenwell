@@ -15,6 +15,7 @@ pub mod config;
 mod coverage;
 pub mod definition;
 mod error;
+mod expand;
 mod fixtures;
 pub mod json;
 mod layout;

@@ -8,6 +8,7 @@ repository.workspace = true
 
 [dependencies]
 axum = { version = "0.8.8", default-features = false, features = ["ws", "tokio", "http1"] }
+clerkenwell-events = { path = "../clerkenwell-events" }
 clerkenwell-session = { path = "../clerkenwell-session" }
 futures-util = { version = "0.3.32", default-features = false, features = ["sink", "std"] }
 serde.workspace = true

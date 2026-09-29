@@ -56,13 +56,17 @@ const { note_id } = await ada.projectionMutate("note.create", { title: "Launch p
 let delivered!: (note: Note) => void;
 let failed!: (error: unknown) => void;
 const written = new Promise<Note>((resolve, reject) => { delivered = resolve; failed = reject; });
+let held: CollaborationLoroAuthoringDocument<Note> | undefined;
 const watch = await watchProjection<Model, "notes.authoringState">({
   client: ada,
   plans: PROJECTION_COMPOSITION_PLANS,
   projection: "notes.authoringState",
   params: { note_id },
+  // The first delivery carries every accepted operation; each later one, those Ada lacked.
   onValue: (state) => {
-    const note = replica(state.update_base64).currentDocument();
+    if (held === undefined) held = replica(state.update_base64);
+    else held.importUpdateBase64(state.update_base64);
+    const note = held.currentDocument();
     if (note.body === body) delivered(note);
   },
   onError: failed
