@@ -24,15 +24,15 @@ use fs2::FileExt;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::fs::{File, OpenOptions};
 use std::io::Write;
 use std::num::NonZeroU32;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Arc;
 #[cfg(test)]
 use std::sync::Mutex;
+use std::sync::{Arc, RwLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use uuid::Uuid;
 
@@ -494,13 +494,63 @@ pub struct CollaborationService<S = LocalFileCollaborationStorage> {
     faults: CollaborationFaults,
 }
 
-impl CollaborationService<LocalFileCollaborationStorage> {
-    /// A service over the same plans and policy, sharing this one's
-    /// counters and change feed, whose envelopes live under `root` and whose
-    /// changes name `root` as their source.
-    pub fn with_storage_root(&self, root: &Path) -> Self {
-        let storage = LocalFileCollaborationStorage::new(root);
+/// The stores an application keeps its documents in, each under a name. The
+/// stores in a set share its plans, commit policy, counters and change feed,
+/// and each names itself as the source of the changes it announces. The
+/// application registers each store's root and routes each document to the
+/// store that holds it.
+#[derive(Debug, Clone)]
+pub struct CollaborationStores {
+    plans: &'static [GeneratedCollaborationEntitySpec],
+    policy: CommitPolicy,
+    counters: Arc<CollaborationRuntimeCounters>,
+    changes: Arc<ChangeFeed>,
+    stores: Arc<RwLock<BTreeMap<String, CollaborationService>>>,
+}
+
+impl CollaborationStores {
+    /// A set, holding no store yet, for documents of `plans` committed under
+    /// `policy`.
+    pub fn new(plans: &'static [GeneratedCollaborationEntitySpec], policy: CommitPolicy) -> Self {
         Self {
+            plans,
+            policy,
+            counters: Arc::new(CollaborationRuntimeCounters::default()),
+            changes: Arc::new(ChangeFeed::default()),
+            stores: Arc::default(),
+        }
+    }
+
+    /// The store named `name`, keeping its envelopes under `root`. Registers it
+    /// when the set holds no store of that name, and refuses a name the set
+    /// holds for another root.
+    pub fn register(&self, name: &str, root: &Path) -> StoreResult<CollaborationService> {
+        let registered = |existing: &CollaborationService| {
+            if existing.storage.root == root {
+                Ok(existing.clone())
+            } else {
+                Err(StoreError::conflict(format!(
+                    "Collaboration store {name:?} keeps its envelopes under {}.",
+                    existing.storage.root.display()
+                ))
+                .with_data(serde_json::json!({
+                    "code": "collaboration_store_registered",
+                    "store": name,
+                })))
+            }
+        };
+        if let Some(existing) = self.read().get(name) {
+            return registered(existing);
+        }
+        let mut stores = self
+            .stores
+            .write()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if let Some(existing) = stores.get(name) {
+            return registered(existing);
+        }
+        let storage = LocalFileCollaborationStorage::new(root);
+        let service = CollaborationService {
             #[cfg(test)]
             faults: storage.faults.clone(),
             storage,
@@ -508,10 +558,53 @@ impl CollaborationService<LocalFileCollaborationStorage> {
             policy: self.policy,
             counters: self.counters.clone(),
             changes: self.changes.clone(),
-            source: root.display().to_string().into(),
-        }
+            source: name.into(),
+        };
+        stores.insert(name.to_string(), service.clone());
+        Ok(service)
     }
 
+    /// The store registered as `name`.
+    pub fn store(&self, name: &str) -> Option<CollaborationService> {
+        self.read().get(name).cloned()
+    }
+
+    /// Removes the store registered as `name` from the set, leaving its
+    /// envelopes where they are. Returns whether the set held it.
+    pub fn forget(&self, name: &str) -> bool {
+        self.stores
+            .write()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .remove(name)
+            .is_some()
+    }
+
+    /// Every store in the set, by name.
+    pub fn stores(&self) -> Vec<(String, CollaborationService)> {
+        self.read()
+            .iter()
+            .map(|(name, service)| (name.clone(), service.clone()))
+            .collect()
+    }
+
+    /// The feed every store in the set announces its changes on.
+    pub fn changes(&self) -> &ChangeFeed {
+        &self.changes
+    }
+
+    /// What the stores in the set have counted between them.
+    pub fn counters(&self) -> CollaborationRuntimeCountersSnapshot {
+        self.counters.snapshot()
+    }
+
+    fn read(&self) -> std::sync::RwLockReadGuard<'_, BTreeMap<String, CollaborationService>> {
+        self.stores
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+}
+
+impl CollaborationService<LocalFileCollaborationStorage> {
     /// A service for documents of `plans` whose envelopes live under `root`.
     pub fn new(
         root: &Path,

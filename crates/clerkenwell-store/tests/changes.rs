@@ -211,18 +211,3 @@ fn a_deletion_announces_the_state_it_removed() {
     assert_eq!(deleted.data.etag_before, created.data.etag_after);
     assert_eq!(deleted.data.etag_after, None);
 }
-
-#[test]
-fn a_service_for_another_root_announces_on_the_same_feed_as_that_root() {
-    let (_root, service, heard) = heard_service();
-    let other_root = tempfile::tempdir().expect("other store");
-    let other = service.with_storage_root(other_root.path());
-    bootstrap(&service);
-    bootstrap(&other);
-
-    let heard = heard.lock().unwrap();
-    let sources: Vec<&str> = heard.iter().map(|change| change.source.as_str()).collect();
-    assert_eq!(sources.len(), 2);
-    assert_ne!(sources[0], sources[1]);
-    assert_eq!(sources[1], other_root.path().display().to_string());
-}
