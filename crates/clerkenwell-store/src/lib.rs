@@ -17,21 +17,22 @@ mod error;
 
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use clerkenwell_doc::{CollaborationLoroError, LoroAuthoringDocument};
+use clerkenwell_events::{ChangeData, ChangeEvent, ChangeFeed, ChangeKind};
 use clerkenwell_schema::GeneratedCollaborationEntitySpec;
 pub use error::{StoreError, StoreErrorKind, StoreResult};
 use fs2::FileExt;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::fs::{File, OpenOptions};
 use std::io::Write;
 use std::num::NonZeroU32;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Arc;
 #[cfg(test)]
 use std::sync::Mutex;
+use std::sync::{Arc, RwLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use uuid::Uuid;
 
@@ -198,6 +199,10 @@ struct CollaborationCommit {
     imported_update: Vec<u8>,
     has_new_operations: bool,
     accepted_update: Vec<u8>,
+    /// The accepted frontiers before and after the commit, when the caller
+    /// read them.
+    frontier_before: Option<String>,
+    frontier_after: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -483,25 +488,123 @@ pub struct CollaborationService<S = LocalFileCollaborationStorage> {
     plans: &'static [GeneratedCollaborationEntitySpec],
     policy: CommitPolicy,
     counters: Arc<CollaborationRuntimeCounters>,
+    changes: Arc<ChangeFeed>,
+    source: Arc<str>,
     #[cfg(test)]
     faults: CollaborationFaults,
 }
 
-impl CollaborationService<LocalFileCollaborationStorage> {
-    /// A service over the same plans and policy, sharing this one's
-    /// counters, whose envelopes live under `root`.
-    pub fn with_storage_root(&self, root: &Path) -> Self {
-        let storage = LocalFileCollaborationStorage::new(root);
+/// The stores an application keeps its documents in, each under a name. The
+/// stores in a set share its plans, commit policy, counters and change feed,
+/// and each names itself as the source of the changes it announces. The
+/// application registers each store's root and routes each document to the
+/// store that holds it.
+#[derive(Debug, Clone)]
+pub struct CollaborationStores {
+    plans: &'static [GeneratedCollaborationEntitySpec],
+    policy: CommitPolicy,
+    counters: Arc<CollaborationRuntimeCounters>,
+    changes: Arc<ChangeFeed>,
+    stores: Arc<RwLock<BTreeMap<String, CollaborationService>>>,
+}
+
+impl CollaborationStores {
+    /// A set, holding no store yet, for documents of `plans` committed under
+    /// `policy`.
+    pub fn new(plans: &'static [GeneratedCollaborationEntitySpec], policy: CommitPolicy) -> Self {
         Self {
+            plans,
+            policy,
+            counters: Arc::new(CollaborationRuntimeCounters::default()),
+            changes: Arc::new(ChangeFeed::default()),
+            stores: Arc::default(),
+        }
+    }
+
+    /// The store named `name`, keeping its envelopes under `root`. Registers it
+    /// when the set holds no store of that name, and refuses a name the set
+    /// holds for another root.
+    pub fn register(&self, name: &str, root: &Path) -> StoreResult<CollaborationService> {
+        let registered = |existing: &CollaborationService| {
+            if existing.storage.root == root {
+                Ok(existing.clone())
+            } else {
+                Err(StoreError::conflict(format!(
+                    "Collaboration store {name:?} keeps its envelopes under {}.",
+                    existing.storage.root.display()
+                ))
+                .with_data(serde_json::json!({
+                    "code": "collaboration_store_registered",
+                    "store": name,
+                })))
+            }
+        };
+        if let Some(existing) = self.read().get(name) {
+            return registered(existing);
+        }
+        let mut stores = self
+            .stores
+            .write()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if let Some(existing) = stores.get(name) {
+            return registered(existing);
+        }
+        let storage = LocalFileCollaborationStorage::new(root);
+        let service = CollaborationService {
             #[cfg(test)]
             faults: storage.faults.clone(),
             storage,
             plans: self.plans,
             policy: self.policy,
             counters: self.counters.clone(),
-        }
+            changes: self.changes.clone(),
+            source: name.into(),
+        };
+        stores.insert(name.to_string(), service.clone());
+        Ok(service)
     }
 
+    /// The store registered as `name`.
+    pub fn store(&self, name: &str) -> Option<CollaborationService> {
+        self.read().get(name).cloned()
+    }
+
+    /// Removes the store registered as `name` from the set, leaving its
+    /// envelopes where they are. Returns whether the set held it.
+    pub fn forget(&self, name: &str) -> bool {
+        self.stores
+            .write()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .remove(name)
+            .is_some()
+    }
+
+    /// Every store in the set, by name.
+    pub fn stores(&self) -> Vec<(String, CollaborationService)> {
+        self.read()
+            .iter()
+            .map(|(name, service)| (name.clone(), service.clone()))
+            .collect()
+    }
+
+    /// The feed every store in the set announces its changes on.
+    pub fn changes(&self) -> &ChangeFeed {
+        &self.changes
+    }
+
+    /// What the stores in the set have counted between them.
+    pub fn counters(&self) -> CollaborationRuntimeCountersSnapshot {
+        self.counters.snapshot()
+    }
+
+    fn read(&self) -> std::sync::RwLockReadGuard<'_, BTreeMap<String, CollaborationService>> {
+        self.stores
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+}
+
+impl CollaborationService<LocalFileCollaborationStorage> {
     /// A service for documents of `plans` whose envelopes live under `root`.
     pub fn new(
         root: &Path,
@@ -516,23 +619,29 @@ impl CollaborationService<LocalFileCollaborationStorage> {
             plans,
             policy,
             counters: Arc::new(CollaborationRuntimeCounters::default()),
+            changes: Arc::new(ChangeFeed::default()),
+            source: root.display().to_string().into(),
         }
     }
 }
 
 impl<S: CollaborationStoragePort> CollaborationService<S> {
     /// A service for documents of `plans` committing through any
-    /// implementation of the storage port.
+    /// implementation of the storage port, whose changes name `source` as
+    /// their source.
     pub fn with_storage(
         storage: S,
         plans: &'static [GeneratedCollaborationEntitySpec],
         policy: CommitPolicy,
+        source: impl Into<String>,
     ) -> Self {
         Self {
             storage,
             plans,
             policy,
             counters: Arc::new(CollaborationRuntimeCounters::default()),
+            changes: Arc::new(ChangeFeed::default()),
+            source: source.into().into(),
             #[cfg(test)]
             faults: CollaborationFaults::default(),
         }
@@ -540,6 +649,44 @@ impl<S: CollaborationStoragePort> CollaborationService<S> {
 
     pub fn storage(&self) -> &S {
         &self.storage
+    }
+
+    /// The feed this service announces each change to a document's accepted
+    /// state on: a commit, a move or a deletion.
+    pub fn changes(&self) -> &ChangeFeed {
+        &self.changes
+    }
+
+    fn announce(
+        &self,
+        kind: ChangeKind,
+        generation: Option<u64>,
+        data: impl FnOnce() -> ChangeData,
+    ) {
+        if !self.changes.is_heard() {
+            return;
+        }
+        self.changes.announce(&ChangeEvent::new(
+            Uuid::new_v4().to_string(),
+            self.source.as_ref(),
+            kind,
+            chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
+            generation,
+            data(),
+        ));
+    }
+
+    /// The accepted frontier `envelope` holds, when its plan can read it.
+    fn accepted_frontier(&self, envelope: &DurableCollaborationEnvelope) -> Option<String> {
+        let plan = self
+            .plans
+            .iter()
+            .find(|plan| plan.name == envelope.entity)?;
+        let document =
+            CollaborationDocumentId::new(envelope.entity.clone(), envelope.resource_id.clone());
+        load_authoring_document(plan, &document, envelope)
+            .ok()
+            .map(|authoring| authoring.accepted_frontier_base64())
     }
 
     /// `document`'s validated envelope, or `None` when it has none.
@@ -585,6 +732,18 @@ impl<S: CollaborationStoragePort> CollaborationService<S> {
                 return Ok(current);
             }
             if self.swap(&document, None, &envelope)?.is_some() {
+                self.announce(ChangeKind::Committed, Some(envelope.generation), || {
+                    ChangeData {
+                        entity: document.entity.clone(),
+                        resource_id: document.resource_id.clone(),
+                        moved_from: None,
+                        etag_before: None,
+                        etag_after: Some(envelope.etag()),
+                        frontier_before: None,
+                        frontier_after: self.accepted_frontier(&envelope),
+                        operation_id: None,
+                    }
+                });
                 return Ok(envelope);
             }
         }
@@ -671,7 +830,7 @@ impl<S: CollaborationStoragePort> CollaborationService<S> {
             current_envelope.map_or_else(Vec::new, |state| state.retained_operations.clone())
         };
         retained_operations.push(CollaborationOperation::from_update(
-            operation_id,
+            operation_id.clone(),
             sequence,
             commit.schema_version,
             &commit.imported_update,
@@ -703,7 +862,23 @@ impl<S: CollaborationStoragePort> CollaborationService<S> {
         };
         let expected = current.map(|read| read.version.as_str());
         Ok(match self.swap(&document, expected, &envelope)? {
-            Some(_) => CollaborationCommitOutcome::Accepted(envelope),
+            Some(_) => {
+                self.announce(ChangeKind::Committed, Some(envelope.generation), || {
+                    ChangeData {
+                        entity: document.entity.clone(),
+                        resource_id: document.resource_id.clone(),
+                        moved_from: None,
+                        etag_before: current_envelope.map(DurableCollaborationEnvelope::etag),
+                        etag_after: Some(envelope.etag()),
+                        frontier_before: commit.frontier_before,
+                        frontier_after: commit
+                            .frontier_after
+                            .or_else(|| self.accepted_frontier(&envelope)),
+                        operation_id: Some(operation_id.clone()),
+                    }
+                });
+                CollaborationCommitOutcome::Accepted(envelope)
+            }
             None => CollaborationCommitOutcome::Stale,
         })
     }
@@ -1028,6 +1203,8 @@ impl<S: CollaborationStoragePort> CollaborationService<S> {
                     imported_update: imported_update.clone(),
                     has_new_operations: before_import != authoring.accepted_frontier_base64(),
                     accepted_update: accepted_update.clone(),
+                    frontier_before: Some(before_import.clone()),
+                    frontier_after: Some(authoring.accepted_frontier_base64()),
                 },
             )?;
             let (accepted, duplicate) = match outcome {
@@ -1288,6 +1465,22 @@ impl<S: CollaborationStoragePort> CollaborationService<S> {
         let source = self.storage.source(document);
         while let Some(stored) = self.storage.read(&source)? {
             if self.storage.compare_and_remove(document, &stored.version)? {
+                let deleted =
+                    serde_json::from_slice::<DurableCollaborationEnvelope>(&stored.bytes).ok();
+                self.announce(
+                    ChangeKind::Deleted,
+                    deleted.as_ref().map(|envelope| envelope.generation),
+                    || ChangeData {
+                        entity: document.entity.clone(),
+                        resource_id: document.resource_id.clone(),
+                        moved_from: None,
+                        etag_before: deleted.as_ref().map(DurableCollaborationEnvelope::etag),
+                        etag_after: None,
+                        frontier_before: None,
+                        frontier_after: None,
+                        operation_id: None,
+                    },
+                );
                 break;
             }
         }
@@ -1337,6 +1530,19 @@ impl<S: CollaborationStoragePort> CollaborationService<S> {
                 continue;
             };
             if self.storage.compare_and_remove(source, &read.version)? {
+                self.announce(ChangeKind::Moved, Some(envelope.generation), || {
+                    let frontier = self.accepted_frontier(&envelope);
+                    ChangeData {
+                        entity: destination.entity.clone(),
+                        resource_id: destination.resource_id.clone(),
+                        moved_from: Some(source.resource_id.clone()),
+                        etag_before: Some(envelope.etag()),
+                        etag_after: Some(envelope.etag()),
+                        frontier_before: frontier.clone(),
+                        frontier_after: frontier,
+                        operation_id: None,
+                    }
+                });
                 return Ok(Some(envelope.generation));
             }
             // The source changed after it was copied: withdraw the copy and
@@ -1761,6 +1967,8 @@ impl<S: CollaborationStoragePort> CollaborationService<S> {
                     imported_update: accepted_update.clone(),
                     has_new_operations: true,
                     accepted_update: accepted_update.clone(),
+                    frontier_before: None,
+                    frontier_after: Some(migrated.accepted_frontier_base64()),
                 },
             )? {
                 CollaborationCommitOutcome::Accepted(migrated)
@@ -1794,6 +2002,8 @@ impl<S: CollaborationStoragePort> CollaborationService<S> {
                     imported_update: accepted_update.clone(),
                     has_new_operations: true,
                     accepted_update: accepted_update.clone(),
+                    frontier_before: None,
+                    frontier_after: None,
                 },
             )? {
                 CollaborationCommitOutcome::Accepted(seeded)

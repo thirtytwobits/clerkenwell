@@ -9,7 +9,8 @@ crates/clerkenwell-schema       plan types generated bindings instantiate
 crates/clerkenwell-doc          plan-driven Loro replicas, text at a frontier, conflict policy; re-exports loro
 crates/clerkenwell-session      projection wire contracts, registry, subscriptions, resume from what a client holds, serving commands
 crates/clerkenwell-axum         the session protocol over axum WebSocket connections
-crates/clerkenwell-store        durable envelopes, storage port, fenced commits, publication, recovery
+crates/clerkenwell-events       the change-event envelope and the in-process feed commits are announced on
+crates/clerkenwell-store        named store sets, durable envelopes, storage port, fenced commits, publication, recovery, change announcements
 crates/clerkenwell-codegen      the definition language, its validation, and the generator
 crates/clerkenwell-notebook     the example definition the tests share, and its generated bindings
 crates/clerkenwell-conformance  Rust and TypeScript replicas of one definition driven against each other
