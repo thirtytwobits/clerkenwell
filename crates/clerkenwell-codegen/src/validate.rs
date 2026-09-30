@@ -56,14 +56,6 @@ pub(crate) fn check_project_names(definition: &Definition, project: &Project) ->
             ));
         }
     }
-    for name in &project.collaboration_leaf_schemas {
-        if definition.def(name).is_none() {
-            return refuse(format!(
-                "The configured collaborationLeafSchemas entry {} is not declared in $defs.",
-                string_literal(name)
-            ));
-        }
-    }
     for name in project.entity_diagnostics.keys() {
         if definition.entity(name).is_none() {
             return refuse(format!(
@@ -215,7 +207,7 @@ pub(crate) fn check_semantics(definition: &Definition, project: &Project) -> Res
                 "collaboration.entities.{name} requires a collaborative entity with a loro revision."
             ));
         }
-        check_collaboration_entity(definition, project, collaboration_entity)?;
+        check_collaboration_entity(definition, collaboration_entity)?;
     }
     for entity in definition.entities() {
         if entity.authoring_kind() == "collaborative" && collaboration.entity(entity.name).is_none()
@@ -673,7 +665,6 @@ fn check_patch_matches_snapshot(
 
 fn check_collaboration_entity(
     definition: &Definition,
-    project: &Project,
     collaboration: CollaborationEntity,
 ) -> Result<()> {
     let entity_name = collaboration.name;
@@ -715,8 +706,7 @@ fn check_collaboration_entity(
         &format!("entities.{entity_name}.schema"),
     )?;
     let entity_schema = definition.def(&schema_name).expect("resolved above");
-    let required_paths =
-        collect_collaboration_schema_paths(definition, project, entity_schema, "")?;
+    let required_paths = collect_collaboration_schema_paths(definition, entity_schema, "")?;
     let fields: Vec<_> = collaboration.fields().collect();
 
     for field in &fields {
@@ -782,7 +772,8 @@ fn check_collaboration_entity(
 
     check_keyed_sequence_containers(&context, &fields)?;
 
-    let missing: Vec<&str> = required_paths
+    // A field whose codec stores its value whole covers every path under it.
+    let missing: IndexSet<&str> = required_paths
         .iter()
         .map(String::as_str)
         .filter(|required| {
@@ -795,9 +786,10 @@ fn check_collaboration_entity(
         })
         .collect();
     if !missing.is_empty() {
+        let uncovered = shallowest_uncovered(&required_paths, &missing);
         return refuse(format!(
             "{context}.fields does not cover entity schema paths: {}.",
-            missing.join(", ")
+            uncovered.into_iter().collect::<Vec<_>>().join(", ")
         ));
     }
     Ok(())
@@ -964,11 +956,10 @@ fn resolve_collaboration_schema_path(
     }))
 }
 
-/// Every path under the entity schema a collaboration field must cover: array
-/// items as `*`, and a configured leaf schema as one value.
+/// Every path under the entity schema a collaboration field must cover, with
+/// array items as `*`.
 fn collect_collaboration_schema_paths(
     definition: &Definition,
-    project: &Project,
     raw_schema: &Object,
     prefix: &str,
 ) -> Result<IndexSet<String>> {
@@ -982,26 +973,15 @@ fn collect_collaboration_schema_paths(
         if has_type(item, "object") {
             paths.extend(collect_collaboration_schema_paths(
                 definition,
-                project,
                 item,
                 &format!("{prefix}.*"),
             )?);
         }
         return Ok(paths);
     }
-    let is_leaf = raw_schema
-        .get("$ref")
-        .and_then(Json::as_str)
-        .is_some_and(|reference| {
-            project
-                .collaboration_leaf_schemas
-                .iter()
-                .any(|leaf| reference == format!("#/$defs/{leaf}"))
-        });
     if let Some(properties) = has_type(schema, "object")
         .then(|| object_at(schema, "properties"))
         .flatten()
-        .filter(|_| !is_leaf)
     {
         let mut paths = IndexSet::new();
         for (property, property_schema) in properties.iter() {
@@ -1015,7 +995,6 @@ fn collect_collaboration_schema_paths(
             };
             paths.extend(collect_collaboration_schema_paths(
                 definition,
-                project,
                 property_schema,
                 &path,
             )?);
@@ -1023,6 +1002,30 @@ fn collect_collaboration_schema_paths(
         return Ok(paths);
     }
     Ok(IndexSet::from([prefix.to_owned()]))
+}
+
+/// Each uncovered path as the shallowest path under which nothing is covered,
+/// so an object no field covers is named once rather than by its leaves.
+fn shallowest_uncovered<'a>(
+    required: &'a IndexSet<String>,
+    missing: &IndexSet<&'a str>,
+) -> IndexSet<&'a str> {
+    missing
+        .iter()
+        .map(|path| {
+            path.match_indices('.')
+                .map(|(end, _)| &path[..end])
+                .filter(|prefix| !prefix.ends_with('*'))
+                .find(|prefix| {
+                    let under = format!("{prefix}.");
+                    required
+                        .iter()
+                        .filter(|required| required == prefix || required.starts_with(&under))
+                        .all(|required| missing.contains(required.as_str()))
+                })
+                .unwrap_or(path)
+        })
+        .collect()
 }
 
 /// Generated identifiers from independent concepts can still collide after

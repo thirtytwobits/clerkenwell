@@ -215,33 +215,39 @@ fn collaboration_metadata_covers_the_complete_entity_schema() {
     );
 }
 
-/// A configured leaf schema is stored whole, so it is one path to cover; any
-/// other object schema is covered property by property.
+/// An uncovered path is named as the shallowest path under which no field
+/// covers anything: an object no field stores is named once.
 #[test]
-fn a_configured_leaf_schema_is_one_collaboration_path() {
-    let mut document = notebook_document();
-    remove(&mut document, "/collaboration/entities/Note/fields/body");
-    let config = notebook_config();
-    assert!(config
-        .project
-        .collaboration_leaf_schemas
-        .iter()
-        .any(|leaf| leaf == "MimeValue"));
-    let expect_refusal = |project| match Definition::from_json(document.clone(), &project) {
-        Err(Error::Definition(message)) => message,
-        other => panic!("expected a refusal, got {other:?}"),
+fn an_uncovered_path_is_named_at_the_shallowest_object_left_uncovered() {
+    let refusal_without = |fields: &[&str]| {
+        let mut document = notebook_document();
+        for field in fields {
+            remove(
+                &mut document,
+                &format!("/collaboration/entities/Note/fields/{field}"),
+            );
+        }
+        match Definition::from_json(document, &notebook_config().project) {
+            Err(Error::Definition(message)) => message,
+            other => panic!("expected a refusal, got {other:?}"),
+        }
     };
 
-    let as_leaf = expect_refusal(config.project.clone());
+    let body = refusal_without(&["body"]);
     assert!(
-        as_leaf.ends_with("does not cover entity schema paths: body."),
-        "{as_leaf}"
+        body.ends_with("does not cover entity schema paths: body."),
+        "{body}"
     );
-
-    let mut project = config.project;
-    project.collaboration_leaf_schemas.clear();
-    let as_object = expect_refusal(project);
-    assert_mentions(&as_object, &["body.$mime", "body.value"]);
+    let both = refusal_without(&["meta.owner", "meta.reviewer"]);
+    assert!(
+        both.ends_with("does not cover entity schema paths: meta."),
+        "{both}"
+    );
+    let one = refusal_without(&["meta.reviewer"]);
+    assert!(
+        one.ends_with("does not cover entity schema paths: meta.reviewer."),
+        "{one}"
+    );
 }
 
 #[test]
@@ -274,14 +280,10 @@ fn a_session_owning_entity_needs_the_configured_session_mnemonic() {
 #[test]
 fn every_configured_name_must_be_declared_by_the_definition() {
     type Configure = fn(&mut clerkenwell_codegen::Project);
-    let cases: [(Configure, &[&str]); 3] = [
+    let cases: [(Configure, &[&str]); 2] = [
         (
             |project| project.authoring_session_mnemonic = Some("absent".to_owned()),
             &["mnemonic.absent"],
-        ),
-        (
-            |project| project.collaboration_leaf_schemas.push("Absent".to_owned()),
-            &["collaborationLeafSchemas", "\"Absent\""],
         ),
         (
             |project| {
