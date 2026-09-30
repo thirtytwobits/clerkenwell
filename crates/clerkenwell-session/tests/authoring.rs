@@ -58,6 +58,7 @@ const fn field(
         required: true,
         required_in_parent: true,
         conflict,
+        names_document: false,
     }
 }
 
@@ -634,8 +635,10 @@ fn a_moved_document_leaves_its_old_id_and_arrives_whole_at_its_new_one() {
 
     store
         .move_document(
+            &NOTE_PLAN,
             &CollaborationDocumentId::new("Note", "note-1"),
             &CollaborationDocumentId::new("Note", "note-2"),
+            |_: &Value| Ok::<(), clerkenwell_store::StoreError>(()),
         )
         .expect("move");
     let events = block_on(deliver_change(

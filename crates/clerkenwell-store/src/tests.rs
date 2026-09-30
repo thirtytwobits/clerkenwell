@@ -32,6 +32,7 @@ const fn field(
         required: true,
         required_in_parent: true,
         conflict,
+        names_document: false,
     }
 }
 
@@ -58,8 +59,20 @@ const fn plan(
 use GeneratedCollaborationConflict::{Explicit, Immutable, Merge};
 use GeneratedCollaborationStorageKind::{DerivedRevision, Scalar, Text};
 
+/// A field holding the id of the document it is in.
+const fn naming(
+    path: &'static str,
+    container: &'static str,
+    key: &'static str,
+) -> GeneratedCollaborationFieldSpec {
+    GeneratedCollaborationFieldSpec {
+        names_document: true,
+        ..field(path, Scalar, Some(container), Some(key), Immutable)
+    }
+}
+
 static NOTE_FIELDS: &[GeneratedCollaborationFieldSpec] = &[
-    field("note_id", Scalar, Some("note"), Some("note_id"), Immutable),
+    naming("note_id", "note", "note_id"),
     field("title", Scalar, Some("note"), Some("title"), Explicit),
     field("body", Text, Some("body"), None, Merge),
     field("summary", Text, Some("summary"), None, Merge),
@@ -70,9 +83,17 @@ static TASK_FIELDS: &[GeneratedCollaborationFieldSpec] = &[
     field("label", Text, Some("label"), None, Merge),
     field("etag", DerivedRevision, None, None, Immutable),
 ];
+/// A document that names itself twice, as a card and on its face.
+static CARD_FIELDS: &[GeneratedCollaborationFieldSpec] = &[
+    naming("card_id", "card", "card_id"),
+    naming("face.card_id", "card", "face.card_id"),
+    field("label", Text, Some("label"), None, Merge),
+    field("etag", DerivedRevision, None, None, Immutable),
+];
 static NOTE_PLAN: GeneratedCollaborationEntitySpec = plan("Note", "note_id", "note", NOTE_FIELDS);
 static TASK_PLAN: GeneratedCollaborationEntitySpec = plan("Task", "task_id", "task", TASK_FIELDS);
-static PLANS: &[GeneratedCollaborationEntitySpec] = &[NOTE_PLAN, TASK_PLAN];
+static CARD_PLAN: GeneratedCollaborationEntitySpec = plan("Card", "card_id", "card", CARD_FIELDS);
+static PLANS: &[GeneratedCollaborationEntitySpec] = &[NOTE_PLAN, TASK_PLAN, CARD_PLAN];
 
 /// The commit policy these tests run under.
 const POLICY: CommitPolicy = CommitPolicy {
@@ -813,7 +834,6 @@ fn opaque_envelope(
         checkpoint_sha256: sha256_hex(checkpoint),
         checkpoint_bytes: checkpoint.len(),
         retained_operations: Vec::new(),
-        pending_rename_from: None,
     }
 }
 
@@ -1115,7 +1135,7 @@ fn a_moved_document_keeps_its_history_under_its_new_identity() {
     let renamed = CollaborationDocumentId::new("Note", "note-2");
 
     let generation = service
-        .move_document(&document, &renamed)
+        .move_document(&NOTE_PLAN, &document, &renamed, accept)
         .expect("move")
         .expect("the document exists");
 
@@ -1124,21 +1144,97 @@ fn a_moved_document_keeps_its_history_under_its_new_identity() {
     assert_eq!(moved.generation, generation);
     assert!(moved.generation > before.generation);
     assert_eq!(
-        moved.pending_rename_from.as_deref(),
-        Some(document.resource_id.as_str())
-    );
-    assert_eq!(
         moved.retained_operations.len(),
-        before.retained_operations.len()
+        before.retained_operations.len() + 1,
+        "the move adds the one operation that renames the document"
     );
     assert!(moved
         .retained_operations
         .iter()
         .zip(&before.retained_operations)
         .all(|(moved, before)| moved.operation_id == before.operation_id));
+    let detail = service.detail(&NOTE_PLAN, &renamed).unwrap().unwrap();
+    assert_eq!(detail["body"], json!("written before the move"));
+    assert_eq!(detail["note_id"], json!(renamed.resource_id));
+}
+
+#[test]
+fn a_move_rewrites_every_field_naming_the_document_in_the_write_that_creates_it() {
+    let root = TempDir::new().expect("temp workspace");
+    let service = open_service(root.path());
+    let card = CollaborationDocumentId::new("Card", "ace");
+    service
+        .bootstrap(
+            &CARD_PLAN,
+            &card,
+            &json!({
+                "card_id": "ace",
+                "face": { "card_id": "ace" },
+                "label": "High card.",
+                "etag": "",
+            }),
+            accept,
+        )
+        .expect("bootstrap");
+    let renamed = CollaborationDocumentId::new("Card", "king");
+
+    service
+        .move_document(&CARD_PLAN, &card, &renamed, accept)
+        .expect("move")
+        .expect("the card exists");
+
+    // A second service reads only what is stored.
+    let stored = open_service(root.path());
+    assert!(stored.load(&card).unwrap().is_none());
+    let detail = stored.detail(&CARD_PLAN, &renamed).unwrap().unwrap();
+    assert_eq!(detail["card_id"], json!(renamed.resource_id));
+    assert_eq!(detail["face"]["card_id"], json!(renamed.resource_id));
+    assert_eq!(detail["label"], json!("High card."));
+}
+
+#[test]
+fn a_move_its_validator_refuses_moves_nothing() {
+    let root = TempDir::new().expect("temp workspace");
+    let (service, document, _, _) = initialise(root.path());
+    let before = files_under(root.path());
+    let renamed = CollaborationDocumentId::new("Note", "note-2");
+
+    let error = service
+        .move_document(&NOTE_PLAN, &document, &renamed, |_: &Value| {
+            Err(StoreError::invalid_request("refused"))
+        })
+        .expect_err("the validator refuses the renamed document");
+
+    assert_eq!(error.kind, StoreErrorKind::InvalidRequest);
+    assert_eq!(files_under(root.path()), before);
+}
+
+#[test]
+fn a_move_of_a_document_that_names_no_field_commits_no_operation() {
+    let root = TempDir::new().expect("temp workspace");
+    let service = open_service(root.path());
+    let task = CollaborationDocumentId::new("Task", "task-1");
+    service
+        .bootstrap(
+            &TASK_PLAN,
+            &task,
+            &json!({ "task_id": "task-1", "label": "Write.", "etag": "" }),
+            accept,
+        )
+        .expect("bootstrap");
+    let before = service.load(&task).unwrap().expect("stored");
+    let renamed = CollaborationDocumentId::new("Task", "task-2");
+
+    service
+        .move_document(&TASK_PLAN, &task, &renamed, accept)
+        .expect("move")
+        .expect("the task exists");
+
+    let moved = service.load(&renamed).unwrap().expect("moved");
+    assert_eq!(moved.checkpoint_sha256, before.checkpoint_sha256);
     assert_eq!(
-        service.detail(&NOTE_PLAN, &renamed).unwrap().unwrap()["body"],
-        json!("written before the move")
+        moved.retained_operations.len(),
+        before.retained_operations.len()
     );
 }
 
@@ -1155,7 +1251,7 @@ fn a_move_onto_a_stored_document_is_refused_and_moves_nothing() {
     let before = files_under(root.path());
 
     let error = service
-        .move_document(&document, &occupied)
+        .move_document(&NOTE_PLAN, &document, &occupied, accept)
         .expect_err("the destination is taken");
 
     assert_eq!(error.kind, StoreErrorKind::Conflict);

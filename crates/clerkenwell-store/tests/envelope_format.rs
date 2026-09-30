@@ -75,7 +75,12 @@ fn an_envelope_in_an_earlier_format_is_described_but_its_content_refused() {
     assert!(described.envelope_version < ENVELOPE_VERSION);
     assert_eq!(service.summaries("Note").expect("summaries"), [described]);
     let moved = service
-        .move_document(&note(), &CollaborationDocumentId::new("Note", "note-2"))
+        .move_document(
+            &NOTE_PLAN,
+            &note(),
+            &CollaborationDocumentId::new("Note", "note-2"),
+            accept,
+        )
         .expect_err("an earlier format");
     assert_eq!(
         refusal_code(&moved),
@@ -117,6 +122,31 @@ fn an_upgrade_returns_what_the_earlier_format_kept_and_leaves_the_document_as_it
             .expect("a note")["body"],
         "Seeded."
     );
+}
+
+#[test]
+fn a_format_2_envelope_upgrades_and_returns_where_it_recorded_a_move_from() {
+    let (_root, service, path) = seeded();
+    let before = service.load(&note()).expect("load").expect("an envelope");
+    let mut envelope: serde_json::Map<String, Value> =
+        serde_json::from_slice(&std::fs::read(&path).expect("read")).expect("an envelope");
+    envelope.insert("envelope_version".to_string(), json!(2));
+    envelope.insert("pending_rename_from".to_string(), json!("note-0"));
+    std::fs::write(&path, serde_json::to_vec_pretty(&envelope).expect("json")).expect("write");
+    assert!(service.load(&note()).is_err(), "an earlier format");
+
+    let removed = service
+        .upgrade_envelope(&note())
+        .expect("upgrade")
+        .expect("an earlier format");
+
+    assert_eq!(
+        Value::Object(removed),
+        json!({ "pending_rename_from": "note-0" })
+    );
+    let after = service.load(&note()).expect("load").expect("an envelope");
+    assert_eq!(after.envelope_version, ENVELOPE_VERSION);
+    assert_eq!(after.etag(), before.etag());
 }
 
 #[test]

@@ -238,7 +238,6 @@ fn history(envelope: &DurableCollaborationEnvelope) -> Value {
             .iter()
             .map(|operation| json!([operation.operation_id, operation.sequence]))
             .collect::<Vec<_>>(),
-        "pending_rename_from": envelope.pending_rename_from,
     })
 }
 
@@ -271,7 +270,7 @@ fn drive(service: &CollaborationService, edits: &Edits) -> Value {
 
     let renamed = CollaborationDocumentId::new("Note", "note-2");
     service
-        .move_document(&document, &renamed)
+        .move_document(&NOTE_PLAN, &document, &renamed, accept)
         .expect("move")
         .expect("the document exists");
     assert!(
@@ -279,7 +278,11 @@ fn drive(service: &CollaborationService, edits: &Edits) -> Value {
         "the source is gone"
     );
     observed.push(history(&service.load(&renamed).unwrap().unwrap()));
-    observed.push(service.detail(&NOTE_PLAN, &renamed).unwrap().unwrap());
+    // The move writes its operation from a replica of its own, whose peer
+    // differs from one service to the next, and so does the etag it leaves.
+    let mut moved = service.detail(&NOTE_PLAN, &renamed).unwrap().unwrap();
+    moved.as_object_mut().expect("a note").remove("etag");
+    observed.push(moved);
 
     service.repair(&renamed, "drop the window").expect("repair");
     observed.push(history(&service.load(&renamed).unwrap().unwrap()));
@@ -424,7 +427,7 @@ fn a_move_takes_the_source_as_it_stands_when_another_writer_commits_during_it() 
     );
 
     service
-        .move_document(&document, &renamed)
+        .move_document(&NOTE_PLAN, &document, &renamed, accept)
         .expect("move")
         .expect("the document exists");
 
@@ -433,7 +436,6 @@ fn a_move_takes_the_source_as_it_stands_when_another_writer_commits_during_it() 
         "the source is gone"
     );
     let moved = service.load(&renamed).unwrap().expect("moved");
-    assert_eq!(moved.pending_rename_from.as_deref(), Some("note-1"));
     assert!(moved
         .retained_operations
         .iter()

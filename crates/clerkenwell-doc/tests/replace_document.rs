@@ -34,6 +34,7 @@ const fn field(
         required,
         required_in_parent: required,
         conflict: GeneratedCollaborationConflict::LastWriterWins,
+        names_document: false,
     }
 }
 

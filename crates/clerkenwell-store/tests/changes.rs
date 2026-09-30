@@ -173,7 +173,7 @@ fn a_move_announces_where_the_document_went_and_where_it_came_from() {
     let (_root, service, heard) = heard_service();
     bootstrap(&service);
     let generation = service
-        .move_document(&note("note-1"), &note("note-2"))
+        .move_document(&NOTE_PLAN, &note("note-1"), &note("note-2"), accept)
         .expect("move")
         .expect("moved");
 
@@ -183,9 +183,13 @@ fn a_move_announces_where_the_document_went_and_where_it_came_from() {
     assert_eq!(moved.subject, "Note/note-2");
     assert_eq!(moved.data.moved_from.as_deref(), Some("note-1"));
     assert_eq!(moved.generation, Some(generation));
-    assert_eq!(moved.data.etag_before, moved.data.etag_after);
-    assert_eq!(moved.data.etag_after, heard[0].data.etag_after);
-    assert_eq!(moved.data.frontier_after, heard[0].data.frontier_after);
+    assert_eq!(moved.data.etag_before, heard[0].data.etag_after);
+    assert_eq!(moved.data.frontier_before, heard[0].data.frontier_after);
+    assert_ne!(
+        moved.data.etag_after, moved.data.etag_before,
+        "the move renames the document"
+    );
+    assert!(moved.data.operation_id.is_some());
 }
 
 #[test]

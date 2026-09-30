@@ -68,6 +68,8 @@ export interface CollaborationFieldPlan {
   /** The object holding the field requires it, so the field is present whenever that object is. */
   readonly requiredInParent: boolean;
   readonly conflict: CollaborationConflictPolicy;
+  /** The field holds the id of the document it is in, so moving the document rewrites it. */
+  readonly namesDocument?: boolean;
 }
 
 export interface CollaborationEntityPlan<

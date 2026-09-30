@@ -629,6 +629,28 @@ fn every_semantic_rule_refuses_naming_the_definition_path() {
             &["collaboration.entities.Note.fields.title.storage.key"],
         ),
         (
+            "field naming its document that authors may change",
+            |d| {
+                set(
+                    d,
+                    "/collaboration/entities/Note/fields/title/namesDocument",
+                    json("true"),
+                )
+            },
+            &["collaboration.entities.Note.fields.title.namesDocument"],
+        ),
+        (
+            "field naming its document that may be absent",
+            |d| {
+                set(
+                    d,
+                    "/collaboration/entities/Note/fields/archived_at/namesDocument",
+                    json("true"),
+                )
+            },
+            &["collaboration.entities.Note.fields.archived_at.namesDocument"],
+        ),
+        (
             "sequence order",
             |d| {
                 remove(
@@ -876,4 +898,35 @@ fn a_container_inside_a_keyed_sequence_must_name_every_enclosing_identity() {
             &[&format!("fields.{field}.storage.{key}"), missing],
         );
     }
+}
+
+#[test]
+fn a_field_naming_its_document_reaches_both_plans() {
+    let mut document = notebook_document();
+    set(
+        &mut document,
+        "/collaboration/entities/Note/fields/created_at/namesDocument",
+        json("true"),
+    );
+    let definition = Definition::from_json(document, &notebook_config().project)
+        .expect("an immutable required string may name its document");
+
+    let outputs = build_outputs(&definition, &notebook_config()).expect("renders");
+
+    let rust_field = outputs
+        .rust_model
+        .split("GeneratedCollaborationFieldSpec {")
+        .find(|spec| spec.contains("path: \"created_at\""))
+        .expect("the Rust plan declares the field");
+    assert!(rust_field.contains("names_document: true"), "{rust_field}");
+    let unmarked = outputs
+        .rust_model
+        .split("GeneratedCollaborationFieldSpec {")
+        .find(|spec| spec.contains("path: \"title\""))
+        .expect("the Rust plan declares the title");
+    assert!(unmarked.contains("names_document: false"), "{unmarked}");
+    assert!(
+        outputs.typescript_model.contains("\"namesDocument\": true"),
+        "the TypeScript plan carries the declaration"
+    );
 }

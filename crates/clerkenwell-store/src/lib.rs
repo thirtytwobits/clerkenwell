@@ -48,11 +48,23 @@ use residency::{Residency, Resident};
 /// The envelope format this store reads and writes. An envelope in an
 /// earlier format is refused until [`CollaborationService::upgrade_envelope`]
 /// rewrites it.
-pub const ENVELOPE_VERSION: u32 = 2;
+pub const ENVELOPE_VERSION: u32 = 3;
 
-/// Fields format 1 kept that format 2 does not: where the application
-/// rendered the document, and whether it had published it.
-const FORMAT_1_FIELDS: [&str; 2] = ["relative_path", "publication_pending"];
+/// The fields an earlier format kept that the current one does not. Format 1
+/// recorded where the application rendered the document and whether it had
+/// published it; formats 1 and 2 recorded where an unfinished move took it
+/// from.
+fn retired_fields(envelope_version: u64) -> Option<&'static [&'static str]> {
+    match envelope_version {
+        1 => Some(&[
+            "relative_path",
+            "publication_pending",
+            "pending_rename_from",
+        ]),
+        2 => Some(&["pending_rename_from"]),
+        _ => None,
+    }
+}
 
 /// The fields an earlier envelope format kept that the current one does not,
 /// as an upgrade removed them.
@@ -178,8 +190,6 @@ pub struct DurableCollaborationEnvelope {
     pub checkpoint_sha256: String,
     pub checkpoint_bytes: usize,
     pub retained_operations: Vec<CollaborationOperation>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub pending_rename_from: Option<String>,
 }
 
 impl DurableCollaborationEnvelope {
@@ -225,8 +235,6 @@ pub struct CollaborationDocumentSummary {
     /// checkpoint, when any are.
     pub retained_sequences: Option<(u64, u64)>,
     pub retained_count: usize,
-    /// Where a move the document records as unfinished took it from.
-    pub moved_from: Option<String>,
 }
 
 impl CollaborationDocumentSummary {
@@ -250,7 +258,6 @@ impl CollaborationDocumentSummary {
                 .zip(retained.last())
                 .map(|(first, last)| (first.sequence, last.sequence)),
             retained_count: retained.len(),
-            moved_from: envelope.pending_rename_from.clone(),
         }
     }
 }
@@ -974,8 +981,8 @@ impl CollaborationService {
         current: Option<&Resident>,
         commit: CollaborationCommit,
     ) -> StoreResult<CollaborationCommitOutcome> {
-        let document = commit.document;
-        let operation_id = commit.operation_id;
+        let document = commit.document.clone();
+        let operation_id = commit.operation_id.clone();
         if let Some(Resident { envelope, .. }) = current {
             if let Some(existing) = envelope
                 .retained_operations
@@ -1002,44 +1009,7 @@ impl CollaborationService {
             }
         }
         let current_envelope = current.map(|read| &read.envelope);
-        let sequence =
-            current_envelope.map_or(1, |state| state.checkpoint_sequence.saturating_add(1));
-        let schema_changed =
-            current_envelope.is_some_and(|state| state.schema_version != commit.schema_version);
-        let mut retained_operations = if schema_changed {
-            Vec::new()
-        } else {
-            current_envelope.map_or_else(Vec::new, |state| state.retained_operations.clone())
-        };
-        retained_operations.push(CollaborationOperation::from_update(
-            operation_id.clone(),
-            sequence,
-            commit.schema_version,
-            &commit.imported_update,
-        ));
-        let kept = self.policy.retained_operations;
-        if retained_operations.len() > kept {
-            retained_operations.drain(0..retained_operations.len() - kept);
-        }
-        let retained_from = retained_operations
-            .first()
-            .map_or(sequence, |operation| operation.sequence);
-        let envelope = DurableCollaborationEnvelope {
-            envelope_version: ENVELOPE_VERSION,
-            entity: document.entity.clone(),
-            resource_id: document.resource_id.clone(),
-            schema_version: commit.schema_version,
-            generation: current_envelope
-                .map_or(0, |state| state.generation)
-                .saturating_add(1),
-            checkpoint_sequence: sequence,
-            compacted_through_sequence: retained_from.saturating_sub(1),
-            checkpoint_update_base64: BASE64.encode(&commit.accepted_update),
-            checkpoint_sha256: sha256_hex(&commit.accepted_update),
-            checkpoint_bytes: commit.accepted_update.len(),
-            retained_operations,
-            pending_rename_from: None,
-        };
+        let envelope = self.next_envelope(current_envelope, &document, &commit);
         let expected = current.map(|read| read.version.as_str());
         Ok(match self.swap(&document, expected, &envelope)? {
             Some(_) => {
@@ -1061,6 +1031,52 @@ impl CollaborationService {
             }
             None => CollaborationCommitOutcome::Stale,
         })
+    }
+
+    /// The envelope `document` has once `commit` is accepted over `current`,
+    /// its history kept within the service's commit policy.
+    fn next_envelope(
+        &self,
+        current: Option<&DurableCollaborationEnvelope>,
+        document: &CollaborationDocumentId,
+        commit: &CollaborationCommit,
+    ) -> DurableCollaborationEnvelope {
+        let sequence = current.map_or(1, |state| state.checkpoint_sequence.saturating_add(1));
+        let schema_changed =
+            current.is_some_and(|state| state.schema_version != commit.schema_version);
+        let mut retained_operations = if schema_changed {
+            Vec::new()
+        } else {
+            current.map_or_else(Vec::new, |state| state.retained_operations.clone())
+        };
+        retained_operations.push(CollaborationOperation::from_update(
+            commit.operation_id.clone(),
+            sequence,
+            commit.schema_version,
+            &commit.imported_update,
+        ));
+        let kept = self.policy.retained_operations;
+        if retained_operations.len() > kept {
+            retained_operations.drain(0..retained_operations.len() - kept);
+        }
+        let retained_from = retained_operations
+            .first()
+            .map_or(sequence, |operation| operation.sequence);
+        DurableCollaborationEnvelope {
+            envelope_version: ENVELOPE_VERSION,
+            entity: document.entity.clone(),
+            resource_id: document.resource_id.clone(),
+            schema_version: commit.schema_version,
+            generation: current
+                .map_or(0, |state| state.generation)
+                .saturating_add(1),
+            checkpoint_sequence: sequence,
+            compacted_through_sequence: retained_from.saturating_sub(1),
+            checkpoint_update_base64: BASE64.encode(&commit.accepted_update),
+            checkpoint_sha256: sha256_hex(&commit.accepted_update),
+            checkpoint_bytes: commit.accepted_update.len(),
+            retained_operations,
+        }
     }
 
     pub fn detail(
@@ -1123,21 +1139,7 @@ impl CollaborationService {
         request: CollaborationImportRequest,
         validate: impl Fn(&Value) -> Result<(), E>,
     ) -> Result<CollaborationImportResult, E> {
-        self.import_internal(plan, request, validate, true)
-    }
-
-    /// Commits a lifecycle rewrite — an operation produced by the engine
-    /// itself, serialised under the resource store lock — without the
-    /// concurrent-edit field policy applied to authoring imports. The one
-    /// caller is rename, which must rewrite the immutable identity field so
-    /// the materialised document matches its moved envelope.
-    pub fn import_lifecycle_rewrite<E: From<StoreError>>(
-        &self,
-        plan: &'static GeneratedCollaborationEntitySpec,
-        request: CollaborationImportRequest,
-        validate: impl Fn(&Value) -> Result<(), E>,
-    ) -> Result<CollaborationImportResult, E> {
-        self.import_internal(plan, request, validate, false)
+        self.import_internal(plan, request, validate)
     }
 
     fn import_internal<E: From<StoreError>>(
@@ -1145,7 +1147,6 @@ impl CollaborationService {
         plan: &'static GeneratedCollaborationEntitySpec,
         request: CollaborationImportRequest,
         validate: impl Fn(&Value) -> Result<(), E>,
-        enforce_field_policy: bool,
     ) -> Result<CollaborationImportResult, E> {
         if request.schema_version != plan.schema_version {
             return Err(StoreError::invalid_request(format!(
@@ -1238,7 +1239,6 @@ impl CollaborationService {
                         checkpoint_sha256: sha256_hex(&accepted_update),
                         checkpoint_bytes: accepted_update.len(),
                         retained_operations: Vec::new(),
-                        pending_rename_from: None,
                     }
                 }
                 None => {
@@ -1297,9 +1297,7 @@ impl CollaborationService {
                         collaboration_loro_error(&request.document, error)
                     })?;
             }
-            if enforce_field_policy
-                && request.exchange_mode == CollaborationExchangeMode::Incremental
-            {
+            if request.exchange_mode == CollaborationExchangeMode::Incremental {
                 let conflicts = authoring
                     .policy_conflicts_for_incremental_update(
                         &request.base_frontier_base64,
@@ -1520,18 +1518,23 @@ impl CollaborationService {
         Ok(())
     }
 
-    /// Moves `source`'s envelope to `destination`, recording where it came
-    /// from so an interrupted rename can be finished. Returns the moved
-    /// envelope's generation, or `None` when `source` has none.
-    pub fn move_document(
+    /// Moves `source`'s accepted history to `destination`. When the plan
+    /// declares fields that name the document, the move commits one operation
+    /// rewriting them to `destination`'s id, checked by `validate`, in the
+    /// same write that creates `destination`. Returns the generation
+    /// `destination` is accepted at, or `None` when there is no `source`.
+    pub fn move_document<E: From<StoreError>>(
         &self,
+        plan: &'static GeneratedCollaborationEntitySpec,
         source: &CollaborationDocumentId,
         destination: &CollaborationDocumentId,
-    ) -> StoreResult<Option<u64>> {
-        if source.entity != destination.entity {
+        validate: impl Fn(&Value) -> Result<(), E>,
+    ) -> Result<Option<u64>, E> {
+        if source.entity != destination.entity || source.entity != plan.name {
             return Err(StoreError::invalid_request(
-                "A collaboration document cannot move between entities.",
-            ));
+                "A collaboration document moves within its own entity.",
+            )
+            .into());
         }
         loop {
             let Some(read) = self.read_current(source)? else {
@@ -1550,27 +1553,45 @@ impl CollaborationService {
                     "code": "collaboration_destination_exists",
                     "entity": destination.entity,
                     "resource_id": destination.resource_id,
-                })));
+                }))
+                .into());
             }
-            let mut envelope = read.envelope.clone();
-            envelope.pending_rename_from = Some(source.resource_id.clone());
-            envelope.resource_id = destination.resource_id.clone();
-            envelope.generation = envelope.generation.saturating_add(1);
+            let (envelope, renamed) =
+                match self.renaming(plan, source, destination, &read.envelope)? {
+                    Some((commit, materialized)) => {
+                        validate(&materialized)?;
+                        let operation_id = commit.operation_id.clone();
+                        (
+                            self.next_envelope(Some(&read.envelope), destination, &commit),
+                            Some((operation_id, commit.frontier_before, commit.frontier_after)),
+                        )
+                    }
+                    None => {
+                        let mut envelope = read.envelope.clone();
+                        envelope.resource_id = destination.resource_id.clone();
+                        envelope.generation = envelope.generation.saturating_add(1);
+                        (envelope, None)
+                    }
+                };
             let Some(moved) = self.swap(destination, None, &envelope)? else {
                 continue;
             };
             if self.remove(source, &read.version)? {
                 self.announce(ChangeKind::Moved, Some(envelope.generation), || {
-                    let frontier = self.accepted_frontier(&envelope);
+                    let (operation_id, frontier_before, frontier_after) =
+                        renamed.clone().unwrap_or_else(|| {
+                            let frontier = self.accepted_frontier(&envelope);
+                            (String::new(), frontier.clone(), frontier)
+                        });
                     ChangeData {
                         entity: destination.entity.clone(),
                         resource_id: destination.resource_id.clone(),
                         moved_from: Some(source.resource_id.clone()),
-                        etag_before: Some(envelope.etag()),
+                        etag_before: Some(read.envelope.etag()),
                         etag_after: Some(envelope.etag()),
-                        frontier_before: frontier.clone(),
-                        frontier_after: frontier,
-                        operation_id: None,
+                        frontier_before,
+                        frontier_after,
+                        operation_id: (!operation_id.is_empty()).then_some(operation_id),
                     }
                 });
                 return Ok(Some(envelope.generation));
@@ -1587,9 +1608,67 @@ impl CollaborationService {
                     "entity": source.entity,
                     "resource_id": source.resource_id,
                     "destination_resource_id": destination.resource_id,
-                })));
+                }))
+                .into());
             }
         }
+    }
+
+    /// The operation that makes `envelope`'s document name `destination` in
+    /// every field its plan declares as naming it, and the document it leaves;
+    /// `None` when no such field names anything else.
+    fn renaming(
+        &self,
+        plan: &'static GeneratedCollaborationEntitySpec,
+        source: &CollaborationDocumentId,
+        destination: &CollaborationDocumentId,
+        envelope: &DurableCollaborationEnvelope,
+    ) -> StoreResult<Option<(CollaborationCommit, Value)>> {
+        let naming = plan.fields.iter().filter(|field| field.names_document);
+        if naming.clone().next().is_none() {
+            return Ok(None);
+        }
+        let mut authoring = load_authoring_document(plan, source, envelope)?;
+        let loro_error = |error| collaboration_loro_error(source, error);
+        let current = authoring
+            .materialized_document(&envelope.etag())
+            .map_err(loro_error)?;
+        let mut renamed = current.clone();
+        for field in naming {
+            set_named_identity(&mut renamed, field.path, &destination.resource_id)
+                .map_err(|message| corrupt_state(source, message))?;
+        }
+        if renamed == current {
+            return Ok(None);
+        }
+        let frontier_before = authoring.accepted_frontier_base64();
+        authoring.replace_document(&renamed).map_err(loro_error)?;
+        let update = BASE64
+            .decode(
+                authoring
+                    .export_incremental_update_base64(&frontier_before)
+                    .map_err(loro_error)?,
+            )
+            .map_err(|error| StoreError::internal(error.to_string()))?;
+        let accepted_update = BASE64
+            .decode(authoring.export_update_base64().map_err(loro_error)?)
+            .map_err(|error| StoreError::internal(error.to_string()))?;
+        let materialized = authoring
+            .materialized_document(&collaboration_etag(&accepted_update))
+            .map_err(loro_error)?;
+        Ok(Some((
+            CollaborationCommit {
+                document: destination.clone(),
+                schema_version: envelope.schema_version,
+                operation_id: format!("move:{}:gen{}", source.resource_id, envelope.generation),
+                imported_update: update,
+                has_new_operations: true,
+                accepted_update,
+                frontier_before: Some(frontier_before),
+                frontier_after: Some(authoring.accepted_frontier_base64()),
+            },
+            materialized,
+        )))
     }
 
     /// Redacted metadata for the stored documents, in entity and resource
@@ -2522,15 +2601,15 @@ fn parse_envelope(
     let declared = serde_json::from_slice::<DeclaredEnvelopeVersion>(bytes)
         .map_err(&unreadable)?
         .envelope_version;
-    if declared != 1 {
+    let Some(retired) = retired_fields(u64::from(declared)) else {
         return serde_json::from_slice(bytes).map_err(unreadable);
-    }
-    // What format 1 kept beyond format 2 is left out; its version says the
-    // envelope still needs its upgrade.
+    };
+    // What an earlier format kept beyond the current one is left out; its
+    // version says the envelope still needs its upgrade.
     let mut fields: serde_json::Map<String, Value> =
         serde_json::from_slice(bytes).map_err(&unreadable)?;
-    for field in FORMAT_1_FIELDS {
-        fields.remove(field);
+    for field in retired {
+        fields.remove(*field);
     }
     serde_json::from_value(Value::Object(fields)).map_err(unreadable)
 }
@@ -2667,13 +2746,13 @@ fn upgraded_envelope(
     if version == u64::from(ENVELOPE_VERSION) {
         return Ok(None);
     }
-    if version != 1 {
+    let Some(retired) = retired_fields(version) else {
         return Err(corrupt_state(
             document,
             format!("unsupported durable envelope version {version}"),
         ));
-    }
-    let removed: RetiredEnvelopeFields = FORMAT_1_FIELDS
+    };
+    let removed: RetiredEnvelopeFields = retired
         .iter()
         .filter_map(|field| {
             fields
@@ -2688,6 +2767,25 @@ fn upgraded_envelope(
     let envelope: DurableCollaborationEnvelope =
         serde_json::from_value(Value::Object(fields)).map_err(unreadable)?;
     Ok(Some((envelope, removed)))
+}
+
+/// Sets the field at dotted `path` in `document` to `id`.
+fn set_named_identity(document: &mut Value, path: &str, id: &str) -> Result<(), String> {
+    let mut segments = path.split('.').peekable();
+    let mut scope = document;
+    while let Some(segment) = segments.next() {
+        let object = scope
+            .as_object_mut()
+            .ok_or_else(|| format!("the document has no object holding {path}"))?;
+        if segments.peek().is_none() {
+            object.insert(segment.to_string(), Value::String(id.to_string()));
+            return Ok(());
+        }
+        scope = object
+            .get_mut(segment)
+            .ok_or_else(|| format!("the document has no {path}"))?;
+    }
+    Ok(())
 }
 
 fn corrupt_state(document: &CollaborationDocumentId, message: impl Into<String>) -> StoreError {

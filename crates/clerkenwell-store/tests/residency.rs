@@ -395,17 +395,16 @@ fn a_summary_describes_a_stored_document_as_its_envelope_does() {
             .zip(envelope.retained_operations.last())
             .map(|(first, last)| (first.sequence, last.sequence))
     );
-    assert_eq!(summary.moved_from, None);
 }
 
 #[test]
-fn a_moved_document_is_summarised_with_where_it_came_from() {
+fn a_moved_document_is_summarised_under_its_new_identity_alone() {
     let port = MemoryPort::vouching();
     let service = service(&port);
     bootstrap(&service, "note-1");
 
-    service
-        .move_document(&note("note-1"), &note("note-2"))
+    let generation = service
+        .move_document(&NOTE_PLAN, &note("note-1"), &note("note-2"), accept)
         .expect("move")
         .expect("moved");
 
@@ -414,7 +413,8 @@ fn a_moved_document_is_summarised_with_where_it_came_from() {
         .summary(&note("note-2"))
         .expect("summary")
         .expect("a summary");
-    assert_eq!(moved.moved_from.as_deref(), Some("note-1"));
+    assert_eq!(moved.document, note("note-2"));
+    assert_eq!(moved.generation, generation);
 }
 
 #[test]
