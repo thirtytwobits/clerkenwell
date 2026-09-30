@@ -58,7 +58,6 @@ const fn field(
         required: true,
         required_in_parent: true,
         conflict,
-        names_document: false,
     }
 }
 
@@ -598,73 +597,6 @@ fn a_deleted_document_is_removed_from_every_subscription_following_it() {
         &library.last_change(),
     ));
     assert!(again.is_empty(), "{again:?}");
-}
-
-#[test]
-fn a_moved_document_leaves_its_old_id_and_arrives_whole_at_its_new_one() {
-    let library = Library::new(&[]);
-    library.create(WORKSPACE, NOTE, "note-1");
-    library.create(WORKSPACE, NOTE, "note-2");
-    let connection = Subscriptions::default();
-    subscribe(
-        &library,
-        &connection,
-        "notes.authoringState",
-        note("note-1"),
-        None,
-    )
-    .expect("subscribe");
-    let (destination, _) = subscribe(
-        &library,
-        &connection,
-        "notes.authoringState",
-        note("note-2"),
-        None,
-    )
-    .expect("subscribe");
-    library.commit(WORKSPACE, NOTE, "note-1", "Moved.");
-    let store = library.store(WORKSPACE);
-    store
-        .delete(&CollaborationDocumentId::new("Note", "note-2"))
-        .expect("delete");
-    block_on(deliver_change(
-        &library,
-        &connection,
-        &library.last_change(),
-    ));
-
-    store
-        .move_document(
-            &NOTE_PLAN,
-            &CollaborationDocumentId::new("Note", "note-1"),
-            &CollaborationDocumentId::new("Note", "note-2"),
-            |_: &Value| Ok::<(), clerkenwell_store::StoreError>(()),
-        )
-        .expect("move");
-    let events = block_on(deliver_change(
-        &library,
-        &connection,
-        &library.last_change(),
-    ));
-
-    assert_eq!(events.len(), 2, "{events:?}");
-    for event in &events {
-        let ProjectionTransportEvent::Patch {
-            subscription_id, ..
-        } = event
-        else {
-            panic!("a patch: {event:?}");
-        };
-        let patch = patch_value(event);
-        if *subscription_id == destination.subscription_id {
-            assert_eq!(patch["kind"], "replace");
-            let state: AuthoringState =
-                serde_json::from_value(patch["state"].clone()).expect("an authoring state");
-            assert_eq!(body(&replica(NOTE, &state)), "Moved.");
-        } else {
-            assert_eq!(patch["kind"], "remove");
-        }
-    }
 }
 
 #[test]

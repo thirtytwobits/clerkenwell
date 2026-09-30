@@ -533,15 +533,6 @@ impl<'a> CollaborationField<'a> {
         self.raw.str_field("conflict")
     }
 
-    /// Whether the field holds the id of the document it is in, which a move
-    /// rewrites.
-    pub fn names_document(&self) -> bool {
-        self.raw
-            .get("namesDocument")
-            .and_then(Json::as_bool)
-            .unwrap_or(false)
-    }
-
     /// Whether the field is written by the document's owner rather than its author.
     pub fn is_derived(&self) -> bool {
         matches!(self.storage_kind(), "derivedIdentity" | "derivedRevision")

@@ -1440,7 +1440,6 @@ pub static NOTE_COLLABORATION_FIELDS: &[GeneratedCollaborationFieldSpec] = &[
         required: true,
         required_in_parent: true,
         conflict: GeneratedCollaborationConflict::Immutable,
-        names_document: false,
     },
     GeneratedCollaborationFieldSpec {
         path: "etag",
@@ -1460,7 +1459,6 @@ pub static NOTE_COLLABORATION_FIELDS: &[GeneratedCollaborationFieldSpec] = &[
         required: true,
         required_in_parent: true,
         conflict: GeneratedCollaborationConflict::Immutable,
-        names_document: false,
     },
     GeneratedCollaborationFieldSpec {
         path: "title",
@@ -1480,7 +1478,6 @@ pub static NOTE_COLLABORATION_FIELDS: &[GeneratedCollaborationFieldSpec] = &[
         required: true,
         required_in_parent: true,
         conflict: GeneratedCollaborationConflict::Explicit,
-        names_document: false,
     },
     GeneratedCollaborationFieldSpec {
         path: "body",
@@ -1500,7 +1497,6 @@ pub static NOTE_COLLABORATION_FIELDS: &[GeneratedCollaborationFieldSpec] = &[
         required: true,
         required_in_parent: true,
         conflict: GeneratedCollaborationConflict::Merge,
-        names_document: false,
     },
     GeneratedCollaborationFieldSpec {
         path: "summary",
@@ -1520,7 +1516,6 @@ pub static NOTE_COLLABORATION_FIELDS: &[GeneratedCollaborationFieldSpec] = &[
         required: false,
         required_in_parent: false,
         conflict: GeneratedCollaborationConflict::Merge,
-        names_document: false,
     },
     GeneratedCollaborationFieldSpec {
         path: "tags",
@@ -1540,7 +1535,6 @@ pub static NOTE_COLLABORATION_FIELDS: &[GeneratedCollaborationFieldSpec] = &[
         required: true,
         required_in_parent: true,
         conflict: GeneratedCollaborationConflict::Merge,
-        names_document: false,
     },
     GeneratedCollaborationFieldSpec {
         path: "pinned",
@@ -1560,7 +1554,6 @@ pub static NOTE_COLLABORATION_FIELDS: &[GeneratedCollaborationFieldSpec] = &[
         required: true,
         required_in_parent: true,
         conflict: GeneratedCollaborationConflict::LastWriterWins,
-        names_document: false,
     },
     GeneratedCollaborationFieldSpec {
         path: "priority",
@@ -1580,7 +1573,6 @@ pub static NOTE_COLLABORATION_FIELDS: &[GeneratedCollaborationFieldSpec] = &[
         required: true,
         required_in_parent: true,
         conflict: GeneratedCollaborationConflict::Explicit,
-        names_document: false,
     },
     GeneratedCollaborationFieldSpec {
         path: "weight",
@@ -1600,7 +1592,6 @@ pub static NOTE_COLLABORATION_FIELDS: &[GeneratedCollaborationFieldSpec] = &[
         required: true,
         required_in_parent: true,
         conflict: GeneratedCollaborationConflict::LastWriterWins,
-        names_document: false,
     },
     GeneratedCollaborationFieldSpec {
         path: "estimate",
@@ -1620,7 +1611,6 @@ pub static NOTE_COLLABORATION_FIELDS: &[GeneratedCollaborationFieldSpec] = &[
         required: false,
         required_in_parent: false,
         conflict: GeneratedCollaborationConflict::LastWriterWins,
-        names_document: false,
     },
     GeneratedCollaborationFieldSpec {
         path: "status",
@@ -1640,7 +1630,6 @@ pub static NOTE_COLLABORATION_FIELDS: &[GeneratedCollaborationFieldSpec] = &[
         required: true,
         required_in_parent: true,
         conflict: GeneratedCollaborationConflict::Explicit,
-        names_document: false,
     },
     GeneratedCollaborationFieldSpec {
         path: "created_at",
@@ -1660,7 +1649,6 @@ pub static NOTE_COLLABORATION_FIELDS: &[GeneratedCollaborationFieldSpec] = &[
         required: true,
         required_in_parent: true,
         conflict: GeneratedCollaborationConflict::Immutable,
-        names_document: false,
     },
     GeneratedCollaborationFieldSpec {
         path: "archived_at",
@@ -1680,7 +1668,6 @@ pub static NOTE_COLLABORATION_FIELDS: &[GeneratedCollaborationFieldSpec] = &[
         required: false,
         required_in_parent: false,
         conflict: GeneratedCollaborationConflict::Explicit,
-        names_document: false,
     },
     GeneratedCollaborationFieldSpec {
         path: "attachments",
@@ -1700,7 +1687,6 @@ pub static NOTE_COLLABORATION_FIELDS: &[GeneratedCollaborationFieldSpec] = &[
         required: true,
         required_in_parent: true,
         conflict: GeneratedCollaborationConflict::Merge,
-        names_document: false,
     },
     GeneratedCollaborationFieldSpec {
         path: "properties",
@@ -1720,7 +1706,6 @@ pub static NOTE_COLLABORATION_FIELDS: &[GeneratedCollaborationFieldSpec] = &[
         required: true,
         required_in_parent: true,
         conflict: GeneratedCollaborationConflict::Merge,
-        names_document: false,
     },
     GeneratedCollaborationFieldSpec {
         path: "layout",
@@ -1740,7 +1725,6 @@ pub static NOTE_COLLABORATION_FIELDS: &[GeneratedCollaborationFieldSpec] = &[
         required: true,
         required_in_parent: true,
         conflict: GeneratedCollaborationConflict::Merge,
-        names_document: false,
     },
     GeneratedCollaborationFieldSpec {
         path: "extras",
@@ -1760,7 +1744,6 @@ pub static NOTE_COLLABORATION_FIELDS: &[GeneratedCollaborationFieldSpec] = &[
         required: true,
         required_in_parent: true,
         conflict: GeneratedCollaborationConflict::LastWriterWins,
-        names_document: false,
     },
     GeneratedCollaborationFieldSpec {
         path: "meta.owner",
@@ -1780,7 +1763,6 @@ pub static NOTE_COLLABORATION_FIELDS: &[GeneratedCollaborationFieldSpec] = &[
         required: true,
         required_in_parent: true,
         conflict: GeneratedCollaborationConflict::Explicit,
-        names_document: false,
     },
     GeneratedCollaborationFieldSpec {
         path: "meta.reviewer",
@@ -1800,7 +1782,6 @@ pub static NOTE_COLLABORATION_FIELDS: &[GeneratedCollaborationFieldSpec] = &[
         required: false,
         required_in_parent: false,
         conflict: GeneratedCollaborationConflict::Explicit,
-        names_document: false,
     },
     GeneratedCollaborationFieldSpec {
         path: "source.url",
@@ -1820,7 +1801,6 @@ pub static NOTE_COLLABORATION_FIELDS: &[GeneratedCollaborationFieldSpec] = &[
         required: false,
         required_in_parent: true,
         conflict: GeneratedCollaborationConflict::Explicit,
-        names_document: false,
     },
     GeneratedCollaborationFieldSpec {
         path: "source.excerpt",
@@ -1840,7 +1820,6 @@ pub static NOTE_COLLABORATION_FIELDS: &[GeneratedCollaborationFieldSpec] = &[
         required: false,
         required_in_parent: false,
         conflict: GeneratedCollaborationConflict::Merge,
-        names_document: false,
     },
 ];
 
@@ -1877,7 +1856,6 @@ pub static BOARD_COLLABORATION_FIELDS: &[GeneratedCollaborationFieldSpec] = &[
         required: true,
         required_in_parent: true,
         conflict: GeneratedCollaborationConflict::Immutable,
-        names_document: false,
     },
     GeneratedCollaborationFieldSpec {
         path: "etag",
@@ -1897,7 +1875,6 @@ pub static BOARD_COLLABORATION_FIELDS: &[GeneratedCollaborationFieldSpec] = &[
         required: true,
         required_in_parent: true,
         conflict: GeneratedCollaborationConflict::Immutable,
-        names_document: false,
     },
     GeneratedCollaborationFieldSpec {
         path: "name",
@@ -1917,7 +1894,6 @@ pub static BOARD_COLLABORATION_FIELDS: &[GeneratedCollaborationFieldSpec] = &[
         required: true,
         required_in_parent: true,
         conflict: GeneratedCollaborationConflict::Explicit,
-        names_document: false,
     },
     GeneratedCollaborationFieldSpec {
         path: "columns",
@@ -1937,7 +1913,6 @@ pub static BOARD_COLLABORATION_FIELDS: &[GeneratedCollaborationFieldSpec] = &[
         required: true,
         required_in_parent: true,
         conflict: GeneratedCollaborationConflict::Merge,
-        names_document: false,
     },
     GeneratedCollaborationFieldSpec {
         path: "columns.*.column_id",
@@ -1957,7 +1932,6 @@ pub static BOARD_COLLABORATION_FIELDS: &[GeneratedCollaborationFieldSpec] = &[
         required: true,
         required_in_parent: true,
         conflict: GeneratedCollaborationConflict::Immutable,
-        names_document: false,
     },
     GeneratedCollaborationFieldSpec {
         path: "columns.*.title",
@@ -1977,7 +1951,6 @@ pub static BOARD_COLLABORATION_FIELDS: &[GeneratedCollaborationFieldSpec] = &[
         required: true,
         required_in_parent: true,
         conflict: GeneratedCollaborationConflict::Explicit,
-        names_document: false,
     },
     GeneratedCollaborationFieldSpec {
         path: "columns.*.wip_limit",
@@ -1997,7 +1970,6 @@ pub static BOARD_COLLABORATION_FIELDS: &[GeneratedCollaborationFieldSpec] = &[
         required: false,
         required_in_parent: false,
         conflict: GeneratedCollaborationConflict::LastWriterWins,
-        names_document: false,
     },
     GeneratedCollaborationFieldSpec {
         path: "columns.*.cards",
@@ -2017,7 +1989,6 @@ pub static BOARD_COLLABORATION_FIELDS: &[GeneratedCollaborationFieldSpec] = &[
         required: true,
         required_in_parent: true,
         conflict: GeneratedCollaborationConflict::Merge,
-        names_document: false,
     },
     GeneratedCollaborationFieldSpec {
         path: "columns.*.cards.*.card_id",
@@ -2037,7 +2008,6 @@ pub static BOARD_COLLABORATION_FIELDS: &[GeneratedCollaborationFieldSpec] = &[
         required: true,
         required_in_parent: true,
         conflict: GeneratedCollaborationConflict::Immutable,
-        names_document: false,
     },
     GeneratedCollaborationFieldSpec {
         path: "columns.*.cards.*.text",
@@ -2057,7 +2027,6 @@ pub static BOARD_COLLABORATION_FIELDS: &[GeneratedCollaborationFieldSpec] = &[
         required: true,
         required_in_parent: true,
         conflict: GeneratedCollaborationConflict::Merge,
-        names_document: false,
     },
     GeneratedCollaborationFieldSpec {
         path: "columns.*.cards.*.done",
@@ -2077,7 +2046,6 @@ pub static BOARD_COLLABORATION_FIELDS: &[GeneratedCollaborationFieldSpec] = &[
         required: true,
         required_in_parent: true,
         conflict: GeneratedCollaborationConflict::LastWriterWins,
-        names_document: false,
     },
     GeneratedCollaborationFieldSpec {
         path: "columns.*.cards.*.note",
@@ -2097,7 +2065,6 @@ pub static BOARD_COLLABORATION_FIELDS: &[GeneratedCollaborationFieldSpec] = &[
         required: true,
         required_in_parent: true,
         conflict: GeneratedCollaborationConflict::Merge,
-        names_document: false,
     },
     GeneratedCollaborationFieldSpec {
         path: "columns.*.cards.*.labels",
@@ -2117,7 +2084,6 @@ pub static BOARD_COLLABORATION_FIELDS: &[GeneratedCollaborationFieldSpec] = &[
         required: false,
         required_in_parent: false,
         conflict: GeneratedCollaborationConflict::Merge,
-        names_document: false,
     },
     GeneratedCollaborationFieldSpec {
         path: "archive",
@@ -2137,7 +2103,6 @@ pub static BOARD_COLLABORATION_FIELDS: &[GeneratedCollaborationFieldSpec] = &[
         required: false,
         required_in_parent: false,
         conflict: GeneratedCollaborationConflict::Merge,
-        names_document: false,
     },
     GeneratedCollaborationFieldSpec {
         path: "archive.*.column_id",
@@ -2157,7 +2122,6 @@ pub static BOARD_COLLABORATION_FIELDS: &[GeneratedCollaborationFieldSpec] = &[
         required: false,
         required_in_parent: true,
         conflict: GeneratedCollaborationConflict::Immutable,
-        names_document: false,
     },
     GeneratedCollaborationFieldSpec {
         path: "archive.*.title",
@@ -2177,7 +2141,6 @@ pub static BOARD_COLLABORATION_FIELDS: &[GeneratedCollaborationFieldSpec] = &[
         required: false,
         required_in_parent: true,
         conflict: GeneratedCollaborationConflict::Explicit,
-        names_document: false,
     },
     GeneratedCollaborationFieldSpec {
         path: "archive.*.wip_limit",
@@ -2197,7 +2160,6 @@ pub static BOARD_COLLABORATION_FIELDS: &[GeneratedCollaborationFieldSpec] = &[
         required: false,
         required_in_parent: false,
         conflict: GeneratedCollaborationConflict::LastWriterWins,
-        names_document: false,
     },
     GeneratedCollaborationFieldSpec {
         path: "archive.*.cards",
@@ -2217,7 +2179,6 @@ pub static BOARD_COLLABORATION_FIELDS: &[GeneratedCollaborationFieldSpec] = &[
         required: false,
         required_in_parent: true,
         conflict: GeneratedCollaborationConflict::Merge,
-        names_document: false,
     },
     GeneratedCollaborationFieldSpec {
         path: "archive.*.cards.*.card_id",
@@ -2237,7 +2198,6 @@ pub static BOARD_COLLABORATION_FIELDS: &[GeneratedCollaborationFieldSpec] = &[
         required: false,
         required_in_parent: true,
         conflict: GeneratedCollaborationConflict::Immutable,
-        names_document: false,
     },
     GeneratedCollaborationFieldSpec {
         path: "archive.*.cards.*.text",
@@ -2257,7 +2217,6 @@ pub static BOARD_COLLABORATION_FIELDS: &[GeneratedCollaborationFieldSpec] = &[
         required: false,
         required_in_parent: true,
         conflict: GeneratedCollaborationConflict::Merge,
-        names_document: false,
     },
     GeneratedCollaborationFieldSpec {
         path: "archive.*.cards.*.done",
@@ -2277,7 +2236,6 @@ pub static BOARD_COLLABORATION_FIELDS: &[GeneratedCollaborationFieldSpec] = &[
         required: false,
         required_in_parent: true,
         conflict: GeneratedCollaborationConflict::LastWriterWins,
-        names_document: false,
     },
     GeneratedCollaborationFieldSpec {
         path: "archive.*.cards.*.note",
@@ -2297,7 +2255,6 @@ pub static BOARD_COLLABORATION_FIELDS: &[GeneratedCollaborationFieldSpec] = &[
         required: false,
         required_in_parent: true,
         conflict: GeneratedCollaborationConflict::Merge,
-        names_document: false,
     },
     GeneratedCollaborationFieldSpec {
         path: "archive.*.cards.*.labels",
@@ -2317,7 +2274,6 @@ pub static BOARD_COLLABORATION_FIELDS: &[GeneratedCollaborationFieldSpec] = &[
         required: false,
         required_in_parent: false,
         conflict: GeneratedCollaborationConflict::Merge,
-        names_document: false,
     },
 ];
 

@@ -362,9 +362,8 @@ where
 
 /// Sends the subscriptions on `connection` that follow the document `change`
 /// names what the change brings them: the accepted operations a commit adds,
-/// the document where it moved to, or its removal where it was deleted or
-/// moved from. A subscription whose client already holds the change is sent
-/// nothing.
+/// or its removal where it was deleted. A subscription whose client already
+/// holds the change is sent nothing.
 pub async fn deliver_change<H, C>(host: &H, connection: &C, change: &ChangeEvent) -> Vec<Event<H>>
 where
     H: ProjectionHost,
@@ -397,10 +396,10 @@ where
         if document.store != change.source {
             continue;
         }
-        let named_now = document.id.resource_id == change.data.resource_id;
-        let named_before = change.kind == ChangeKind::Moved
-            && change.data.moved_from.as_deref() == Some(document.id.resource_id.as_str());
-        if named_before || (named_now && change.kind == ChangeKind::Deleted) {
+        if document.id.resource_id != change.data.resource_id {
+            continue;
+        }
+        if change.kind == ChangeKind::Deleted {
             if subscription.delivered.is_none() {
                 continue;
             }
@@ -416,14 +415,7 @@ where
             );
             continue;
         }
-        if !named_now {
-            continue;
-        }
-        // A document moved here shares no history with one its client held.
-        let held = match change.kind {
-            ChangeKind::Moved => None,
-            _ => subscription.delivered.as_ref().and_then(Held::authoring),
-        };
+        let held = subscription.delivered.as_ref().and_then(Held::authoring);
         let Ok(state) = authoring.state(&document, held) else {
             continue;
         };

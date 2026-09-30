@@ -158,9 +158,6 @@ pub struct GeneratedCollaborationFieldSpec {
     /// whenever that object is.
     pub required_in_parent: bool,
     pub conflict: GeneratedCollaborationConflict,
-    /// The field holds the id of the document it is in, so moving the
-    /// document rewrites it.
-    pub names_document: bool,
 }
 
 /// A collaborative entity's document layout and the wire names that carry it.

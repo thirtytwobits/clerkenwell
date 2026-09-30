@@ -75,18 +75,6 @@ fn an_envelope_in_an_earlier_format_is_described_but_its_content_refused() {
         .expect("a document");
     assert!(described.envelope_version < ENVELOPE_VERSION);
     assert_eq!(service.summaries("Note").expect("summaries"), [described]);
-    let moved = service
-        .move_document(
-            &NOTE_PLAN,
-            &note(),
-            &CollaborationDocumentId::new("Note", "note-2"),
-            accept,
-        )
-        .expect_err("an earlier format");
-    assert_eq!(
-        refusal_code(&moved),
-        Some("collaboration_envelope_upgrade_required")
-    );
 
     assert_eq!(std::fs::read(&path).expect("read"), kept);
 }
