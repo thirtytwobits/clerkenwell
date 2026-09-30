@@ -1,7 +1,7 @@
 /**
  * Copyright (c) 2026 Scott A Dixon
  *
- * The CRDT runtime stays behind the `/loro` entry point: only modules it
+ * The CRDT runtime stays behind the `/replica` entry point: only modules it
  * reaches import `loro-crdt`, and nothing the main entry reaches does.
  */
 import assert from "node:assert/strict";
@@ -51,9 +51,9 @@ async function reachable(entry: string): Promise<Map<string, string[]>> {
   return graph;
 }
 
-test("only modules behind the /loro entry import loro-crdt", async () => {
+test("only modules behind the /replica entry import loro-crdt", async () => {
   const { exports } = await manifest();
-  const behindLoro = await reachable(path.resolve(PACKAGE_DIR, exports["./loro"]!));
+  const behindReplica = await reachable(path.resolve(PACKAGE_DIR, exports["./replica"]!));
   const importers: string[] = [];
   for (const name of await readdir(SOURCE_DIR)) {
     const file = path.join(SOURCE_DIR, name);
@@ -63,18 +63,18 @@ test("only modules behind the /loro entry import loro-crdt", async () => {
   }
 
   assert.ok(importers.length > 0, "No module imports loro-crdt.");
-  assert.deepEqual(importers.filter((file) => !behindLoro.has(file)), []);
+  assert.deepEqual(importers.filter((file) => !behindReplica.has(file)), []);
 });
 
-test("nothing the main entry reaches imports loro-crdt or the /loro module", async () => {
+test("nothing the main entry reaches imports loro-crdt or the /replica module", async () => {
   const { exports } = await manifest();
   const mainEntry = path.resolve(PACKAGE_DIR, exports["."]!);
-  const loroEntry = path.resolve(PACKAGE_DIR, exports["./loro"]!);
+  const replicaEntry = path.resolve(PACKAGE_DIR, exports["./replica"]!);
 
   const graph = await reachable(mainEntry);
 
   assert.ok(graph.size > 1, "The main entry's import graph was not followed.");
-  assert.equal(graph.has(loroEntry), false);
+  assert.equal(graph.has(replicaEntry), false);
   for (const [file, specifiers] of graph) {
     assert.deepEqual(specifiers.filter(isLoro), [], path.relative(PACKAGE_DIR, file));
   }

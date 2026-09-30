@@ -6,7 +6,7 @@ mod support;
 use std::collections::HashMap;
 
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
-use clerkenwell_doc::{CollaborationLoroError, LoroAuthoringDocument};
+use clerkenwell_doc::{CollaborationReplica, CollaborationReplicaError};
 use loro::{ExportMode, LoroDoc};
 use serde_json::json;
 use support::*;
@@ -21,14 +21,14 @@ fn no_identities() -> HashMap<String, String> {
     HashMap::new()
 }
 
-fn note_with_summary(summary: &str) -> LoroAuthoringDocument {
+fn note_with_summary(summary: &str) -> CollaborationReplica {
     seed(
         NOTE,
         &with(&wire_document(NOTE), "/summary", json!(summary)),
     )
 }
 
-fn accept(authority: &mut LoroAuthoringDocument, update: &str) {
+fn accept(authority: &mut CollaborationReplica, update: &str) {
     authority
         .adopt_versioned_update_base64(NOTE.schema_version, update)
         .expect("accept update");
@@ -159,7 +159,7 @@ fn invalid_capture_or_target_cannot_change_the_live_document() {
             "incorrect capture",
             ""
         ),
-        Err(CollaborationLoroError::TextCaptureMismatch)
+        Err(CollaborationReplicaError::TextCaptureMismatch)
     ));
     for target in ["missing", "title", "tags", "columns.*.cards.*.text"] {
         assert!(
@@ -172,7 +172,7 @@ fn invalid_capture_or_target_cannot_change_the_live_document() {
     let unrelated = seed(NOTE, &wire_document(NOTE)).accepted_frontier_base64();
     assert!(matches!(
         authority.text_at_frontier(FIELD, &no_identities(), &unrelated),
-        Err(CollaborationLoroError::UnknownFrontier)
+        Err(CollaborationReplicaError::UnknownFrontier)
     ));
     assert!(authority
         .text_at_frontier(FIELD, &no_identities(), "invalid base64")

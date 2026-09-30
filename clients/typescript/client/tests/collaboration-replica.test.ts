@@ -11,11 +11,11 @@ import { resolveCollaborationContainer, type CollaborationFieldPlan } from "@cle
 import {
   collaborationReplicaSource,
   requireCollaborationSchemaVersion
-} from "@clerkenwell/client/loro";
+} from "@clerkenwell/client/replica";
 import {
   collaborationDocumentToLoroDoc,
   materializeCollaborationDocumentFromLoroDoc
-} from "../src/collaboration-loro";
+} from "../src/collaboration-replica";
 
 import {
   BOARD_PLAN,
@@ -158,7 +158,7 @@ test("a derived identity is read from the sequence, not stored as an item field"
 });
 
 test("a derived revision is never stored and is supplied when materialising", () => {
-  const revision = "loro:test-revision";
+  const revision = "replica:test-revision";
   const replica = noteReplica({ ...noteDocument(), etag: "written-by-a-client" });
   const reread = noteReplicaFromUpdate(replica.exportUpdateBase64());
 

@@ -4,7 +4,7 @@
 
 mod support;
 
-use clerkenwell_doc::{CollaborationLoroError, LoroAuthoringDocument};
+use clerkenwell_doc::{CollaborationReplica, CollaborationReplicaError};
 use clerkenwell_notebook::{
     GeneratedCollaborationEntitySpec, GeneratedCollaborationStorageKind,
     GENERATED_COLLABORATION_SPECS,
@@ -233,7 +233,7 @@ fn broken(plan: &'static GeneratedCollaborationEntitySpec, kind: &str, sequence:
     document
 }
 
-fn observed(replica: &LoroAuthoringDocument) -> (String, Value) {
+fn observed(replica: &CollaborationReplica) -> (String, Value) {
     (replica.accepted_frontier_base64(), read(replica))
 }
 
@@ -253,21 +253,21 @@ fn every_fixture_invalid_case_is_refused_without_changing_the_replica() {
                 "unsupportedSchemaVersion" => {
                     let version = case["schemaVersion"].as_u64().expect("version") as u32;
                     assert_ne!(version, plan.schema_version);
-                    let unsupported = |result: Result<(), CollaborationLoroError>| {
+                    let unsupported = |result: Result<(), CollaborationReplicaError>| {
                         assert!(
                             matches!(
                                 result,
-                                Err(CollaborationLoroError::UnsupportedSchemaVersion { .. })
+                                Err(CollaborationReplicaError::UnsupportedSchemaVersion { .. })
                             ),
                             "{} version {version}",
                             plan.name
                         )
                     };
                     unsupported(
-                        LoroAuthoringDocument::from_versioned_update_base64(plan, version, &update)
+                        CollaborationReplica::from_versioned_update_base64(plan, version, &update)
                             .map(|_| ()),
                     );
-                    unsupported(replica.import_versioned_update_base64(version, &update));
+                    unsupported(replica.adopt_versioned_update_base64(version, &update));
                     unsupported(replica.adopt_versioned_update_base64(version, &update));
                 }
                 "missingIdentity" | "duplicateIdentity" => {
@@ -281,7 +281,7 @@ fn every_fixture_invalid_case_is_refused_without_changing_the_replica() {
                     };
                     let document = broken(plan, kind, sequence);
                     assert!(
-                        LoroAuthoringDocument::from_document(plan, &document).is_err(),
+                        CollaborationReplica::from_document(plan, &document).is_err(),
                         "{} {kind} seeds",
                         plan.name
                     );

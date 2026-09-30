@@ -10,7 +10,7 @@ import test from "node:test";
 import {
   collaborationDocumentToLoroDoc,
   materializeCollaborationDocumentFromLoroDoc
-} from "../src/collaboration-loro";
+} from "../src/collaboration-replica";
 
 import {
   BOARD_PLAN,

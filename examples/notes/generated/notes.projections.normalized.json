@@ -8,7 +8,7 @@
     "entities": [
       {
         "authoringState": {
-          "importMutation": "note.importLoroUpdate",
+          "importMutation": "note.importUpdate",
           "projection": "notes.authoringState"
         },
         "fields": [
@@ -74,7 +74,7 @@
           }
         ],
         "migrationIds": [
-          "note-loro-layout-v1"
+          "note-layout-v1"
         ],
         "name": "Note",
         "rootContainer": "note",
@@ -178,65 +178,6 @@
     },
     {
       "additionalProperties": false,
-      "name": "LoroUpdateParams",
-      "properties": {
-        "base_frontier_base64": {
-          "type": "string"
-        },
-        "exchange_mode": {
-          "enum": [
-            "incremental",
-            "bootstrap"
-          ],
-          "type": "string"
-        },
-        "note_id": {
-          "type": "string"
-        },
-        "operation_id": {
-          "minLength": 1,
-          "type": "string"
-        },
-        "update_base64": {
-          "minLength": 1,
-          "type": "string"
-        }
-      },
-      "required": [
-        "note_id",
-        "operation_id",
-        "exchange_mode",
-        "update_base64"
-      ],
-      "type": "object"
-    },
-    {
-      "additionalProperties": false,
-      "name": "LoroUpdateResult",
-      "properties": {
-        "accepted_frontier_base64": {
-          "type": "string"
-        },
-        "etag": {
-          "type": "string"
-        },
-        "missing_update_base64": {
-          "type": "string"
-        },
-        "note_id": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "note_id",
-        "etag",
-        "accepted_frontier_base64",
-        "missing_update_base64"
-      ],
-      "type": "object"
-    },
-    {
-      "additionalProperties": false,
       "name": "NoteAuthoringParams",
       "properties": {
         "note_id": {
@@ -316,6 +257,65 @@
     },
     {
       "additionalProperties": false,
+      "name": "ReplicaUpdateParams",
+      "properties": {
+        "base_frontier_base64": {
+          "type": "string"
+        },
+        "exchange_mode": {
+          "enum": [
+            "incremental",
+            "bootstrap"
+          ],
+          "type": "string"
+        },
+        "note_id": {
+          "type": "string"
+        },
+        "operation_id": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "update_base64": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "note_id",
+        "operation_id",
+        "exchange_mode",
+        "update_base64"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "name": "ReplicaUpdateResult",
+      "properties": {
+        "accepted_frontier_base64": {
+          "type": "string"
+        },
+        "etag": {
+          "type": "string"
+        },
+        "missing_update_base64": {
+          "type": "string"
+        },
+        "note_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "note_id",
+        "etag",
+        "accepted_frontier_base64",
+        "missing_update_base64"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
       "name": "SessionDrafts",
       "properties": {
         "drafts": {
@@ -335,7 +335,7 @@
     {
       "authoring": {
         "commandMutations": [],
-        "contentMutation": "note.importLoroUpdate",
+        "contentMutation": "note.importUpdate",
         "kind": "collaborative",
         "lifecycleMutations": [
           "note.create"
@@ -346,7 +346,7 @@
       "id": "note_id",
       "name": "Note",
       "revision": {
-        "kind": "loro"
+        "kind": "replica"
       },
       "schema": {
         "$ref": "#/$defs/NoteDocument"
@@ -382,12 +382,12 @@
       ]
     },
     {
-      "name": "note.importLoroUpdate",
+      "name": "note.importUpdate",
       "params": {
-        "$ref": "#/$defs/LoroUpdateParams"
+        "$ref": "#/$defs/ReplicaUpdateParams"
       },
       "result": {
-        "$ref": "#/$defs/LoroUpdateResult"
+        "$ref": "#/$defs/ReplicaUpdateResult"
       },
       "touches": [
         "Note"

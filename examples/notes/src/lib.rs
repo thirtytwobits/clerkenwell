@@ -13,7 +13,7 @@ use std::num::NonZeroU32;
 use std::path::Path;
 use std::time::Duration;
 
-use clerkenwell_doc::{CollaborationLoroError, LoroAuthoringDocument};
+use clerkenwell_doc::{CollaborationReplica, CollaborationReplicaError};
 use clerkenwell_store::{
     CollaborationDocumentId, CollaborationExchangeMode, CollaborationImportRequest,
     CollaborationImportResult, CollaborationRecoveryAuditRecord, CollaborationService,
@@ -42,7 +42,7 @@ pub const COMMIT_POLICY: CommitPolicy = CommitPolicy {
 #[derive(Debug)]
 pub enum Error {
     Store(StoreError),
-    Replica(CollaborationLoroError),
+    Replica(CollaborationReplicaError),
 }
 
 impl std::fmt::Display for Error {
@@ -62,8 +62,8 @@ impl From<StoreError> for Error {
     }
 }
 
-impl From<CollaborationLoroError> for Error {
-    fn from(error: CollaborationLoroError) -> Self {
+impl From<CollaborationReplicaError> for Error {
+    fn from(error: CollaborationReplicaError) -> Self {
         Self::Replica(error)
     }
 }
@@ -99,7 +99,7 @@ pub struct Notes {
 /// A writer's replica of the note, and the accepted frontier and etag its
 /// edits are based on.
 pub struct Writer {
-    replica: LoroAuthoringDocument,
+    replica: CollaborationReplica,
     base_frontier: String,
     read_etag: String,
     document: Value,
@@ -108,7 +108,7 @@ pub struct Writer {
 impl Writer {
     /// A replica seeded from `document` outside any store.
     pub fn offline(document: &Value) -> Result<Self> {
-        let replica = LoroAuthoringDocument::from_document(NOTE, document)?;
+        let replica = CollaborationReplica::from_document(NOTE, document)?;
         Ok(Self {
             base_frontier: replica.accepted_frontier_base64(),
             read_etag: String::new(),
@@ -144,7 +144,7 @@ impl Notes {
     /// A writer holding the note as accepted now.
     pub fn writer(&self) -> Result<Writer> {
         let read = self.service.authoring_state(NOTE, &self.note, None)?;
-        let replica = LoroAuthoringDocument::from_versioned_update_base64(
+        let replica = CollaborationReplica::from_versioned_update_base64(
             NOTE,
             read.schema_version,
             &read.update_base64,

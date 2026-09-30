@@ -8,7 +8,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
-import { CollaborationLoroAuthoringDocument } from "@clerkenwell/client/loro";
+import { CollaborationReplica } from "@clerkenwell/client/replica";
 
 import { COLLABORATION_PLANS } from "../../../../crates/clerkenwell-notebook/generated/typescript/index";
 
@@ -33,8 +33,8 @@ function sample(entity: Entity): ClientRecord {
 
 function roundTrip(entity: Entity, document: ClientRecord): ClientRecord {
   const plan = COLLABORATION_PLANS[entity];
-  const written = CollaborationLoroAuthoringDocument.from(entity, plan, { kind: "document", document });
-  return CollaborationLoroAuthoringDocument.from<ClientRecord>(entity, plan, {
+  const written = CollaborationReplica.from(entity, plan, { kind: "document", document });
+  return CollaborationReplica.from<ClientRecord>(entity, plan, {
     kind: "update",
     updateBase64: written.exportUpdateBase64()
   }).currentDocument();

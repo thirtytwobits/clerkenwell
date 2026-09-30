@@ -5,7 +5,7 @@
       "entity": "Note",
       "schemaVersion": 1,
       "migrationIds": [
-        "note-loro-layout-v1"
+        "note-layout-v1"
       ],
       "wireDocument": {
         "title": "title-value",
@@ -156,7 +156,7 @@
       "entity": "Board",
       "schemaVersion": 3,
       "migrationIds": [
-        "board-loro-layout-v1",
+        "board-layout-v1",
         "board-column-order-v2",
         "board-card-notes-v3"
       ],

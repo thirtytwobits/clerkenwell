@@ -132,13 +132,13 @@ pub(crate) fn check_semantics(definition: &Definition, project: &Project) -> Res
             )?;
         } else if entity.revision().get("field").is_some() {
             return refuse(format!(
-                "entities.{name}.revision.field is not supported for loro revisions."
+                "entities.{name}.revision.field is not supported for replica revisions."
             ));
         }
         let kind = entity.authoring_kind();
-        if kind == "collaborative" && entity.revision_kind() != "loro" {
+        if kind == "collaborative" && entity.revision_kind() != "replica" {
             return refuse(format!(
-                "entities.{name}.authoring.kind \"collaborative\" requires a loro revision."
+                "entities.{name}.authoring.kind \"collaborative\" requires a replica revision."
             ));
         }
         if entity.owns_session() && !has_session_mnemonic(definition, project) {
@@ -202,9 +202,9 @@ pub(crate) fn check_semantics(definition: &Definition, project: &Project) -> Res
                 string_literal(name)
             ));
         };
-        if entity.revision_kind() != "loro" || entity.authoring_kind() != "collaborative" {
+        if entity.revision_kind() != "replica" || entity.authoring_kind() != "collaborative" {
             return refuse(format!(
-                "collaboration.entities.{name} requires a collaborative entity with a loro revision."
+                "collaboration.entities.{name} requires a collaborative entity with a replica revision."
             ));
         }
         check_collaboration_entity(definition, collaboration_entity)?;

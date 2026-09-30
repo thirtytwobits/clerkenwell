@@ -97,11 +97,11 @@
     "validateTextEdits",
     "watchProjection"
   ],
-  "./loro": [
+  "./replica": [
     "CollaborationDraftMapping",
     "CollaborationDraftReplica",
     "CollaborationDrafts",
-    "CollaborationLoroAuthoringDocument",
+    "CollaborationReplica",
     "CollaborationReplicaSource",
     "CollaborationReplicaView",
     "CollaborationTextView",

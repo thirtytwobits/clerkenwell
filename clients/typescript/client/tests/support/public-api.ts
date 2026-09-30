@@ -57,6 +57,13 @@ export function exportedNames(packageDirectory: string): Record<string, string[]
   );
 }
 
+/** Every entry point, and every name one exports, that mentions Loro. */
+export function namesAfterLoro(packageDirectory: string): string[] {
+  return Object.entries(exportedNames(packageDirectory)).flatMap(([entry, names]) =>
+    [entry, ...names].filter((name) => /loro/i.test(name)).map((name) => `${entry}: ${name}`)
+  );
+}
+
 /** The installed package a declaration file belongs to, if any. */
 function installedPackage(fileName: string): string | undefined {
   const installed = fileName.split("/node_modules/").slice(1).at(-1);

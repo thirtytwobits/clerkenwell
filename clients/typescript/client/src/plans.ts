@@ -185,7 +185,7 @@ export interface AuthoringPlan<TMutation extends string = string> {
   readonly rationale: string;
   readonly revision:
     | { readonly kind: "contentHash"; readonly field: string }
-    | { readonly kind: "loro" };
+    | { readonly kind: "replica" };
   readonly mutations: readonly TMutation[];
   readonly contentMutation?: TMutation;
   readonly planningMutations: readonly TMutation[];

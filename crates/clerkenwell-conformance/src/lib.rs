@@ -2,7 +2,7 @@
 //!
 //! A [`Conformance`] run takes a definition's generated Rust plans, its
 //! generated TypeScript plans and its collaboration fixture corpus. It drives
-//! `clerkenwell-doc` replicas in this process and `@clerkenwell/client/loro`
+//! `clerkenwell-doc` replicas in this process and `@clerkenwell/client/replica`
 //! replicas in a Node bridge, `conformance/bridge.ts`, and requires every
 //! exchange to leave both languages holding the same history and
 //! materialising the same document.
@@ -16,7 +16,7 @@ mod documents;
 
 use std::path::{Path, PathBuf};
 
-use clerkenwell_doc::{conflicting_field_paths, LoroAuthoringDocument};
+use clerkenwell_doc::{conflicting_field_paths, CollaborationReplica};
 use clerkenwell_schema::GeneratedCollaborationEntitySpec;
 use serde_json::{json, Value};
 
@@ -25,7 +25,7 @@ use corpus::{Corpus, EntityFixture};
 use documents::{client_document, text_targets};
 
 /// The revision every materialisation is read at.
-const REVISION: &str = "loro:conformance";
+const REVISION: &str = "replica:conformance";
 
 /// One definition's generated bindings.
 #[derive(Debug, Clone)]
@@ -48,7 +48,7 @@ pub fn workspace() -> PathBuf {
 
 /// A Rust replica and a TypeScript replica holding the same seeded history.
 struct Pair<'a> {
-    rust: LoroAuthoringDocument,
+    rust: CollaborationReplica,
     typescript: TypeScriptReplica<'a>,
     /// The frontier both replicas were seeded at.
     frontier: String,
@@ -95,7 +95,7 @@ impl Conformance {
     }
 
     /// Starts a bridge under `workspace` over `bindings`: an installed npm
-    /// workspace whose `tsx` resolves `@clerkenwell/client`, its `/loro`
+    /// workspace whose `tsx` resolves `@clerkenwell/client`, its `/replica`
     /// entry and `loro-crdt`, such as this checkout's or a consumer's.
     pub fn start_in(bindings: &Bindings, workspace: &Path) -> Self {
         let corpus = Corpus::load(&bindings.collaboration_fixtures);
@@ -125,7 +125,7 @@ impl Conformance {
         &self,
         plan: &'static GeneratedCollaborationEntitySpec,
         context: &str,
-        rust: &LoroAuthoringDocument,
+        rust: &CollaborationReplica,
         typescript: &TypeScriptReplica<'_>,
     ) {
         let rust_frontier = rust.accepted_frontier_base64();
@@ -156,7 +156,7 @@ impl Conformance {
         plan: &'static GeneratedCollaborationEntitySpec,
         fixture: &EntityFixture,
     ) -> Pair<'_> {
-        let rust = LoroAuthoringDocument::from_document(plan, &fixture.wire_document)
+        let rust = CollaborationReplica::from_document(plan, &fixture.wire_document)
             .unwrap_or_else(|error| panic!("{}: Rust seeds: {error}", plan.name));
         let seeded = rust.export_update_base64().expect("Rust exports");
         let typescript = self
@@ -175,13 +175,13 @@ impl Conformance {
     /// document, and both refuse the fixture's unsupported schema versions.
     pub fn seeding(&self) {
         for (plan, fixture) in self.fixtures() {
-            let expected = LoroAuthoringDocument::from_document(plan, &fixture.wire_document)
+            let expected = CollaborationReplica::from_document(plan, &fixture.wire_document)
                 .and_then(|seeded| seeded.materialized_document(REVISION))
                 .unwrap_or_else(|error| panic!("{}: Rust seeds: {error}", plan.name));
 
             let typescript = self.bridge.seed_fixture(plan.name);
             let update = typescript.export();
-            let rust = LoroAuthoringDocument::from_versioned_update_base64(
+            let rust = CollaborationReplica::from_versioned_update_base64(
                 plan,
                 fixture.schema_version,
                 &update,
@@ -217,7 +217,7 @@ impl Conformance {
                     plan.name
                 );
                 assert!(
-                    LoroAuthoringDocument::from_versioned_update_base64(plan, version, &update)
+                    CollaborationReplica::from_versioned_update_base64(plan, version, &update)
                         .is_err(),
                     "{}: Rust refuses schema version {version}",
                     plan.name
@@ -330,7 +330,7 @@ impl Conformance {
             .unwrap_or_else(|error| panic!("{context}: Rust imports: {error}"));
         self.assert_converged(plan, context, rust, typescript);
 
-        let observer = LoroAuthoringDocument::from_versioned_update_base64(
+        let mut observer = CollaborationReplica::from_versioned_update_base64(
             plan,
             fixture.schema_version,
             seeded,
@@ -338,7 +338,7 @@ impl Conformance {
         .expect("an observer hydrates");
         for update in [&from_typescript, &from_rust] {
             observer
-                .import_versioned_update_base64(fixture.schema_version, update)
+                .adopt_versioned_update_base64(fixture.schema_version, update)
                 .unwrap_or_else(|error| panic!("{context}: the observer imports: {error}"));
         }
         assert_eq!(

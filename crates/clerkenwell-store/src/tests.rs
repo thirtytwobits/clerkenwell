@@ -50,7 +50,7 @@ const fn plan(
         authoring_projection: "authoringState",
         authoring_document: None,
         authoring_store_params: &[],
-        import_mutation: "importLoroUpdate",
+        import_mutation: "importUpdate",
         root_container,
         fields,
     }
@@ -269,17 +269,17 @@ fn an_edit_refused_under_conflict_policy_is_accepted_once_rebased_on_what_the_re
     );
 
     // The refused client holds its base and its own edit, then takes what the refusal carries.
-    let client = LoroAuthoringDocument::from_versioned_update_base64(
+    let mut client = CollaborationReplica::from_versioned_update_base64(
         &NOTE_PLAN,
         state.schema_version,
         &state.update_base64,
     )
     .expect("hydrate client");
     client
-        .import_versioned_update_base64(state.schema_version, &second.update_base64)
+        .adopt_versioned_update_base64(state.schema_version, &second.update_base64)
         .expect("the client's own edit");
     client
-        .import_versioned_update_base64(
+        .adopt_versioned_update_base64(
             state.schema_version,
             refusal["missing_update_base64"]
                 .as_str()
@@ -384,7 +384,7 @@ fn edit_request(
         cursor = &mut cursor[*segment];
     }
     cursor[path[path.len() - 1]] = replacement;
-    let mut client = LoroAuthoringDocument::from_versioned_update_base64(
+    let mut client = CollaborationReplica::from_versioned_update_base64(
         &NOTE_PLAN,
         state.schema_version,
         &state.update_base64,
@@ -437,7 +437,7 @@ fn a_peer_holding_an_accepted_frontier_receives_only_the_operations_after_it() {
     );
     assert_eq!(delivered.etag, accepted.etag);
 
-    let mut peer = LoroAuthoringDocument::from_versioned_update_base64(
+    let mut peer = CollaborationReplica::from_versioned_update_base64(
         &NOTE_PLAN,
         held.schema_version,
         &held.update_base64,
@@ -451,12 +451,12 @@ fn a_peer_holding_an_accepted_frontier_receives_only_the_operations_after_it() {
     );
     assert!(
         matches!(
-            LoroAuthoringDocument::from_versioned_update_base64(
+            CollaborationReplica::from_versioned_update_base64(
                 &NOTE_PLAN,
                 delivered.schema_version,
                 &delivered.update_base64,
             ),
-            Err(CollaborationLoroError::MissingDependency)
+            Err(CollaborationReplicaError::MissingDependency)
         ),
         "the update carries none of the operations the peer held"
     );
@@ -478,7 +478,7 @@ fn a_peer_holding_a_frontier_from_another_history_receives_every_operation() {
             Some(&foreign.accepted_frontier_base64),
         )
         .unwrap();
-    let peer = LoroAuthoringDocument::from_versioned_update_base64(
+    let peer = CollaborationReplica::from_versioned_update_base64(
         &NOTE_PLAN,
         delivered.schema_version,
         &delivered.update_base64,
@@ -494,7 +494,7 @@ fn a_peer_holding_a_frontier_from_another_history_receives_every_operation() {
 fn captured_text_consumption_preserves_later_edits_across_restart_and_retry() {
     let root = TempDir::new().unwrap();
     let (service, document, seed, state) = initialise(root.path());
-    let captured = LoroAuthoringDocument::from_versioned_update_base64(
+    let captured = CollaborationReplica::from_versioned_update_base64(
         &NOTE_PLAN,
         state.schema_version,
         &state.update_base64,
@@ -1268,8 +1268,8 @@ fn writer_edit(
     operation_id: &str,
     path: &str,
     replacement: Value,
-) -> (LoroAuthoringDocument, CollaborationImportRequest) {
-    let mut writer = LoroAuthoringDocument::from_versioned_update_base64(
+) -> (CollaborationReplica, CollaborationImportRequest) {
+    let mut writer = CollaborationReplica::from_versioned_update_base64(
         &NOTE_PLAN,
         state.schema_version,
         &state.update_base64,
@@ -1308,7 +1308,7 @@ fn an_import_reply_carries_only_the_operations_the_importer_lacks() {
         "body",
         json!("Bread, milk and eggs."),
     );
-    let (second, second_request) = writer_edit(
+    let (mut second, second_request) = writer_edit(
         &document,
         &seed,
         &state,
@@ -1340,7 +1340,7 @@ fn an_import_reply_carries_only_the_operations_the_importer_lacks() {
             "A reply carries none of the importer's own operations"
         );
         second
-            .import_versioned_update_base64(reply.schema_version, &reply.missing_update_base64)
+            .adopt_versioned_update_base64(reply.schema_version, &reply.missing_update_base64)
             .expect("take the reply");
         assert_eq!(
             second.materialized_document(&reply.etag).unwrap(),

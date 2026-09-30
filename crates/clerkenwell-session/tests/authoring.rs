@@ -8,7 +8,7 @@ use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll, Waker};
 use std::time::Duration;
 
-use clerkenwell_doc::LoroAuthoringDocument;
+use clerkenwell_doc::CollaborationReplica;
 use clerkenwell_events::ChangeEvent;
 use clerkenwell_schema::{
     GeneratedCollaborationConflict, GeneratedCollaborationEntitySpec,
@@ -100,7 +100,7 @@ const NOTE_PLAN: GeneratedCollaborationEntitySpec = GeneratedCollaborationEntity
     authoring_projection: "notes.authoringState",
     authoring_document: None,
     authoring_store_params: &[],
-    import_mutation: "note.importLoroUpdate",
+    import_mutation: "note.importUpdate",
     root_container: "note",
     fields: fields!("note_id", "note"),
 };
@@ -113,7 +113,7 @@ const CATALOGUE_PLAN: GeneratedCollaborationEntitySpec = GeneratedCollaborationE
     authoring_projection: "catalogue.authoringState",
     authoring_document: Some("catalogue"),
     authoring_store_params: &[],
-    import_mutation: "catalogue.importLoroUpdate",
+    import_mutation: "catalogue.importUpdate",
     root_container: "catalogue",
     fields: fields!("catalogue_id", "catalogue"),
 };
@@ -126,7 +126,7 @@ const DRAFT_PLAN: GeneratedCollaborationEntitySpec = GeneratedCollaborationEntit
     authoring_projection: "drafts.authoringState",
     authoring_document: None,
     authoring_store_params: &["session_id"],
-    import_mutation: "draft.importLoroUpdate",
+    import_mutation: "draft.importUpdate",
     root_container: "draft",
     fields: fields!("draft_id", "draft"),
 };
@@ -258,7 +258,7 @@ impl Library {
         let state = service
             .authoring_state(plan, &document, None)
             .expect("the accepted state");
-        let mut replica = LoroAuthoringDocument::from_versioned_update_base64(
+        let mut replica = CollaborationReplica::from_versioned_update_base64(
             plan,
             plan.schema_version,
             &state.update_base64,
@@ -407,8 +407,8 @@ fn patch_value(event: &ProjectionTransportEvent<Value, Value>) -> &Value {
 fn replica(
     plan: &'static GeneratedCollaborationEntitySpec,
     state: &AuthoringState,
-) -> LoroAuthoringDocument {
-    LoroAuthoringDocument::from_versioned_update_base64(
+) -> CollaborationReplica {
+    CollaborationReplica::from_versioned_update_base64(
         plan,
         state.schema_version,
         &state.update_base64,
@@ -416,7 +416,7 @@ fn replica(
     .expect("a replica")
 }
 
-fn body(replica: &LoroAuthoringDocument) -> Value {
+fn body(replica: &CollaborationReplica) -> Value {
     replica.materialized_document("reader").expect("a document")["body"].clone()
 }
 
@@ -525,8 +525,8 @@ fn a_commit_sends_each_subscription_following_the_document_the_operations_its_cl
     assert_eq!(patch["kind"], "replace");
     let state: AuthoringState =
         serde_json::from_value(patch["state"].clone()).expect("an authoring state");
-    let held = replica(NOTE, &snapshot);
-    held.import_versioned_update_base64(state.schema_version, &state.update_base64)
+    let mut held = replica(NOTE, &snapshot);
+    held.adopt_versioned_update_base64(state.schema_version, &state.update_base64)
         .expect("the operations the client lacks");
     assert_eq!(body(&held), "Second.");
     assert_eq!(

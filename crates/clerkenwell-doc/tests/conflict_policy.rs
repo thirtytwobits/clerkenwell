@@ -152,7 +152,7 @@ fn a_keyed_item_field_is_judged_per_item_and_named_by_its_identity() {
 #[test]
 fn a_replica_refuses_an_update_that_diverges_from_what_it_has_accepted() {
     let seed_document = wire_document(NOTE);
-    let server = seed(NOTE, &seed_document);
+    let mut server = seed(NOTE, &seed_document);
     let base_frontier = server.accepted_frontier_base64();
     let seeded = server.export_update_base64().expect("export seed");
     let edit = |at: &str, value: Value| {
@@ -166,7 +166,7 @@ fn a_replica_refuses_an_update_that_diverges_from_what_it_has_accepted() {
     };
 
     server
-        .import_versioned_update_base64(
+        .adopt_versioned_update_base64(
             NOTE.schema_version,
             &edit("/title", json!("Accepted title")),
         )
@@ -262,7 +262,7 @@ mod nested {
         authoring_projection: "boards.authoringState",
         authoring_document: None,
         authoring_store_params: &[],
-        import_mutation: "board.importLoroUpdate",
+        import_mutation: "board.importUpdate",
         root_container: "board",
         fields: FIELDS,
     };

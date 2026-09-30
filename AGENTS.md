@@ -37,9 +37,10 @@ those tests.
 `loro-release.json` records the approved Rust `loro` and npm `loro-crdt` pair and their
 source. `Cargo.toml` pins `loro` to it and the TypeScript client depends on its npm package.
 Loro is Clerkenwell's implementation: no public Rust or TypeScript signature names a Loro
-type, and an application that uses Loro depends on it itself. Every Cargo workspace that
-builds these crates carries the recorded `generic-btree` override, because workspace
-patches do not propagate. Change the record, the manifests and the lockfiles together.
+type, nothing public is named after Loro, and an application that uses Loro depends on it
+itself. Every Cargo workspace that builds these crates carries the recorded `generic-btree`
+override, because workspace patches do not propagate. Change the record, the manifests and
+the lockfiles together.
 
 ## Invariants
 
@@ -50,9 +51,9 @@ patches do not propagate. Change the record, the manifests and the lockfiles tog
 - Corruption is reported, never materialised as an empty document.
 - Generated files are never edited by hand; `clerkenwell-codegen --check` gates them.
 - A crate exports only what its `public-api.txt` records. `clerkenwell-public-api` writes the
-  records, and its tests refuse any difference and any Loro type.
+  records, and its tests refuse any difference, any Loro type and any name after Loro.
 - A TypeScript package exports only what its entry files name. Its `public-api.json` records
-  those names, and a test refuses any difference and any Loro type.
+  those names, and a test refuses any difference, any Loro type and any name after Loro.
 
 ## Validation
 

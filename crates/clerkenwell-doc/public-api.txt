@@ -1,39 +1,38 @@
 # The public API of clerkenwell_doc. Written by `cargo run -p clerkenwell-public-api`.
 # Types named from: clerkenwell_schema, serde_json
 
-struct clerkenwell_doc::CollaborationLoroDebug
-derive clerkenwell_doc::CollaborationLoroDebug: Clone, Debug, Eq, PartialEq
-field clerkenwell_doc::CollaborationLoroDebug::oplog_version: String
-field clerkenwell_doc::CollaborationLoroDebug::peer_id: String
-field clerkenwell_doc::CollaborationLoroDebug::state_frontiers: String
-enum clerkenwell_doc::CollaborationLoroError
-derive clerkenwell_doc::CollaborationLoroError: Debug, Error
-variant clerkenwell_doc::CollaborationLoroError::Encode(String)
-variant clerkenwell_doc::CollaborationLoroError::InvalidBase64(String)
-variant clerkenwell_doc::CollaborationLoroError::InvalidField { path: String, expected: &'static str }
-variant clerkenwell_doc::CollaborationLoroError::MissingDependency
-variant clerkenwell_doc::CollaborationLoroError::TextCaptureMismatch
-variant clerkenwell_doc::CollaborationLoroError::UnknownFrontier
-variant clerkenwell_doc::CollaborationLoroError::UnsupportedSchemaVersion { entity: &'static str, actual: u32, expected: u32 }
-variant clerkenwell_doc::CollaborationLoroError::Update(String)
-struct clerkenwell_doc::LoroAuthoringDocument { .. }
-derive clerkenwell_doc::LoroAuthoringDocument: Debug
-fn clerkenwell_doc::LoroAuthoringDocument::accepted_frontier_base64(&self) -> String
-fn clerkenwell_doc::LoroAuthoringDocument::adopt_versioned_update_base64(&mut self, schema_version: u32, update_base64: &str) -> Result<(), CollaborationLoroError>
-fn clerkenwell_doc::LoroAuthoringDocument::debug(&self) -> CollaborationLoroDebug
-fn clerkenwell_doc::LoroAuthoringDocument::export_incremental_update_base64(&self, accepted_frontier_base64: &str) -> Result<String, CollaborationLoroError>
-fn clerkenwell_doc::LoroAuthoringDocument::export_update_base64(&self) -> Result<String, CollaborationLoroError>
-fn clerkenwell_doc::LoroAuthoringDocument::from_document(plan: &'static GeneratedCollaborationEntitySpec, document: &Value) -> Result<Self, CollaborationLoroError>
-fn clerkenwell_doc::LoroAuthoringDocument::from_versioned_update_base64(plan: &'static GeneratedCollaborationEntitySpec, schema_version: u32, update_base64: &str) -> Result<Self, CollaborationLoroError>
-fn clerkenwell_doc::LoroAuthoringDocument::frontier_includes(&self, capture_base64: &str, required_base64: &str) -> Result<bool, CollaborationLoroError>
-fn clerkenwell_doc::LoroAuthoringDocument::import_versioned_update_base64(&self, schema_version: u32, update_base64: &str) -> Result<(), CollaborationLoroError>
-fn clerkenwell_doc::LoroAuthoringDocument::materialized_document(&self, revision: &str) -> Result<Value, CollaborationLoroError>
-fn clerkenwell_doc::LoroAuthoringDocument::materialized_documents_for_incremental_update(&self, accepted_frontier_base64: &str, schema_version: u32, update_base64: &str, revision: &str) -> Result<(Value, Value), CollaborationLoroError>
-fn clerkenwell_doc::LoroAuthoringDocument::missing_update_base64(&self, base_frontier_base64: Option<&str>, update_base64: &str) -> Result<String, CollaborationLoroError>
-fn clerkenwell_doc::LoroAuthoringDocument::policy_conflicts_for_incremental_update(&self, base_frontier_base64: &str, schema_version: u32, update_base64: &str) -> Result<Vec<String>, CollaborationLoroError>
-fn clerkenwell_doc::LoroAuthoringDocument::prepare_text_prefix_at_frontier(&self, field_path: &str, identities: &HashMap<String, String>, frontier_base64: &str, expected_text: &str, prefix: &str) -> Result<String, CollaborationLoroError>
-fn clerkenwell_doc::LoroAuthoringDocument::prepare_text_replacement_at_frontier(&self, field_path: &str, identities: &HashMap<String, String>, frontier_base64: &str, expected_text: &str, replacement: &str) -> Result<String, CollaborationLoroError>
-fn clerkenwell_doc::LoroAuthoringDocument::replace_document(&mut self, document: &Value) -> Result<(), CollaborationLoroError>
-fn clerkenwell_doc::LoroAuthoringDocument::require_frontier_base64(&self, accepted_frontier_base64: &str) -> Result<(), CollaborationLoroError>
-fn clerkenwell_doc::LoroAuthoringDocument::text_at_frontier(&self, field_path: &str, identities: &HashMap<String, String>, frontier_base64: &str) -> Result<String, CollaborationLoroError>
+struct clerkenwell_doc::CollaborationReplica { .. }
+derive clerkenwell_doc::CollaborationReplica: Debug
+fn clerkenwell_doc::CollaborationReplica::accepted_frontier_base64(&self) -> String
+fn clerkenwell_doc::CollaborationReplica::adopt_versioned_update_base64(&mut self, schema_version: u32, update_base64: &str) -> Result<(), CollaborationReplicaError>
+fn clerkenwell_doc::CollaborationReplica::debug(&self) -> CollaborationReplicaDebug
+fn clerkenwell_doc::CollaborationReplica::export_incremental_update_base64(&self, accepted_frontier_base64: &str) -> Result<String, CollaborationReplicaError>
+fn clerkenwell_doc::CollaborationReplica::export_update_base64(&self) -> Result<String, CollaborationReplicaError>
+fn clerkenwell_doc::CollaborationReplica::from_document(plan: &'static GeneratedCollaborationEntitySpec, document: &Value) -> Result<Self, CollaborationReplicaError>
+fn clerkenwell_doc::CollaborationReplica::from_versioned_update_base64(plan: &'static GeneratedCollaborationEntitySpec, schema_version: u32, update_base64: &str) -> Result<Self, CollaborationReplicaError>
+fn clerkenwell_doc::CollaborationReplica::frontier_includes(&self, capture_base64: &str, required_base64: &str) -> Result<bool, CollaborationReplicaError>
+fn clerkenwell_doc::CollaborationReplica::materialized_document(&self, revision: &str) -> Result<Value, CollaborationReplicaError>
+fn clerkenwell_doc::CollaborationReplica::materialized_documents_for_incremental_update(&self, accepted_frontier_base64: &str, schema_version: u32, update_base64: &str, revision: &str) -> Result<(Value, Value), CollaborationReplicaError>
+fn clerkenwell_doc::CollaborationReplica::missing_update_base64(&self, base_frontier_base64: Option<&str>, update_base64: &str) -> Result<String, CollaborationReplicaError>
+fn clerkenwell_doc::CollaborationReplica::policy_conflicts_for_incremental_update(&self, base_frontier_base64: &str, schema_version: u32, update_base64: &str) -> Result<Vec<String>, CollaborationReplicaError>
+fn clerkenwell_doc::CollaborationReplica::prepare_text_prefix_at_frontier(&self, field_path: &str, identities: &HashMap<String, String>, frontier_base64: &str, expected_text: &str, prefix: &str) -> Result<String, CollaborationReplicaError>
+fn clerkenwell_doc::CollaborationReplica::prepare_text_replacement_at_frontier(&self, field_path: &str, identities: &HashMap<String, String>, frontier_base64: &str, expected_text: &str, replacement: &str) -> Result<String, CollaborationReplicaError>
+fn clerkenwell_doc::CollaborationReplica::replace_document(&mut self, document: &Value) -> Result<(), CollaborationReplicaError>
+fn clerkenwell_doc::CollaborationReplica::require_frontier_base64(&self, accepted_frontier_base64: &str) -> Result<(), CollaborationReplicaError>
+fn clerkenwell_doc::CollaborationReplica::text_at_frontier(&self, field_path: &str, identities: &HashMap<String, String>, frontier_base64: &str) -> Result<String, CollaborationReplicaError>
+struct clerkenwell_doc::CollaborationReplicaDebug
+derive clerkenwell_doc::CollaborationReplicaDebug: Clone, Debug, Eq, PartialEq
+field clerkenwell_doc::CollaborationReplicaDebug::oplog_version: String
+field clerkenwell_doc::CollaborationReplicaDebug::peer_id: String
+field clerkenwell_doc::CollaborationReplicaDebug::state_frontiers: String
+enum clerkenwell_doc::CollaborationReplicaError
+derive clerkenwell_doc::CollaborationReplicaError: Debug, Error
+variant clerkenwell_doc::CollaborationReplicaError::Encode(String)
+variant clerkenwell_doc::CollaborationReplicaError::InvalidBase64(String)
+variant clerkenwell_doc::CollaborationReplicaError::InvalidField { path: String, expected: &'static str }
+variant clerkenwell_doc::CollaborationReplicaError::MissingDependency
+variant clerkenwell_doc::CollaborationReplicaError::TextCaptureMismatch
+variant clerkenwell_doc::CollaborationReplicaError::UnknownFrontier
+variant clerkenwell_doc::CollaborationReplicaError::UnsupportedSchemaVersion { entity: &'static str, actual: u32, expected: u32 }
+variant clerkenwell_doc::CollaborationReplicaError::Update(String)
 fn clerkenwell_doc::conflicting_field_paths(plan: &GeneratedCollaborationEntitySpec, base: &Value, client: &Value, current: &Value) -> Vec<String>

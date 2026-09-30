@@ -3,7 +3,7 @@
 use std::time::Duration;
 
 use clerkenwell_axum::ProjectionServer;
-use clerkenwell_doc::LoroAuthoringDocument;
+use clerkenwell_doc::CollaborationReplica;
 use clerkenwell_example_notes::server::{NotesServer, PUBLICATION_WINDOW};
 use clerkenwell_example_notes::NOTE;
 use futures_util::{SinkExt, StreamExt};
@@ -24,7 +24,7 @@ struct Client {
 
 /// The accepted note a client holds.
 struct Held {
-    replica: LoroAuthoringDocument,
+    replica: CollaborationReplica,
     frontier: String,
 }
 
@@ -64,7 +64,7 @@ impl Client {
                     Some("replace") => {
                         let held = self.held.as_mut().expect("a patch follows a snapshot");
                         held.replica
-                            .import_versioned_update_base64(
+                            .adopt_versioned_update_base64(
                                 NOTE.schema_version,
                                 patch["state"]["update_base64"].as_str().expect("an update"),
                             )
@@ -150,8 +150,8 @@ async fn start() -> (String, tempfile::TempDir) {
 }
 
 /// A replica of the note an authoring state delivers.
-fn replica(state: &Value) -> LoroAuthoringDocument {
-    LoroAuthoringDocument::from_versioned_update_base64(
+fn replica(state: &Value) -> CollaborationReplica {
+    CollaborationReplica::from_versioned_update_base64(
         NOTE,
         NOTE.schema_version,
         state["update_base64"].as_str().expect("an update"),
@@ -167,7 +167,7 @@ fn frontier(state: &Value) -> String {
 }
 
 /// The note a replica holds.
-fn document(replica: &LoroAuthoringDocument) -> Value {
+fn document(replica: &CollaborationReplica) -> Value {
     replica.materialized_document("client").expect("a note")
 }
 
@@ -178,7 +178,7 @@ async fn edit(
     state: &Value,
     operation_id: &str,
     change: impl FnOnce(&mut Value),
-) -> (LoroAuthoringDocument, Value) {
+) -> (CollaborationReplica, Value) {
     let mut replica = replica(state);
     let mut note = document(&replica);
     change(&mut note);
@@ -186,7 +186,7 @@ async fn edit(
     let base = frontier(state);
     let response = client
         .mutate(
-            "note.importLoroUpdate",
+            "note.importUpdate",
             json!({
                 "note_id": note_id,
                 "operation_id": operation_id,
@@ -247,10 +247,11 @@ async fn a_refused_status_carries_what_its_writer_lacks_to_rebase() {
     .await;
     assert!(response.get("error").is_none(), "{response}");
 
-    let (refused, response) = edit(&mut grace, &note_id, &grace_state, "grace-status", |note| {
-        note["status"] = json!("published");
-    })
-    .await;
+    let (mut refused, response) =
+        edit(&mut grace, &note_id, &grace_state, "grace-status", |note| {
+            note["status"] = json!("published");
+        })
+        .await;
 
     let error = &response["error"];
     assert_eq!(
@@ -259,7 +260,7 @@ async fn a_refused_status_carries_what_its_writer_lacks_to_rebase() {
     );
     assert_eq!(error["data"]["projection_error"]["operation"], "mutate");
     refused
-        .import_versioned_update_base64(
+        .adopt_versioned_update_base64(
             NOTE.schema_version,
             error["data"]["missing_update_base64"]
                 .as_str()

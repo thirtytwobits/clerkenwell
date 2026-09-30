@@ -1,5 +1,5 @@
-//! Every recorded crate's public API matches its record, and none names a
-//! forbidden crate.
+//! Every recorded crate's public API matches its record, names no type from a
+//! forbidden crate, and names nothing after Loro.
 
 use clerkenwell_public_api::{
     record, workspace, COMMAND, FORBIDDEN, GENERATED, RECORDED, RECORD_FILE,
@@ -32,6 +32,19 @@ fn no_public_api_names_a_type_from_a_forbidden_crate() {
                 "{name}'s public API names types from {forbidden}"
             );
         }
+    }
+}
+
+#[test]
+fn no_public_item_is_named_after_loro() {
+    for name in RECORDED {
+        let record = record(&workspace().join("crates").join(name)).expect("readable");
+        let named = record
+            .lines
+            .iter()
+            .filter(|line| line.to_lowercase().contains("loro"))
+            .collect::<Vec<_>>();
+        assert!(named.is_empty(), "{name}: {named:#?}");
     }
 }
 

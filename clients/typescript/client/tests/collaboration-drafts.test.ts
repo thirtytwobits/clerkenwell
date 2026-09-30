@@ -7,7 +7,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { AuthoringRuntime } from "@clerkenwell/client";
-import { CollaborationDrafts, documentDraftMapping } from "@clerkenwell/client/loro";
+import { CollaborationDrafts, documentDraftMapping } from "@clerkenwell/client/replica";
 
 import { BOARD_PLAN, boardDocument, type BoardColumn, type BoardDocument } from "./support/plans";
 import { insert } from "./support/text";

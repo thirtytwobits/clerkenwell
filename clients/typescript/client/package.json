@@ -9,7 +9,7 @@
   },
   "exports": {
     ".": "./src/index.ts",
-    "./loro": "./src/loro.ts"
+    "./replica": "./src/replica.ts"
   },
   "files": [
     "src"

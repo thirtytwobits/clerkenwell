@@ -4,7 +4,7 @@
  * TypeScript replicas for the Rust conformance driver in
  * `crates/clerkenwell-conformance`. The bridge is started with one
  * definition's generated TypeScript plans and its collaboration fixture
- * corpus, holds named replicas of `@clerkenwell/client/loro`, and answers each
+ * corpus, holds named replicas of `@clerkenwell/client/replica`, and answers each
  * JSON request line on standard input with one JSON response line on standard
  * output: `{"ok": true, "value": ...}` or `{"ok": false, "error": "..."}`.
  */
@@ -19,9 +19,9 @@ import {
   type TextBinding
 } from "@clerkenwell/client";
 import {
-  CollaborationLoroAuthoringDocument,
+  CollaborationReplica,
   requireCollaborationSchemaVersion
-} from "@clerkenwell/client/loro";
+} from "@clerkenwell/client/replica";
 
 type Identities = Readonly<Record<string, string>>;
 
@@ -43,7 +43,7 @@ interface CollaborationFixtures {
   readonly entities: readonly { readonly entity: string; readonly clientDocument: object }[];
 }
 
-type Replica = CollaborationLoroAuthoringDocument<object>;
+type Replica = CollaborationReplica<object>;
 
 const { values: options } = parseArgs({
   options: {
@@ -99,7 +99,7 @@ function handle(request: Request): unknown {
       if (fixture === undefined) {
         throw new Error(`The fixture corpus has no ${request.entity} entity.`);
       }
-      return create(request.replica, CollaborationLoroAuthoringDocument.from(
+      return create(request.replica, CollaborationReplica.from(
         request.entity,
         plan(request.entity),
         { kind: "document", document: fixture.clientDocument }
@@ -108,7 +108,7 @@ function handle(request: Request): unknown {
     case "hydrate": {
       const entityPlan = plan(request.entity);
       requireCollaborationSchemaVersion(request.entity, entityPlan, request.schemaVersion);
-      return create(request.replica, CollaborationLoroAuthoringDocument.from(
+      return create(request.replica, CollaborationReplica.from(
         request.entity,
         entityPlan,
         { kind: "update", updateBase64: request.updateBase64 }

@@ -2,7 +2,7 @@
  * Copyright (c) 2026 Scott A Dixon
  *
  * The React-free client. It never loads the CRDT runtime; replicas come from
- * `@clerkenwell/client/loro`. Only what this file names is public.
+ * `@clerkenwell/client/replica`. Only what this file names is public.
  */
 
 // The authoring runtime, its sessions and their controllers.

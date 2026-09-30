@@ -3,7 +3,7 @@
 
 mod support;
 
-use clerkenwell_doc::LoroAuthoringDocument;
+use clerkenwell_doc::CollaborationReplica;
 use clerkenwell_store::testing::{self, DurableCollaborationEnvelope};
 use clerkenwell_store::{
     CollaborationDocumentId, CollaborationExchangeMode, CollaborationImportRequest,
@@ -197,7 +197,7 @@ struct Edits {
 
 fn edits(count: usize) -> Edits {
     let mut client =
-        LoroAuthoringDocument::from_document(&NOTE_PLAN, &seed_document()).expect("seed client");
+        CollaborationReplica::from_document(&NOTE_PLAN, &seed_document()).expect("seed client");
     let seed_update = client.export_update_base64().expect("seed update");
     let mut edits = Vec::new();
     for index in 0..count {
@@ -373,7 +373,7 @@ fn commits_racing_through_one_port_both_land() {
         .authoring_state(&NOTE_PLAN, &document, None)
         .expect("read");
     let edit = |body: &str| {
-        let mut client = LoroAuthoringDocument::from_versioned_update_base64(
+        let mut client = CollaborationReplica::from_versioned_update_base64(
             &NOTE_PLAN,
             state.schema_version,
             &state.update_base64,

@@ -11,7 +11,7 @@ use std::collections::HashMap;
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
-use clerkenwell_doc::LoroAuthoringDocument;
+use clerkenwell_doc::CollaborationReplica;
 use serde_json::Value;
 
 use crate::{CollaborationRuntimeCounters, DurableCollaborationEnvelope, StoreResult};
@@ -26,7 +26,7 @@ pub(crate) struct Resident {
     /// The storage port's stamp taken before these bytes were read, when the
     /// port could vouch for one.
     stamp: Mutex<Option<String>>,
-    replica: Mutex<Option<Arc<LoroAuthoringDocument>>>,
+    replica: Mutex<Option<Arc<CollaborationReplica>>>,
     materialized: Mutex<Option<Arc<Value>>>,
 }
 
@@ -62,8 +62,8 @@ impl Resident {
     /// is needed.
     pub(crate) fn replica(
         &self,
-        build: impl FnOnce(&DurableCollaborationEnvelope) -> StoreResult<LoroAuthoringDocument>,
-    ) -> StoreResult<Arc<LoroAuthoringDocument>> {
+        build: impl FnOnce(&DurableCollaborationEnvelope) -> StoreResult<CollaborationReplica>,
+    ) -> StoreResult<Arc<CollaborationReplica>> {
         let mut replica = locked(&self.replica);
         if let Some(replica) = replica.as_ref() {
             return Ok(replica.clone());
@@ -89,7 +89,7 @@ impl Resident {
 
     /// Keeps a replica and materialised document already built of the held
     /// state, as a commit has them.
-    pub(crate) fn offer(&self, replica: Arc<LoroAuthoringDocument>, materialized: Value) {
+    pub(crate) fn offer(&self, replica: Arc<CollaborationReplica>, materialized: Value) {
         locked(&self.replica).get_or_insert(replica);
         locked(&self.materialized).get_or_insert_with(|| Arc::new(materialized));
     }

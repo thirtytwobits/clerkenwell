@@ -9,13 +9,13 @@ export type {
   CollaborationDraftMapping,
   CollaborationReplicaSource,
   CollaborationReplicaView
-} from "./collaboration-loro";
+} from "./collaboration-replica";
 export {
   CollaborationDraftReplica,
   CollaborationDrafts,
-  CollaborationLoroAuthoringDocument,
+  CollaborationReplica,
   CollaborationTextView,
   collaborationReplicaSource,
   documentDraftMapping,
   requireCollaborationSchemaVersion
-} from "./collaboration-loro";
+} from "./collaboration-replica";

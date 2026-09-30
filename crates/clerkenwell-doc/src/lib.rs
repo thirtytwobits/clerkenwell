@@ -1,4 +1,4 @@
-//! Plan-driven Loro replicas of collaborative documents.
+//! Plan-driven replicas of collaborative documents, built on Loro.
 //!
 //! A replica executes one generated collaboration plan: it seeds and reads a
 //! Loro document in the plan's container layout, writes whole-document edits
@@ -19,19 +19,19 @@ use serde_json::Value;
 use thiserror::Error;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CollaborationLoroDebug {
+pub struct CollaborationReplicaDebug {
     pub peer_id: String,
     pub oplog_version: String,
     pub state_frontiers: String,
 }
 
 #[derive(Debug, Error)]
-pub enum CollaborationLoroError {
-    #[error("invalid Loro update_base64: {0}")]
+pub enum CollaborationReplicaError {
+    #[error("invalid update_base64: {0}")]
     InvalidBase64(String),
-    #[error("could not process Loro collaboration update: {0}")]
+    #[error("could not process the collaboration update: {0}")]
     Update(String),
-    #[error("could not encode Loro collaboration update: {0}")]
+    #[error("could not encode the collaboration update: {0}")]
     Encode(String),
     #[error("collaborative document field `{path}` must be {expected}")]
     InvalidField {
@@ -54,31 +54,36 @@ pub enum CollaborationLoroError {
     TextCaptureMismatch,
 }
 
-fn update_error(error: loro::LoroError) -> CollaborationLoroError {
-    CollaborationLoroError::Update(error.to_string())
+fn update_error(error: loro::LoroError) -> CollaborationReplicaError {
+    CollaborationReplicaError::Update(error.to_string())
 }
 
-fn encode_error(error: loro::LoroEncodeError) -> CollaborationLoroError {
-    CollaborationLoroError::Encode(error.to_string())
+fn encode_error(error: loro::LoroEncodeError) -> CollaborationReplicaError {
+    CollaborationReplicaError::Encode(error.to_string())
 }
 
-fn base64_error(error: base64::DecodeError) -> CollaborationLoroError {
-    CollaborationLoroError::InvalidBase64(error.to_string())
+fn base64_error(error: base64::DecodeError) -> CollaborationReplicaError {
+    CollaborationReplicaError::InvalidBase64(error.to_string())
 }
 
-/// A retained Loro document executing one generated entity plan.
+/// The revision a replica reads its own document at.
+const REPLICA_REVISION: &str = "replica:materialized";
+
+/// A retained replica executing one generated entity plan.
 #[derive(Debug)]
-pub struct LoroAuthoringDocument {
+pub struct CollaborationReplica {
     plan: &'static GeneratedCollaborationEntitySpec,
     doc: LoroDoc,
-    document: Value,
+    /// The document the next edit is written against, or `None` when an
+    /// imported update has changed the document since it was read.
+    baseline: Option<Value>,
 }
 
-impl LoroAuthoringDocument {
+impl CollaborationReplica {
     pub fn from_document(
         plan: &'static GeneratedCollaborationEntitySpec,
         document: &Value,
-    ) -> Result<Self, CollaborationLoroError> {
+    ) -> Result<Self, CollaborationReplicaError> {
         let document = substrate::without_null_optionals(plan, document);
         substrate::validate_document(plan, &document)?;
         let doc = LoroDoc::new();
@@ -86,7 +91,7 @@ impl LoroAuthoringDocument {
         Ok(Self {
             plan,
             doc,
-            document,
+            baseline: Some(document),
         })
     }
 
@@ -94,64 +99,56 @@ impl LoroAuthoringDocument {
         plan: &'static GeneratedCollaborationEntitySpec,
         schema_version: u32,
         update_base64: &str,
-    ) -> Result<Self, CollaborationLoroError> {
+    ) -> Result<Self, CollaborationReplicaError> {
         require_supported_schema_version(plan, schema_version)?;
         let doc = LoroDoc::new();
         let status = doc
             .import(&BASE64.decode(update_base64).map_err(base64_error)?)
             .map_err(update_error)?;
         if status.pending.is_some() {
-            return Err(CollaborationLoroError::MissingDependency);
+            return Err(CollaborationReplicaError::MissingDependency);
         }
-        let document = substrate::materialize_document(plan, &doc, "loro:materialized")?;
+        let document = substrate::materialize_document(plan, &doc, REPLICA_REVISION)?;
         Ok(Self {
             plan,
             doc,
-            document,
+            baseline: Some(document),
         })
     }
 
-    pub fn replace_document(&mut self, document: &Value) -> Result<(), CollaborationLoroError> {
+    /// Writes `document` as the operations between it and the document the
+    /// replica holds.
+    pub fn replace_document(&mut self, document: &Value) -> Result<(), CollaborationReplicaError> {
         let document = substrate::without_null_optionals(self.plan, document);
-        substrate::write_document_changes(self.plan, &self.doc, &self.document, &document)?;
-        self.document = document;
+        let baseline = match self.baseline.take() {
+            Some(baseline) => baseline,
+            None => substrate::materialize_document(self.plan, &self.doc, REPLICA_REVISION)?,
+        };
+        substrate::write_document_changes(self.plan, &self.doc, &baseline, &document)?;
+        self.baseline = Some(document);
         Ok(())
     }
 
+    /// Imports operations another writer made. A later edit is written
+    /// against the document they leave.
     pub fn adopt_versioned_update_base64(
         &mut self,
         schema_version: u32,
         update_base64: &str,
-    ) -> Result<(), CollaborationLoroError> {
+    ) -> Result<(), CollaborationReplicaError> {
         require_supported_schema_version(self.plan, schema_version)?;
         let status = self
             .doc
             .import(&BASE64.decode(update_base64).map_err(base64_error)?)
             .map_err(update_error)?;
         if status.pending.is_some() {
-            return Err(CollaborationLoroError::MissingDependency);
+            return Err(CollaborationReplicaError::MissingDependency);
         }
-        self.document = substrate::materialize_document(self.plan, &self.doc, "loro:materialized")?;
+        self.baseline = None;
         Ok(())
     }
 
-    pub fn import_versioned_update_base64(
-        &self,
-        schema_version: u32,
-        update_base64: &str,
-    ) -> Result<(), CollaborationLoroError> {
-        require_supported_schema_version(self.plan, schema_version)?;
-        let status = self
-            .doc
-            .import(&BASE64.decode(update_base64).map_err(base64_error)?)
-            .map_err(update_error)?;
-        if status.pending.is_some() {
-            return Err(CollaborationLoroError::MissingDependency);
-        }
-        Ok(())
-    }
-
-    pub fn export_update_base64(&self) -> Result<String, CollaborationLoroError> {
+    pub fn export_update_base64(&self) -> Result<String, CollaborationReplicaError> {
         Ok(BASE64.encode(
             self.doc
                 .export(ExportMode::all_updates())
@@ -162,7 +159,7 @@ impl LoroAuthoringDocument {
     pub fn export_incremental_update_base64(
         &self,
         accepted_frontier_base64: &str,
-    ) -> Result<String, CollaborationLoroError> {
+    ) -> Result<String, CollaborationReplicaError> {
         let frontiers = Frontiers::decode(
             &BASE64
                 .decode(accepted_frontier_base64)
@@ -172,7 +169,7 @@ impl LoroAuthoringDocument {
         let version = self
             .doc
             .frontiers_to_vv(&frontiers)
-            .ok_or(CollaborationLoroError::UnknownFrontier)?;
+            .ok_or(CollaborationReplicaError::UnknownFrontier)?;
         Ok(BASE64.encode(
             self.doc
                 .export(ExportMode::updates(&version))
@@ -187,7 +184,7 @@ impl LoroAuthoringDocument {
         &self,
         base_frontier_base64: Option<&str>,
         update_base64: &str,
-    ) -> Result<String, CollaborationLoroError> {
+    ) -> Result<String, CollaborationReplicaError> {
         let mut known = match base_frontier_base64 {
             Some(encoded) => self
                 .doc
@@ -195,7 +192,7 @@ impl LoroAuthoringDocument {
                     &Frontiers::decode(&BASE64.decode(encoded).map_err(base64_error)?)
                         .map_err(update_error)?,
                 )
-                .ok_or(CollaborationLoroError::UnknownFrontier)?,
+                .ok_or(CollaborationReplicaError::UnknownFrontier)?,
             None => VersionVector::default(),
         };
         let sent = LoroDoc::decode_import_blob_meta(
@@ -218,7 +215,7 @@ impl LoroAuthoringDocument {
     pub fn require_frontier_base64(
         &self,
         accepted_frontier_base64: &str,
-    ) -> Result<(), CollaborationLoroError> {
+    ) -> Result<(), CollaborationReplicaError> {
         let frontiers = Frontiers::decode(
             &BASE64
                 .decode(accepted_frontier_base64)
@@ -227,7 +224,7 @@ impl LoroAuthoringDocument {
         .map_err(update_error)?;
         self.doc
             .frontiers_to_vv(&frontiers)
-            .ok_or(CollaborationLoroError::UnknownFrontier)?;
+            .ok_or(CollaborationReplicaError::UnknownFrontier)?;
         Ok(())
     }
 
@@ -236,13 +233,13 @@ impl LoroAuthoringDocument {
         &self,
         capture_base64: &str,
         required_base64: &str,
-    ) -> Result<bool, CollaborationLoroError> {
+    ) -> Result<bool, CollaborationReplicaError> {
         let version = |encoded: &str| {
             let frontier = Frontiers::decode(&BASE64.decode(encoded).map_err(base64_error)?)
                 .map_err(update_error)?;
             self.doc
                 .frontiers_to_vv(&frontier)
-                .ok_or(CollaborationLoroError::UnknownFrontier)
+                .ok_or(CollaborationReplicaError::UnknownFrontier)
         };
         let capture = version(capture_base64)?;
         let required = version(required_base64)?;
@@ -258,7 +255,7 @@ impl LoroAuthoringDocument {
         field_path: &str,
         identities: &HashMap<String, String>,
         frontier_base64: &str,
-    ) -> Result<String, CollaborationLoroError> {
+    ) -> Result<String, CollaborationReplicaError> {
         let branch = self.fork_at_frontier(frontier_base64)?;
         Ok(substrate::declared_text(self.plan, &branch, field_path, identities)?.to_string())
     }
@@ -275,14 +272,14 @@ impl LoroAuthoringDocument {
         frontier_base64: &str,
         expected_text: &str,
         replacement: &str,
-    ) -> Result<String, CollaborationLoroError> {
+    ) -> Result<String, CollaborationReplicaError> {
         let branch = self.fork_at_frontier(frontier_base64)?;
         let text = substrate::declared_text(self.plan, &branch, field_path, identities)?;
         // Membership must also hold at the live head: retained history is not
         // permission to write an orphaned container after its record was deleted.
         substrate::declared_text(self.plan, &self.doc, field_path, identities)?;
         if text.to_string() != expected_text {
-            return Err(CollaborationLoroError::TextCaptureMismatch);
+            return Err(CollaborationReplicaError::TextCaptureMismatch);
         }
         let version = branch.oplog_vv();
         substrate::replace_all_text(&text, replacement).map_err(update_error)?;
@@ -303,12 +300,12 @@ impl LoroAuthoringDocument {
         frontier_base64: &str,
         expected_text: &str,
         prefix: &str,
-    ) -> Result<String, CollaborationLoroError> {
+    ) -> Result<String, CollaborationReplicaError> {
         let branch = self.fork_at_frontier(frontier_base64)?;
         let text = substrate::declared_text(self.plan, &branch, field_path, identities)?;
         substrate::declared_text(self.plan, &self.doc, field_path, identities)?;
         if text.to_string() != expected_text {
-            return Err(CollaborationLoroError::TextCaptureMismatch);
+            return Err(CollaborationReplicaError::TextCaptureMismatch);
         }
         let version = branch.oplog_vv();
         text.insert_utf8(0, prefix).map_err(update_error)?;
@@ -320,12 +317,15 @@ impl LoroAuthoringDocument {
         ))
     }
 
-    fn fork_at_frontier(&self, frontier_base64: &str) -> Result<LoroDoc, CollaborationLoroError> {
+    fn fork_at_frontier(
+        &self,
+        frontier_base64: &str,
+    ) -> Result<LoroDoc, CollaborationReplicaError> {
         let frontier = Frontiers::decode(&BASE64.decode(frontier_base64).map_err(base64_error)?)
             .map_err(update_error)?;
         self.doc
             .fork_at(&frontier)
-            .map_err(|_| CollaborationLoroError::UnknownFrontier)
+            .map_err(|_| CollaborationReplicaError::UnknownFrontier)
     }
 
     pub fn materialized_documents_for_incremental_update(
@@ -334,7 +334,7 @@ impl LoroAuthoringDocument {
         schema_version: u32,
         update_base64: &str,
         revision: &str,
-    ) -> Result<(Value, Value), CollaborationLoroError> {
+    ) -> Result<(Value, Value), CollaborationReplicaError> {
         require_supported_schema_version(self.plan, schema_version)?;
         let frontiers = Frontiers::decode(
             &BASE64
@@ -345,13 +345,13 @@ impl LoroAuthoringDocument {
         let base = self
             .doc
             .fork_at(&frontiers)
-            .map_err(|_| CollaborationLoroError::UnknownFrontier)?;
+            .map_err(|_| CollaborationReplicaError::UnknownFrontier)?;
         let client = base.fork();
         let status = client
             .import(&BASE64.decode(update_base64).map_err(base64_error)?)
             .map_err(update_error)?;
         if status.pending.is_some() {
-            return Err(CollaborationLoroError::MissingDependency);
+            return Err(CollaborationReplicaError::MissingDependency);
         }
         Ok((
             substrate::materialize_document(self.plan, &base, revision)?,
@@ -367,26 +367,29 @@ impl LoroAuthoringDocument {
         base_frontier_base64: &str,
         schema_version: u32,
         update_base64: &str,
-    ) -> Result<Vec<String>, CollaborationLoroError> {
+    ) -> Result<Vec<String>, CollaborationReplicaError> {
         let (base, client) = self.materialized_documents_for_incremental_update(
             base_frontier_base64,
             schema_version,
             update_base64,
-            "loro:policy",
+            "replica:policy",
         )?;
-        let current = self.materialized_document("loro:policy")?;
+        let current = self.materialized_document("replica:policy")?;
         Ok(conflicting_field_paths(self.plan, &base, &client, &current))
     }
 
-    pub fn debug(&self) -> CollaborationLoroDebug {
-        CollaborationLoroDebug {
+    pub fn debug(&self) -> CollaborationReplicaDebug {
+        CollaborationReplicaDebug {
             peer_id: self.doc.peer_id().to_string(),
             oplog_version: format!("{:?}", self.doc.oplog_vv()),
             state_frontiers: format!("{:?}", self.doc.state_frontiers()),
         }
     }
 
-    pub fn materialized_document(&self, revision: &str) -> Result<Value, CollaborationLoroError> {
+    pub fn materialized_document(
+        &self,
+        revision: &str,
+    ) -> Result<Value, CollaborationReplicaError> {
         substrate::materialize_document(self.plan, &self.doc, revision)
     }
 }
@@ -394,9 +397,9 @@ impl LoroAuthoringDocument {
 fn require_supported_schema_version(
     plan: &'static GeneratedCollaborationEntitySpec,
     schema_version: u32,
-) -> Result<(), CollaborationLoroError> {
+) -> Result<(), CollaborationReplicaError> {
     if schema_version != plan.schema_version {
-        return Err(CollaborationLoroError::UnsupportedSchemaVersion {
+        return Err(CollaborationReplicaError::UnsupportedSchemaVersion {
             entity: plan.name,
             actual: schema_version,
             expected: plan.schema_version,

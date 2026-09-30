@@ -8,7 +8,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import type { TextBindingChange } from "@clerkenwell/client";
-import { CollaborationTextView } from "@clerkenwell/client/loro";
+import { CollaborationTextView } from "@clerkenwell/client/replica";
 
 import { boardDocument, NOTE_PLAN, noteDocument } from "./support/plans";
 import { BOARD_DRAFTS, noteReplica, type NoteReplica } from "./support/replicas";

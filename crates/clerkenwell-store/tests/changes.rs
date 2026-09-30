@@ -4,7 +4,7 @@ mod support;
 
 use std::sync::{Arc, Mutex};
 
-use clerkenwell_doc::LoroAuthoringDocument;
+use clerkenwell_doc::CollaborationReplica;
 use clerkenwell_events::{ChangeEvent, ChangeKind};
 use clerkenwell_store::{
     CollaborationDocumentId, CollaborationExchangeMode, CollaborationImportRequest,
@@ -52,7 +52,7 @@ fn edit(
     let state = service
         .authoring_state(&NOTE_PLAN, &note("note-1"), None)
         .expect("authoring state");
-    let mut client = LoroAuthoringDocument::from_versioned_update_base64(
+    let mut client = CollaborationReplica::from_versioned_update_base64(
         &NOTE_PLAN,
         state.schema_version,
         &state.update_base64,
@@ -143,7 +143,7 @@ fn what_does_not_change_the_accepted_state_announces_nothing() {
             exchange_mode: CollaborationExchangeMode::Incremental,
             base_frontier_base64: state.accepted_frontier_base64.clone(),
             update_base64: {
-                let mut client = LoroAuthoringDocument::from_versioned_update_base64(
+                let mut client = CollaborationReplica::from_versioned_update_base64(
                     &NOTE_PLAN,
                     state.schema_version,
                     &state.update_base64,

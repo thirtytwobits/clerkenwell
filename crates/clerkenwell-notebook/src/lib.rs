@@ -15,7 +15,7 @@ use serde_json::Value as JsonValue;
 use std::collections::HashMap;
 
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, PartialEq, Eq)]
-pub enum LoroUpdateParamsExchangeMode {
+pub enum ReplicaUpdateParamsExchangeMode {
     #[serde(rename = "incremental")]
     Incremental,
     #[serde(rename = "bootstrap")]
@@ -214,16 +214,16 @@ pub struct EmptyResult {}
 
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, PartialEq)]
 #[serde(deny_unknown_fields)]
-pub struct LoroUpdateParams {
+pub struct ReplicaUpdateParams {
     pub entity_id: String,
     #[schemars(length(min = 1))]
     pub update: String,
-    pub exchange_mode: LoroUpdateParamsExchangeMode,
+    pub exchange_mode: ReplicaUpdateParamsExchangeMode,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, PartialEq)]
 #[serde(deny_unknown_fields)]
-pub struct LoroUpdateResult {
+pub struct ReplicaUpdateResult {
     pub etag: String,
 }
 
@@ -797,13 +797,13 @@ pub const NOTES_AUTHORING_STATE_PROJECTION: &str = "notes.authoringState";
 pub const BOARDS_AUTHORING_STATE_PROJECTION: &str = "boards.authoringState";
 
 pub const NOTE_CREATE_MUTATION: &str = "note.create";
-pub const NOTE_IMPORT_LORO_UPDATE_MUTATION: &str = "note.importLoroUpdate";
+pub const NOTE_IMPORT_UPDATE_MUTATION: &str = "note.importUpdate";
 pub const NOTE_RENAME_MUTATION: &str = "note.rename";
 pub const NOTE_DELETE_MUTATION: &str = "note.delete";
 pub const NOTE_PIN_MUTATION: &str = "note.pin";
 pub const NOTE_MOVE_TO_BOARD_MUTATION: &str = "note.moveToBoard";
 pub const BOARD_CREATE_MUTATION: &str = "board.create";
-pub const BOARD_IMPORT_LORO_UPDATE_MUTATION: &str = "board.importLoroUpdate";
+pub const BOARD_IMPORT_UPDATE_MUTATION: &str = "board.importUpdate";
 pub const BOARD_RECONCILE_ARCHIVED_COLUMN_ORDER_MUTATION: &str =
     "board.reconcileArchivedColumnOrder";
 pub const TASK_SAVE_MUTATION: &str = "task.save";
@@ -903,13 +903,13 @@ impl ProjectionName {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum MutationName {
     NoteCreate,
-    NoteImportLoroUpdate,
+    NoteImportUpdate,
     NoteRename,
     NoteDelete,
     NotePin,
     NoteMoveToBoard,
     BoardCreate,
-    BoardImportLoroUpdate,
+    BoardImportUpdate,
     BoardReconcileArchivedColumnOrder,
     TaskSave,
     TaskSchedule,
@@ -925,8 +925,8 @@ impl MutationName {
             Self::NoteCreate => {
                 NOTE_CREATE_MUTATION
             },
-            Self::NoteImportLoroUpdate => {
-                NOTE_IMPORT_LORO_UPDATE_MUTATION
+            Self::NoteImportUpdate => {
+                NOTE_IMPORT_UPDATE_MUTATION
             },
             Self::NoteRename => {
                 NOTE_RENAME_MUTATION
@@ -943,8 +943,8 @@ impl MutationName {
             Self::BoardCreate => {
                 BOARD_CREATE_MUTATION
             },
-            Self::BoardImportLoroUpdate => {
-                BOARD_IMPORT_LORO_UPDATE_MUTATION
+            Self::BoardImportUpdate => {
+                BOARD_IMPORT_UPDATE_MUTATION
             },
             Self::BoardReconcileArchivedColumnOrder => {
                 BOARD_RECONCILE_ARCHIVED_COLUMN_ORDER_MUTATION
@@ -972,8 +972,8 @@ impl MutationName {
             NOTE_CREATE_MUTATION => {
                 Some(Self::NoteCreate)
             },
-            NOTE_IMPORT_LORO_UPDATE_MUTATION => {
-                Some(Self::NoteImportLoroUpdate)
+            NOTE_IMPORT_UPDATE_MUTATION => {
+                Some(Self::NoteImportUpdate)
             },
             NOTE_RENAME_MUTATION => {
                 Some(Self::NoteRename)
@@ -990,8 +990,8 @@ impl MutationName {
             BOARD_CREATE_MUTATION => {
                 Some(Self::BoardCreate)
             },
-            BOARD_IMPORT_LORO_UPDATE_MUTATION => {
-                Some(Self::BoardImportLoroUpdate)
+            BOARD_IMPORT_UPDATE_MUTATION => {
+                Some(Self::BoardImportUpdate)
             },
             BOARD_RECONCILE_ARCHIVED_COLUMN_ORDER_MUTATION => {
                 Some(Self::BoardReconcileArchivedColumnOrder)
@@ -1038,13 +1038,13 @@ pub const PROJECTION_NAMES: &[&str] = &[
 ];
 pub const MUTATION_NAMES: &[&str] = &[
     "note.create",
-    "note.importLoroUpdate",
+    "note.importUpdate",
     "note.rename",
     "note.delete",
     "note.pin",
     "note.moveToBoard",
     "board.create",
-    "board.importLoroUpdate",
+    "board.importUpdate",
     "board.reconcileArchivedColumnOrder",
     "task.save",
     "task.schedule",
@@ -1114,8 +1114,8 @@ pub enum ProjectionTransportPatch {
 pub enum ProjectionTransportMutationResult {
     #[serde(rename = "note.create")]
     NoteCreate(NoteMutationResult),
-    #[serde(rename = "note.importLoroUpdate")]
-    NoteImportLoroUpdate(LoroUpdateResult),
+    #[serde(rename = "note.importUpdate")]
+    NoteImportUpdate(ReplicaUpdateResult),
     #[serde(rename = "note.rename")]
     NoteRename(NoteMutationResult),
     #[serde(rename = "note.delete")]
@@ -1126,8 +1126,8 @@ pub enum ProjectionTransportMutationResult {
     NoteMoveToBoard(NoteMutationResult),
     #[serde(rename = "board.create")]
     BoardCreate(BoardMutationResult),
-    #[serde(rename = "board.importLoroUpdate")]
-    BoardImportLoroUpdate(LoroUpdateResult),
+    #[serde(rename = "board.importUpdate")]
+    BoardImportUpdate(ReplicaUpdateResult),
     #[serde(rename = "board.reconcileArchivedColumnOrder")]
     BoardReconcileArchivedColumnOrder(BoardMutationResult),
     #[serde(rename = "task.save")]
@@ -1146,13 +1146,13 @@ impl ProjectionTransportMutationResult {
     pub const fn mutation_name(&self) -> MutationName {
         match self {
             Self::NoteCreate(_) => MutationName::NoteCreate,
-            Self::NoteImportLoroUpdate(_) => MutationName::NoteImportLoroUpdate,
+            Self::NoteImportUpdate(_) => MutationName::NoteImportUpdate,
             Self::NoteRename(_) => MutationName::NoteRename,
             Self::NoteDelete(_) => MutationName::NoteDelete,
             Self::NotePin(_) => MutationName::NotePin,
             Self::NoteMoveToBoard(_) => MutationName::NoteMoveToBoard,
             Self::BoardCreate(_) => MutationName::BoardCreate,
-            Self::BoardImportLoroUpdate(_) => MutationName::BoardImportLoroUpdate,
+            Self::BoardImportUpdate(_) => MutationName::BoardImportUpdate,
             Self::BoardReconcileArchivedColumnOrder(_) => {
                 MutationName::BoardReconcileArchivedColumnOrder
             }
@@ -1265,7 +1265,7 @@ pub static GENERATED_MUTATION_SPECS: &[GeneratedMutationSpec] = &[
         touches: &["Note"],
     },
     GeneratedMutationSpec {
-        name: NOTE_IMPORT_LORO_UPDATE_MUTATION,
+        name: NOTE_IMPORT_UPDATE_MUTATION,
         touches: &["Note"],
     },
     GeneratedMutationSpec {
@@ -1289,7 +1289,7 @@ pub static GENERATED_MUTATION_SPECS: &[GeneratedMutationSpec] = &[
         touches: &["Board"],
     },
     GeneratedMutationSpec {
-        name: BOARD_IMPORT_LORO_UPDATE_MUTATION,
+        name: BOARD_IMPORT_UPDATE_MUTATION,
         touches: &["Board"],
     },
     GeneratedMutationSpec {
@@ -1326,13 +1326,13 @@ pub static GENERATED_ENTITY_AUTHORING_SPECS: &[GeneratedEntityAuthoringSpec] = &
             "Notes are edited concurrently; every field declares how concurrent edits merge.",
         mutations: &[
             NOTE_CREATE_MUTATION,
-            NOTE_IMPORT_LORO_UPDATE_MUTATION,
+            NOTE_IMPORT_UPDATE_MUTATION,
             NOTE_RENAME_MUTATION,
             NOTE_DELETE_MUTATION,
             NOTE_PIN_MUTATION,
             NOTE_MOVE_TO_BOARD_MUTATION,
         ],
-        content_mutation: Some(NOTE_IMPORT_LORO_UPDATE_MUTATION),
+        content_mutation: Some(NOTE_IMPORT_UPDATE_MUTATION),
         planning_mutations: &[],
         command_mutations: &[NOTE_PIN_MUTATION, NOTE_MOVE_TO_BOARD_MUTATION],
         lifecycle_mutations: &[
@@ -1350,10 +1350,10 @@ pub static GENERATED_ENTITY_AUTHORING_SPECS: &[GeneratedEntityAuthoringSpec] = &
         mutations: &[
             NOTE_MOVE_TO_BOARD_MUTATION,
             BOARD_CREATE_MUTATION,
-            BOARD_IMPORT_LORO_UPDATE_MUTATION,
+            BOARD_IMPORT_UPDATE_MUTATION,
             BOARD_RECONCILE_ARCHIVED_COLUMN_ORDER_MUTATION,
         ],
-        content_mutation: Some(BOARD_IMPORT_LORO_UPDATE_MUTATION),
+        content_mutation: Some(BOARD_IMPORT_UPDATE_MUTATION),
         planning_mutations: &[
             BOARD_RECONCILE_ARCHIVED_COLUMN_ORDER_MUTATION,
             NOTE_MOVE_TO_BOARD_MUTATION,
@@ -1849,11 +1849,11 @@ pub static NOTE_COLLABORATION_SPEC: GeneratedCollaborationEntitySpec =
         name: "Note",
         id_field: "note_id",
         schema_version: 1,
-        migration_ids: &["note-loro-layout-v1"],
+        migration_ids: &["note-layout-v1"],
         authoring_projection: NOTES_AUTHORING_STATE_PROJECTION,
         authoring_document: None,
         authoring_store_params: &[],
-        import_mutation: NOTE_IMPORT_LORO_UPDATE_MUTATION,
+        import_mutation: NOTE_IMPORT_UPDATE_MUTATION,
         root_container: "note",
         fields: NOTE_COLLABORATION_FIELDS,
     };
@@ -2327,14 +2327,14 @@ pub static BOARD_COLLABORATION_SPEC: GeneratedCollaborationEntitySpec =
         id_field: "board_id",
         schema_version: 3,
         migration_ids: &[
-            "board-loro-layout-v1",
+            "board-layout-v1",
             "board-column-order-v2",
             "board-card-notes-v3",
         ],
         authoring_projection: BOARDS_AUTHORING_STATE_PROJECTION,
         authoring_document: None,
         authoring_store_params: &[],
-        import_mutation: BOARD_IMPORT_LORO_UPDATE_MUTATION,
+        import_mutation: BOARD_IMPORT_UPDATE_MUTATION,
         root_container: "board",
         fields: BOARD_COLLABORATION_FIELDS,
     };

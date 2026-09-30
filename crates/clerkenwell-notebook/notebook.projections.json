@@ -15,12 +15,12 @@
         "$ref": "#/$defs/NoteDocument"
       },
       "revision": {
-        "kind": "loro"
+        "kind": "replica"
       },
       "authoring": {
         "kind": "collaborative",
         "rationale": "Notes are edited concurrently; every field declares how concurrent edits merge.",
-        "contentMutation": "note.importLoroUpdate",
+        "contentMutation": "note.importUpdate",
         "planningMutations": [],
         "commandMutations": [
           "note.pin",
@@ -39,12 +39,12 @@
         "$ref": "#/$defs/BoardDocument"
       },
       "revision": {
-        "kind": "loro"
+        "kind": "replica"
       },
       "authoring": {
         "kind": "collaborative",
         "rationale": "Boards reorder columns and cards concurrently through keyed sequences.",
-        "contentMutation": "board.importLoroUpdate",
+        "contentMutation": "board.importUpdate",
         "planningMutations": [
           "board.reconcileArchivedColumnOrder",
           "note.moveToBoard"
@@ -311,12 +311,12 @@
         "Note"
       ]
     },
-    "note.importLoroUpdate": {
+    "note.importUpdate": {
       "params": {
-        "$ref": "#/$defs/LoroUpdateParams"
+        "$ref": "#/$defs/ReplicaUpdateParams"
       },
       "result": {
-        "$ref": "#/$defs/LoroUpdateResult"
+        "$ref": "#/$defs/ReplicaUpdateResult"
       },
       "touches": [
         "Note"
@@ -378,12 +378,12 @@
         "Board"
       ]
     },
-    "board.importLoroUpdate": {
+    "board.importUpdate": {
       "params": {
-        "$ref": "#/$defs/LoroUpdateParams"
+        "$ref": "#/$defs/ReplicaUpdateParams"
       },
       "result": {
-        "$ref": "#/$defs/LoroUpdateResult"
+        "$ref": "#/$defs/ReplicaUpdateResult"
       },
       "touches": [
         "Board"
@@ -505,11 +505,11 @@
       "Note": {
         "schemaVersion": 1,
         "migrationIds": [
-          "note-loro-layout-v1"
+          "note-layout-v1"
         ],
         "authoringState": {
           "projection": "notes.authoringState",
-          "importMutation": "note.importLoroUpdate"
+          "importMutation": "note.importUpdate"
         },
         "rootContainer": "note",
         "fields": {
@@ -773,13 +773,13 @@
       "Board": {
         "schemaVersion": 3,
         "migrationIds": [
-          "board-loro-layout-v1",
+          "board-layout-v1",
           "board-column-order-v2",
           "board-card-notes-v3"
         ],
         "authoringState": {
           "projection": "boards.authoringState",
-          "importMutation": "board.importLoroUpdate"
+          "importMutation": "board.importUpdate"
         },
         "rootContainer": "board",
         "fields": {
@@ -1115,7 +1115,7 @@
       "additionalProperties": false,
       "properties": {}
     },
-    "LoroUpdateParams": {
+    "ReplicaUpdateParams": {
       "type": "object",
       "additionalProperties": false,
       "required": [
@@ -1140,7 +1140,7 @@
         }
       }
     },
-    "LoroUpdateResult": {
+    "ReplicaUpdateResult": {
       "type": "object",
       "additionalProperties": false,
       "required": [

@@ -79,9 +79,9 @@ fn independently_seeded_keyed_items_with_one_identity_converge_once() {
     left["columns"][0]["title"] = json!("Left title");
     let mut right = board();
     right["columns"][0]["cards"][0]["text"] = json!("Right text");
-    let replica = seed(BOARD, &left);
+    let mut replica = seed(BOARD, &left);
     replica
-        .import_versioned_update_base64(
+        .adopt_versioned_update_base64(
             BOARD.schema_version,
             &seed(BOARD, &right)
                 .export_update_base64()
