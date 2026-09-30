@@ -31,7 +31,7 @@ const PLAN = {
 } as const satisfies CollaborationEntityPlan;
 
 function binding(text: string): TextBinding {
-  return new CollaborationLoroAuthoringDocument("Memo", PLAN, { kind: "document", document: { text } })
+  return CollaborationLoroAuthoringDocument.from("Memo", PLAN, { kind: "document", document: { text } })
     .bindText("text");
 }
 

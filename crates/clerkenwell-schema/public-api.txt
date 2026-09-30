@@ -1,0 +1,111 @@
+# The public API of clerkenwell_schema. Written by `cargo run -p clerkenwell-public-api`.
+# Types named from: none
+
+enum clerkenwell_schema::GeneratedAuthoringConflictPolicy
+derive clerkenwell_schema::GeneratedAuthoringConflictPolicy: Clone, Copy, Debug, Eq, PartialEq
+variant clerkenwell_schema::GeneratedAuthoringConflictPolicy::ExpectedRevision
+variant clerkenwell_schema::GeneratedAuthoringConflictPolicy::GeneratedFieldPolicy
+enum clerkenwell_schema::GeneratedAuthoringPolicyKind
+derive clerkenwell_schema::GeneratedAuthoringPolicyKind: Clone, Copy, Debug, Eq, PartialEq
+variant clerkenwell_schema::GeneratedAuthoringPolicyKind::Collaborative
+variant clerkenwell_schema::GeneratedAuthoringPolicyKind::CommandOwned
+variant clerkenwell_schema::GeneratedAuthoringPolicyKind::OptimisticDocument
+variant clerkenwell_schema::GeneratedAuthoringPolicyKind::ReadOnly
+enum clerkenwell_schema::GeneratedCollaborationConflict
+derive clerkenwell_schema::GeneratedCollaborationConflict: Clone, Copy, Debug, Eq, PartialEq
+variant clerkenwell_schema::GeneratedCollaborationConflict::Explicit
+variant clerkenwell_schema::GeneratedCollaborationConflict::Immutable
+variant clerkenwell_schema::GeneratedCollaborationConflict::LastWriterWins
+variant clerkenwell_schema::GeneratedCollaborationConflict::Merge
+struct clerkenwell_schema::GeneratedCollaborationEntitySpec
+derive clerkenwell_schema::GeneratedCollaborationEntitySpec: Clone, Copy, Debug, Eq, PartialEq
+field clerkenwell_schema::GeneratedCollaborationEntitySpec::authoring_document: Option<&'static str>
+field clerkenwell_schema::GeneratedCollaborationEntitySpec::authoring_projection: &'static str
+field clerkenwell_schema::GeneratedCollaborationEntitySpec::authoring_store_params: &'static [&'static str]
+field clerkenwell_schema::GeneratedCollaborationEntitySpec::fields: &'static [GeneratedCollaborationFieldSpec]
+field clerkenwell_schema::GeneratedCollaborationEntitySpec::id_field: &'static str
+field clerkenwell_schema::GeneratedCollaborationEntitySpec::import_mutation: &'static str
+field clerkenwell_schema::GeneratedCollaborationEntitySpec::migration_ids: &'static [&'static str]
+field clerkenwell_schema::GeneratedCollaborationEntitySpec::name: &'static str
+field clerkenwell_schema::GeneratedCollaborationEntitySpec::root_container: &'static str
+field clerkenwell_schema::GeneratedCollaborationEntitySpec::schema_version: u32
+struct clerkenwell_schema::GeneratedCollaborationFieldSpec
+derive clerkenwell_schema::GeneratedCollaborationFieldSpec: Clone, Copy, Debug, Eq, PartialEq
+field clerkenwell_schema::GeneratedCollaborationFieldSpec::codec: GeneratedCollaborationValueCodec
+field clerkenwell_schema::GeneratedCollaborationFieldSpec::conflict: GeneratedCollaborationConflict
+field clerkenwell_schema::GeneratedCollaborationFieldSpec::container: Option<&'static str>
+field clerkenwell_schema::GeneratedCollaborationFieldSpec::container_template: Option<&'static str>
+field clerkenwell_schema::GeneratedCollaborationFieldSpec::identity_path: Option<&'static str>
+field clerkenwell_schema::GeneratedCollaborationFieldSpec::identity_variable: Option<&'static str>
+field clerkenwell_schema::GeneratedCollaborationFieldSpec::item_container_template: Option<&'static str>
+field clerkenwell_schema::GeneratedCollaborationFieldSpec::key: Option<&'static str>
+field clerkenwell_schema::GeneratedCollaborationFieldSpec::metadata_container: Option<&'static str>
+field clerkenwell_schema::GeneratedCollaborationFieldSpec::metadata_container_template: Option<&'static str>
+field clerkenwell_schema::GeneratedCollaborationFieldSpec::metadata_key: Option<&'static str>
+field clerkenwell_schema::GeneratedCollaborationFieldSpec::names_document: bool
+field clerkenwell_schema::GeneratedCollaborationFieldSpec::order_container: Option<&'static str>
+field clerkenwell_schema::GeneratedCollaborationFieldSpec::path: &'static str
+field clerkenwell_schema::GeneratedCollaborationFieldSpec::required: bool
+field clerkenwell_schema::GeneratedCollaborationFieldSpec::required_in_parent: bool
+field clerkenwell_schema::GeneratedCollaborationFieldSpec::storage_kind: GeneratedCollaborationStorageKind
+field clerkenwell_schema::GeneratedCollaborationFieldSpec::value_schema: Option<&'static str>
+enum clerkenwell_schema::GeneratedCollaborationStorageKind
+derive clerkenwell_schema::GeneratedCollaborationStorageKind: Clone, Copy, Debug, Eq, PartialEq
+variant clerkenwell_schema::GeneratedCollaborationStorageKind::DerivedIdentity
+variant clerkenwell_schema::GeneratedCollaborationStorageKind::DerivedRevision
+variant clerkenwell_schema::GeneratedCollaborationStorageKind::KeyedSequence
+variant clerkenwell_schema::GeneratedCollaborationStorageKind::OrderedList
+variant clerkenwell_schema::GeneratedCollaborationStorageKind::Scalar
+variant clerkenwell_schema::GeneratedCollaborationStorageKind::StructuredDocument
+variant clerkenwell_schema::GeneratedCollaborationStorageKind::StructuredList
+variant clerkenwell_schema::GeneratedCollaborationStorageKind::StructuredMap
+variant clerkenwell_schema::GeneratedCollaborationStorageKind::Text
+enum clerkenwell_schema::GeneratedCollaborationValueCodec
+derive clerkenwell_schema::GeneratedCollaborationValueCodec: Clone, Copy, Debug, Eq, PartialEq
+variant clerkenwell_schema::GeneratedCollaborationValueCodec::Boolean
+variant clerkenwell_schema::GeneratedCollaborationValueCodec::Identity
+variant clerkenwell_schema::GeneratedCollaborationValueCodec::Integer
+variant clerkenwell_schema::GeneratedCollaborationValueCodec::KeyedSequence
+variant clerkenwell_schema::GeneratedCollaborationValueCodec::Number
+variant clerkenwell_schema::GeneratedCollaborationValueCodec::OptionalNumber
+variant clerkenwell_schema::GeneratedCollaborationValueCodec::OptionalString
+variant clerkenwell_schema::GeneratedCollaborationValueCodec::PropertyText
+variant clerkenwell_schema::GeneratedCollaborationValueCodec::String
+variant clerkenwell_schema::GeneratedCollaborationValueCodec::StringList
+variant clerkenwell_schema::GeneratedCollaborationValueCodec::StructuredJson
+struct clerkenwell_schema::GeneratedEntityAuthoringSpec
+derive clerkenwell_schema::GeneratedEntityAuthoringSpec: Clone, Copy, Debug, Eq, PartialEq
+field clerkenwell_schema::GeneratedEntityAuthoringSpec::command_mutations: &'static [&'static str]
+field clerkenwell_schema::GeneratedEntityAuthoringSpec::conflict_policy: Option<GeneratedAuthoringConflictPolicy>
+field clerkenwell_schema::GeneratedEntityAuthoringSpec::content_mutation: Option<&'static str>
+field clerkenwell_schema::GeneratedEntityAuthoringSpec::entity: &'static str
+field clerkenwell_schema::GeneratedEntityAuthoringSpec::kind: GeneratedAuthoringPolicyKind
+field clerkenwell_schema::GeneratedEntityAuthoringSpec::lifecycle_mutations: &'static [&'static str]
+field clerkenwell_schema::GeneratedEntityAuthoringSpec::mutations: &'static [&'static str]
+field clerkenwell_schema::GeneratedEntityAuthoringSpec::planning_mutations: &'static [&'static str]
+field clerkenwell_schema::GeneratedEntityAuthoringSpec::rationale: &'static str
+field clerkenwell_schema::GeneratedEntityAuthoringSpec::session_mnemonic_key: Option<&'static str>
+enum clerkenwell_schema::GeneratedMaterializationPlan
+derive clerkenwell_schema::GeneratedMaterializationPlan: Clone, Copy, Debug, Eq, PartialEq
+variant clerkenwell_schema::GeneratedMaterializationPlan::KeyedCollection { collection_field: &'static str, item_field: &'static str, item_identity_field: &'static str, patch_identity_field: &'static str }
+variant clerkenwell_schema::GeneratedMaterializationPlan::Replace { snapshot_mode: GeneratedSnapshotMode, snapshot_omit_fields: &'static [&'static str] }
+variant clerkenwell_schema::GeneratedMaterializationPlan::ReplaceOrRemove { snapshot_mode: GeneratedSnapshotMode, snapshot_omit_fields: &'static [&'static str], remove_mode: GeneratedRemoveMode, update_fields: Option<(&'static str, &'static str)> }
+variant clerkenwell_schema::GeneratedMaterializationPlan::Reset
+variant clerkenwell_schema::GeneratedMaterializationPlan::SequencedText { collection_field: &'static str, item_identity_field: &'static str, patch_identity_field: &'static str, snapshot_output_field: &'static str, sequence_field: &'static str, text_field: &'static str, patch_output_field: &'static str, delta_text_field: &'static str }
+struct clerkenwell_schema::GeneratedMutationSpec
+derive clerkenwell_schema::GeneratedMutationSpec: Clone, Copy, Debug, Eq, PartialEq
+field clerkenwell_schema::GeneratedMutationSpec::name: &'static str
+field clerkenwell_schema::GeneratedMutationSpec::touches: &'static [&'static str]
+struct clerkenwell_schema::GeneratedProjectionSpec
+derive clerkenwell_schema::GeneratedProjectionSpec: Clone, Copy, Debug, Eq, PartialEq
+field clerkenwell_schema::GeneratedProjectionSpec::depends_on: &'static [&'static str]
+field clerkenwell_schema::GeneratedProjectionSpec::materialization: GeneratedMaterializationPlan
+field clerkenwell_schema::GeneratedProjectionSpec::name: &'static str
+enum clerkenwell_schema::GeneratedRemoveMode
+derive clerkenwell_schema::GeneratedRemoveMode: Clone, Copy, Debug, Eq, PartialEq
+variant clerkenwell_schema::GeneratedRemoveMode::NullField(&'static str)
+variant clerkenwell_schema::GeneratedRemoveMode::NullSnapshot
+enum clerkenwell_schema::GeneratedSnapshotMode
+derive clerkenwell_schema::GeneratedSnapshotMode: Clone, Copy, Debug, Eq, PartialEq
+variant clerkenwell_schema::GeneratedSnapshotMode::Field(&'static str)
+variant clerkenwell_schema::GeneratedSnapshotMode::Patch

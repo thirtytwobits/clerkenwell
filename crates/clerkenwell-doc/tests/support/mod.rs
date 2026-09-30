@@ -3,12 +3,12 @@
 #![allow(dead_code)]
 
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
-use clerkenwell_doc::loro::{ExportMode, LoroDoc};
 use clerkenwell_doc::LoroAuthoringDocument;
 use clerkenwell_notebook::{
     GeneratedCollaborationEntitySpec, GeneratedCollaborationFieldSpec,
     GeneratedCollaborationStorageKind, BOARD_COLLABORATION_SPEC, NOTE_COLLABORATION_SPEC,
 };
+use loro::{ExportMode, LoroDoc};
 use serde_json::{json, Value};
 
 pub const NOTE: &GeneratedCollaborationEntitySpec = &NOTE_COLLABORATION_SPEC;

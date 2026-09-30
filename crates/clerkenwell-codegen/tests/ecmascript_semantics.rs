@@ -1,8 +1,8 @@
 //! The artefacts' orderings and number spellings are ECMAScript's. The corpora
 //! were produced by `localeCompare` and `String(number)` in Node.
 
-use clerkenwell_codegen::collate::locale_compare;
-use clerkenwell_codegen::json::{number_to_string, Json};
+use clerkenwell_codegen::testing::locale_compare;
+use clerkenwell_codegen::testing::{number_to_string, Json};
 
 fn corpus(name: &str) -> Json {
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))

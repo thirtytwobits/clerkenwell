@@ -20,12 +20,12 @@ use clerkenwell_doc::{conflicting_field_paths, LoroAuthoringDocument};
 use clerkenwell_schema::GeneratedCollaborationEntitySpec;
 use serde_json::{json, Value};
 
-pub use bridge::{Bridge, TypeScriptReplica};
-pub use corpus::{Corpus, Edit, EntityFixture};
-pub use documents::{client_document, pointer, pointers, text_targets, TextTarget};
+use bridge::{Bridge, TypeScriptReplica};
+use corpus::{Corpus, EntityFixture};
+use documents::{client_document, text_targets};
 
 /// The revision every materialisation is read at.
-pub const REVISION: &str = "loro:conformance";
+const REVISION: &str = "loro:conformance";
 
 /// One definition's generated bindings.
 #[derive(Debug, Clone)]
@@ -108,10 +108,6 @@ impl Conformance {
             corpus,
             bridge: Bridge::start(bindings, workspace),
         }
-    }
-
-    pub fn bridge(&self) -> &Bridge {
-        &self.bridge
     }
 
     fn fixtures(

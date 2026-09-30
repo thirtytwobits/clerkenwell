@@ -94,14 +94,14 @@ function replicaOf<TDocument extends object>(
   { name, plan }: Case<TDocument>,
   document: TDocument
 ): CollaborationLoroAuthoringDocument<TDocument> {
-  return new CollaborationLoroAuthoringDocument<TDocument>(name, plan, { kind: "document", document });
+  return CollaborationLoroAuthoringDocument.from<TDocument>(name, plan, { kind: "document", document });
 }
 
 function reread<TDocument extends object>(
   entry: Case<TDocument>,
   replica: CollaborationLoroAuthoringDocument<TDocument>
 ): TDocument {
-  return new CollaborationLoroAuthoringDocument<TDocument>(entry.name, entry.plan, {
+  return CollaborationLoroAuthoringDocument.from<TDocument>(entry.name, entry.plan, {
     kind: "update",
     updateBase64: replica.exportUpdateBase64()
   }).currentDocument();
@@ -219,7 +219,7 @@ test("removing an optional field that is already absent writes nothing", () => {
       const absent = withValueAt(entry.document(), field.path, REMOVE);
       const replica = replicaOf(entry, absent);
       const base = replica.acceptedFrontierBase64();
-      const peer = new CollaborationLoroAuthoringDocument<object>(entry.name, entry.plan, {
+      const peer = CollaborationLoroAuthoringDocument.from<object>(entry.name, entry.plan, {
         kind: "update",
         updateBase64: replica.exportUpdateBase64()
       });

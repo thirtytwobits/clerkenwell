@@ -32,7 +32,7 @@ fn a_name_the_set_holds_is_the_store_it_keeps() {
     first
         .bootstrap(&NOTE_PLAN, &note(), &seed(), accept)
         .expect("bootstrap");
-    assert!(again.load(&note()).expect("load").is_some());
+    assert!(again.summary(&note()).expect("summary").is_some());
     assert_eq!(stores.stores().len(), 1);
 }
 
@@ -122,7 +122,7 @@ fn one_set_holds_stores_kept_by_different_kinds_of_storage() {
 
     for name in ["files", "relayed"] {
         let store = stores.store(name).expect("registered");
-        assert!(store.load(&note()).expect("load").is_some(), "{name}");
+        assert!(store.summary(&note()).expect("summary").is_some(), "{name}");
     }
 }
 

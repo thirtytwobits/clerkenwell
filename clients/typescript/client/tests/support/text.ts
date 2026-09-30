@@ -25,7 +25,7 @@ const SCRATCH_PLAN = {
 
 /** A text field with no transport or owner behind it. */
 export function createScratchTextBinding(text: string): TextBinding {
-  return new CollaborationLoroAuthoringDocument("Scratch", SCRATCH_PLAN, {
+  return CollaborationLoroAuthoringDocument.from("Scratch", SCRATCH_PLAN, {
     kind: "document",
     document: { text }
   }).bindText("text");

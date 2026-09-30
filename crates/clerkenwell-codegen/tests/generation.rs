@@ -6,10 +6,8 @@ mod common;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use clerkenwell_codegen::json::{Json, Object};
-use clerkenwell_codegen::{
-    build_outputs, generate, normalized_document, Config, Definition, Error, Mode,
-};
+use clerkenwell_codegen::testing::{normalized_document, Json, Object};
+use clerkenwell_codegen::{build_outputs, generate, Config, Definition, Error, Mode};
 use common::{
     copy_notebook, json, notebook_config, notebook_config_path, notebook_document, set, validate,
 };

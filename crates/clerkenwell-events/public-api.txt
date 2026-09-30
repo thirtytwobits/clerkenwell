@@ -1,0 +1,49 @@
+# The public API of clerkenwell_events. Written by `cargo run -p clerkenwell-public-api`.
+# Types named from: none
+
+enum clerkenwell_events::ActorKind
+derive clerkenwell_events::ActorKind: Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize
+variant clerkenwell_events::ActorKind::Agent
+variant clerkenwell_events::ActorKind::Human
+variant clerkenwell_events::ActorKind::Service
+variant clerkenwell_events::ActorKind::System
+struct clerkenwell_events::ChangeData
+derive clerkenwell_events::ChangeData: Clone, Debug, Deserialize, Eq, PartialEq, Serialize
+field clerkenwell_events::ChangeData::entity: String
+field clerkenwell_events::ChangeData::etag_after: Option<String>
+field clerkenwell_events::ChangeData::etag_before: Option<String>
+field clerkenwell_events::ChangeData::frontier_after: Option<String>
+field clerkenwell_events::ChangeData::frontier_before: Option<String>
+field clerkenwell_events::ChangeData::moved_from: Option<String>
+field clerkenwell_events::ChangeData::operation_id: Option<String>
+field clerkenwell_events::ChangeData::resource_id: String
+struct clerkenwell_events::ChangeEvent
+derive clerkenwell_events::ChangeEvent: Clone, Debug, Deserialize, Eq, PartialEq, Serialize
+field clerkenwell_events::ChangeEvent::actorid: Option<String>
+field clerkenwell_events::ChangeEvent::actorkind: Option<ActorKind>
+field clerkenwell_events::ChangeEvent::data: ChangeData
+field clerkenwell_events::ChangeEvent::datacontenttype: String
+field clerkenwell_events::ChangeEvent::generation: Option<u64>
+field clerkenwell_events::ChangeEvent::id: String
+field clerkenwell_events::ChangeEvent::intent: Option<String>
+field clerkenwell_events::ChangeEvent::kind: ChangeKind
+fn clerkenwell_events::ChangeEvent::new(id: impl Into<String>, source: impl Into<String>, kind: ChangeKind, time: impl Into<String>, generation: Option<u64>, data: ChangeData) -> Self
+field clerkenwell_events::ChangeEvent::proposalstate: Option<String>
+field clerkenwell_events::ChangeEvent::source: String
+field clerkenwell_events::ChangeEvent::specversion: String
+field clerkenwell_events::ChangeEvent::subject: String
+field clerkenwell_events::ChangeEvent::time: String
+field clerkenwell_events::ChangeEvent::traceparent: Option<String>
+struct clerkenwell_events::ChangeFeed { .. }
+derive clerkenwell_events::ChangeFeed: Default
+impl fmt::Debug for clerkenwell_events::ChangeFeed
+fn clerkenwell_events::ChangeFeed::announce(&self, event: &ChangeEvent)
+fn clerkenwell_events::ChangeFeed::is_heard(&self) -> bool
+fn clerkenwell_events::ChangeFeed::listen(&self, listener: impl Fn(&ChangeEvent) + Send + Sync + 'static)
+enum clerkenwell_events::ChangeKind
+derive clerkenwell_events::ChangeKind: Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize
+variant clerkenwell_events::ChangeKind::Committed
+variant clerkenwell_events::ChangeKind::Deleted
+variant clerkenwell_events::ChangeKind::Moved
+const clerkenwell_events::DATA_CONTENT_TYPE: &str
+const clerkenwell_events::SPEC_VERSION: &str

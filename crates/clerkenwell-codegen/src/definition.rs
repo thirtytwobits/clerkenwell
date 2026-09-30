@@ -73,16 +73,16 @@ impl Definition {
             path: path.to_owned(),
             source,
         })?;
-        let document = Json::parse(&text).map_err(|source| Error::Parse {
+        let document = Json::parse(&text).map_err(|error| Error::Parse {
             path: path.to_owned(),
-            source,
+            message: error.to_string(),
         })?;
         Definition::from_json(document, project)
     }
 
     /// Validates `document` against the meta-schema, the semantic rules, and
     /// the names `project` expects it to declare.
-    pub fn from_json(document: Json, project: &Project) -> Result<Definition> {
+    pub(crate) fn from_json(document: Json, project: &Project) -> Result<Definition> {
         validate::check_meta_schema(&document)?;
         let Json::Object(document) = document else {
             return Err(Error::Definition(
@@ -98,19 +98,19 @@ impl Definition {
     }
 
     /// The document as parsed.
-    pub fn document(&self) -> &Object {
+    pub(crate) fn document(&self) -> &Object {
         &self.document
     }
 
-    pub fn version(&self) -> f64 {
+    pub(crate) fn version(&self) -> f64 {
         self.document.number_field("version")
     }
 
-    pub fn compatibility(&self) -> &Object {
+    pub(crate) fn compatibility(&self) -> &Object {
         self.document.object_field("compatibility")
     }
 
-    pub fn namespace(&self) -> &str {
+    pub(crate) fn namespace(&self) -> &str {
         self.document.str_field("namespace")
     }
 
@@ -118,21 +118,21 @@ impl Definition {
         self.document.object_field(key)
     }
 
-    pub fn entities(&self) -> impl Iterator<Item = Entity<'_>> {
+    pub(crate) fn entities(&self) -> impl Iterator<Item = Entity<'_>> {
         self.section("entities")
             .iter()
             .map(|(name, raw)| Entity::new(name, raw))
     }
 
-    pub fn entity(&self, name: &str) -> Option<Entity<'_>> {
+    pub(crate) fn entity(&self, name: &str) -> Option<Entity<'_>> {
         self.entities().find(|entity| entity.name == name)
     }
 
-    pub fn entity_names(&self) -> Vec<&str> {
+    pub(crate) fn entity_names(&self) -> Vec<&str> {
         self.section("entities").keys().collect()
     }
 
-    pub fn projections(&self) -> impl Iterator<Item = Projection<'_>> {
+    pub(crate) fn projections(&self) -> impl Iterator<Item = Projection<'_>> {
         self.section("projections")
             .iter()
             .map(|(name, raw)| Projection {
@@ -141,16 +141,16 @@ impl Definition {
             })
     }
 
-    pub fn projection(&self, name: &str) -> Option<Projection<'_>> {
+    pub(crate) fn projection(&self, name: &str) -> Option<Projection<'_>> {
         self.projections()
             .find(|projection| projection.name == name)
     }
 
-    pub fn projection_count(&self) -> usize {
+    pub(crate) fn projection_count(&self) -> usize {
         self.section("projections").len()
     }
 
-    pub fn mutations(&self) -> impl Iterator<Item = Mutation<'_>> {
+    pub(crate) fn mutations(&self) -> impl Iterator<Item = Mutation<'_>> {
         self.section("mutations")
             .iter()
             .map(|(name, raw)| Mutation {
@@ -159,37 +159,37 @@ impl Definition {
             })
     }
 
-    pub fn mutation(&self, name: &str) -> Option<Mutation<'_>> {
+    pub(crate) fn mutation(&self, name: &str) -> Option<Mutation<'_>> {
         self.mutations().find(|mutation| mutation.name == name)
     }
 
-    pub fn mnemonics(&self) -> impl Iterator<Item = Mnemonic<'_>> {
+    pub(crate) fn mnemonics(&self) -> impl Iterator<Item = Mnemonic<'_>> {
         self.section("mnemonic").iter().map(|(name, raw)| Mnemonic {
             name,
             raw: object(raw, "mnemonic"),
         })
     }
 
-    pub fn mnemonic(&self, name: &str) -> Option<Mnemonic<'_>> {
+    pub(crate) fn mnemonic(&self, name: &str) -> Option<Mnemonic<'_>> {
         self.mnemonics().find(|mnemonic| mnemonic.name == name)
     }
 
-    pub fn collaboration(&self) -> Collaboration<'_> {
+    pub(crate) fn collaboration(&self) -> Collaboration<'_> {
         Collaboration {
             raw: self.section("collaboration"),
         }
     }
 
     /// The `$defs` section.
-    pub fn defs(&self) -> &Object {
+    pub(crate) fn defs(&self) -> &Object {
         self.section("$defs")
     }
 
-    pub fn def(&self, name: &str) -> Option<&Object> {
+    pub(crate) fn def(&self, name: &str) -> Option<&Object> {
         self.defs().get(name).and_then(Json::as_object)
     }
 
-    pub fn def_entries(&self) -> impl Iterator<Item = (&str, &Object)> {
+    pub(crate) fn def_entries(&self) -> impl Iterator<Item = (&str, &Object)> {
         self.defs()
             .iter()
             .map(|(name, schema)| (name, object(schema, "$defs entry")))

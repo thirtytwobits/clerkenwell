@@ -4,8 +4,8 @@
 
 mod common;
 
-use clerkenwell_codegen::json::Json;
-use clerkenwell_codegen::{collect_payload_coverage, PayloadCoverage};
+use clerkenwell_codegen::testing::Json;
+use clerkenwell_codegen::testing::{collect_payload_coverage, PayloadCoverage};
 use common::{notebook_dir, refusal, validate, with_defs};
 
 fn coverage_of(document: Json) -> PayloadCoverage {

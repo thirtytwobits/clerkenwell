@@ -5,12 +5,12 @@ mod support;
 
 use std::collections::HashMap;
 
-use clerkenwell_doc::loro::{ContainerID, ToJson};
 use clerkenwell_doc::{CollaborationLoroError, LoroAuthoringDocument};
 use clerkenwell_notebook::{
     GeneratedCollaborationEntitySpec, GeneratedCollaborationStorageKind,
     GeneratedCollaborationValueCodec, GENERATED_COLLABORATION_SPECS,
 };
+use loro::{ContainerID, ToJson};
 use serde_json::{json, Value};
 use support::*;
 
@@ -54,7 +54,7 @@ fn resolve(template: &str, identities: &HashMap<String, String>) -> String {
 /// lists and keyed sequence order — at the depth of `prefix`.
 fn assert_layout(
     plan: &GeneratedCollaborationEntitySpec,
-    doc: &clerkenwell_doc::loro::LoroDoc,
+    doc: &loro::LoroDoc,
     prefix: &str,
     node: &Value,
     identities: &HashMap<String, String>,

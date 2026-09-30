@@ -117,7 +117,7 @@ impl Config {
     }
 
     /// The module specifier the mnemonic module imports the model module by.
-    pub fn typescript_model_specifier(&self) -> Result<String> {
+    pub(crate) fn typescript_model_specifier(&self) -> Result<String> {
         relative_module_specifier(
             &self.outputs.typescript_mnemonic,
             &self.outputs.typescript_model,

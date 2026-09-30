@@ -31,22 +31,22 @@ export const BOARD_DRAFTS = new CollaborationDrafts(
 );
 
 export function noteReplica(document: NoteDocument): NoteReplica {
-  return new CollaborationLoroAuthoringDocument("Note", NOTE_PLAN, { kind: "document", document });
+  return CollaborationLoroAuthoringDocument.from("Note", NOTE_PLAN, { kind: "document", document });
 }
 
 export function noteReplicaFromUpdate(updateBase64: string): NoteReplica {
-  return new CollaborationLoroAuthoringDocument<NoteDocument>("Note", NOTE_PLAN, {
+  return CollaborationLoroAuthoringDocument.from<NoteDocument>("Note", NOTE_PLAN, {
     kind: "update",
     updateBase64
   });
 }
 
 export function boardReplica(document: BoardDocument): BoardReplica {
-  return new CollaborationLoroAuthoringDocument("Board", BOARD_PLAN, { kind: "document", document });
+  return CollaborationLoroAuthoringDocument.from("Board", BOARD_PLAN, { kind: "document", document });
 }
 
 export function boardReplicaFromUpdate(updateBase64: string): BoardReplica {
-  return new CollaborationLoroAuthoringDocument<BoardDocument>("Board", BOARD_PLAN, {
+  return CollaborationLoroAuthoringDocument.from<BoardDocument>("Board", BOARD_PLAN, {
     kind: "update",
     updateBase64
   });

@@ -5,7 +5,7 @@ mod common;
 
 use clerkenwell_notebook as model;
 
-use clerkenwell_codegen::json::Json;
+use clerkenwell_codegen::testing::Json;
 use common::{expanded_notebook, notebook_dir, notebook_document};
 use serde::de::DeserializeOwned;
 use serde::Serialize;

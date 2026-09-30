@@ -36,15 +36,12 @@ const KEYED_SEQUENCE_PRESENCE_CONTAINER = "collaboration.keyed_sequence_presence
 
 type ClientDocument = object;
 type ClientRecord = Record<string, unknown>;
-export type CollaborationLoroDoc = LoroDoc;
-
 /** Where a replica's initial state comes from. */
 export type CollaborationReplicaSource<TDocument extends ClientDocument> =
   | { kind: "document"; document: TDocument }
   | { kind: "update"; updateBase64: string }
   /** A view's snapshot of a replica held elsewhere: see {@link CollaborationLoroAuthoringDocument.attachView}. */
-  | { kind: "snapshot"; snapshot: Uint8Array }
-  | { kind: "fork"; doc: LoroDoc; document: TDocument };
+  | { kind: "snapshot"; snapshot: Uint8Array };
 
 /** An accepted update seeds the replica; otherwise the caller's initial content must. */
 export function collaborationReplicaSource<TDocument extends ClientDocument>(
@@ -145,46 +142,43 @@ interface AttachedView {
  * application's draft.
  */
 export class CollaborationLoroAuthoringDocument<TDocument extends ClientDocument> {
-  private readonly doc: LoroDoc;
-  /**
-   * The document the containers currently hold. Never mutated in place: every
-   * write or import replaces it, so a fork may share the reference.
-   */
-  private document: TDocument;
   private documentDirty = false;
   private readonly textBindings = new Map<string, LoroFieldTextBinding>();
   private readonly views = new Set<AttachedView>();
 
-  constructor(
+  /**
+   * @param document The document `doc` holds. Never mutated in place: every
+   * write or import replaces it, so a fork may share the reference.
+   */
+  private constructor(
     private readonly entityName: string,
     private readonly plan: CollaborationEntityPlan,
+    private readonly doc: LoroDoc,
+    private document: TDocument
+  ) {}
+
+  /** A replica of an `entityName` document laid out by `plan`, seeded from `source`. */
+  static from<TDocument extends ClientDocument>(
+    entityName: string,
+    plan: CollaborationEntityPlan,
     source: CollaborationReplicaSource<TDocument>
-  ) {
-    switch (source.kind) {
-      case "document": {
-        const document = validatedCollaborationDocument(this.plan, source.document);
-        this.doc = new LoroDoc();
-        writeCollaborationDocumentChangesToLoroDoc(this.doc, this.plan, {}, document);
-        this.document = document;
-        return;
-      }
-      case "update":
-      case "snapshot":
-        this.doc = new LoroDoc();
-        requireImportedDependencies(this.entityName, this.doc.import(
-          source.kind === "update" ? base64ToBytes(source.updateBase64) : source.snapshot
-        ));
-        this.document = materializeCollaborationDocumentFromLoroDoc<TDocument>(
-          this.doc,
-          this.plan,
-          null
-        );
-        return;
-      case "fork":
-        this.doc = source.doc;
-        this.document = source.document;
-        return;
+  ): CollaborationLoroAuthoringDocument<TDocument> {
+    if (source.kind === "document") {
+      const document = validatedCollaborationDocument(plan, source.document);
+      const doc = new LoroDoc();
+      writeCollaborationDocumentChangesToLoroDoc(doc, plan, {}, document);
+      return new CollaborationLoroAuthoringDocument(entityName, plan, doc, document);
     }
+    const doc = new LoroDoc();
+    requireImportedDependencies(entityName, doc.import(
+      source.kind === "update" ? base64ToBytes(source.updateBase64) : source.snapshot
+    ));
+    return new CollaborationLoroAuthoringDocument(
+      entityName,
+      plan,
+      doc,
+      materializeCollaborationDocumentFromLoroDoc<TDocument>(doc, plan, null)
+    );
   }
 
   currentDocument(): TDocument {
@@ -339,11 +333,12 @@ export class CollaborationLoroAuthoringDocument<TDocument extends ClientDocument
    */
   fork(): CollaborationLoroAuthoringDocument<TDocument> {
     this.refreshDocument();
-    return new CollaborationLoroAuthoringDocument<TDocument>(this.entityName, this.plan, {
-      kind: "fork",
-      doc: this.doc.fork(),
-      document: this.document
-    });
+    return new CollaborationLoroAuthoringDocument<TDocument>(
+      this.entityName,
+      this.plan,
+      this.doc.fork(),
+      this.document
+    );
   }
 
   /** Whether every op up to `frontierBase64` is already in this replica. */
@@ -642,7 +637,7 @@ export class CollaborationDrafts<
     source: CollaborationReplicaSource<TDocument>
   ): CollaborationDraftReplica<TDocument, TDraft, CollaborationPlanTextFieldPath<TPlan>> {
     return new CollaborationDraftReplica(
-      new CollaborationLoroAuthoringDocument<TDocument>(this.entity, this.plan, source),
+      CollaborationLoroAuthoringDocument.from<TDocument>(this.entity, this.plan, source),
       this.mapping
     );
   }

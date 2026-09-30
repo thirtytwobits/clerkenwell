@@ -6,8 +6,8 @@ mod support;
 use std::collections::HashMap;
 
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
-use clerkenwell_doc::loro::{ExportMode, LoroDoc};
 use clerkenwell_doc::{CollaborationLoroError, LoroAuthoringDocument};
+use loro::{ExportMode, LoroDoc};
 use serde_json::json;
 use support::*;
 

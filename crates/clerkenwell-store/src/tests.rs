@@ -152,7 +152,6 @@ fn reading_missing_collaboration_documents_does_not_create_storage_or_lock_files
     let id = CollaborationDocumentId::new("Note", "missing");
     for _ in 0..3 {
         assert!(service.load(&id).unwrap().is_none());
-        assert!(service.envelopes("Note").unwrap().is_empty());
         assert!(!service.verify(&id).valid);
         assert!(service.inspect(None, None, None).unwrap().0.is_empty());
         assert!(service.summaries("Note").unwrap().is_empty());
@@ -884,7 +883,6 @@ fn reads_leave_every_stored_byte_and_timestamp_unchanged() {
             .authoring_state(&NOTE_PLAN, &document, None)
             .expect("authoring state");
         service.load(&document).expect("load");
-        service.envelopes("Note").expect("list entity");
         service.summary(&document).expect("summary");
         service.summaries("Note").expect("summaries");
         service

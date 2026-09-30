@@ -5,8 +5,8 @@ mod common;
 
 use std::collections::BTreeSet;
 
-use clerkenwell_codegen::json::Json;
-use clerkenwell_codegen::{schema_keywords, META_SCHEMA};
+use clerkenwell_codegen::testing::Json;
+use clerkenwell_codegen::testing::{schema_keywords, META_SCHEMA};
 use common::{expanded_notebook, notebook_document};
 
 /// The values the meta-schema's enum at `pointer` admits.

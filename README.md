@@ -18,8 +18,8 @@ operations and forensic recovery.
 | `clerkenwell-codegen` | the definition language, the authoring-state projection it declares for each collaborative entity, its validation, and the Rust, TypeScript and fixture generator |
 | `clerkenwell-conformance` | cross-language conformance: Rust and TypeScript replicas of one definition's entities exchange the generated fixture operations, concurrent edits and text consumption, and must converge; TypeScript clients sync a note through the Rust notes server |
 
-`loro-release.json` records the approved Rust and npm Loro release pair. Consumers take
-`loro` through `clerkenwell-doc`.
+`loro-release.json` records the approved Rust and npm Loro release pair. No public API
+names a Loro type; an application that uses Loro depends on it itself.
 
 ## Example
 

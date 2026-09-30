@@ -19,6 +19,7 @@
 //! are unchanged, and otherwise reads them again. Recovery reads the stored
 //! bytes.
 
+mod envelope;
 mod error;
 mod residency;
 
@@ -43,6 +44,7 @@ use std::sync::{Arc, RwLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use uuid::Uuid;
 
+use envelope::{CollaborationOperation, DurableCollaborationEnvelope};
 use residency::{Residency, Resident};
 
 /// The envelope format this store reads and writes. An envelope in an
@@ -122,96 +124,6 @@ impl CollaborationDocumentId {
             entity: entity.into(),
             resource_id: resource_id.into(),
         }
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct CollaborationOperation {
-    pub operation_id: String,
-    pub sequence: u64,
-    pub schema_version: u32,
-    pub update_base64: String,
-    pub update_sha256: String,
-    pub update_bytes: usize,
-}
-
-impl CollaborationOperation {
-    pub fn from_update(
-        operation_id: String,
-        sequence: u64,
-        schema_version: u32,
-        update: &[u8],
-    ) -> Self {
-        let update_sha256 = sha256_hex(update);
-        Self {
-            operation_id,
-            sequence,
-            schema_version,
-            update_base64: BASE64.encode(update),
-            update_sha256,
-            update_bytes: update.len(),
-        }
-    }
-
-    pub fn decode(&self, document: &CollaborationDocumentId) -> StoreResult<Vec<u8>> {
-        let update = BASE64
-            .decode(self.update_base64.as_bytes())
-            .map_err(|error| {
-                corrupt_state(
-                    document,
-                    format!(
-                        "operation {} is not valid base64: {error}",
-                        self.operation_id
-                    ),
-                )
-            })?;
-        if update.len() != self.update_bytes || sha256_hex(&update) != self.update_sha256 {
-            return Err(corrupt_state(
-                document,
-                format!("operation {} failed checksum validation", self.operation_id),
-            ));
-        }
-        Ok(update)
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct DurableCollaborationEnvelope {
-    pub envelope_version: u32,
-    pub entity: String,
-    pub resource_id: String,
-    pub schema_version: u32,
-    pub generation: u64,
-    pub checkpoint_sequence: u64,
-    pub compacted_through_sequence: u64,
-    pub checkpoint_update_base64: String,
-    pub checkpoint_sha256: String,
-    pub checkpoint_bytes: usize,
-    pub retained_operations: Vec<CollaborationOperation>,
-}
-
-impl DurableCollaborationEnvelope {
-    pub fn checkpoint_update(&self, document: &CollaborationDocumentId) -> StoreResult<Vec<u8>> {
-        let update = BASE64
-            .decode(self.checkpoint_update_base64.as_bytes())
-            .map_err(|error| {
-                corrupt_state(document, format!("checkpoint is not valid base64: {error}"))
-            })?;
-        if update.len() != self.checkpoint_bytes || sha256_hex(&update) != self.checkpoint_sha256 {
-            return Err(corrupt_state(
-                document,
-                "checkpoint failed checksum validation",
-            ));
-        }
-        Ok(update)
-    }
-
-    /// The etag of the accepted state this envelope holds, as imports and
-    /// authoring states report it.
-    pub fn etag(&self) -> String {
-        checkpoint_etag(&self.checkpoint_sha256)
     }
 }
 
@@ -762,7 +674,7 @@ impl CollaborationService {
     }
 
     /// `document`'s validated envelope, or `None` when it has none.
-    pub fn load(
+    pub(crate) fn load(
         &self,
         document: &CollaborationDocumentId,
     ) -> StoreResult<Option<DurableCollaborationEnvelope>> {
@@ -809,26 +721,10 @@ impl CollaborationService {
         }))
     }
 
-    /// Every stored envelope of `entity`, validated, in resource order.
-    pub fn envelopes(&self, entity: &str) -> StoreResult<Vec<DurableCollaborationEnvelope>> {
-        let mut envelopes = Vec::new();
-        for source in self.storage.sources(entity)? {
-            if let Some(read) = self.resident(&source, None)? {
-                let document = CollaborationDocumentId::new(
-                    read.envelope.entity.clone(),
-                    read.envelope.resource_id.clone(),
-                );
-                require_current(&document, &read.envelope)?;
-                envelopes.push(read.envelope.clone());
-            }
-        }
-        envelopes.sort_by(|left, right| left.resource_id.cmp(&right.resource_id));
-        Ok(envelopes)
-    }
-
     /// Stores `envelope` for a document that has none, and returns the
     /// document's envelope either way.
-    pub fn install(
+    #[cfg(test)]
+    pub(crate) fn install(
         &self,
         envelope: DurableCollaborationEnvelope,
     ) -> StoreResult<DurableCollaborationEnvelope> {
@@ -1958,9 +1854,9 @@ impl CollaborationService {
         document: &CollaborationDocumentId,
         seed: &Value,
         validate: impl Fn(&Value) -> Result<(), E>,
-    ) -> Result<DurableCollaborationEnvelope, E> {
+    ) -> Result<CollaborationDocumentSummary, E> {
         if let Some(current) = self.load(document)? {
-            return Ok(current);
+            return Ok(CollaborationDocumentSummary::of(&current));
         }
         let authoring = LoroAuthoringDocument::from_document(plan, seed)
             .map_err(|error| collaboration_loro_error(document, error))?;
@@ -1976,7 +1872,11 @@ impl CollaborationService {
             .materialized_document(&etag)
             .map_err(|error| collaboration_loro_error(document, error))?;
         validate(&materialized)?;
-        Ok(self.seed(plan, document, accepted_update)?)
+        Ok(CollaborationDocumentSummary::of(&self.seed(
+            plan,
+            document,
+            accepted_update,
+        )?))
     }
 
     pub fn bootstrap_update<E: From<StoreError>>(
@@ -1986,9 +1886,9 @@ impl CollaborationService {
         schema_version: u32,
         update_base64: &str,
         validate: impl Fn(&Value) -> Result<(), E>,
-    ) -> Result<DurableCollaborationEnvelope, E> {
+    ) -> Result<CollaborationDocumentSummary, E> {
         if let Some(current) = self.load(document)? {
-            return Ok(current);
+            return Ok(CollaborationDocumentSummary::of(&current));
         }
         let authoring = LoroAuthoringDocument::from_versioned_update_base64(
             plan,
@@ -2004,7 +1904,11 @@ impl CollaborationService {
             .materialized_document(&etag)
             .map_err(|error| collaboration_loro_error(document, error))?;
         validate(&materialized)?;
-        Ok(self.seed(plan, document, accepted_update)?)
+        Ok(CollaborationDocumentSummary::of(&self.seed(
+            plan,
+            document,
+            accepted_update,
+        )?))
     }
 
     pub fn migrate<E: From<StoreError>>(
@@ -2014,7 +1918,7 @@ impl CollaborationService {
         from_schema_version: u32,
         migrated_update_base64: &str,
         validate: impl Fn(&Value) -> Result<(), E>,
-    ) -> Result<DurableCollaborationEnvelope, E> {
+    ) -> Result<CollaborationDocumentSummary, E> {
         let migrated = LoroAuthoringDocument::from_versioned_update_base64(
             plan,
             plan.schema_version,
@@ -2035,7 +1939,7 @@ impl CollaborationService {
                 .ok_or_else(|| missing_state(document))?;
             let current = &read.envelope;
             if current.schema_version == plan.schema_version {
-                return Ok(read.envelope.clone());
+                return Ok(CollaborationDocumentSummary::of(&read.envelope));
             }
             if current.schema_version != from_schema_version {
                 return Err(StoreError::invalid_request(format!(
@@ -2074,7 +1978,9 @@ impl CollaborationService {
                 },
             )? {
                 CollaborationCommitOutcome::Accepted(migrated)
-                | CollaborationCommitOutcome::Duplicate(migrated) => return Ok(migrated),
+                | CollaborationCommitOutcome::Duplicate(migrated) => {
+                    return Ok(CollaborationDocumentSummary::of(&migrated))
+                }
                 CollaborationCommitOutcome::Stale => continue,
             }
         }
@@ -2311,14 +2217,14 @@ impl LocalFileCollaborationStorage {
 /// any later change: a file timestamp can lag the clock by a timer tick, or by
 /// a second on a coarse file system, so a rewrite within that lag can leave
 /// the timestamp where it was.
-pub const SETTLED_METADATA_AGE: Duration = Duration::from_secs(2);
+pub(crate) const SETTLED_METADATA_AGE: Duration = Duration::from_secs(2);
 
 /// When a file last changed, and a stamp of its metadata. The stamp differs
 /// from every earlier stamp of the file once its bytes change, provided the
 /// earlier one was taken at least [`SETTLED_METADATA_AGE`] after the file last
 /// changed.
 #[cfg(unix)]
-pub fn metadata_stamp(metadata: &std::fs::Metadata) -> Option<(SystemTime, String)> {
+pub(crate) fn metadata_stamp(metadata: &std::fs::Metadata) -> Option<(SystemTime, String)> {
     use std::os::unix::fs::MetadataExt;
     let changed = UNIX_EPOCH.checked_add(Duration::new(
         u64::try_from(metadata.ctime()).ok()?,
@@ -2342,7 +2248,7 @@ pub fn metadata_stamp(metadata: &std::fs::Metadata) -> Option<(SystemTime, Strin
 /// earlier one was taken at least [`SETTLED_METADATA_AGE`] after the file last
 /// changed.
 #[cfg(not(unix))]
-pub fn metadata_stamp(metadata: &std::fs::Metadata) -> Option<(SystemTime, String)> {
+pub(crate) fn metadata_stamp(metadata: &std::fs::Metadata) -> Option<(SystemTime, String)> {
     let modified = metadata.modified().ok()?;
     let since_epoch = modified.duration_since(UNIX_EPOCH).ok()?;
     Some((
@@ -2803,7 +2709,7 @@ fn corrupt_state(document: &CollaborationDocumentId, message: impl Into<String>)
     }))
 }
 
-pub fn write_atomic_durable(path: &Path, bytes: &[u8]) -> StoreResult<()> {
+pub(crate) fn write_atomic_durable(path: &Path, bytes: &[u8]) -> StoreResult<()> {
     write_atomic_durable_with_hooks(path, bytes, || Ok(()), || Ok(()), || Ok(()))
 }
 
@@ -2893,7 +2799,7 @@ fn safe_entity_name(entity: &str) -> String {
         .collect()
 }
 
-pub fn sha256_hex(bytes: &[u8]) -> String {
+pub(crate) fn sha256_hex(bytes: &[u8]) -> String {
     let digest = Sha256::digest(bytes);
     let mut output = String::with_capacity(digest.len() * 2);
     for byte in digest {
@@ -2901,6 +2807,21 @@ pub fn sha256_hex(bytes: &[u8]) -> String {
         let _ = write!(&mut output, "{byte:02x}");
     }
     output
+}
+
+/// The stored envelope format, for Clerkenwell's own tests.
+#[cfg(feature = "testing")]
+pub mod testing {
+    pub use crate::envelope::{CollaborationOperation, DurableCollaborationEnvelope};
+    use crate::{CollaborationDocumentId, CollaborationService, StoreResult};
+
+    /// `document`'s validated envelope, or `None` when it has none.
+    pub fn load(
+        service: &CollaborationService,
+        document: &CollaborationDocumentId,
+    ) -> StoreResult<Option<DurableCollaborationEnvelope>> {
+        service.load(document)
+    }
 }
 
 #[cfg(test)]

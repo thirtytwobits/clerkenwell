@@ -42,7 +42,7 @@ function client(): ProjectionClient<Model> {
 }
 
 function replica(updateBase64: string): CollaborationLoroAuthoringDocument<Note> {
-  return new CollaborationLoroAuthoringDocument<Note>("Note", COLLABORATION_PLANS.Note, {
+  return CollaborationLoroAuthoringDocument.from<Note>("Note", COLLABORATION_PLANS.Note, {
     kind: "update",
     updateBase64
   });

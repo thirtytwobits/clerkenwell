@@ -8,14 +8,13 @@
 mod policy;
 mod substrate;
 
-pub use loro;
 pub use policy::conflicting_field_paths;
 
 use std::collections::HashMap;
 
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use clerkenwell_schema::GeneratedCollaborationEntitySpec;
-use loro::{ExportMode, Frontiers, LoroDoc, LoroValue, VersionVector};
+use loro::{ExportMode, Frontiers, LoroDoc, VersionVector};
 use serde_json::Value;
 use thiserror::Error;
 
@@ -29,11 +28,11 @@ pub struct CollaborationLoroDebug {
 #[derive(Debug, Error)]
 pub enum CollaborationLoroError {
     #[error("invalid Loro update_base64: {0}")]
-    InvalidBase64(#[from] base64::DecodeError),
+    InvalidBase64(String),
     #[error("could not process Loro collaboration update: {0}")]
-    Loro(#[from] loro::LoroError),
+    Update(String),
     #[error("could not encode Loro collaboration update: {0}")]
-    LoroEncode(#[from] loro::LoroEncodeError),
+    Encode(String),
     #[error("collaborative document field `{path}` must be {expected}")]
     InvalidField {
         path: String,
@@ -53,6 +52,18 @@ pub enum CollaborationLoroError {
     MissingDependency,
     #[error("the supplied text does not match the captured collaboration frontier")]
     TextCaptureMismatch,
+}
+
+fn update_error(error: loro::LoroError) -> CollaborationLoroError {
+    CollaborationLoroError::Update(error.to_string())
+}
+
+fn encode_error(error: loro::LoroEncodeError) -> CollaborationLoroError {
+    CollaborationLoroError::Encode(error.to_string())
+}
+
+fn base64_error(error: base64::DecodeError) -> CollaborationLoroError {
+    CollaborationLoroError::InvalidBase64(error.to_string())
 }
 
 /// A retained Loro document executing one generated entity plan.
@@ -86,7 +97,9 @@ impl LoroAuthoringDocument {
     ) -> Result<Self, CollaborationLoroError> {
         require_supported_schema_version(plan, schema_version)?;
         let doc = LoroDoc::new();
-        let status = doc.import(&BASE64.decode(update_base64)?)?;
+        let status = doc
+            .import(&BASE64.decode(update_base64).map_err(base64_error)?)
+            .map_err(update_error)?;
         if status.pending.is_some() {
             return Err(CollaborationLoroError::MissingDependency);
         }
@@ -111,7 +124,10 @@ impl LoroAuthoringDocument {
         update_base64: &str,
     ) -> Result<(), CollaborationLoroError> {
         require_supported_schema_version(self.plan, schema_version)?;
-        let status = self.doc.import(&BASE64.decode(update_base64)?)?;
+        let status = self
+            .doc
+            .import(&BASE64.decode(update_base64).map_err(base64_error)?)
+            .map_err(update_error)?;
         if status.pending.is_some() {
             return Err(CollaborationLoroError::MissingDependency);
         }
@@ -125,7 +141,10 @@ impl LoroAuthoringDocument {
         update_base64: &str,
     ) -> Result<(), CollaborationLoroError> {
         require_supported_schema_version(self.plan, schema_version)?;
-        let status = self.doc.import(&BASE64.decode(update_base64)?)?;
+        let status = self
+            .doc
+            .import(&BASE64.decode(update_base64).map_err(base64_error)?)
+            .map_err(update_error)?;
         if status.pending.is_some() {
             return Err(CollaborationLoroError::MissingDependency);
         }
@@ -133,19 +152,32 @@ impl LoroAuthoringDocument {
     }
 
     pub fn export_update_base64(&self) -> Result<String, CollaborationLoroError> {
-        Ok(BASE64.encode(self.doc.export(ExportMode::all_updates())?))
+        Ok(BASE64.encode(
+            self.doc
+                .export(ExportMode::all_updates())
+                .map_err(encode_error)?,
+        ))
     }
 
     pub fn export_incremental_update_base64(
         &self,
         accepted_frontier_base64: &str,
     ) -> Result<String, CollaborationLoroError> {
-        let frontiers = Frontiers::decode(&BASE64.decode(accepted_frontier_base64)?)?;
+        let frontiers = Frontiers::decode(
+            &BASE64
+                .decode(accepted_frontier_base64)
+                .map_err(base64_error)?,
+        )
+        .map_err(update_error)?;
         let version = self
             .doc
             .frontiers_to_vv(&frontiers)
             .ok_or(CollaborationLoroError::UnknownFrontier)?;
-        Ok(BASE64.encode(self.doc.export(ExportMode::updates(&version))?))
+        Ok(BASE64.encode(
+            self.doc
+                .export(ExportMode::updates(&version))
+                .map_err(encode_error)?,
+        ))
     }
 
     /// The operations this document holds that a peer lacks, when the peer
@@ -159,13 +191,24 @@ impl LoroAuthoringDocument {
         let mut known = match base_frontier_base64 {
             Some(encoded) => self
                 .doc
-                .frontiers_to_vv(&Frontiers::decode(&BASE64.decode(encoded)?)?)
+                .frontiers_to_vv(
+                    &Frontiers::decode(&BASE64.decode(encoded).map_err(base64_error)?)
+                        .map_err(update_error)?,
+                )
                 .ok_or(CollaborationLoroError::UnknownFrontier)?,
             None => VersionVector::default(),
         };
-        let sent = LoroDoc::decode_import_blob_meta(&BASE64.decode(update_base64)?, false)?;
+        let sent = LoroDoc::decode_import_blob_meta(
+            &BASE64.decode(update_base64).map_err(base64_error)?,
+            false,
+        )
+        .map_err(update_error)?;
         known.merge(&sent.partial_end_vv);
-        Ok(BASE64.encode(self.doc.export(ExportMode::updates(&known))?))
+        Ok(BASE64.encode(
+            self.doc
+                .export(ExportMode::updates(&known))
+                .map_err(encode_error)?,
+        ))
     }
 
     pub fn accepted_frontier_base64(&self) -> String {
@@ -176,7 +219,12 @@ impl LoroAuthoringDocument {
         &self,
         accepted_frontier_base64: &str,
     ) -> Result<(), CollaborationLoroError> {
-        let frontiers = Frontiers::decode(&BASE64.decode(accepted_frontier_base64)?)?;
+        let frontiers = Frontiers::decode(
+            &BASE64
+                .decode(accepted_frontier_base64)
+                .map_err(base64_error)?,
+        )
+        .map_err(update_error)?;
         self.doc
             .frontiers_to_vv(&frontiers)
             .ok_or(CollaborationLoroError::UnknownFrontier)?;
@@ -190,7 +238,8 @@ impl LoroAuthoringDocument {
         required_base64: &str,
     ) -> Result<bool, CollaborationLoroError> {
         let version = |encoded: &str| {
-            let frontier = Frontiers::decode(&BASE64.decode(encoded)?)?;
+            let frontier = Frontiers::decode(&BASE64.decode(encoded).map_err(base64_error)?)
+                .map_err(update_error)?;
             self.doc
                 .frontiers_to_vv(&frontier)
                 .ok_or(CollaborationLoroError::UnknownFrontier)
@@ -236,9 +285,13 @@ impl LoroAuthoringDocument {
             return Err(CollaborationLoroError::TextCaptureMismatch);
         }
         let version = branch.oplog_vv();
-        substrate::replace_all_text(&text, replacement)?;
+        substrate::replace_all_text(&text, replacement).map_err(update_error)?;
         branch.commit();
-        Ok(BASE64.encode(branch.export(ExportMode::updates(&version))?))
+        Ok(BASE64.encode(
+            branch
+                .export(ExportMode::updates(&version))
+                .map_err(encode_error)?,
+        ))
     }
 
     /// Prepare an insertion before captured text without replacing any captured
@@ -258,13 +311,18 @@ impl LoroAuthoringDocument {
             return Err(CollaborationLoroError::TextCaptureMismatch);
         }
         let version = branch.oplog_vv();
-        text.insert_utf8(0, prefix)?;
+        text.insert_utf8(0, prefix).map_err(update_error)?;
         branch.commit();
-        Ok(BASE64.encode(branch.export(ExportMode::updates(&version))?))
+        Ok(BASE64.encode(
+            branch
+                .export(ExportMode::updates(&version))
+                .map_err(encode_error)?,
+        ))
     }
 
     fn fork_at_frontier(&self, frontier_base64: &str) -> Result<LoroDoc, CollaborationLoroError> {
-        let frontier = Frontiers::decode(&BASE64.decode(frontier_base64)?)?;
+        let frontier = Frontiers::decode(&BASE64.decode(frontier_base64).map_err(base64_error)?)
+            .map_err(update_error)?;
         self.doc
             .fork_at(&frontier)
             .map_err(|_| CollaborationLoroError::UnknownFrontier)
@@ -278,13 +336,20 @@ impl LoroAuthoringDocument {
         revision: &str,
     ) -> Result<(Value, Value), CollaborationLoroError> {
         require_supported_schema_version(self.plan, schema_version)?;
-        let frontiers = Frontiers::decode(&BASE64.decode(accepted_frontier_base64)?)?;
+        let frontiers = Frontiers::decode(
+            &BASE64
+                .decode(accepted_frontier_base64)
+                .map_err(base64_error)?,
+        )
+        .map_err(update_error)?;
         let base = self
             .doc
             .fork_at(&frontiers)
             .map_err(|_| CollaborationLoroError::UnknownFrontier)?;
         let client = base.fork();
-        let status = client.import(&BASE64.decode(update_base64)?)?;
+        let status = client
+            .import(&BASE64.decode(update_base64).map_err(base64_error)?)
+            .map_err(update_error)?;
         if status.pending.is_some() {
             return Err(CollaborationLoroError::MissingDependency);
         }
@@ -324,47 +389,6 @@ impl LoroAuthoringDocument {
     pub fn materialized_document(&self, revision: &str) -> Result<Value, CollaborationLoroError> {
         substrate::materialize_document(self.plan, &self.doc, revision)
     }
-}
-
-pub fn write_document_json_to_loro_doc(
-    plan: &'static GeneratedCollaborationEntitySpec,
-    doc: &LoroDoc,
-    previous: &Value,
-    next: &Value,
-) -> Result<(), CollaborationLoroError> {
-    substrate::write_document_changes(plan, doc, previous, next)
-}
-
-pub fn materialize_document_json_from_loro_doc(
-    plan: &'static GeneratedCollaborationEntitySpec,
-    doc: &LoroDoc,
-    revision: &str,
-) -> Result<Value, CollaborationLoroError> {
-    substrate::materialize_document(plan, doc, revision)
-}
-
-/// Materialises `doc` for a migration from a layout that stored no MIME type
-/// for property text: each such field takes the `text/` MIME type at the same
-/// path in `mime_source`, or `default_mime`.
-pub fn materialize_document_resolving_text_mime(
-    plan: &'static GeneratedCollaborationEntitySpec,
-    doc: &LoroDoc,
-    revision: &str,
-    mime_source: &Value,
-    default_mime: &str,
-) -> Result<Value, CollaborationLoroError> {
-    substrate::materialize_document_resolving_text_mime(
-        plan,
-        doc,
-        revision,
-        mime_source,
-        default_mime,
-    )
-}
-
-/// The Loro value a JSON value is stored as.
-pub fn json_to_loro(value: &Value) -> Result<LoroValue, CollaborationLoroError> {
-    substrate::json_to_loro(value)
 }
 
 fn require_supported_schema_version(

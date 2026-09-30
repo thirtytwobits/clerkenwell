@@ -33,8 +33,8 @@ function sample(entity: Entity): ClientRecord {
 
 function roundTrip(entity: Entity, document: ClientRecord): ClientRecord {
   const plan = COLLABORATION_PLANS[entity];
-  const written = new CollaborationLoroAuthoringDocument(entity, plan, { kind: "document", document });
-  return new CollaborationLoroAuthoringDocument<ClientRecord>(entity, plan, {
+  const written = CollaborationLoroAuthoringDocument.from(entity, plan, { kind: "document", document });
+  return CollaborationLoroAuthoringDocument.from<ClientRecord>(entity, plan, {
     kind: "update",
     updateBase64: written.exportUpdateBase64()
   }).currentDocument();

@@ -7,6 +7,7 @@ use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 
 use clerkenwell_doc::LoroAuthoringDocument;
+use clerkenwell_store::testing;
 use clerkenwell_store::{
     CollaborationDocumentId, CollaborationExchangeMode, CollaborationImportRequest,
     CollaborationRecoveryAuditRecord, CollaborationService, CollaborationStoragePort,
@@ -346,13 +347,13 @@ fn the_counters_report_what_the_stores_hold_until_they_let_it_go() {
     for resource_id in ["note-1", "note-2"] {
         bootstrap(&store, resource_id);
     }
-    let held: Vec<_> = store.envelopes("Note").expect("envelopes");
+    let held = store.summaries("Note").expect("summaries");
     let counters = stores.counters();
     assert_eq!(counters.resident_documents, held.len() as u64);
     assert_eq!(
         counters.resident_checkpoint_bytes,
         held.iter()
-            .map(|envelope| envelope.checkpoint_bytes as u64)
+            .map(|summary| summary.checkpoint_bytes as u64)
             .sum::<u64>()
     );
 
@@ -378,8 +379,7 @@ fn a_summary_describes_a_stored_document_as_its_envelope_does() {
         .summary(&note("note-1"))
         .expect("summary")
         .expect("a summary");
-    let envelope = service
-        .load(&note("note-1"))
+    let envelope = testing::load(&service, &note("note-1"))
         .expect("load")
         .expect("an envelope");
 

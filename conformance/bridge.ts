@@ -99,7 +99,7 @@ function handle(request: Request): unknown {
       if (fixture === undefined) {
         throw new Error(`The fixture corpus has no ${request.entity} entity.`);
       }
-      return create(request.replica, new CollaborationLoroAuthoringDocument(
+      return create(request.replica, CollaborationLoroAuthoringDocument.from(
         request.entity,
         plan(request.entity),
         { kind: "document", document: fixture.clientDocument }
@@ -108,7 +108,7 @@ function handle(request: Request): unknown {
     case "hydrate": {
       const entityPlan = plan(request.entity);
       requireCollaborationSchemaVersion(request.entity, entityPlan, request.schemaVersion);
-      return create(request.replica, new CollaborationLoroAuthoringDocument(
+      return create(request.replica, CollaborationLoroAuthoringDocument.from(
         request.entity,
         entityPlan,
         { kind: "update", updateBase64: request.updateBase64 }

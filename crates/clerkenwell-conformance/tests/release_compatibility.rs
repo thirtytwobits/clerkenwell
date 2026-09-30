@@ -7,7 +7,7 @@ use std::process::{Command, Stdio};
 
 use base64::{engine::general_purpose::STANDARD, Engine};
 use clerkenwell_conformance::workspace;
-use clerkenwell_doc::loro::{cursor::Side, ExportMode, LoroDoc, ToJson};
+use loro::{cursor::Side, ExportMode, LoroDoc, ToJson};
 use serde_json::{json, Value};
 
 fn read_json(path: &str) -> Value {
