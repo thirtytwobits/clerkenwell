@@ -1,0 +1,24 @@
+{
+  ".": [
+    "AuthoringRuntimeProvider",
+    "CollaborativeAutosyncHandle",
+    "CollaborativeAutosyncOptions",
+    "DEFAULT_COLLABORATIVE_AUTOSYNC_DELAY_MS",
+    "ProjectionEditOverlay",
+    "ProjectionEditOverlayOptions",
+    "ProjectionEditOverlaySnapshot",
+    "ProjectionExternalStore",
+    "ProjectionOverlayConflict",
+    "ProjectionOverlayStatus",
+    "ProjectionReactStoreListener",
+    "ProjectionReadableStore",
+    "replaceTextBindingValue",
+    "useAuthoringRuntime",
+    "useAuthoringRuntimePersistence",
+    "useAuthoringRuntimeSnapshot",
+    "useCollaborativeAutosync",
+    "useProjectionSelector",
+    "useProjectionSnapshot",
+    "useTextBindingValue"
+  ]
+}

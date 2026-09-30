@@ -13,7 +13,7 @@ import {
   modifyAuthoringSession,
   queueAuthoringOperation,
   startAuthoringSession
-} from "@clerkenwell/client";
+} from "../src/authoring-state-machine";
 
 test("commit acknowledgements preserve every causally later local draft", () => {
   fc.assert(

@@ -8,12 +8,12 @@ import test from "node:test";
 
 import {
   AuthoringRuntime,
-  authoringSessionRequiresDurableRestoration,
   durableSessions,
   fromPersistedRuntime,
   sameSessions,
   toPersistedRuntime
 } from "@clerkenwell/client";
+import { authoringSessionRequiresDurableRestoration } from "../src/authoring-state-machine";
 
 const resource = { entity: "Note", resourceKey: "persisted" } as const;
 const other = { entity: "Note", resourceKey: "untouched" } as const;

@@ -1,8 +1,8 @@
 /**
  * Copyright (c) 2026 Scott A Dixon
  *
- * The CRDT runtime stays behind the `/loro` entry point: one module imports
- * `loro-crdt`, and nothing the main entry reaches imports that module.
+ * The CRDT runtime stays behind the `/loro` entry point: only modules it
+ * reaches import `loro-crdt`, and nothing the main entry reaches does.
  */
 import assert from "node:assert/strict";
 import { readdir, readFile } from "node:fs/promises";
@@ -51,9 +51,9 @@ async function reachable(entry: string): Promise<Map<string, string[]>> {
   return graph;
 }
 
-test("only the module behind the /loro entry imports loro-crdt", async () => {
+test("only modules behind the /loro entry import loro-crdt", async () => {
   const { exports } = await manifest();
-  const loroEntry = path.resolve(PACKAGE_DIR, exports["./loro"]!);
+  const behindLoro = await reachable(path.resolve(PACKAGE_DIR, exports["./loro"]!));
   const importers: string[] = [];
   for (const name of await readdir(SOURCE_DIR)) {
     const file = path.join(SOURCE_DIR, name);
@@ -62,7 +62,8 @@ test("only the module behind the /loro entry imports loro-crdt", async () => {
     }
   }
 
-  assert.deepEqual(importers, [loroEntry]);
+  assert.ok(importers.length > 0, "No module imports loro-crdt.");
+  assert.deepEqual(importers.filter((file) => !behindLoro.has(file)), []);
 });
 
 test("nothing the main entry reaches imports loro-crdt or the /loro module", async () => {

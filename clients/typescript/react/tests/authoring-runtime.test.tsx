@@ -8,7 +8,8 @@ import test from "node:test";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
-import { AuthoringRuntime, authoringSessionId } from "@clerkenwell/client";
+import { AuthoringRuntime } from "@clerkenwell/client";
+import { authoringSessionId } from "../../client/src/authoring-state-machine";
 import {
   AuthoringRuntimeProvider,
   useAuthoringRuntime,

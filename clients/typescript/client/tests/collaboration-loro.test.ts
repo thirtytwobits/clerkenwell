@@ -9,11 +9,13 @@ import test from "node:test";
 
 import { resolveCollaborationContainer, type CollaborationFieldPlan } from "@clerkenwell/client";
 import {
-  collaborationDocumentToLoroDoc,
   collaborationReplicaSource,
-  materializeCollaborationDocumentFromLoroDoc,
   requireCollaborationSchemaVersion
 } from "@clerkenwell/client/loro";
+import {
+  collaborationDocumentToLoroDoc,
+  materializeCollaborationDocumentFromLoroDoc
+} from "../src/collaboration-loro";
 
 import {
   BOARD_PLAN,

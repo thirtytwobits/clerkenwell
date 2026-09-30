@@ -8,7 +8,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import fc from "fast-check";
 
-import { areJsonValuesEqual } from "@clerkenwell/client";
+import { areJsonValuesEqual } from "../src/json-value-equality";
 
 const json = fc.jsonValue();
 

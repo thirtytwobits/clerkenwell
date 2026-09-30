@@ -47,6 +47,8 @@ patches do not propagate. Change the record, the manifests and the lockfiles tog
 - Reads are pure: a query never writes, bootstraps, repairs or migrates.
 - Corruption is reported, never materialised as an empty document.
 - Generated files are never edited by hand; `clerkenwell-codegen --check` gates them.
+- A TypeScript package exports only what its entry files name. Its `public-api.json` records
+  those names, and a test refuses any difference.
 
 ## Validation
 

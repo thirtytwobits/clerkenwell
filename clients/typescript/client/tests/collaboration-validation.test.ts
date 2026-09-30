@@ -10,10 +10,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import type { CollaborationEntityPlan, CollaborationFieldPlan } from "@clerkenwell/client";
-import {
-  collaborationDocumentToLoroDoc,
-  CollaborationLoroAuthoringDocument
-} from "@clerkenwell/client/loro";
+import { CollaborationLoroAuthoringDocument } from "@clerkenwell/client/loro";
+import { collaborationDocumentToLoroDoc } from "../src/collaboration-loro";
 
 import {
   BOARD_PLAN,
