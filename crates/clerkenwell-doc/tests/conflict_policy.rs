@@ -226,7 +226,6 @@ mod nested {
             required: true,
             required_in_parent: true,
             conflict,
-            names_document: false,
         }
     }
 

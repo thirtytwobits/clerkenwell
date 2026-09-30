@@ -513,10 +513,6 @@ fn collaboration_metadata(definition: &Definition) -> String {
                                 pascal_identifier(field.conflict())
                             )),
                         ),
-                        (
-                            "names_document",
-                            Expr::atom(field.names_document().to_string()),
-                        ),
                     ],
                 )
             })

@@ -17,16 +17,12 @@ use std::num::NonZeroU32;
 use std::sync::{Arc, Mutex};
 use support::{accept, NOTE_PLAN, PLANS, POLICY};
 
-type Hook = Box<dyn FnOnce() + Send>;
-
 #[derive(Default)]
 struct MemoryState {
     next_version: u64,
     envelopes: BTreeMap<String, (String, Vec<u8>)>,
     evidence: Vec<Vec<u8>>,
     audit: Vec<CollaborationRecoveryAuditRecord>,
-    /// Runs once, after the next write to the named source has landed.
-    after_write: Option<(String, Hook)>,
     /// Whether every compare-and-swap reports that another writer won.
     lose_swaps: bool,
     /// How many compare-and-swaps were asked for.
@@ -50,27 +46,6 @@ struct MemoryPort(Arc<Mutex<MemoryState>>);
 impl MemoryPort {
     fn state(&self) -> std::sync::MutexGuard<'_, MemoryState> {
         self.0.lock().expect("memory port")
-    }
-
-    /// Runs `hook` once, after the next write to `document` lands.
-    fn after_write(&self, document: &CollaborationDocumentId, hook: Hook) {
-        self.state().after_write = Some((self.source(document), hook));
-    }
-
-    fn run_hook(&self, source: &str) {
-        let hook = {
-            let mut state = self.state();
-            match state.after_write.take() {
-                Some((target, hook)) if target == source => Some(hook),
-                other => {
-                    state.after_write = other;
-                    None
-                }
-            }
-        };
-        if let Some(hook) = hook {
-            hook();
-        }
     }
 }
 
@@ -133,10 +108,9 @@ impl CollaborationStoragePort for MemoryPort {
             let version = state.next_version.to_string();
             state
                 .envelopes
-                .insert(source.clone(), (version.clone(), bytes.to_vec()));
+                .insert(source, (version.clone(), bytes.to_vec()));
             version
         };
-        self.run_hook(&source);
         Ok(Some(version))
     }
 
@@ -242,8 +216,8 @@ fn history(envelope: &DurableCollaborationEnvelope) -> Value {
     })
 }
 
-/// Drives one document through commits, a retry, a rename and recovery,
-/// recording what the service reports.
+/// Drives one document through commits, a retry and recovery, recording what
+/// the service reports.
 fn drive(service: &CollaborationService, edits: &Edits) -> Value {
     let mut observed = Vec::new();
     let document = note();
@@ -271,32 +245,22 @@ fn drive(service: &CollaborationService, edits: &Edits) -> Value {
         &testing::load(service, &document).unwrap().unwrap(),
     ));
 
-    let renamed = CollaborationDocumentId::new("Note", "note-2");
-    service
-        .move_document(&NOTE_PLAN, &document, &renamed, accept)
-        .expect("move")
-        .expect("the document exists");
-    assert!(
-        service.summary(&document).unwrap().is_none(),
-        "the source is gone"
-    );
-    observed.push(history(&testing::load(service, &renamed).unwrap().unwrap()));
-    // The move writes its operation from a replica of its own, whose peer
-    // differs from one service to the next, and so does the etag it leaves.
-    let mut moved = service.detail(&NOTE_PLAN, &renamed).unwrap().unwrap();
-    moved.as_object_mut().expect("a note").remove("etag");
-    observed.push(moved);
+    observed.push(service.detail(&NOTE_PLAN, &document).unwrap().unwrap());
 
-    service.repair(&renamed, "drop the window").expect("repair");
-    observed.push(history(&testing::load(service, &renamed).unwrap().unwrap()));
-    assert!(service.verify(&renamed).valid);
-    let exported = service.export_for_recovery(&renamed).expect("export");
+    service
+        .repair(&document, "drop the window")
+        .expect("repair");
+    observed.push(history(
+        &testing::load(service, &document).unwrap().unwrap(),
+    ));
+    assert!(service.verify(&document).valid);
+    let exported = service.export_for_recovery(&document).expect("export");
     assert!(!exported.is_empty());
     service
-        .quarantine(&renamed, "evidence")
+        .quarantine(&document, "evidence")
         .expect("quarantine");
-    service.reset(&renamed).expect("reset");
-    assert!(service.summary(&renamed).unwrap().is_none());
+    service.reset(&document).expect("reset");
+    assert!(service.summary(&document).unwrap().is_none());
     observed.push(json!(service
         .recovery_audit()
         .unwrap()
@@ -400,53 +364,6 @@ fn commits_racing_through_one_port_both_land() {
     let accepted_b = thread_b.join().expect("thread B").expect("B commits");
 
     assert_ne!(accepted_a.generation, accepted_b.generation);
-}
-
-#[test]
-fn a_move_takes_the_source_as_it_stands_when_another_writer_commits_during_it() {
-    let edits = edits(1);
-    let port = MemoryPort::default();
-    let service = CollaborationService::with_storage(port.clone(), PLANS, POLICY, "memory-port");
-    let document = note();
-    service
-        .bootstrap_update(
-            &NOTE_PLAN,
-            &document,
-            NOTE_PLAN.schema_version,
-            &edits.seed_update,
-            accept,
-        )
-        .expect("seed");
-    let renamed = CollaborationDocumentId::new("Note", "note-2");
-    let (operation_id, base, update) = edits.edits[0].clone();
-    let writer = service.clone();
-    port.after_write(
-        &renamed,
-        Box::new(move || {
-            writer
-                .import(&NOTE_PLAN, request(&operation_id, &base, &update), accept)
-                .expect("a concurrent commit to the source");
-        }),
-    );
-
-    service
-        .move_document(&NOTE_PLAN, &document, &renamed, accept)
-        .expect("move")
-        .expect("the document exists");
-
-    assert!(
-        service.summary(&document).unwrap().is_none(),
-        "the source is gone"
-    );
-    let moved = testing::load(&service, &renamed).unwrap().expect("moved");
-    assert!(moved
-        .retained_operations
-        .iter()
-        .any(|operation| operation.operation_id == edits.edits[0].0));
-    assert_eq!(
-        service.detail(&NOTE_PLAN, &renamed).unwrap().unwrap()["body"],
-        json!("Edit 0.")
-    );
 }
 
 #[test]

@@ -298,7 +298,6 @@ pub static NOTE_COLLABORATION_FIELDS: &[GeneratedCollaborationFieldSpec] = &[
         required: true,
         required_in_parent: true,
         conflict: GeneratedCollaborationConflict::Immutable,
-        names_document: false,
     },
     GeneratedCollaborationFieldSpec {
         path: "etag",
@@ -318,7 +317,6 @@ pub static NOTE_COLLABORATION_FIELDS: &[GeneratedCollaborationFieldSpec] = &[
         required: true,
         required_in_parent: true,
         conflict: GeneratedCollaborationConflict::Immutable,
-        names_document: false,
     },
     GeneratedCollaborationFieldSpec {
         path: "title",
@@ -338,7 +336,6 @@ pub static NOTE_COLLABORATION_FIELDS: &[GeneratedCollaborationFieldSpec] = &[
         required: true,
         required_in_parent: true,
         conflict: GeneratedCollaborationConflict::LastWriterWins,
-        names_document: false,
     },
     GeneratedCollaborationFieldSpec {
         path: "body",
@@ -358,7 +355,6 @@ pub static NOTE_COLLABORATION_FIELDS: &[GeneratedCollaborationFieldSpec] = &[
         required: true,
         required_in_parent: true,
         conflict: GeneratedCollaborationConflict::Merge,
-        names_document: false,
     },
     GeneratedCollaborationFieldSpec {
         path: "status",
@@ -378,7 +374,6 @@ pub static NOTE_COLLABORATION_FIELDS: &[GeneratedCollaborationFieldSpec] = &[
         required: true,
         required_in_parent: true,
         conflict: GeneratedCollaborationConflict::Explicit,
-        names_document: false,
     },
 ];
 

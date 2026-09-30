@@ -15,7 +15,6 @@ fn event(resource_id: &str, generation: u64) -> ChangeEvent {
         ChangeData {
             entity: "Task".to_string(),
             resource_id: resource_id.to_string(),
-            moved_from: None,
             etag_before: None,
             etag_after: Some("etag-after".to_string()),
             frontier_before: None,
@@ -54,11 +53,7 @@ fn a_change_event_is_a_cloud_events_event() {
             "{name} is a CloudEvents attribute name"
         );
     }
-    for kind in [
-        ChangeKind::Committed,
-        ChangeKind::Moved,
-        ChangeKind::Deleted,
-    ] {
+    for kind in [ChangeKind::Committed, ChangeKind::Deleted] {
         let name = serde_json::to_value(kind).expect("encode kind");
         assert!(
             name.as_str()

@@ -398,26 +398,6 @@ fn a_summary_describes_a_stored_document_as_its_envelope_does() {
 }
 
 #[test]
-fn a_moved_document_is_summarised_under_its_new_identity_alone() {
-    let port = MemoryPort::vouching();
-    let service = service(&port);
-    bootstrap(&service, "note-1");
-
-    let generation = service
-        .move_document(&NOTE_PLAN, &note("note-1"), &note("note-2"), accept)
-        .expect("move")
-        .expect("moved");
-
-    assert!(service.summary(&note("note-1")).expect("summary").is_none());
-    let moved = service
-        .summary(&note("note-2"))
-        .expect("summary")
-        .expect("a summary");
-    assert_eq!(moved.document, note("note-2"));
-    assert_eq!(moved.generation, generation);
-}
-
-#[test]
 fn summaries_list_every_stored_document_in_resource_order() {
     let port = MemoryPort::vouching();
     let service = service(&port);

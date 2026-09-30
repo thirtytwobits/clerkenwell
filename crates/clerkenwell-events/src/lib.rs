@@ -22,9 +22,6 @@ pub enum ChangeKind {
     /// A commit created the document or accepted new state for it.
     #[serde(rename = "clerkenwell.document.committed")]
     Committed,
-    /// The document moved to a new resource id with its state unchanged.
-    #[serde(rename = "clerkenwell.document.moved")]
-    Moved,
     /// The document was deleted.
     #[serde(rename = "clerkenwell.document.deleted")]
     Deleted,
@@ -110,9 +107,6 @@ impl ChangeEvent {
 pub struct ChangeData {
     pub entity: String,
     pub resource_id: String,
-    /// The resource id a moved document had before.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub moved_from: Option<String>,
     /// The accepted state's etag before the change, when the document existed.
     pub etag_before: Option<String>,
     /// The accepted state's etag after the change, unless it was deleted.

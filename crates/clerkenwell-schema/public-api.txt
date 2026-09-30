@@ -42,7 +42,6 @@ field clerkenwell_schema::GeneratedCollaborationFieldSpec::key: Option<&'static 
 field clerkenwell_schema::GeneratedCollaborationFieldSpec::metadata_container: Option<&'static str>
 field clerkenwell_schema::GeneratedCollaborationFieldSpec::metadata_container_template: Option<&'static str>
 field clerkenwell_schema::GeneratedCollaborationFieldSpec::metadata_key: Option<&'static str>
-field clerkenwell_schema::GeneratedCollaborationFieldSpec::names_document: bool
 field clerkenwell_schema::GeneratedCollaborationFieldSpec::order_container: Option<&'static str>
 field clerkenwell_schema::GeneratedCollaborationFieldSpec::path: &'static str
 field clerkenwell_schema::GeneratedCollaborationFieldSpec::required: bool

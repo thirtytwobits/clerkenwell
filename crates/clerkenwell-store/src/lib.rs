@@ -623,7 +623,7 @@ impl CollaborationService {
     }
 
     /// The feed this service announces each change to a document's accepted
-    /// state on: a commit, a repair, a move or a deletion.
+    /// state on: a commit, a repair or a deletion.
     pub fn changes(&self) -> &ChangeFeed {
         &self.changes
     }
@@ -739,7 +739,6 @@ impl CollaborationService {
                     ChangeData {
                         entity: document.entity.clone(),
                         resource_id: document.resource_id.clone(),
-                        moved_from: None,
                         etag_before: None,
                         etag_after: Some(envelope.etag()),
                         frontier_before: None,
@@ -913,7 +912,6 @@ impl CollaborationService {
                     ChangeData {
                         entity: document.entity.clone(),
                         resource_id: document.resource_id.clone(),
-                        moved_from: None,
                         etag_before: current_envelope.map(DurableCollaborationEnvelope::etag),
                         etag_after: Some(envelope.etag()),
                         frontier_before: commit.frontier_before,
@@ -1402,7 +1400,6 @@ impl CollaborationService {
                     || ChangeData {
                         entity: document.entity.clone(),
                         resource_id: document.resource_id.clone(),
-                        moved_from: None,
                         etag_before: deleted.as_ref().map(DurableCollaborationEnvelope::etag),
                         etag_after: None,
                         frontier_before: None,
@@ -1414,159 +1411,6 @@ impl CollaborationService {
             }
         }
         Ok(())
-    }
-
-    /// Moves `source`'s accepted history to `destination`. When the plan
-    /// declares fields that name the document, the move commits one operation
-    /// rewriting them to `destination`'s id, checked by `validate`, in the
-    /// same write that creates `destination`. Returns the generation
-    /// `destination` is accepted at, or `None` when there is no `source`.
-    pub fn move_document<E: From<StoreError>>(
-        &self,
-        plan: &'static GeneratedCollaborationEntitySpec,
-        source: &CollaborationDocumentId,
-        destination: &CollaborationDocumentId,
-        validate: impl Fn(&Value) -> Result<(), E>,
-    ) -> Result<Option<u64>, E> {
-        if source.entity != destination.entity || source.entity != plan.name {
-            return Err(StoreError::invalid_request(
-                "A collaboration document moves within its own entity.",
-            )
-            .into());
-        }
-        loop {
-            let Some(read) = self.read_current(source)? else {
-                return Ok(None);
-            };
-            if self
-                .storage
-                .read(&self.storage.source(destination))?
-                .is_some()
-            {
-                return Err(StoreError::conflict(format!(
-                    "Collaboration state already exists for {}/{}.",
-                    destination.entity, destination.resource_id
-                ))
-                .with_data(serde_json::json!({
-                    "code": "collaboration_destination_exists",
-                    "entity": destination.entity,
-                    "resource_id": destination.resource_id,
-                }))
-                .into());
-            }
-            let (envelope, renamed) =
-                match self.renaming(plan, source, destination, &read.envelope)? {
-                    Some((commit, materialized)) => {
-                        validate(&materialized)?;
-                        let operation_id = commit.operation_id.clone();
-                        (
-                            self.next_envelope(Some(&read.envelope), destination, &commit),
-                            Some((operation_id, commit.frontier_before, commit.frontier_after)),
-                        )
-                    }
-                    None => {
-                        let mut envelope = read.envelope.clone();
-                        envelope.resource_id = destination.resource_id.clone();
-                        envelope.generation = envelope.generation.saturating_add(1);
-                        (envelope, None)
-                    }
-                };
-            let Some(moved) = self.swap(destination, None, &envelope)? else {
-                continue;
-            };
-            if self.remove(source, &read.version)? {
-                self.announce(ChangeKind::Moved, Some(envelope.generation), || {
-                    let (operation_id, frontier_before, frontier_after) =
-                        renamed.clone().unwrap_or_else(|| {
-                            let frontier = self.accepted_frontier(&envelope);
-                            (String::new(), frontier.clone(), frontier)
-                        });
-                    ChangeData {
-                        entity: destination.entity.clone(),
-                        resource_id: destination.resource_id.clone(),
-                        moved_from: Some(source.resource_id.clone()),
-                        etag_before: Some(read.envelope.etag()),
-                        etag_after: Some(envelope.etag()),
-                        frontier_before,
-                        frontier_after,
-                        operation_id: (!operation_id.is_empty()).then_some(operation_id),
-                    }
-                });
-                return Ok(Some(envelope.generation));
-            }
-            // The source changed after it was copied: withdraw the copy and
-            // move what the source holds now.
-            if !self.remove(destination, &moved)? {
-                return Err(StoreError::conflict(format!(
-                    "Collaboration documents {}/{} and {}/{} both changed while one moved to the other.",
-                    source.entity, source.resource_id, destination.entity, destination.resource_id
-                ))
-                .with_data(serde_json::json!({
-                    "code": "collaboration_move_contended",
-                    "entity": source.entity,
-                    "resource_id": source.resource_id,
-                    "destination_resource_id": destination.resource_id,
-                }))
-                .into());
-            }
-        }
-    }
-
-    /// The operation that makes `envelope`'s document name `destination` in
-    /// every field its plan declares as naming it, and the document it leaves;
-    /// `None` when no such field names anything else.
-    fn renaming(
-        &self,
-        plan: &'static GeneratedCollaborationEntitySpec,
-        source: &CollaborationDocumentId,
-        destination: &CollaborationDocumentId,
-        envelope: &DurableCollaborationEnvelope,
-    ) -> StoreResult<Option<(CollaborationCommit, Value)>> {
-        let naming = plan.fields.iter().filter(|field| field.names_document);
-        if naming.clone().next().is_none() {
-            return Ok(None);
-        }
-        let mut authoring = load_authoring_document(plan, source, envelope)?;
-        let failed = |error| replica_error(source, error);
-        let current = authoring
-            .materialized_document(&envelope.etag())
-            .map_err(failed)?;
-        let mut renamed = current.clone();
-        for field in naming {
-            set_named_identity(&mut renamed, field.path, &destination.resource_id)
-                .map_err(|message| corrupt_state(source, message))?;
-        }
-        if renamed == current {
-            return Ok(None);
-        }
-        let frontier_before = authoring.accepted_frontier_base64();
-        authoring.replace_document(&renamed).map_err(failed)?;
-        let update = BASE64
-            .decode(
-                authoring
-                    .export_incremental_update_base64(&frontier_before)
-                    .map_err(failed)?,
-            )
-            .map_err(|error| StoreError::internal(error.to_string()))?;
-        let accepted_update = BASE64
-            .decode(authoring.export_update_base64().map_err(failed)?)
-            .map_err(|error| StoreError::internal(error.to_string()))?;
-        let materialized = authoring
-            .materialized_document(&collaboration_etag(&accepted_update))
-            .map_err(failed)?;
-        Ok(Some((
-            CollaborationCommit {
-                document: destination.clone(),
-                schema_version: envelope.schema_version,
-                operation_id: format!("move:{}:gen{}", source.resource_id, envelope.generation),
-                imported_update: update,
-                has_new_operations: true,
-                accepted_update,
-                frontier_before: Some(frontier_before),
-                frontier_after: Some(authoring.accepted_frontier_base64()),
-            },
-            materialized,
-        )))
     }
 
     /// Redacted metadata for the stored documents, in entity and resource
@@ -1778,7 +1622,6 @@ impl CollaborationService {
             ChangeData {
                 entity: document.entity.clone(),
                 resource_id: document.resource_id.clone(),
-                moved_from: None,
                 etag_before: Some(etag_before),
                 etag_after: Some(envelope.etag()),
                 frontier_before,
@@ -2672,25 +2515,6 @@ fn upgraded_envelope(
     let envelope: DurableCollaborationEnvelope =
         serde_json::from_value(Value::Object(fields)).map_err(unreadable)?;
     Ok(Some((envelope, removed)))
-}
-
-/// Sets the field at dotted `path` in `document` to `id`.
-fn set_named_identity(document: &mut Value, path: &str, id: &str) -> Result<(), String> {
-    let mut segments = path.split('.').peekable();
-    let mut scope = document;
-    while let Some(segment) = segments.next() {
-        let object = scope
-            .as_object_mut()
-            .ok_or_else(|| format!("the document has no object holding {path}"))?;
-        if segments.peek().is_none() {
-            object.insert(segment.to_string(), Value::String(id.to_string()));
-            return Ok(());
-        }
-        scope = object
-            .get_mut(segment)
-            .ok_or_else(|| format!("the document has no {path}"))?;
-    }
-    Ok(())
 }
 
 fn corrupt_state(document: &CollaborationDocumentId, message: impl Into<String>) -> StoreError {
