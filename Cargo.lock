@@ -359,6 +359,7 @@ name = "clerkenwell-axum"
 version = "0.1.0"
 dependencies = [
  "axum",
+ "clerkenwell-events",
  "clerkenwell-schema",
  "clerkenwell-session",
  "futures-util",
@@ -461,10 +462,14 @@ version = "0.1.0"
 name = "clerkenwell-session"
 version = "0.1.0"
 dependencies = [
+ "clerkenwell-doc",
+ "clerkenwell-events",
  "clerkenwell-schema",
+ "clerkenwell-store",
  "serde",
  "serde_json",
  "sha2",
+ "tempfile",
 ]
 
 [[package]]

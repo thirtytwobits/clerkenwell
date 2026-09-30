@@ -1,7 +1,8 @@
 //! The notes definition served over the projection protocol.
 //!
 //! A client creates notes, subscribes to a note's authoring state and sends
-//! the operations its replica recorded. Every subscriber to a note takes its
+//! the operations its replica recorded. The session delivers every note's
+//! authoring state from the store, and every subscriber to a note takes its
 //! new authoring state when any client's operations are accepted.
 
 use std::num::NonZeroUsize;
@@ -10,47 +11,35 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use clerkenwell_axum::RpcFailure;
 use clerkenwell_session::transport::ProjectionErrorCode;
-use clerkenwell_session::{ProjectionHost, ProjectionRegistry, ProjectionSubscription};
+use clerkenwell_session::{
+    AuthoringStates, Held, ProjectionFailure, ProjectionHost, ProjectionRefusal,
+    ProjectionRegistry, ProjectionSubscription,
+};
 use clerkenwell_store::{
     CollaborationDocumentId, CollaborationExchangeMode, CollaborationImportRequest,
-    CollaborationService, ImportFence, StoreError, StoreErrorKind,
+    CollaborationService, CollaborationStores, ImportFence, StoreError,
 };
 use serde::de::DeserializeOwned;
-use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use crate::model::{
-    LoroUpdateParams, LoroUpdateParamsExchangeMode, LoroUpdateResult, NoteAuthoringState,
-    NoteAuthoringStateExchangeModes, NoteAuthoringStatePatch, NoteAuthoringStatePatchKind,
-    NoteCreateParams, NoteKeyParams, NoteMutationResult, ProjectionTransportMutationResult,
-    ProjectionTransportPatch, ProjectionTransportSnapshot, GENERATED_ENTITY_AUTHORING_SPECS,
+    LoroUpdateParams, LoroUpdateParamsExchangeMode, LoroUpdateResult, NoteCreateParams,
+    NoteMutationResult, ProjectionTransportMutationResult, ProjectionTransportPatch,
+    ProjectionTransportSnapshot, GENERATED_COLLABORATION_SPECS, GENERATED_ENTITY_AUTHORING_SPECS,
     GENERATED_MUTATION_SPECS, GENERATED_PROJECTION_SPECS, NOTE_CREATE_MUTATION,
     NOTE_IMPORT_LORO_UPDATE_MUTATION,
 };
 use crate::{validate, COMMIT_POLICY, NOTE};
 
-/// Mutations a connection of the example's server may fall behind before it
-/// resynchronises.
+/// Mutations, or changes to notes, a connection of the example's server may
+/// fall behind before it resynchronises.
 pub const PUBLICATION_WINDOW: NonZeroUsize = match NonZeroUsize::new(256) {
     Some(window) => window,
     None => panic!("the publication window is non-zero"),
 };
 
-/// The note an authoring-state update leaves a client holding.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct HeldNote {
-    pub frontier_base64: String,
-    pub etag: String,
-}
-
-impl From<&NoteAuthoringState> for HeldNote {
-    fn from(state: &NoteAuthoringState) -> Self {
-        Self {
-            frontier_base64: state.accepted_frontier_base64.clone(),
-            etag: state.etag.clone(),
-        }
-    }
-}
+/// The store that keeps every note.
+pub const NOTES_STORE: &str = "notes";
 
 static REGISTRY: ProjectionRegistry = ProjectionRegistry::new(
     GENERATED_PROJECTION_SPECS,
@@ -61,47 +50,24 @@ static REGISTRY: ProjectionRegistry = ProjectionRegistry::new(
 /// Notes kept in a store, served to every connection.
 pub struct NotesServer {
     service: CollaborationService,
+    authoring: AuthoringStates,
     created: AtomicU64,
 }
 
 impl NotesServer {
     /// Notes kept in a store under `root`.
     pub fn new(root: &Path) -> Self {
+        let stores = CollaborationStores::new(GENERATED_COLLABORATION_SPECS, COMMIT_POLICY);
+        let service = stores
+            .register(NOTES_STORE, root)
+            .expect("a new set holds no other store");
         Self {
-            service: CollaborationService::new(
-                root,
-                crate::model::GENERATED_COLLABORATION_SPECS,
-                COMMIT_POLICY,
-            ),
+            service,
+            authoring: AuthoringStates::new(stores, GENERATED_COLLABORATION_SPECS, |_, _| {
+                Some(NOTES_STORE.to_owned())
+            }),
             created: AtomicU64::new(1),
         }
-    }
-
-    /// A note's authoring state for a client that holds `held`: only the
-    /// operations it lacks.
-    fn authoring_state(
-        &self,
-        note_id: &str,
-        held: Option<&HeldNote>,
-    ) -> Result<NoteAuthoringState, RpcFailure> {
-        let read = self
-            .service
-            .authoring_state(
-                NOTE,
-                &note(note_id),
-                held.map(|held| held.frontier_base64.as_str()),
-            )
-            .map_err(refused)?;
-        Ok(NoteAuthoringState {
-            note_id: note_id.to_owned(),
-            etag: read.etag,
-            exchange_modes: vec![
-                NoteAuthoringStateExchangeModes::Incremental,
-                NoteAuthoringStateExchangeModes::Bootstrap,
-            ],
-            accepted_frontier_base64: read.accepted_frontier_base64,
-            update_base64: read.update_base64,
-        })
     }
 
     fn create(&self, params: NoteCreateParams) -> Result<NoteMutationResult, RpcFailure> {
@@ -116,7 +82,11 @@ impl NotesServer {
                 validate,
             )
             .map_err(refused)?;
-        let etag = self.authoring_state(&note_id, None)?.etag;
+        let etag = self
+            .service
+            .authoring_state(NOTE, &note(&note_id), None)
+            .map_err(refused)?
+            .etag;
         Ok(NoteMutationResult { note_id, etag })
     }
 
@@ -134,7 +104,10 @@ impl NotesServer {
                         validate,
                     )
                     .map_err(refused)?;
-                let state = self.authoring_state(&params.note_id, None)?;
+                let state = self
+                    .service
+                    .authoring_state(NOTE, &document, None)
+                    .map_err(refused)?;
                 Ok(LoroUpdateResult {
                     note_id: params.note_id,
                     etag: state.etag,
@@ -181,7 +154,7 @@ impl NotesServer {
 impl ProjectionHost for NotesServer {
     type Snapshot = ProjectionTransportSnapshot;
     type Patch = ProjectionTransportPatch;
-    type Delivery = HeldNote;
+    type Delivery = ();
     type MutationResult = ProjectionTransportMutationResult;
     type Failure = RpcFailure;
 
@@ -189,26 +162,30 @@ impl ProjectionHost for NotesServer {
         &REGISTRY
     }
 
+    fn authoring_states(&self) -> Option<&AuthoringStates> {
+        Some(&self.authoring)
+    }
+
+    /// Every projection the notes definition declares is an authoring state.
     async fn snapshot(
         &self,
-        _projection: &str,
-        params: &Value,
-        held: Option<&HeldNote>,
+        projection: &str,
+        _params: &Value,
+        _held: Option<&()>,
     ) -> Result<ProjectionTransportSnapshot, RpcFailure> {
-        let params: NoteKeyParams = decode(params.clone())?;
-        Ok(ProjectionTransportSnapshot::NotesAuthoringState(
-            self.authoring_state(&params.note_id, held)?,
+        Err(RpcFailure::new(
+            ProjectionErrorCode::UnsupportedProjection,
+            format!("The notes server does not serve \"{projection}\"."),
+            None,
         ))
     }
 
-    fn delivered(&self, snapshot: &ProjectionTransportSnapshot) -> Option<HeldNote> {
-        let ProjectionTransportSnapshot::NotesAuthoringState(state) = snapshot;
-        Some(state.into())
+    fn delivered(&self, _snapshot: &ProjectionTransportSnapshot) -> Option<()> {
+        None
     }
 
-    fn delivered_by_patch(&self, patch: &ProjectionTransportPatch) -> Option<HeldNote> {
-        let ProjectionTransportPatch::NotesAuthoringState(patch) = patch;
-        patch.state.as_ref().map(HeldNote::from)
+    fn delivered_by_patch(&self, _patch: &ProjectionTransportPatch) -> Option<()> {
+        None
     }
 
     async fn mutate(
@@ -234,23 +211,10 @@ impl ProjectionHost for NotesServer {
     async fn mutation_patch(
         &self,
         _mutation: &str,
-        result: &ProjectionTransportMutationResult,
-        subscription: &ProjectionSubscription<HeldNote>,
+        _result: &ProjectionTransportMutationResult,
+        _subscription: &ProjectionSubscription<Held<()>>,
     ) -> Option<ProjectionTransportPatch> {
-        let note_id = match result {
-            ProjectionTransportMutationResult::NoteCreate(created) => &created.note_id,
-            ProjectionTransportMutationResult::NoteImportLoroUpdate(imported) => &imported.note_id,
-        };
-        if subscription.params["note_id"].as_str() != Some(note_id) {
-            return None;
-        }
-        let state = self.authoring_state(note_id, None).ok()?;
-        Some(ProjectionTransportPatch::NotesAuthoringState(
-            NoteAuthoringStatePatch {
-                kind: NoteAuthoringStatePatchKind::Replace,
-                state: Some(state),
-            },
-        ))
+        None
     }
 }
 
@@ -268,19 +232,6 @@ fn decode<T: DeserializeOwned>(params: Value) -> Result<T, RpcFailure> {
     })
 }
 
-/// A store's refusal as the protocol reports it: the code its data names, or
-/// the one its kind implies.
 fn refused(error: StoreError) -> RpcFailure {
-    let named = error
-        .data
-        .as_ref()
-        .and_then(|data| data["code"].as_str())
-        .and_then(ProjectionErrorCode::parse);
-    let code = named.unwrap_or(match error.kind {
-        StoreErrorKind::NotFound => ProjectionErrorCode::NotFound,
-        StoreErrorKind::Conflict => ProjectionErrorCode::Conflict,
-        StoreErrorKind::InvalidRequest => ProjectionErrorCode::InvalidParams,
-        StoreErrorKind::Internal => ProjectionErrorCode::InternalError,
-    });
-    RpcFailure::new(code, error.message, error.data)
+    RpcFailure::refused(ProjectionRefusal::from(error))
 }

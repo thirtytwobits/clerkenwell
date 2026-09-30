@@ -15,8 +15,8 @@
       },
       "projections": [
         "notes.list",
-        "notes.authoringState",
-        "notes.byId"
+        "notes.byId",
+        "notes.authoringState"
       ],
       "mutations": [
         "note.create",
@@ -47,11 +47,11 @@
           "strategy": "keyedCollection"
         },
         {
-          "projection": "notes.authoringState",
+          "projection": "notes.byId",
           "strategy": "replaceOrRemove"
         },
         {
-          "projection": "notes.byId",
+          "projection": "notes.authoringState",
           "strategy": "replaceOrRemove"
         }
       ],
@@ -79,8 +79,8 @@
         "kind": "loro"
       },
       "projections": [
-        "boards.authoringState",
-        "tasks.board"
+        "tasks.board",
+        "boards.authoringState"
       ],
       "mutations": [
         "note.moveToBoard",
@@ -103,12 +103,12 @@
       },
       "materialisers": [
         {
-          "projection": "boards.authoringState",
-          "strategy": "replaceOrRemove"
-        },
-        {
           "projection": "tasks.board",
           "strategy": "replace"
+        },
+        {
+          "projection": "boards.authoringState",
+          "strategy": "replaceOrRemove"
         }
       ],
       "authoringSessionMnemonic": "notebook.session.drafts",
@@ -306,22 +306,6 @@
       "generatedRegistryOwner": "GENERATED_PROJECTION_SPECS"
     },
     {
-      "name": "notes.authoringState",
-      "params": "#/$defs/NoteKeyParams",
-      "snapshot": "#/$defs/NoteAuthoringState",
-      "patch": "#/$defs/NoteAuthoringStatePatch",
-      "dependsOn": [
-        "Note"
-      ],
-      "materialisation": {
-        "strategy": "replaceOrRemove",
-        "snapshotMode": "field",
-        "snapshotField": "state",
-        "removeMode": "nullSnapshot"
-      },
-      "generatedRegistryOwner": "GENERATED_PROJECTION_SPECS"
-    },
-    {
       "name": "notes.byId",
       "params": "#/$defs/NoteKeyParams",
       "snapshot": "#/$defs/NoteDetailSnapshot",
@@ -340,22 +324,6 @@
         ],
         "removeMode": "nullField",
         "removeField": "note"
-      },
-      "generatedRegistryOwner": "GENERATED_PROJECTION_SPECS"
-    },
-    {
-      "name": "boards.authoringState",
-      "params": "#/$defs/BoardKeyParams",
-      "snapshot": "#/$defs/BoardAuthoringState",
-      "patch": "#/$defs/BoardAuthoringStatePatch",
-      "dependsOn": [
-        "Board"
-      ],
-      "materialisation": {
-        "strategy": "replaceOrRemove",
-        "snapshotMode": "field",
-        "snapshotField": "state",
-        "removeMode": "nullSnapshot"
       },
       "generatedRegistryOwner": "GENERATED_PROJECTION_SPECS"
     },
@@ -449,6 +417,38 @@
         "strategy": "replace",
         "snapshotMode": "field",
         "snapshotField": "health"
+      },
+      "generatedRegistryOwner": "GENERATED_PROJECTION_SPECS"
+    },
+    {
+      "name": "notes.authoringState",
+      "params": "#/$defs/NoteAuthoringParams",
+      "snapshot": "#/$defs/AuthoringState",
+      "patch": "#/$defs/AuthoringStatePatch",
+      "dependsOn": [
+        "Note"
+      ],
+      "materialisation": {
+        "strategy": "replaceOrRemove",
+        "snapshotMode": "field",
+        "snapshotField": "state",
+        "removeMode": "nullSnapshot"
+      },
+      "generatedRegistryOwner": "GENERATED_PROJECTION_SPECS"
+    },
+    {
+      "name": "boards.authoringState",
+      "params": "#/$defs/BoardAuthoringParams",
+      "snapshot": "#/$defs/AuthoringState",
+      "patch": "#/$defs/AuthoringStatePatch",
+      "dependsOn": [
+        "Board"
+      ],
+      "materialisation": {
+        "strategy": "replaceOrRemove",
+        "snapshotMode": "field",
+        "snapshotField": "state",
+        "removeMode": "nullSnapshot"
       },
       "generatedRegistryOwner": "GENERATED_PROJECTION_SPECS"
     }

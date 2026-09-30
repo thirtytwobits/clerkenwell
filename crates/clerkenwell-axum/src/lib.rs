@@ -2,9 +2,10 @@
 //! over an axum WebSocket.
 //!
 //! Each connection keeps its own subscriptions. A mutation one connection
-//! makes reaches the subscriptions of every other connection, and a
-//! connection that falls behind the mutations of others takes a snapshot for
-//! each of its subscriptions.
+//! makes reaches the subscriptions of every other connection, and each change
+//! a store announces reaches every connection's authoring-state
+//! subscriptions. A connection that falls behind takes a snapshot for each of
+//! its subscriptions.
 
 use std::num::NonZeroUsize;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -13,13 +14,14 @@ use std::sync::{Arc, Mutex};
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::routing::get;
 use axum::Router;
+use clerkenwell_events::ChangeEvent;
 use clerkenwell_session::transport::{
     ProjectionErrorCode, ProjectionErrorEnvelope, ProjectionTransportEvent,
     PROJECTION_UPDATE_NOTIFICATION,
 };
 use clerkenwell_session::{
-    publish, resync_all, serve_request, AcceptedMutation, ProjectionFailure, ProjectionHost,
-    ProjectionRefusal, ProjectionSubscriptions,
+    deliver_change, publish, resync_all, serve_request, AcceptedMutation, Held, ProjectionFailure,
+    ProjectionHost, ProjectionRefusal, ProjectionSubscriptions,
 };
 use futures_util::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
@@ -125,13 +127,15 @@ struct Publication<M> {
     mutation: AcceptedMutation<M>,
 }
 
-type Subscriptions<A> =
-    Mutex<ProjectionSubscriptions<<A as ProjectionHost>::Patch, <A as ProjectionHost>::Delivery>>;
+type Subscriptions<A> = Mutex<
+    ProjectionSubscriptions<<A as ProjectionHost>::Patch, Held<<A as ProjectionHost>::Delivery>>,
+>;
 
 /// Serves an application's projections to every connection.
 pub struct ProjectionServer<A: ProjectionHost> {
     application: A,
     published: broadcast::Sender<Arc<Publication<A::MutationResult>>>,
+    changes: broadcast::Sender<Arc<ChangeEvent>>,
     connections: AtomicU64,
 }
 
@@ -144,12 +148,22 @@ where
     A::MutationResult: 'static,
 {
     /// A server whose connections resynchronise once they fall more than
-    /// `publication_window` mutations behind the others.
+    /// `publication_window` mutations, or changes to the application's
+    /// stores, behind.
     pub fn new(application: A, publication_window: NonZeroUsize) -> Arc<Self> {
         let (published, _) = broadcast::channel(publication_window.get());
+        let (changes, _) = broadcast::channel(publication_window.get());
+        if let Some(authoring) = application.authoring_states() {
+            let changes = changes.clone();
+            authoring.stores().changes().listen(move |change| {
+                // No connection is listening when the send fails.
+                let _ = changes.send(Arc::new(change.clone()));
+            });
+        }
         Arc::new(Self {
             application,
             published,
+            changes,
             connections: AtomicU64::new(1),
         })
     }
@@ -177,6 +191,7 @@ where
         let origin = self.connections.fetch_add(1, Ordering::Relaxed);
         let subscriptions: Subscriptions<A> = Mutex::new(ProjectionSubscriptions::default());
         let mut published = self.published.subscribe();
+        let mut changes = self.changes.subscribe();
         let (mut sink, mut stream) = socket.split();
         loop {
             let frames = tokio::select! {
@@ -193,6 +208,20 @@ where
                         Ok(publication) => {
                             publish(&self.application, &subscriptions, &publication.mutation).await.1
                         }
+                        Err(RecvError::Lagged(missed)) => {
+                            subscriptions
+                                .lock()
+                                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                                .record_dropped_updates(missed);
+                            resync_all(&self.application, &subscriptions, "broadcastLag").await
+                        }
+                        Err(RecvError::Closed) => break,
+                    };
+                    events.iter().filter_map(notification).collect()
+                }
+                change = changes.recv() => {
+                    let events = match change {
+                        Ok(change) => deliver_change(&self.application, &subscriptions, &change).await,
                         Err(RecvError::Lagged(missed)) => {
                             subscriptions
                                 .lock()

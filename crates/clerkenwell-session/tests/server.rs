@@ -17,7 +17,7 @@ use clerkenwell_session::transport::{
     PROJECTION_MUTATE_METHOD, PROJECTION_SUBSCRIBE_METHOD,
 };
 use clerkenwell_session::{
-    publish, resync_all, serve, serve_request, AcceptedMutation, ProjectionCommand,
+    publish, resync_all, serve, serve_request, AcceptedMutation, Held, ProjectionCommand,
     ProjectionFailure, ProjectionHost, ProjectionRefusal, ProjectionRegistry, ProjectionReply,
     ProjectionSubscription, ProjectionSubscriptions,
 };
@@ -30,7 +30,7 @@ static PROJECTIONS: &[GeneratedProjectionSpec] = &[
         materialization: GeneratedMaterializationPlan::Reset,
     },
     GeneratedProjectionSpec {
-        name: "notes.authoringState",
+        name: "notes.replica",
         depends_on: &["Note"],
         materialization: GeneratedMaterializationPlan::Reset,
     },
@@ -94,7 +94,7 @@ impl ProjectionFailure for Failure {
 
 /// A note, its title and the frontier its authoring state names.
 struct Notes {
-    subscriptions: Mutex<ProjectionSubscriptions<Value, String>>,
+    subscriptions: Mutex<ProjectionSubscriptions<Value, Held<String>>>,
     title: Mutex<String>,
     refusal: Option<ProjectionRefusal>,
     mutations_run: Mutex<usize>,
@@ -114,7 +114,7 @@ impl Notes {
         self.title.lock().expect("title").clone()
     }
 
-    fn subscription(&self, subscription_id: u64) -> ProjectionSubscription<String> {
+    fn subscription(&self, subscription_id: u64) -> ProjectionSubscription<Held<String>> {
         self.subscriptions
             .lock()
             .expect("subscriptions")
@@ -142,7 +142,7 @@ impl ProjectionHost for Notes {
         _held: Option<&String>,
     ) -> impl Future<Output = Result<Value, Failure>> + Send {
         let snapshot = match projection {
-            "notes.authoringState" => json!({ "frontier": format!("frontier:{}", self.title()) }),
+            "notes.replica" => json!({ "frontier": format!("frontier:{}", self.title()) }),
             "boards.list" => json!({ "pinned": false }),
             _ => json!({ "title": self.title() }),
         };
@@ -180,7 +180,7 @@ impl ProjectionHost for Notes {
         &self,
         _mutation: &str,
         result: &Value,
-        subscription: &ProjectionSubscription<String>,
+        subscription: &ProjectionSubscription<Held<String>>,
     ) -> impl Future<Output = Option<Value>> + Send {
         // The authoring state reaches its subscribers another way.
         let patch = match subscription.projection.as_str() {
@@ -309,14 +309,14 @@ fn a_subscription_receives_a_snapshot_at_the_revision_it_is_accepted_at() {
 fn what_a_snapshot_leaves_its_client_holding_is_recorded() {
     let host = Notes::new();
 
-    let (accepted, reply) = subscribe(&host, "notes.authoringState", None);
+    let (accepted, reply) = subscribe(&host, "notes.replica", None);
 
     let ProjectionTransportEvent::Snapshot { snapshot, .. } = &reply.events[0] else {
         panic!("a snapshot: {:?}", reply.events);
     };
     assert_eq!(
         host.subscription(accepted.subscription_id).delivered,
-        host.delivered(snapshot)
+        host.delivered(snapshot).map(Held::Host)
     );
 }
 
@@ -343,7 +343,7 @@ fn a_mutation_patches_every_subscription_it_affects_and_no_other() {
 #[test]
 fn a_subscription_whose_changes_arrive_another_way_takes_no_mutation_patch() {
     let host = Notes::new();
-    let (authoring, _) = subscribe(&host, "notes.authoringState", None);
+    let (authoring, _) = subscribe(&host, "notes.replica", None);
 
     let (_, reply) = rename(&host, "Errands");
 
@@ -357,27 +357,27 @@ fn a_subscription_whose_changes_arrive_another_way_takes_no_mutation_patch() {
 #[test]
 fn a_subscriber_that_holds_the_current_state_is_sent_nothing() {
     let host = Notes::new();
-    let (_, first) = subscribe(&host, "notes.authoringState", None);
+    let (_, first) = subscribe(&host, "notes.replica", None);
     let held = held_by(&first.events[0]).expect("the snapshot names what it leaves held");
 
-    let (resumed, reply) = subscribe(&host, "notes.authoringState", Some(held));
+    let (resumed, reply) = subscribe(&host, "notes.replica", Some(held));
 
     assert!(resumed.up_to_date);
     assert!(reply.events.is_empty(), "{:?}", reply.events);
     assert_eq!(
         host.subscription(resumed.subscription_id).delivered,
-        Some(format!("frontier:{}", host.title()))
+        Some(Held::Host(format!("frontier:{}", host.title())))
     );
 }
 
 #[test]
 fn a_subscriber_that_holds_an_earlier_state_is_sent_a_snapshot() {
     let host = Notes::new();
-    let (_, first) = subscribe(&host, "notes.authoringState", None);
+    let (_, first) = subscribe(&host, "notes.replica", None);
     let held = held_by(&first.events[0]).expect("the snapshot names what it leaves held");
     rename(&host, "Errands");
 
-    let (resumed, reply) = subscribe(&host, "notes.authoringState", Some(held));
+    let (resumed, reply) = subscribe(&host, "notes.replica", Some(held));
 
     assert!(!resumed.up_to_date);
     let [event] = reply.events.as_slice() else {
@@ -394,7 +394,7 @@ fn a_subscriber_that_holds_an_earlier_state_is_sent_a_snapshot() {
 fn a_held_state_the_host_cannot_read_counts_as_holding_nothing() {
     let host = Notes::new();
 
-    let (resumed, reply) = subscribe(&host, "notes.authoringState", Some(json!(42)));
+    let (resumed, reply) = subscribe(&host, "notes.replica", Some(json!(42)));
 
     assert!(!resumed.up_to_date);
     assert_eq!(reply.events.len(), 1);
@@ -580,7 +580,7 @@ fn mutations_and_their_refusals_are_counted() {
 
 #[test]
 fn a_patch_starts_from_the_revision_its_client_holds_when_it_is_delivered() {
-    let mut subscriptions = ProjectionSubscriptions::<Value, String>::default();
+    let mut subscriptions = ProjectionSubscriptions::<Value, Held<String>>::default();
     let subscription_id = subscriptions.insert("notes.list".to_owned(), json!({}), 5);
 
     // A delivery reached the client after the mutation chose its revision.
@@ -685,7 +685,7 @@ fn a_request_is_served_as_the_command_it_names() {
 #[test]
 fn a_mutation_accepted_elsewhere_patches_the_subscriptions_it_affects() {
     let host = Notes::new();
-    let elsewhere = Mutex::new(ProjectionSubscriptions::<Value, String>::default());
+    let elsewhere = Mutex::new(ProjectionSubscriptions::<Value, Held<String>>::default());
     let (notes, _) = subscribe(&host, "notes.list", None);
     let reply = block_on(serve(
         &host,

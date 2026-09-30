@@ -27,28 +27,7 @@
       }
     }
   },
-  "projections": {
-    "notes.authoringState": {
-      "params": {
-        "$ref": "#/$defs/NoteKeyParams"
-      },
-      "snapshot": {
-        "$ref": "#/$defs/NoteAuthoringState"
-      },
-      "patch": {
-        "$ref": "#/$defs/NoteAuthoringStatePatch"
-      },
-      "dependsOn": [
-        "Note"
-      ],
-      "materialization": {
-        "strategy": "replaceOrRemove",
-        "snapshotMode": "field",
-        "snapshotField": "state",
-        "removeMode": "nullSnapshot"
-      }
-    }
-  },
+  "projections": {},
   "mutations": {
     "note.create": {
       "params": {
@@ -197,72 +176,6 @@
             "review",
             "published"
           ]
-        }
-      }
-    },
-    "NoteKeyParams": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "note_id"
-      ],
-      "properties": {
-        "note_id": {
-          "type": "string"
-        }
-      }
-    },
-    "NoteAuthoringState": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "note_id",
-        "etag",
-        "exchange_modes",
-        "accepted_frontier_base64",
-        "update_base64"
-      ],
-      "properties": {
-        "note_id": {
-          "type": "string"
-        },
-        "etag": {
-          "type": "string"
-        },
-        "exchange_modes": {
-          "type": "array",
-          "items": {
-            "type": "string",
-            "enum": [
-              "incremental",
-              "bootstrap"
-            ]
-          }
-        },
-        "accepted_frontier_base64": {
-          "type": "string"
-        },
-        "update_base64": {
-          "type": "string"
-        }
-      }
-    },
-    "NoteAuthoringStatePatch": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "kind"
-      ],
-      "properties": {
-        "kind": {
-          "type": "string",
-          "enum": [
-            "replace",
-            "remove"
-          ]
-        },
-        "state": {
-          "$ref": "#/$defs/NoteAuthoringState"
         }
       }
     },

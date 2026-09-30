@@ -27,23 +27,6 @@ export type NoteDocument = {
   "status": "draft" | "review" | "published";
 };
 
-export type NoteKeyParams = {
-  "note_id": string;
-};
-
-export type NoteAuthoringState = {
-  "note_id": string;
-  "etag": string;
-  "exchange_modes": ("incremental" | "bootstrap")[];
-  "accepted_frontier_base64": string;
-  "update_base64": string;
-};
-
-export type NoteAuthoringStatePatch = {
-  "kind": "replace" | "remove";
-  "state"?: NoteAuthoringState;
-};
-
 export type NoteCreateParams = {
   "title": string;
 };
@@ -79,6 +62,23 @@ export type LoroUpdateResult = {
   "missing_update_base64": string;
 };
 
+export type AuthoringState = {
+  "schema_version": number;
+  "accepted_frontier_base64": string;
+  "update_base64": string;
+  "etag": string;
+  "exchange_modes": ("incremental" | "bootstrap")[];
+};
+
+export type AuthoringStatePatch = {
+  "kind": "replace" | "remove";
+  "state"?: AuthoringState;
+};
+
+export type NoteAuthoringParams = {
+  "note_id": string;
+};
+
 export const NOTE_ENTITY = "Note";
 
 export const NOTES_AUTHORING_STATE_PROJECTION = "notes.authoringState";
@@ -107,15 +107,15 @@ export const MNEMONIC_KEYS = {
 } as const;
 
 export interface ProjectionParamsByName {
-  "notes.authoringState": NoteKeyParams;
+  "notes.authoringState": NoteAuthoringParams;
 }
 
 export interface ProjectionSnapshotByName {
-  "notes.authoringState": NoteAuthoringState;
+  "notes.authoringState": AuthoringState;
 }
 
 export interface ProjectionPatchByName {
-  "notes.authoringState": NoteAuthoringStatePatch;
+  "notes.authoringState": AuthoringStatePatch;
 }
 
 export interface MutationParamsByName {

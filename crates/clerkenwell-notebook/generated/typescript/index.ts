@@ -122,17 +122,6 @@ export type NoteKeyParams = {
   "note_id": string;
 };
 
-export type NoteAuthoringState = {
-  "note_id": string;
-  "etag": string;
-  "exchange_modes": ("incremental" | "bootstrap")[];
-};
-
-export type NoteAuthoringStatePatch = {
-  "kind": "replace" | "remove";
-  "state"?: NoteAuthoringState;
-};
-
 export type NoteDetail = {
   "note_id": string;
   "title": string;
@@ -203,17 +192,6 @@ export type BoardDocument = {
   "name": string;
   "columns": BoardColumn[];
   "archive"?: BoardColumn[];
-};
-
-export type BoardAuthoringState = {
-  "board_id": string;
-  "etag": string;
-  "exchange_modes": ("incremental" | "bootstrap")[];
-};
-
-export type BoardAuthoringStatePatch = {
-  "kind": "replace" | "remove";
-  "state"?: BoardAuthoringState;
 };
 
 export type BoardKeyParams = {
@@ -424,6 +402,27 @@ export type NoteSelectionState = {
   "anchor"?: string;
 };
 
+export type AuthoringState = {
+  "schema_version": number;
+  "accepted_frontier_base64": string;
+  "update_base64": string;
+  "etag": string;
+  "exchange_modes": ("incremental" | "bootstrap")[];
+};
+
+export type AuthoringStatePatch = {
+  "kind": "replace" | "remove";
+  "state"?: AuthoringState;
+};
+
+export type NoteAuthoringParams = {
+  "note_id": string;
+};
+
+export type BoardAuthoringParams = {
+  "board_id": string;
+};
+
 export const NOTE_ENTITY = "Note";
 export const BOARD_ENTITY = "Board";
 export const TASK_ENTITY = "Task";
@@ -432,15 +431,15 @@ export const ACTIVITY_ENTITY = "Activity";
 export const SYNC_HEALTH_ENTITY = "SyncHealth";
 
 export const NOTES_LIST_PROJECTION = "notes.list";
-export const NOTES_AUTHORING_STATE_PROJECTION = "notes.authoringState";
 export const NOTES_BY_ID_PROJECTION = "notes.byId";
-export const BOARDS_AUTHORING_STATE_PROJECTION = "boards.authoringState";
 export const TASKS_BY_ID_PROJECTION = "tasks.byId";
 export const TASKS_BOARD_PROJECTION = "tasks.board";
 export const WORKSPACE_CURRENT_PROJECTION = "workspace.current";
 export const ACTIVITY_STREAMS_PROJECTION = "activity.streams";
 export const ACTIVITY_HISTORY_PROJECTION = "activity.history";
 export const SYNC_HEALTH_PROJECTION = "sync.health";
+export const NOTES_AUTHORING_STATE_PROJECTION = "notes.authoringState";
+export const BOARDS_AUTHORING_STATE_PROJECTION = "boards.authoringState";
 
 export const NOTE_CREATE_MUTATION = "note.create";
 export const NOTE_IMPORT_LORO_UPDATE_MUTATION = "note.importLoroUpdate";
@@ -469,15 +468,15 @@ export type EntityName = typeof ENTITY_NAMES[number];
 
 export const PROJECTION_NAMES = [
   "notes.list",
-  "notes.authoringState",
   "notes.byId",
-  "boards.authoringState",
   "tasks.byId",
   "tasks.board",
   "workspace.current",
   "activity.streams",
   "activity.history",
   "sync.health",
+  "notes.authoringState",
+  "boards.authoringState",
 ] as const;
 export type ProjectionName = typeof PROJECTION_NAMES[number];
 
@@ -507,41 +506,41 @@ export const MNEMONIC_KEYS = {
 
 export interface ProjectionParamsByName {
   "notes.list": NotesListParams;
-  "notes.authoringState": NoteKeyParams;
   "notes.byId": NoteKeyParams;
-  "boards.authoringState": BoardKeyParams;
   "tasks.byId": TaskKeyParams;
   "tasks.board": BoardKeyParams;
   "workspace.current": WorkspaceParams;
   "activity.streams": WorkspaceParams;
   "activity.history": WorkspaceParams;
   "sync.health": WorkspaceParams;
+  "notes.authoringState": NoteAuthoringParams;
+  "boards.authoringState": BoardAuthoringParams;
 }
 
 export interface ProjectionSnapshotByName {
   "notes.list": NotesListSnapshot;
-  "notes.authoringState": NoteAuthoringState;
   "notes.byId": NoteDetailSnapshot;
-  "boards.authoringState": BoardAuthoringState;
   "tasks.byId": TaskDetailSnapshot;
   "tasks.board": TaskBoardSnapshot;
   "workspace.current": WorkspaceSettings;
   "activity.streams": ActivityStreamSnapshot;
   "activity.history": ActivityLog;
   "sync.health": SyncHealthRecord;
+  "notes.authoringState": AuthoringState;
+  "boards.authoringState": AuthoringState;
 }
 
 export interface ProjectionPatchByName {
   "notes.list": NotesListPatch;
-  "notes.authoringState": NoteAuthoringStatePatch;
   "notes.byId": NoteDetailPatch;
-  "boards.authoringState": BoardAuthoringStatePatch;
   "tasks.byId": TaskDetailPatch;
   "tasks.board": TaskBoardPatch;
   "workspace.current": WorkspaceSettingsPatch;
   "activity.streams": ActivityStreamPatch;
   "activity.history": ActivityLogPatch;
   "sync.health": SyncHealthPatch;
+  "notes.authoringState": AuthoringStatePatch;
+  "boards.authoringState": AuthoringStatePatch;
 }
 
 export interface MutationParamsByName {
@@ -620,15 +619,6 @@ export const PROJECTION_COMPOSITION_PLANS = {
       "Note"
     ]
   },
-  "notes.authoringState": {
-    "strategy": "replaceOrRemove",
-    "snapshotMode": "field",
-    "snapshotField": "state",
-    "removeMode": "nullSnapshot",
-    "dependsOn": [
-      "Note"
-    ]
-  },
   "notes.byId": {
     "strategy": "replaceOrRemove",
     "updateField": "note",
@@ -642,15 +632,6 @@ export const PROJECTION_COMPOSITION_PLANS = {
     "removeField": "note",
     "dependsOn": [
       "Note"
-    ]
-  },
-  "boards.authoringState": {
-    "strategy": "replaceOrRemove",
-    "snapshotMode": "field",
-    "snapshotField": "state",
-    "removeMode": "nullSnapshot",
-    "dependsOn": [
-      "Board"
     ]
   },
   "tasks.byId": {
@@ -702,6 +683,24 @@ export const PROJECTION_COMPOSITION_PLANS = {
     "snapshotField": "health",
     "dependsOn": [
       "SyncHealth"
+    ]
+  },
+  "notes.authoringState": {
+    "strategy": "replaceOrRemove",
+    "snapshotMode": "field",
+    "snapshotField": "state",
+    "removeMode": "nullSnapshot",
+    "dependsOn": [
+      "Note"
+    ]
+  },
+  "boards.authoringState": {
+    "strategy": "replaceOrRemove",
+    "snapshotMode": "field",
+    "snapshotField": "state",
+    "removeMode": "nullSnapshot",
+    "dependsOn": [
+      "Board"
     ]
   }
 } as const satisfies Record<ProjectionName, ProjectionCompositionPlan>;

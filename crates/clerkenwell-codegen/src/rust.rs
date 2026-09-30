@@ -540,6 +540,17 @@ fn collaboration_metadata(definition: &Definition) -> String {
                     "authoring_projection",
                     projection_path(entity.authoring_projection()),
                 ),
+                (
+                    "authoring_document",
+                    Expr::atom(match entity.authoring_document() {
+                        Some(document) => format!("Some({})", string_literal(document)),
+                        None => "None".to_owned(),
+                    }),
+                ),
+                (
+                    "authoring_store_params",
+                    literals(&entity.authoring_store_params()),
+                ),
                 ("import_mutation", mutation_path(entity.import_mutation())),
                 ("root_container", literal(entity.root_container())),
                 ("fields", Expr::atom(field_constant)),

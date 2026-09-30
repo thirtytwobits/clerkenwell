@@ -79,6 +79,10 @@ export interface CollaborationEntityPlan<
   readonly authoringState: {
     readonly projection: TProjection;
     readonly importMutation: TMutation;
+    /** The resource id of the entity's one document; a subscription then names none. */
+    readonly document?: string;
+    /** The subscription parameters that choose the store keeping the document. */
+    readonly storeParams?: readonly string[];
   };
   readonly rootContainer: string;
   /** Keyed by wire path, which is snake_case; client documents carry each path as camelCase. */

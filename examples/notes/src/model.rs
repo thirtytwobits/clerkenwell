@@ -25,27 +25,27 @@ pub enum NoteDocumentStatus {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, PartialEq, Eq)]
-pub enum NoteAuthoringStateExchangeModes {
-    #[serde(rename = "incremental")]
-    Incremental,
-    #[serde(rename = "bootstrap")]
-    Bootstrap,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, PartialEq, Eq)]
-pub enum NoteAuthoringStatePatchKind {
-    #[serde(rename = "replace")]
-    Replace,
-    #[serde(rename = "remove")]
-    Remove,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, PartialEq, Eq)]
 pub enum LoroUpdateParamsExchangeMode {
     #[serde(rename = "incremental")]
     Incremental,
     #[serde(rename = "bootstrap")]
     Bootstrap,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, PartialEq, Eq)]
+pub enum AuthoringStateExchangeModes {
+    #[serde(rename = "incremental")]
+    Incremental,
+    #[serde(rename = "bootstrap")]
+    Bootstrap,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, PartialEq, Eq)]
+pub enum AuthoringStatePatchKind {
+    #[serde(rename = "replace")]
+    Replace,
+    #[serde(rename = "remove")]
+    Remove,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, PartialEq)]
@@ -57,30 +57,6 @@ pub struct NoteDocument {
     pub title: String,
     pub body: String,
     pub status: NoteDocumentStatus,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, PartialEq)]
-#[serde(deny_unknown_fields)]
-pub struct NoteKeyParams {
-    pub note_id: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, PartialEq)]
-#[serde(deny_unknown_fields)]
-pub struct NoteAuthoringState {
-    pub note_id: String,
-    pub etag: String,
-    pub exchange_modes: Vec<NoteAuthoringStateExchangeModes>,
-    pub accepted_frontier_base64: String,
-    pub update_base64: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, PartialEq)]
-#[serde(deny_unknown_fields)]
-pub struct NoteAuthoringStatePatch {
-    pub kind: NoteAuthoringStatePatchKind,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub state: Option<NoteAuthoringState>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, PartialEq)]
@@ -132,6 +108,30 @@ pub struct LoroUpdateResult {
     pub etag: String,
     pub accepted_frontier_base64: String,
     pub missing_update_base64: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct AuthoringState {
+    pub schema_version: i64,
+    pub accepted_frontier_base64: String,
+    pub update_base64: String,
+    pub etag: String,
+    pub exchange_modes: Vec<AuthoringStateExchangeModes>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct AuthoringStatePatch {
+    pub kind: AuthoringStatePatchKind,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub state: Option<AuthoringState>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct NoteAuthoringParams {
+    pub note_id: String,
 }
 
 pub const NOTE_ENTITY: &str = "Note";
@@ -208,7 +208,7 @@ pub const SESSION_DRAFTS_MNEMONIC_KEY: &str = "notes.session.drafts";
 #[allow(clippy::large_enum_variant)]
 pub enum ProjectionTransportSnapshot {
     #[serde(rename = "notes.authoringState")]
-    NotesAuthoringState(NoteAuthoringState),
+    NotesAuthoringState(AuthoringState),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -216,7 +216,7 @@ pub enum ProjectionTransportSnapshot {
 #[allow(clippy::large_enum_variant)]
 pub enum ProjectionTransportPatch {
     #[serde(rename = "notes.authoringState")]
-    NotesAuthoringState(NoteAuthoringStatePatch),
+    NotesAuthoringState(AuthoringStatePatch),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -384,6 +384,8 @@ pub static NOTE_COLLABORATION_SPEC: GeneratedCollaborationEntitySpec =
         schema_version: 1,
         migration_ids: &["note-loro-layout-v1"],
         authoring_projection: NOTES_AUTHORING_STATE_PROJECTION,
+        authoring_document: None,
+        authoring_store_params: &[],
         import_mutation: NOTE_IMPORT_LORO_UPDATE_MUTATION,
         root_container: "note",
         fields: NOTE_COLLABORATION_FIELDS,

@@ -31,7 +31,8 @@ cargo run -p clerkenwell-example-notes --bin notes-server
 `notes-server` serves the notes through `clerkenwell-axum` and prints the WebSocket address.
 A client creates a note with `note.create`, subscribes to `notes.authoringState` for the
 accepted frontier and operations, and sends its replica's operations with
-`note.importLoroUpdate`. Every subscriber to the note takes the new state. A refused edit
+`note.importLoroUpdate`. When an edit is accepted, every subscriber to the note takes the
+operations it lacks. A refused edit
 carries the operations its writer lacks, which the writer takes before sending its edit
 again. `src/server.rs` holds the application; `tests/server.rs` runs two clients against it.
 

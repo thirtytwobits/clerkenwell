@@ -70,6 +70,8 @@ pub static NOTE_PLAN: GeneratedCollaborationEntitySpec = GeneratedCollaborationE
     schema_version: 1,
     migration_ids: &[],
     authoring_projection: "notes.authoringState",
+    authoring_document: None,
+    authoring_store_params: &[],
     import_mutation: "note.importLoroUpdate",
     root_container: "note",
     fields: NOTE_FIELDS,

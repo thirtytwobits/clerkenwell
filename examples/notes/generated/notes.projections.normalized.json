@@ -91,6 +91,67 @@
   "definitions": [
     {
       "additionalProperties": false,
+      "name": "AuthoringState",
+      "properties": {
+        "accepted_frontier_base64": {
+          "description": "The frontier of the accepted state this delivery leaves its client holding.",
+          "type": "string"
+        },
+        "etag": {
+          "description": "The accepted state's etag.",
+          "type": "string"
+        },
+        "exchange_modes": {
+          "description": "How the store accepts an import of this document.",
+          "items": {
+            "enum": [
+              "incremental",
+              "bootstrap"
+            ],
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "schema_version": {
+          "description": "The layout version the document's operations are written in.",
+          "type": "integer"
+        },
+        "update_base64": {
+          "description": "The accepted operations this delivery adds: every one in a snapshot, and in a patch those after the frontier its client held.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "accepted_frontier_base64",
+        "update_base64",
+        "etag",
+        "exchange_modes"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "name": "AuthoringStatePatch",
+      "properties": {
+        "kind": {
+          "enum": [
+            "replace",
+            "remove"
+          ],
+          "type": "string"
+        },
+        "state": {
+          "$ref": "#/$defs/AuthoringState"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
       "name": "DraftEntry",
       "properties": {
         "entity": {
@@ -176,57 +237,14 @@
     },
     {
       "additionalProperties": false,
-      "name": "NoteAuthoringState",
+      "name": "NoteAuthoringParams",
       "properties": {
-        "accepted_frontier_base64": {
-          "type": "string"
-        },
-        "etag": {
-          "type": "string"
-        },
-        "exchange_modes": {
-          "items": {
-            "enum": [
-              "incremental",
-              "bootstrap"
-            ],
-            "type": "string"
-          },
-          "type": "array"
-        },
         "note_id": {
           "type": "string"
-        },
-        "update_base64": {
-          "type": "string"
         }
       },
       "required": [
-        "note_id",
-        "etag",
-        "exchange_modes",
-        "accepted_frontier_base64",
-        "update_base64"
-      ],
-      "type": "object"
-    },
-    {
-      "additionalProperties": false,
-      "name": "NoteAuthoringStatePatch",
-      "properties": {
-        "kind": {
-          "enum": [
-            "replace",
-            "remove"
-          ],
-          "type": "string"
-        },
-        "state": {
-          "$ref": "#/$defs/NoteAuthoringState"
-        }
-      },
-      "required": [
-        "kind"
+        "note_id"
       ],
       "type": "object"
     },
@@ -276,19 +294,6 @@
         "title",
         "body",
         "status"
-      ],
-      "type": "object"
-    },
-    {
-      "additionalProperties": false,
-      "name": "NoteKeyParams",
-      "properties": {
-        "note_id": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "note_id"
       ],
       "type": "object"
     },
@@ -395,6 +400,7 @@
       "dependsOn": [
         "Note"
       ],
+      "description": "The accepted state of one Note document, for keeping a replica of it.",
       "materialization": {
         "removeMode": "nullSnapshot",
         "snapshotField": "state",
@@ -403,13 +409,13 @@
       },
       "name": "notes.authoringState",
       "params": {
-        "$ref": "#/$defs/NoteKeyParams"
+        "$ref": "#/$defs/NoteAuthoringParams"
       },
       "patch": {
-        "$ref": "#/$defs/NoteAuthoringStatePatch"
+        "$ref": "#/$defs/AuthoringStatePatch"
       },
       "snapshot": {
-        "$ref": "#/$defs/NoteAuthoringState"
+        "$ref": "#/$defs/AuthoringState"
       }
     }
   ],

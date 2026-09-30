@@ -155,26 +155,6 @@
         "patchIdentityField": "note_id"
       }
     },
-    "notes.authoringState": {
-      "params": {
-        "$ref": "#/$defs/NoteKeyParams"
-      },
-      "snapshot": {
-        "$ref": "#/$defs/NoteAuthoringState"
-      },
-      "patch": {
-        "$ref": "#/$defs/NoteAuthoringStatePatch"
-      },
-      "dependsOn": [
-        "Note"
-      ],
-      "materialization": {
-        "strategy": "replaceOrRemove",
-        "snapshotMode": "field",
-        "snapshotField": "state",
-        "removeMode": "nullSnapshot"
-      }
-    },
     "notes.byId": {
       "params": {
         "$ref": "#/$defs/NoteKeyParams"
@@ -199,26 +179,6 @@
         ],
         "removeMode": "nullField",
         "removeField": "note"
-      }
-    },
-    "boards.authoringState": {
-      "params": {
-        "$ref": "#/$defs/BoardKeyParams"
-      },
-      "snapshot": {
-        "$ref": "#/$defs/BoardAuthoringState"
-      },
-      "patch": {
-        "$ref": "#/$defs/BoardAuthoringStatePatch"
-      },
-      "dependsOn": [
-        "Board"
-      ],
-      "materialization": {
-        "strategy": "replaceOrRemove",
-        "snapshotMode": "field",
-        "snapshotField": "state",
-        "removeMode": "nullSnapshot"
       }
     },
     "tasks.byId": {
@@ -1484,52 +1444,6 @@
         }
       }
     },
-    "NoteAuthoringState": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "note_id",
-        "etag",
-        "exchange_modes"
-      ],
-      "properties": {
-        "note_id": {
-          "type": "string"
-        },
-        "etag": {
-          "type": "string"
-        },
-        "exchange_modes": {
-          "type": "array",
-          "items": {
-            "type": "string",
-            "enum": [
-              "incremental",
-              "bootstrap"
-            ]
-          }
-        }
-      }
-    },
-    "NoteAuthoringStatePatch": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "kind"
-      ],
-      "properties": {
-        "kind": {
-          "type": "string",
-          "enum": [
-            "replace",
-            "remove"
-          ]
-        },
-        "state": {
-          "$ref": "#/$defs/NoteAuthoringState"
-        }
-      }
-    },
     "NoteDetail": {
       "type": "object",
       "additionalProperties": false,
@@ -1781,52 +1695,6 @@
           "items": {
             "$ref": "#/$defs/BoardColumn"
           }
-        }
-      }
-    },
-    "BoardAuthoringState": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "board_id",
-        "etag",
-        "exchange_modes"
-      ],
-      "properties": {
-        "board_id": {
-          "type": "string"
-        },
-        "etag": {
-          "type": "string"
-        },
-        "exchange_modes": {
-          "type": "array",
-          "items": {
-            "type": "string",
-            "enum": [
-              "incremental",
-              "bootstrap"
-            ]
-          }
-        }
-      }
-    },
-    "BoardAuthoringStatePatch": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "kind"
-      ],
-      "properties": {
-        "kind": {
-          "type": "string",
-          "enum": [
-            "replace",
-            "remove"
-          ]
-        },
-        "state": {
-          "$ref": "#/$defs/BoardAuthoringState"
         }
       }
     },

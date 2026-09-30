@@ -51,22 +51,6 @@ pub enum NotesListPatchKind {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, PartialEq, Eq)]
-pub enum NoteAuthoringStateExchangeModes {
-    #[serde(rename = "incremental")]
-    Incremental,
-    #[serde(rename = "bootstrap")]
-    Bootstrap,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, PartialEq, Eq)]
-pub enum NoteAuthoringStatePatchKind {
-    #[serde(rename = "replace")]
-    Replace,
-    #[serde(rename = "remove")]
-    Remove,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, PartialEq, Eq)]
 pub enum NoteDetailPatchKind {
     #[serde(rename = "replace")]
     Replace,
@@ -74,22 +58,6 @@ pub enum NoteDetailPatchKind {
     Remove,
     #[serde(rename = "update")]
     Update,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, PartialEq, Eq)]
-pub enum BoardAuthoringStateExchangeModes {
-    #[serde(rename = "incremental")]
-    Incremental,
-    #[serde(rename = "bootstrap")]
-    Bootstrap,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, PartialEq, Eq)]
-pub enum BoardAuthoringStatePatchKind {
-    #[serde(rename = "replace")]
-    Replace,
-    #[serde(rename = "remove")]
-    Remove,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, PartialEq, Eq)]
@@ -194,6 +162,22 @@ pub enum ActivityStreamPatchKind {
 pub enum SyncHealthPatchKind {
     #[serde(rename = "replace")]
     Replace,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, PartialEq, Eq)]
+pub enum AuthoringStateExchangeModes {
+    #[serde(rename = "incremental")]
+    Incremental,
+    #[serde(rename = "bootstrap")]
+    Bootstrap,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, PartialEq, Eq)]
+pub enum AuthoringStatePatchKind {
+    #[serde(rename = "replace")]
+    Replace,
+    #[serde(rename = "remove")]
+    Remove,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, PartialEq)]
@@ -356,22 +340,6 @@ pub struct NoteKeyParams {
 
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, PartialEq)]
 #[serde(deny_unknown_fields)]
-pub struct NoteAuthoringState {
-    pub note_id: String,
-    pub etag: String,
-    pub exchange_modes: Vec<NoteAuthoringStateExchangeModes>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, PartialEq)]
-#[serde(deny_unknown_fields)]
-pub struct NoteAuthoringStatePatch {
-    pub kind: NoteAuthoringStatePatchKind,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub state: Option<NoteAuthoringState>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, PartialEq)]
-#[serde(deny_unknown_fields)]
 pub struct NoteDetail {
     pub note_id: String,
     pub title: String,
@@ -473,22 +441,6 @@ pub struct BoardDocument {
     pub columns: Vec<BoardColumn>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub archive: Option<Vec<BoardColumn>>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, PartialEq)]
-#[serde(deny_unknown_fields)]
-pub struct BoardAuthoringState {
-    pub board_id: String,
-    pub etag: String,
-    pub exchange_modes: Vec<BoardAuthoringStateExchangeModes>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, PartialEq)]
-#[serde(deny_unknown_fields)]
-pub struct BoardAuthoringStatePatch {
-    pub kind: BoardAuthoringStatePatchKind,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub state: Option<BoardAuthoringState>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, PartialEq)]
@@ -796,6 +748,36 @@ pub struct NoteSelectionState {
     pub anchor: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct AuthoringState {
+    pub schema_version: i64,
+    pub accepted_frontier_base64: String,
+    pub update_base64: String,
+    pub etag: String,
+    pub exchange_modes: Vec<AuthoringStateExchangeModes>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct AuthoringStatePatch {
+    pub kind: AuthoringStatePatchKind,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub state: Option<AuthoringState>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct NoteAuthoringParams {
+    pub note_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct BoardAuthoringParams {
+    pub board_id: String,
+}
+
 pub const NOTE_ENTITY: &str = "Note";
 pub const BOARD_ENTITY: &str = "Board";
 pub const TASK_ENTITY: &str = "Task";
@@ -804,15 +786,15 @@ pub const ACTIVITY_ENTITY: &str = "Activity";
 pub const SYNC_HEALTH_ENTITY: &str = "SyncHealth";
 
 pub const NOTES_LIST_PROJECTION: &str = "notes.list";
-pub const NOTES_AUTHORING_STATE_PROJECTION: &str = "notes.authoringState";
 pub const NOTES_BY_ID_PROJECTION: &str = "notes.byId";
-pub const BOARDS_AUTHORING_STATE_PROJECTION: &str = "boards.authoringState";
 pub const TASKS_BY_ID_PROJECTION: &str = "tasks.byId";
 pub const TASKS_BOARD_PROJECTION: &str = "tasks.board";
 pub const WORKSPACE_CURRENT_PROJECTION: &str = "workspace.current";
 pub const ACTIVITY_STREAMS_PROJECTION: &str = "activity.streams";
 pub const ACTIVITY_HISTORY_PROJECTION: &str = "activity.history";
 pub const SYNC_HEALTH_PROJECTION: &str = "sync.health";
+pub const NOTES_AUTHORING_STATE_PROJECTION: &str = "notes.authoringState";
+pub const BOARDS_AUTHORING_STATE_PROJECTION: &str = "boards.authoringState";
 
 pub const NOTE_CREATE_MUTATION: &str = "note.create";
 pub const NOTE_IMPORT_LORO_UPDATE_MUTATION: &str = "note.importLoroUpdate";
@@ -833,15 +815,15 @@ pub const SYNC_RESET_MUTATION: &str = "sync.reset";
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ProjectionName {
     NotesList,
-    NotesAuthoringState,
     NotesById,
-    BoardsAuthoringState,
     TasksById,
     TasksBoard,
     WorkspaceCurrent,
     ActivityStreams,
     ActivityHistory,
     SyncHealth,
+    NotesAuthoringState,
+    BoardsAuthoringState,
 }
 
 #[rustfmt::skip]
@@ -851,14 +833,8 @@ impl ProjectionName {
             Self::NotesList => {
                 NOTES_LIST_PROJECTION
             },
-            Self::NotesAuthoringState => {
-                NOTES_AUTHORING_STATE_PROJECTION
-            },
             Self::NotesById => {
                 NOTES_BY_ID_PROJECTION
-            },
-            Self::BoardsAuthoringState => {
-                BOARDS_AUTHORING_STATE_PROJECTION
             },
             Self::TasksById => {
                 TASKS_BY_ID_PROJECTION
@@ -878,6 +854,12 @@ impl ProjectionName {
             Self::SyncHealth => {
                 SYNC_HEALTH_PROJECTION
             },
+            Self::NotesAuthoringState => {
+                NOTES_AUTHORING_STATE_PROJECTION
+            },
+            Self::BoardsAuthoringState => {
+                BOARDS_AUTHORING_STATE_PROJECTION
+            },
         }
     }
 
@@ -886,14 +868,8 @@ impl ProjectionName {
             NOTES_LIST_PROJECTION => {
                 Some(Self::NotesList)
             },
-            NOTES_AUTHORING_STATE_PROJECTION => {
-                Some(Self::NotesAuthoringState)
-            },
             NOTES_BY_ID_PROJECTION => {
                 Some(Self::NotesById)
-            },
-            BOARDS_AUTHORING_STATE_PROJECTION => {
-                Some(Self::BoardsAuthoringState)
             },
             TASKS_BY_ID_PROJECTION => {
                 Some(Self::TasksById)
@@ -912,6 +888,12 @@ impl ProjectionName {
             },
             SYNC_HEALTH_PROJECTION => {
                 Some(Self::SyncHealth)
+            },
+            NOTES_AUTHORING_STATE_PROJECTION => {
+                Some(Self::NotesAuthoringState)
+            },
+            BOARDS_AUTHORING_STATE_PROJECTION => {
+                Some(Self::BoardsAuthoringState)
             },
             _ => None,
         }
@@ -1044,15 +1026,15 @@ pub const ENTITY_NAMES: &[&str] = &[
 ];
 pub const PROJECTION_NAMES: &[&str] = &[
     "notes.list",
-    "notes.authoringState",
     "notes.byId",
-    "boards.authoringState",
     "tasks.byId",
     "tasks.board",
     "workspace.current",
     "activity.streams",
     "activity.history",
     "sync.health",
+    "notes.authoringState",
+    "boards.authoringState",
 ];
 pub const MUTATION_NAMES: &[&str] = &[
     "note.create",
@@ -1080,12 +1062,8 @@ pub const NOTE_SELECTION_MNEMONIC_KEY: &str = "notebook.note.selection";
 pub enum ProjectionTransportSnapshot {
     #[serde(rename = "notes.list")]
     NotesList(NotesListSnapshot),
-    #[serde(rename = "notes.authoringState")]
-    NotesAuthoringState(NoteAuthoringState),
     #[serde(rename = "notes.byId")]
     NotesById(NoteDetailSnapshot),
-    #[serde(rename = "boards.authoringState")]
-    BoardsAuthoringState(BoardAuthoringState),
     #[serde(rename = "tasks.byId")]
     TasksById(TaskDetailSnapshot),
     #[serde(rename = "tasks.board")]
@@ -1098,6 +1076,10 @@ pub enum ProjectionTransportSnapshot {
     ActivityHistory(ActivityLog),
     #[serde(rename = "sync.health")]
     SyncHealth(SyncHealthRecord),
+    #[serde(rename = "notes.authoringState")]
+    NotesAuthoringState(AuthoringState),
+    #[serde(rename = "boards.authoringState")]
+    BoardsAuthoringState(AuthoringState),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -1106,12 +1088,8 @@ pub enum ProjectionTransportSnapshot {
 pub enum ProjectionTransportPatch {
     #[serde(rename = "notes.list")]
     NotesList(NotesListPatch),
-    #[serde(rename = "notes.authoringState")]
-    NotesAuthoringState(NoteAuthoringStatePatch),
     #[serde(rename = "notes.byId")]
     NotesById(NoteDetailPatch),
-    #[serde(rename = "boards.authoringState")]
-    BoardsAuthoringState(BoardAuthoringStatePatch),
     #[serde(rename = "tasks.byId")]
     TasksById(TaskDetailPatch),
     #[serde(rename = "tasks.board")]
@@ -1124,6 +1102,10 @@ pub enum ProjectionTransportPatch {
     ActivityHistory(ActivityLogPatch),
     #[serde(rename = "sync.health")]
     SyncHealth(SyncHealthPatch),
+    #[serde(rename = "notes.authoringState")]
+    NotesAuthoringState(AuthoringStatePatch),
+    #[serde(rename = "boards.authoringState")]
+    BoardsAuthoringState(AuthoringStatePatch),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -1195,16 +1177,6 @@ pub static GENERATED_PROJECTION_SPECS: &[GeneratedProjectionSpec] = &[
         },
     },
     GeneratedProjectionSpec {
-        name: NOTES_AUTHORING_STATE_PROJECTION,
-        depends_on: &["Note"],
-        materialization: GeneratedMaterializationPlan::ReplaceOrRemove {
-            snapshot_mode: GeneratedSnapshotMode::Field("state"),
-            snapshot_omit_fields: &[],
-            remove_mode: GeneratedRemoveMode::NullSnapshot,
-            update_fields: None,
-        },
-    },
-    GeneratedProjectionSpec {
         name: NOTES_BY_ID_PROJECTION,
         depends_on: &["Note"],
         materialization: GeneratedMaterializationPlan::ReplaceOrRemove {
@@ -1212,16 +1184,6 @@ pub static GENERATED_PROJECTION_SPECS: &[GeneratedProjectionSpec] = &[
             snapshot_omit_fields: &["reason", "changes"],
             remove_mode: GeneratedRemoveMode::NullField("note"),
             update_fields: Some(("note", "changes")),
-        },
-    },
-    GeneratedProjectionSpec {
-        name: BOARDS_AUTHORING_STATE_PROJECTION,
-        depends_on: &["Board"],
-        materialization: GeneratedMaterializationPlan::ReplaceOrRemove {
-            snapshot_mode: GeneratedSnapshotMode::Field("state"),
-            snapshot_omit_fields: &[],
-            remove_mode: GeneratedRemoveMode::NullSnapshot,
-            update_fields: None,
         },
     },
     GeneratedProjectionSpec {
@@ -1273,6 +1235,26 @@ pub static GENERATED_PROJECTION_SPECS: &[GeneratedProjectionSpec] = &[
         materialization: GeneratedMaterializationPlan::Replace {
             snapshot_mode: GeneratedSnapshotMode::Field("health"),
             snapshot_omit_fields: &[],
+        },
+    },
+    GeneratedProjectionSpec {
+        name: NOTES_AUTHORING_STATE_PROJECTION,
+        depends_on: &["Note"],
+        materialization: GeneratedMaterializationPlan::ReplaceOrRemove {
+            snapshot_mode: GeneratedSnapshotMode::Field("state"),
+            snapshot_omit_fields: &[],
+            remove_mode: GeneratedRemoveMode::NullSnapshot,
+            update_fields: None,
+        },
+    },
+    GeneratedProjectionSpec {
+        name: BOARDS_AUTHORING_STATE_PROJECTION,
+        depends_on: &["Board"],
+        materialization: GeneratedMaterializationPlan::ReplaceOrRemove {
+            snapshot_mode: GeneratedSnapshotMode::Field("state"),
+            snapshot_omit_fields: &[],
+            remove_mode: GeneratedRemoveMode::NullSnapshot,
+            update_fields: None,
         },
     },
 ];
@@ -1848,6 +1830,8 @@ pub static NOTE_COLLABORATION_SPEC: GeneratedCollaborationEntitySpec =
         schema_version: 1,
         migration_ids: &["note-loro-layout-v1"],
         authoring_projection: NOTES_AUTHORING_STATE_PROJECTION,
+        authoring_document: None,
+        authoring_store_params: &[],
         import_mutation: NOTE_IMPORT_LORO_UPDATE_MUTATION,
         root_container: "note",
         fields: NOTE_COLLABORATION_FIELDS,
@@ -2304,6 +2288,8 @@ pub static BOARD_COLLABORATION_SPEC: GeneratedCollaborationEntitySpec =
             "board-card-notes-v3",
         ],
         authoring_projection: BOARDS_AUTHORING_STATE_PROJECTION,
+        authoring_document: None,
+        authoring_store_params: &[],
         import_mutation: BOARD_IMPORT_LORO_UPDATE_MUTATION,
         root_container: "board",
         fields: BOARD_COLLABORATION_FIELDS,

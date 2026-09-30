@@ -54,9 +54,9 @@
   "projections": [
     {
       "name": "notes.authoringState",
-      "params": "#/$defs/NoteKeyParams",
-      "snapshot": "#/$defs/NoteAuthoringState",
-      "patch": "#/$defs/NoteAuthoringStatePatch",
+      "params": "#/$defs/NoteAuthoringParams",
+      "snapshot": "#/$defs/AuthoringState",
+      "patch": "#/$defs/AuthoringStatePatch",
       "dependsOn": [
         "Note"
       ],
