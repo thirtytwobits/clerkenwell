@@ -51,7 +51,7 @@ fn refusal_code(error: &clerkenwell_store::StoreError) -> Option<&str> {
 }
 
 #[test]
-fn an_envelope_in_an_earlier_format_is_refused_and_reads_leave_it_as_it_is() {
+fn an_envelope_in_an_earlier_format_is_described_but_its_content_refused() {
     let (_root, service, path) = seeded();
     keep_in_format_1(&path, &format_1_fields());
     let kept = std::fs::read(&path).expect("read");
@@ -66,6 +66,19 @@ fn an_envelope_in_an_earlier_format_is_refused_and_reads_leave_it_as_it_is() {
     assert!(!inspection.valid);
     assert_eq!(
         inspection.failure_code.as_deref(),
+        Some("collaboration_envelope_upgrade_required")
+    );
+    let described = service
+        .summary(&note())
+        .expect("summary")
+        .expect("a document");
+    assert!(described.envelope_version < ENVELOPE_VERSION);
+    assert_eq!(service.summaries("Note").expect("summaries"), [described]);
+    let moved = service
+        .move_document(&note(), &CollaborationDocumentId::new("Note", "note-2"))
+        .expect_err("an earlier format");
+    assert_eq!(
+        refusal_code(&moved),
         Some("collaboration_envelope_upgrade_required")
     );
 
@@ -87,6 +100,14 @@ fn an_upgrade_returns_what_the_earlier_format_kept_and_leaves_the_document_as_it
     assert_eq!(Value::Object(removed), earlier);
     let after = service.load(&note()).expect("load").expect("an envelope");
     assert_eq!(after.envelope_version, ENVELOPE_VERSION);
+    assert_eq!(
+        service
+            .summary(&note())
+            .expect("summary")
+            .expect("a document")
+            .envelope_version,
+        ENVELOPE_VERSION
+    );
     assert_eq!(after.generation, before.generation);
     assert_eq!(after.etag(), before.etag());
     assert_eq!(
