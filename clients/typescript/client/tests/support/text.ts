@@ -4,7 +4,7 @@
  * Text-binding helpers: an isolated one-field replica and single-range edits.
  */
 import type { CollaborationEntityPlan, TextBinding } from "@clerkenwell/client";
-import { CollaborationLoroAuthoringDocument } from "@clerkenwell/client/loro";
+import { CollaborationReplica } from "@clerkenwell/client/replica";
 
 const SCRATCH_PLAN = {
   schemaVersion: 1,
@@ -25,7 +25,7 @@ const SCRATCH_PLAN = {
 
 /** A text field with no transport or owner behind it. */
 export function createScratchTextBinding(text: string): TextBinding {
-  return new CollaborationLoroAuthoringDocument("Scratch", SCRATCH_PLAN, {
+  return CollaborationReplica.from("Scratch", SCRATCH_PLAN, {
     kind: "document",
     document: { text }
   }).bindText("text");

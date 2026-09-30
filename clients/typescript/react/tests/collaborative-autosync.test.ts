@@ -9,7 +9,7 @@ import test from "node:test";
 import {
   rejectedCollaborativeAutosyncKeyAfterDraftChange,
   shouldScheduleCollaborativeAutosync
-} from "@clerkenwell/react";
+} from "../src/collaborative-autosync";
 
 const READY_DIRTY_DRAFT = {
   draftKey: "draft-a",

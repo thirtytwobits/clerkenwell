@@ -9,23 +9,25 @@ import test from "node:test";
 
 import {
   AuthoringRuntime,
+  authoringSessionAcceptsDraft,
+  redactedAuthoringRuntimeDiagnostic,
+  type AuthoringSessionStatus
+} from "@clerkenwell/client";
+import {
   acknowledgeAuthoringOperation,
   adoptAuthoringBaseline,
   authoringLeaveDecision,
-  authoringSessionAcceptsDraft,
   beginAuthoringReplay,
   blockAuthoringSession,
   disconnectAuthoringSession,
   modifyAuthoringSession,
   queueAuthoringOperation,
-  redactedAuthoringRuntimeDiagnostic,
   reconnectAuthoringSession,
   rejectAuthoringOperation,
   resolveAuthoringDraftForBaselineAdoption,
   startAuthoringSession,
-  supersedeBlockedAuthoringOperations,
-  type AuthoringSessionStatus
-} from "@clerkenwell/client";
+  supersedeBlockedAuthoringOperations
+} from "../src/authoring-state-machine";
 
 
 const resource = { entity: "Note", resourceKey: "note" } as const;

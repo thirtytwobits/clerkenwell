@@ -85,6 +85,7 @@ impl Object {
     }
 
     /// Removes `key`, keeping the order of the rest.
+    #[cfg(feature = "testing")]
     pub fn remove(&mut self, key: &str) -> Option<Json> {
         self.entries.shift_remove(key)
     }
@@ -114,6 +115,7 @@ impl Object {
         self.entries.keys().map(String::as_str)
     }
 
+    #[cfg(feature = "testing")]
     pub fn values(&self) -> impl Iterator<Item = &Json> {
         self.entries.values()
     }
@@ -200,6 +202,7 @@ impl Json {
     }
 
     /// The value at a JSON Pointer (RFC 6901), such as `/$defs/Note/properties`.
+    #[cfg(feature = "testing")]
     pub fn pointer(&self, pointer: &str) -> Option<&Json> {
         pointer_segments(pointer)?
             .iter()
@@ -211,6 +214,7 @@ impl Json {
     }
 
     /// The value at a JSON Pointer, mutably.
+    #[cfg(feature = "testing")]
     pub fn pointer_mut(&mut self, pointer: &str) -> Option<&mut Json> {
         pointer_segments(pointer)?
             .iter()
@@ -369,6 +373,7 @@ impl<'de> Visitor<'de> for JsonVisitor {
 }
 
 /// The unescaped reference tokens of a JSON Pointer; `None` if it is malformed.
+#[cfg(feature = "testing")]
 fn pointer_segments(pointer: &str) -> Option<Vec<String>> {
     if pointer.is_empty() {
         return Some(Vec::new());

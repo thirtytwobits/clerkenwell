@@ -15,7 +15,12 @@ serde.workspace = true
 serde_json = { workspace = true, features = ["float_roundtrip"] }
 thiserror.workspace = true
 
+[features]
+# The generator's internals, for Clerkenwell's own tests.
+testing = []
+
 [dev-dependencies]
+clerkenwell-codegen = { path = ".", features = ["testing"] }
 clerkenwell-notebook = { path = "../clerkenwell-notebook" }
 schemars.workspace = true
 tempfile.workspace = true

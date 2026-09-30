@@ -7,10 +7,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import {
-  authoringReplayDecision,
-  type QueuedAuthoringOperation
-} from "@clerkenwell/client";
+import { type QueuedAuthoringOperation } from "@clerkenwell/client";
+import { authoringReplayDecision } from "../src/authoring-state-machine";
 
 const SCHEMA_VERSION = 1;
 

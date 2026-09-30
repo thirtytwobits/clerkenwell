@@ -1,0 +1,19 @@
+# The public API of clerkenwell_conformance. Written by `cargo run -p clerkenwell-public-api`.
+# Types named from: clerkenwell_schema
+
+struct clerkenwell_conformance::Bindings
+derive clerkenwell_conformance::Bindings: Clone, Debug
+field clerkenwell_conformance::Bindings::collaboration_fixtures: PathBuf
+field clerkenwell_conformance::Bindings::plans: &'static [GeneratedCollaborationEntitySpec]
+field clerkenwell_conformance::Bindings::typescript_plans: PathBuf
+struct clerkenwell_conformance::Conformance { .. }
+fn clerkenwell_conformance::Conformance::concurrent_edits(&self)
+fn clerkenwell_conformance::Conformance::concurrent_typing(&self)
+fn clerkenwell_conformance::Conformance::conflict_policy(&self)
+fn clerkenwell_conformance::Conformance::fixture_operations(&self)
+fn clerkenwell_conformance::Conformance::seeding(&self)
+fn clerkenwell_conformance::Conformance::start(bindings: &Bindings) -> Self
+fn clerkenwell_conformance::Conformance::start_in(bindings: &Bindings, workspace: &Path) -> Self
+fn clerkenwell_conformance::Conformance::text_consumption(&self)
+fn clerkenwell_conformance::check_client_naming(bindings: &Bindings)
+fn clerkenwell_conformance::workspace() -> PathBuf

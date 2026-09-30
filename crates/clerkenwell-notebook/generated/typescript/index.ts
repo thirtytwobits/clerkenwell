@@ -34,13 +34,13 @@ export type NoFilters = {};
 
 export type EmptyResult = {};
 
-export type LoroUpdateParams = {
+export type ReplicaUpdateParams = {
   "entity_id": string;
   "update": string;
   "exchange_mode": "incremental" | "bootstrap";
 };
 
-export type LoroUpdateResult = {
+export type ReplicaUpdateResult = {
   "etag": string;
 };
 
@@ -442,13 +442,13 @@ export const NOTES_AUTHORING_STATE_PROJECTION = "notes.authoringState";
 export const BOARDS_AUTHORING_STATE_PROJECTION = "boards.authoringState";
 
 export const NOTE_CREATE_MUTATION = "note.create";
-export const NOTE_IMPORT_LORO_UPDATE_MUTATION = "note.importLoroUpdate";
+export const NOTE_IMPORT_UPDATE_MUTATION = "note.importUpdate";
 export const NOTE_RENAME_MUTATION = "note.rename";
 export const NOTE_DELETE_MUTATION = "note.delete";
 export const NOTE_PIN_MUTATION = "note.pin";
 export const NOTE_MOVE_TO_BOARD_MUTATION = "note.moveToBoard";
 export const BOARD_CREATE_MUTATION = "board.create";
-export const BOARD_IMPORT_LORO_UPDATE_MUTATION = "board.importLoroUpdate";
+export const BOARD_IMPORT_UPDATE_MUTATION = "board.importUpdate";
 export const BOARD_RECONCILE_ARCHIVED_COLUMN_ORDER_MUTATION = "board.reconcileArchivedColumnOrder";
 export const TASK_SAVE_MUTATION = "task.save";
 export const TASK_SCHEDULE_MUTATION = "task.schedule";
@@ -482,13 +482,13 @@ export type ProjectionName = typeof PROJECTION_NAMES[number];
 
 export const MUTATION_NAMES = [
   "note.create",
-  "note.importLoroUpdate",
+  "note.importUpdate",
   "note.rename",
   "note.delete",
   "note.pin",
   "note.moveToBoard",
   "board.create",
-  "board.importLoroUpdate",
+  "board.importUpdate",
   "board.reconcileArchivedColumnOrder",
   "task.save",
   "task.schedule",
@@ -545,13 +545,13 @@ export interface ProjectionPatchByName {
 
 export interface MutationParamsByName {
   "note.create": NoteCreateParams;
-  "note.importLoroUpdate": LoroUpdateParams;
+  "note.importUpdate": ReplicaUpdateParams;
   "note.rename": NoteRenameParams;
   "note.delete": NoteKeyParams;
   "note.pin": NotePinParams;
   "note.moveToBoard": NoteMoveParams;
   "board.create": BoardCreateParams;
-  "board.importLoroUpdate": LoroUpdateParams;
+  "board.importUpdate": ReplicaUpdateParams;
   "board.reconcileArchivedColumnOrder": BoardKeyParams;
   "task.save": TaskSaveParams;
   "task.schedule": TaskScheduleParams;
@@ -562,13 +562,13 @@ export interface MutationParamsByName {
 
 export interface MutationResultByName {
   "note.create": NoteMutationResult;
-  "note.importLoroUpdate": LoroUpdateResult;
+  "note.importUpdate": ReplicaUpdateResult;
   "note.rename": NoteMutationResult;
   "note.delete": EmptyResult;
   "note.pin": NoteMutationResult;
   "note.moveToBoard": NoteMutationResult;
   "board.create": BoardMutationResult;
-  "board.importLoroUpdate": LoroUpdateResult;
+  "board.importUpdate": ReplicaUpdateResult;
   "board.reconcileArchivedColumnOrder": BoardMutationResult;
   "task.save": TaskSaveResult;
   "task.schedule": TaskSaveResult;
@@ -709,7 +709,7 @@ export const MUTATION_EFFECT_PLANS = {
   "note.create": [
     "Note"
   ],
-  "note.importLoroUpdate": [
+  "note.importUpdate": [
     "Note"
   ],
   "note.rename": [
@@ -728,7 +728,7 @@ export const MUTATION_EFFECT_PLANS = {
   "board.create": [
     "Board"
   ],
-  "board.importLoroUpdate": [
+  "board.importUpdate": [
     "Board"
   ],
   "board.reconcileArchivedColumnOrder": [
@@ -758,17 +758,17 @@ export const AUTHORING_PLANS = {
     "schemaVersion": 2,
     "rationale": "Notes are edited concurrently; every field declares how concurrent edits merge.",
     "revision": {
-      "kind": "loro"
+      "kind": "replica"
     },
     "mutations": [
       "note.create",
-      "note.importLoroUpdate",
+      "note.importUpdate",
       "note.rename",
       "note.delete",
       "note.pin",
       "note.moveToBoard"
     ],
-    "contentMutation": "note.importLoroUpdate",
+    "contentMutation": "note.importUpdate",
     "planningMutations": [],
     "commandMutations": [
       "note.pin",
@@ -790,15 +790,15 @@ export const AUTHORING_PLANS = {
     "schemaVersion": 2,
     "rationale": "Boards reorder columns and cards concurrently through keyed sequences.",
     "revision": {
-      "kind": "loro"
+      "kind": "replica"
     },
     "mutations": [
       "note.moveToBoard",
       "board.create",
-      "board.importLoroUpdate",
+      "board.importUpdate",
       "board.reconcileArchivedColumnOrder"
     ],
-    "contentMutation": "board.importLoroUpdate",
+    "contentMutation": "board.importUpdate",
     "planningMutations": [
       "board.reconcileArchivedColumnOrder",
       "note.moveToBoard"
@@ -900,11 +900,11 @@ export const COLLABORATION_PLANS = {
   "Note": {
     "schemaVersion": 1,
     "migrationIds": [
-      "note-loro-layout-v1"
+      "note-layout-v1"
     ],
     "authoringState": {
       "projection": "notes.authoringState",
-      "importMutation": "note.importLoroUpdate"
+      "importMutation": "note.importUpdate"
     },
     "rootContainer": "note",
     "fields": {
@@ -1209,13 +1209,13 @@ export const COLLABORATION_PLANS = {
   "Board": {
     "schemaVersion": 3,
     "migrationIds": [
-      "board-loro-layout-v1",
+      "board-layout-v1",
       "board-column-order-v2",
       "board-card-notes-v3"
     ],
     "authoringState": {
       "projection": "boards.authoringState",
-      "importMutation": "board.importLoroUpdate"
+      "importMutation": "board.importUpdate"
     },
     "rootContainer": "board",
     "fields": {

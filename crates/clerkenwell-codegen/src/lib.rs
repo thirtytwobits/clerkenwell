@@ -10,14 +10,14 @@
 //! exactly, and refuses a definition that would need a wider or ambiguous
 //! generated type.
 
-pub mod collate;
-pub mod config;
+mod collate;
+mod config;
 mod coverage;
-pub mod definition;
+mod definition;
 mod error;
 mod expand;
 mod fixtures;
-pub mod json;
+mod json;
 mod layout;
 mod names;
 mod normalize;
@@ -29,11 +29,8 @@ mod validate;
 use std::path::{Path, PathBuf};
 
 pub use config::{Config, OutputPaths, Project};
-pub use coverage::{collect_payload_coverage, PayloadCoverage};
 pub use definition::Definition;
 pub use error::{Error, Result};
-pub use normalize::normalized_document;
-pub use validate::{schema_keywords, META_SCHEMA};
 
 /// The contents of every generated artefact.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -156,4 +153,26 @@ fn write(path: &Path, content: &str) -> Result<()> {
         std::fs::create_dir_all(parent).map_err(failed)?;
     }
     std::fs::write(path, content).map_err(failed)
+}
+
+/// The generator's internals, for Clerkenwell's own tests.
+#[cfg(feature = "testing")]
+pub mod testing {
+    pub use crate::collate::locale_compare;
+    pub use crate::coverage::{collect_payload_coverage, PayloadCoverage};
+    pub use crate::json::{number_to_string, Json, Object};
+    pub use crate::normalize::normalized_document;
+    pub use crate::validate::{schema_keywords, META_SCHEMA};
+    use crate::{Definition, Project, Result};
+
+    /// Validates `document` as [`Definition::load`] validates a file.
+    pub fn definition(document: Json, project: &Project) -> Result<Definition> {
+        Definition::from_json(document, project)
+    }
+
+    /// The document `definition` holds, with the declarations its
+    /// collaboration section implies.
+    pub fn document(definition: &Definition) -> &Object {
+        definition.document()
+    }
 }

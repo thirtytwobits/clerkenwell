@@ -5,12 +5,12 @@ mod support;
 
 use std::collections::HashMap;
 
-use clerkenwell_doc::loro::{ContainerID, ToJson};
-use clerkenwell_doc::{CollaborationLoroError, LoroAuthoringDocument};
+use clerkenwell_doc::{CollaborationReplica, CollaborationReplicaError};
 use clerkenwell_notebook::{
     GeneratedCollaborationEntitySpec, GeneratedCollaborationStorageKind,
     GeneratedCollaborationValueCodec, GENERATED_COLLABORATION_SPECS,
 };
+use loro::{ContainerID, ToJson};
 use serde_json::{json, Value};
 use support::*;
 
@@ -54,7 +54,7 @@ fn resolve(template: &str, identities: &HashMap<String, String>) -> String {
 /// lists and keyed sequence order — at the depth of `prefix`.
 fn assert_layout(
     plan: &GeneratedCollaborationEntitySpec,
-    doc: &clerkenwell_doc::loro::LoroDoc,
+    doc: &loro::LoroDoc,
     prefix: &str,
     node: &Value,
     identities: &HashMap<String, String>,
@@ -280,8 +280,8 @@ fn a_document_missing_a_required_field_is_refused_naming_the_field() {
         }) {
             let mut missing = document.clone();
             remove(&mut missing, &pointer(field.path));
-            match LoroAuthoringDocument::from_document(plan, &missing) {
-                Err(CollaborationLoroError::InvalidField { path, .. }) => {
+            match CollaborationReplica::from_document(plan, &missing) {
+                Err(CollaborationReplicaError::InvalidField { path, .. }) => {
                     assert_eq!(path, field.path, "{}", plan.name)
                 }
                 other => panic!("{}.{} missing: {other:?}", plan.name, field.path),
@@ -303,7 +303,7 @@ fn a_keyed_item_missing_a_required_field_is_refused_and_changes_nothing() {
         let mut missing = base.clone();
         remove(&mut missing, pointer);
         assert!(
-            LoroAuthoringDocument::from_document(BOARD, &missing).is_err(),
+            CollaborationReplica::from_document(BOARD, &missing).is_err(),
             "{pointer}"
         );
         assert!(replica.replace_document(&missing).is_err(), "{pointer}");

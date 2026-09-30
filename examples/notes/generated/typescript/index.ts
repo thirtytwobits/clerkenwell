@@ -36,7 +36,7 @@ export type NoteMutationResult = {
   "etag": string;
 };
 
-export type LoroUpdateParams = {
+export type ReplicaUpdateParams = {
   "note_id": string;
   "operation_id": string;
   "exchange_mode": "incremental" | "bootstrap";
@@ -55,7 +55,7 @@ export type DraftEntry = {
   "payload": unknown;
 };
 
-export type LoroUpdateResult = {
+export type ReplicaUpdateResult = {
   "note_id": string;
   "etag": string;
   "accepted_frontier_base64": string;
@@ -84,7 +84,7 @@ export const NOTE_ENTITY = "Note";
 export const NOTES_AUTHORING_STATE_PROJECTION = "notes.authoringState";
 
 export const NOTE_CREATE_MUTATION = "note.create";
-export const NOTE_IMPORT_LORO_UPDATE_MUTATION = "note.importLoroUpdate";
+export const NOTE_IMPORT_UPDATE_MUTATION = "note.importUpdate";
 
 export const ENTITY_NAMES = [
   "Note",
@@ -98,7 +98,7 @@ export type ProjectionName = typeof PROJECTION_NAMES[number];
 
 export const MUTATION_NAMES = [
   "note.create",
-  "note.importLoroUpdate",
+  "note.importUpdate",
 ] as const;
 export type MutationName = typeof MUTATION_NAMES[number];
 
@@ -120,12 +120,12 @@ export interface ProjectionPatchByName {
 
 export interface MutationParamsByName {
   "note.create": NoteCreateParams;
-  "note.importLoroUpdate": LoroUpdateParams;
+  "note.importUpdate": ReplicaUpdateParams;
 }
 
 export interface MutationResultByName {
   "note.create": NoteMutationResult;
-  "note.importLoroUpdate": LoroUpdateResult;
+  "note.importUpdate": ReplicaUpdateResult;
 }
 
 export type ProjectionTransportSnapshot = {
@@ -175,7 +175,7 @@ export const MUTATION_EFFECT_PLANS = {
   "note.create": [
     "Note"
   ],
-  "note.importLoroUpdate": [
+  "note.importUpdate": [
     "Note"
   ]
 } as const satisfies Record<MutationName, readonly EntityName[]>;
@@ -187,13 +187,13 @@ export const AUTHORING_PLANS = {
     "schemaVersion": 1,
     "rationale": "Writers edit a note concurrently: its body merges, and a change of status is decided explicitly.",
     "revision": {
-      "kind": "loro"
+      "kind": "replica"
     },
     "mutations": [
       "note.create",
-      "note.importLoroUpdate"
+      "note.importUpdate"
     ],
-    "contentMutation": "note.importLoroUpdate",
+    "contentMutation": "note.importUpdate",
     "planningMutations": [],
     "commandMutations": [],
     "lifecycleMutations": [
@@ -215,11 +215,11 @@ export const COLLABORATION_PLANS = {
   "Note": {
     "schemaVersion": 1,
     "migrationIds": [
-      "note-loro-layout-v1"
+      "note-layout-v1"
     ],
     "authoringState": {
       "projection": "notes.authoringState",
-      "importMutation": "note.importLoroUpdate"
+      "importMutation": "note.importUpdate"
     },
     "rootContainer": "note",
     "fields": {

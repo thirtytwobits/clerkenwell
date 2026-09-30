@@ -13,11 +13,8 @@ pub enum Error {
         path: PathBuf,
         source: std::io::Error,
     },
-    #[error("{path} is not valid JSON: {source}")]
-    Parse {
-        path: PathBuf,
-        source: serde_json::Error,
-    },
+    #[error("{path} is not valid JSON: {message}")]
+    Parse { path: PathBuf, message: String },
     #[error("{path} is not a valid generator configuration: {message}")]
     Config { path: PathBuf, message: String },
     /// The definition is refused: invalid, or outside what the renderers can

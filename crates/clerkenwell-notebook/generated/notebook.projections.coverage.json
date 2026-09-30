@@ -11,7 +11,7 @@
       "schema": "#/$defs/NoteDocument",
       "identityField": "note_id",
       "revision": {
-        "kind": "loro"
+        "kind": "replica"
       },
       "projections": [
         "notes.list",
@@ -20,13 +20,13 @@
       ],
       "mutations": [
         "note.create",
-        "note.importLoroUpdate",
+        "note.importUpdate",
         "note.rename",
         "note.delete",
         "note.pin",
         "note.moveToBoard"
       ],
-      "contentMutation": "note.importLoroUpdate",
+      "contentMutation": "note.importUpdate",
       "planningMutations": [],
       "commandMutations": [
         "note.pin",
@@ -59,10 +59,10 @@
       "collaboration": {
         "schemaVersion": 1,
         "migrationIds": [
-          "note-loro-layout-v1"
+          "note-layout-v1"
         ],
         "authoringStateProjection": "notes.authoringState",
-        "importMutation": "note.importLoroUpdate",
+        "importMutation": "note.importUpdate",
         "fieldCount": 21
       },
       "diagnostics": [
@@ -76,7 +76,7 @@
       "schema": "#/$defs/BoardDocument",
       "identityField": "board_id",
       "revision": {
-        "kind": "loro"
+        "kind": "replica"
       },
       "projections": [
         "tasks.board",
@@ -85,10 +85,10 @@
       "mutations": [
         "note.moveToBoard",
         "board.create",
-        "board.importLoroUpdate",
+        "board.importUpdate",
         "board.reconcileArchivedColumnOrder"
       ],
-      "contentMutation": "board.importLoroUpdate",
+      "contentMutation": "board.importUpdate",
       "planningMutations": [
         "board.reconcileArchivedColumnOrder",
         "note.moveToBoard"
@@ -115,12 +115,12 @@
       "collaboration": {
         "schemaVersion": 3,
         "migrationIds": [
-          "board-loro-layout-v1",
+          "board-layout-v1",
           "board-column-order-v2",
           "board-card-notes-v3"
         ],
         "authoringStateProjection": "boards.authoringState",
-        "importMutation": "board.importLoroUpdate",
+        "importMutation": "board.importUpdate",
         "fieldCount": 23
       },
       "diagnostics": [
@@ -464,9 +464,9 @@
       "generatedRegistryOwner": "GENERATED_MUTATION_SPECS"
     },
     {
-      "name": "note.importLoroUpdate",
-      "params": "#/$defs/LoroUpdateParams",
-      "result": "#/$defs/LoroUpdateResult",
+      "name": "note.importUpdate",
+      "params": "#/$defs/ReplicaUpdateParams",
+      "result": "#/$defs/ReplicaUpdateResult",
       "touches": [
         "Note"
       ],
@@ -519,9 +519,9 @@
       "generatedRegistryOwner": "GENERATED_MUTATION_SPECS"
     },
     {
-      "name": "board.importLoroUpdate",
-      "params": "#/$defs/LoroUpdateParams",
-      "result": "#/$defs/LoroUpdateResult",
+      "name": "board.importUpdate",
+      "params": "#/$defs/ReplicaUpdateParams",
+      "result": "#/$defs/ReplicaUpdateResult",
       "touches": [
         "Board"
       ],

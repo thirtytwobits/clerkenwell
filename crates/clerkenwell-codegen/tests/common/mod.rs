@@ -3,7 +3,7 @@
 
 use std::path::{Path, PathBuf};
 
-use clerkenwell_codegen::json::{Json, Object};
+use clerkenwell_codegen::testing::{self, Json, Object};
 use clerkenwell_codegen::{Config, Definition, Error, Result};
 
 /// The directory holding the notebook definition, its configuration and its
@@ -30,9 +30,7 @@ pub fn notebook_document() -> Json {
 /// The notebook definition with the declarations its collaboration section
 /// implies, as the generator renders it.
 pub fn expanded_notebook() -> Json {
-    validate(notebook_document())
-        .expect("the notebook definition is valid")
-        .document()
+    testing::document(&validate(notebook_document()).expect("the notebook definition is valid"))
         .clone()
         .into()
 }
@@ -43,7 +41,7 @@ pub fn json(text: &str) -> Json {
 
 /// Validates `document` with the notebook configuration's project names.
 pub fn validate(document: Json) -> Result<Definition> {
-    Definition::from_json(document, &notebook_config().project)
+    testing::definition(document, &notebook_config().project)
 }
 
 /// The message `document` is refused with.

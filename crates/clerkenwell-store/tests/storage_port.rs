@@ -3,12 +3,13 @@
 
 mod support;
 
-use clerkenwell_doc::LoroAuthoringDocument;
+use clerkenwell_doc::CollaborationReplica;
+use clerkenwell_store::testing::{self, DurableCollaborationEnvelope};
 use clerkenwell_store::{
     CollaborationDocumentId, CollaborationExchangeMode, CollaborationImportRequest,
     CollaborationRecoveryAction, CollaborationRecoveryAuditRecord, CollaborationService,
-    CollaborationStoragePort, CommitPolicy, DurableCollaborationEnvelope, ImportFence,
-    LocalFileCollaborationStorage, StoreResult, StoredEnvelope,
+    CollaborationStoragePort, CommitPolicy, ImportFence, LocalFileCollaborationStorage,
+    StoreResult, StoredEnvelope,
 };
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
@@ -196,7 +197,7 @@ struct Edits {
 
 fn edits(count: usize) -> Edits {
     let mut client =
-        LoroAuthoringDocument::from_document(&NOTE_PLAN, &seed_document()).expect("seed client");
+        CollaborationReplica::from_document(&NOTE_PLAN, &seed_document()).expect("seed client");
     let seed_update = client.export_update_base64().expect("seed update");
     let mut edits = Vec::new();
     for index in 0..count {
@@ -266,7 +267,9 @@ fn drive(service: &CollaborationService, edits: &Edits) -> Value {
         .import(&NOTE_PLAN, request(operation_id, base, update), accept)
         .expect("retry");
     assert!(retried.duplicate, "a retried operation is a duplicate");
-    observed.push(history(&service.load(&document).unwrap().unwrap()));
+    observed.push(history(
+        &testing::load(service, &document).unwrap().unwrap(),
+    ));
 
     let renamed = CollaborationDocumentId::new("Note", "note-2");
     service
@@ -274,10 +277,10 @@ fn drive(service: &CollaborationService, edits: &Edits) -> Value {
         .expect("move")
         .expect("the document exists");
     assert!(
-        service.load(&document).unwrap().is_none(),
+        service.summary(&document).unwrap().is_none(),
         "the source is gone"
     );
-    observed.push(history(&service.load(&renamed).unwrap().unwrap()));
+    observed.push(history(&testing::load(service, &renamed).unwrap().unwrap()));
     // The move writes its operation from a replica of its own, whose peer
     // differs from one service to the next, and so does the etag it leaves.
     let mut moved = service.detail(&NOTE_PLAN, &renamed).unwrap().unwrap();
@@ -285,7 +288,7 @@ fn drive(service: &CollaborationService, edits: &Edits) -> Value {
     observed.push(moved);
 
     service.repair(&renamed, "drop the window").expect("repair");
-    observed.push(history(&service.load(&renamed).unwrap().unwrap()));
+    observed.push(history(&testing::load(service, &renamed).unwrap().unwrap()));
     assert!(service.verify(&renamed).valid);
     let exported = service.export_for_recovery(&renamed).expect("export");
     assert!(!exported.is_empty());
@@ -293,7 +296,7 @@ fn drive(service: &CollaborationService, edits: &Edits) -> Value {
         .quarantine(&renamed, "evidence")
         .expect("quarantine");
     service.reset(&renamed).expect("reset");
-    assert!(service.load(&renamed).unwrap().is_none());
+    assert!(service.summary(&renamed).unwrap().is_none());
     observed.push(json!(service
         .recovery_audit()
         .unwrap()
@@ -370,7 +373,7 @@ fn commits_racing_through_one_port_both_land() {
         .authoring_state(&NOTE_PLAN, &document, None)
         .expect("read");
     let edit = |body: &str| {
-        let mut client = LoroAuthoringDocument::from_versioned_update_base64(
+        let mut client = CollaborationReplica::from_versioned_update_base64(
             &NOTE_PLAN,
             state.schema_version,
             &state.update_base64,
@@ -432,10 +435,10 @@ fn a_move_takes_the_source_as_it_stands_when_another_writer_commits_during_it() 
         .expect("the document exists");
 
     assert!(
-        service.load(&document).unwrap().is_none(),
+        service.summary(&document).unwrap().is_none(),
         "the source is gone"
     );
-    let moved = service.load(&renamed).unwrap().expect("moved");
+    let moved = testing::load(&service, &renamed).unwrap().expect("moved");
     assert!(moved
         .retained_operations
         .iter()
@@ -506,8 +509,7 @@ fn an_envelope_keeps_the_latest_operations_its_policy_retains() {
             .expect("commit");
     }
 
-    let kept = service
-        .load(&note())
+    let kept = testing::load(&service, &note())
         .unwrap()
         .expect("the note")
         .retained_operations

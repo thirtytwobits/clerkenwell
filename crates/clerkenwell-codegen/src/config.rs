@@ -42,9 +42,6 @@ pub struct Project {
     /// The mnemonic entry holding authoring session state.
     #[serde(default)]
     pub authoring_session_mnemonic: Option<String>,
-    /// `$defs` entries a collaboration field stores whole.
-    #[serde(default)]
-    pub collaboration_leaf_schemas: Vec<String>,
     /// Coverage report diagnostics, by entity.
     #[serde(default)]
     pub entity_diagnostics: BTreeMap<String, Vec<String>>,
@@ -60,8 +57,6 @@ struct ConfigFile {
     header: Vec<String>,
     #[serde(default)]
     authoring_session_mnemonic: Option<String>,
-    #[serde(default)]
-    collaboration_leaf_schemas: Vec<String>,
     #[serde(default)]
     entity_diagnostics: BTreeMap<String, Vec<String>>,
 }
@@ -116,14 +111,13 @@ impl Config {
                 regenerate_command: file.regenerate_command,
                 header: file.header,
                 authoring_session_mnemonic: file.authoring_session_mnemonic,
-                collaboration_leaf_schemas: file.collaboration_leaf_schemas,
                 entity_diagnostics: file.entity_diagnostics,
             },
         })
     }
 
     /// The module specifier the mnemonic module imports the model module by.
-    pub fn typescript_model_specifier(&self) -> Result<String> {
+    pub(crate) fn typescript_model_specifier(&self) -> Result<String> {
         relative_module_specifier(
             &self.outputs.typescript_mnemonic,
             &self.outputs.typescript_model,

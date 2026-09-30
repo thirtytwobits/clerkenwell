@@ -3,19 +3,19 @@
 #![allow(dead_code)]
 
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
-use clerkenwell_doc::loro::{ExportMode, LoroDoc};
-use clerkenwell_doc::LoroAuthoringDocument;
+use clerkenwell_doc::CollaborationReplica;
 use clerkenwell_notebook::{
     GeneratedCollaborationEntitySpec, GeneratedCollaborationFieldSpec,
     GeneratedCollaborationStorageKind, BOARD_COLLABORATION_SPEC, NOTE_COLLABORATION_SPEC,
 };
+use loro::{ExportMode, LoroDoc};
 use serde_json::{json, Value};
 
 pub const NOTE: &GeneratedCollaborationEntitySpec = &NOTE_COLLABORATION_SPEC;
 pub const BOARD: &GeneratedCollaborationEntitySpec = &BOARD_COLLABORATION_SPEC;
 
 /// The revision every materialisation in these tests is read at.
-pub const REVISION: &str = "loro:test";
+pub const REVISION: &str = "replica:test";
 
 pub fn corpus() -> Value {
     serde_json::from_str(include_str!(
@@ -70,19 +70,19 @@ pub fn at_revision(
 pub fn seed(
     plan: &'static GeneratedCollaborationEntitySpec,
     document: &Value,
-) -> LoroAuthoringDocument {
-    LoroAuthoringDocument::from_document(plan, document).expect("seed replica")
+) -> CollaborationReplica {
+    CollaborationReplica::from_document(plan, document).expect("seed replica")
 }
 
 pub fn hydrate(
     plan: &'static GeneratedCollaborationEntitySpec,
     update: &str,
-) -> LoroAuthoringDocument {
-    LoroAuthoringDocument::from_versioned_update_base64(plan, plan.schema_version, update)
+) -> CollaborationReplica {
+    CollaborationReplica::from_versioned_update_base64(plan, plan.schema_version, update)
         .expect("hydrate replica")
 }
 
-pub fn read(replica: &LoroAuthoringDocument) -> Value {
+pub fn read(replica: &CollaborationReplica) -> Value {
     replica
         .materialized_document(REVISION)
         .expect("materialise")
@@ -91,7 +91,7 @@ pub fn read(replica: &LoroAuthoringDocument) -> Value {
 /// What `replica` reads as once its whole history is loaded into a new replica.
 pub fn reread(
     plan: &'static GeneratedCollaborationEntitySpec,
-    replica: &LoroAuthoringDocument,
+    replica: &CollaborationReplica,
 ) -> Value {
     read(&hydrate(
         plan,
@@ -100,7 +100,7 @@ pub fn reread(
 }
 
 /// A raw Loro document holding `replica`'s history.
-pub fn raw(replica: &LoroAuthoringDocument) -> LoroDoc {
+pub fn raw(replica: &CollaborationReplica) -> LoroDoc {
     let doc = LoroDoc::new();
     doc.import(
         &BASE64
@@ -137,10 +137,10 @@ pub fn merge_rewrites(
         })
         .collect::<Vec<_>>();
     let merge = |order: &mut dyn Iterator<Item = &String>| {
-        let merged = hydrate(plan, &update);
+        let mut merged = hydrate(plan, &update);
         for rewrite in order {
             merged
-                .import_versioned_update_base64(plan.schema_version, rewrite)
+                .adopt_versioned_update_base64(plan.schema_version, rewrite)
                 .expect("merge rewrite");
         }
         read(&merged)

@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/*", "examples/*"]
+members = ["crates/*", "examples/*", "tools/*"]
 resolver = "2"
 
 [workspace.package]
@@ -9,7 +9,7 @@ version = "0.1.0"
 repository = "https://github.com/thirtytwobits/clerkenwell"
 
 # The approved Rust/npm Loro release pair and its source live in
-# loro-release.json. Consumers take `loro` through clerkenwell-doc's re-export.
+# loro-release.json.
 [workspace.dependencies]
 base64 = "0.23"
 clap = { version = "4.5", features = ["derive"] }

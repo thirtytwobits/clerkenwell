@@ -2,7 +2,7 @@
  * Copyright (c) 2026 Scott A Dixon
  *
  * Plan-driven Loro replicas and text bindings. This module is the package's
- * only importer of `loro-crdt`, published as the `/loro` entry point so the
+ * only importer of `loro-crdt`, published as the `/replica` entry point so the
  * main entry never loads the CRDT runtime.
  */
 import {
@@ -36,15 +36,12 @@ const KEYED_SEQUENCE_PRESENCE_CONTAINER = "collaboration.keyed_sequence_presence
 
 type ClientDocument = object;
 type ClientRecord = Record<string, unknown>;
-export type CollaborationLoroDoc = LoroDoc;
-
 /** Where a replica's initial state comes from. */
 export type CollaborationReplicaSource<TDocument extends ClientDocument> =
   | { kind: "document"; document: TDocument }
   | { kind: "update"; updateBase64: string }
-  /** A view's snapshot of a replica held elsewhere: see {@link CollaborationLoroAuthoringDocument.attachView}. */
-  | { kind: "snapshot"; snapshot: Uint8Array }
-  | { kind: "fork"; doc: LoroDoc; document: TDocument };
+  /** A view's snapshot of a replica held elsewhere: see {@link CollaborationReplica.attachView}. */
+  | { kind: "snapshot"; snapshot: Uint8Array };
 
 /** An accepted update seeds the replica; otherwise the caller's initial content must. */
 export function collaborationReplicaSource<TDocument extends ClientDocument>(
@@ -125,7 +122,7 @@ function resolveTextTarget(
 
 /**
  * A view of a replica held elsewhere, such as on another thread, attached with
- * {@link CollaborationLoroAuthoringDocument.attachView}.
+ * {@link CollaborationReplica.attachView}.
  */
 export interface CollaborationReplicaView {
   /** Every operation the replica held when the view attached. */
@@ -144,47 +141,44 @@ interface AttachedView {
  * generated entity plan. {@link CollaborationDrafts} reads and writes it as an
  * application's draft.
  */
-export class CollaborationLoroAuthoringDocument<TDocument extends ClientDocument> {
-  private readonly doc: LoroDoc;
-  /**
-   * The document the containers currently hold. Never mutated in place: every
-   * write or import replaces it, so a fork may share the reference.
-   */
-  private document: TDocument;
+export class CollaborationReplica<TDocument extends ClientDocument> {
   private documentDirty = false;
   private readonly textBindings = new Map<string, LoroFieldTextBinding>();
   private readonly views = new Set<AttachedView>();
 
-  constructor(
+  /**
+   * @param document The document `doc` holds. Never mutated in place: every
+   * write or import replaces it, so a fork may share the reference.
+   */
+  private constructor(
     private readonly entityName: string,
     private readonly plan: CollaborationEntityPlan,
+    private readonly doc: LoroDoc,
+    private document: TDocument
+  ) {}
+
+  /** A replica of an `entityName` document laid out by `plan`, seeded from `source`. */
+  static from<TDocument extends ClientDocument>(
+    entityName: string,
+    plan: CollaborationEntityPlan,
     source: CollaborationReplicaSource<TDocument>
-  ) {
-    switch (source.kind) {
-      case "document": {
-        const document = validatedCollaborationDocument(this.plan, source.document);
-        this.doc = new LoroDoc();
-        writeCollaborationDocumentChangesToLoroDoc(this.doc, this.plan, {}, document);
-        this.document = document;
-        return;
-      }
-      case "update":
-      case "snapshot":
-        this.doc = new LoroDoc();
-        requireImportedDependencies(this.entityName, this.doc.import(
-          source.kind === "update" ? base64ToBytes(source.updateBase64) : source.snapshot
-        ));
-        this.document = materializeCollaborationDocumentFromLoroDoc<TDocument>(
-          this.doc,
-          this.plan,
-          null
-        );
-        return;
-      case "fork":
-        this.doc = source.doc;
-        this.document = source.document;
-        return;
+  ): CollaborationReplica<TDocument> {
+    if (source.kind === "document") {
+      const document = validatedCollaborationDocument(plan, source.document);
+      const doc = new LoroDoc();
+      writeCollaborationDocumentChangesToLoroDoc(doc, plan, {}, document);
+      return new CollaborationReplica(entityName, plan, doc, document);
     }
+    const doc = new LoroDoc();
+    requireImportedDependencies(entityName, doc.import(
+      source.kind === "update" ? base64ToBytes(source.updateBase64) : source.snapshot
+    ));
+    return new CollaborationReplica(
+      entityName,
+      plan,
+      doc,
+      materializeCollaborationDocumentFromLoroDoc<TDocument>(doc, plan, null)
+    );
   }
 
   currentDocument(): TDocument {
@@ -337,13 +331,14 @@ export class CollaborationLoroAuthoringDocument<TDocument extends ClientDocument
    * under its own peer, so nothing written to it reaches this replica until
    * the update is imported.
    */
-  fork(): CollaborationLoroAuthoringDocument<TDocument> {
+  fork(): CollaborationReplica<TDocument> {
     this.refreshDocument();
-    return new CollaborationLoroAuthoringDocument<TDocument>(this.entityName, this.plan, {
-      kind: "fork",
-      doc: this.doc.fork(),
-      document: this.document
-    });
+    return new CollaborationReplica<TDocument>(
+      this.entityName,
+      this.plan,
+      this.doc.fork(),
+      this.document
+    );
   }
 
   /** Whether every op up to `frontierBase64` is already in this replica. */
@@ -452,7 +447,7 @@ export class CollaborationLoroAuthoringDocument<TDocument extends ClientDocument
     }
   }
 
-  materializedDocument(revision = "loro:materialized"): TDocument {
+  materializedDocument(revision = "replica:materialized"): TDocument {
     this.flushTextBindings();
     return materializeCollaborationDocumentFromLoroDoc<TDocument>(
       this.doc,
@@ -488,7 +483,7 @@ export class CollaborationDraftReplica<
   TTextFieldPath extends string = string
 > {
   constructor(
-    private readonly replica: CollaborationLoroAuthoringDocument<TDocument>,
+    private readonly replica: CollaborationReplica<TDocument>,
     private readonly mapping: CollaborationDraftMapping<TDocument, TDraft>
   ) {}
 
@@ -519,7 +514,7 @@ export class CollaborationDraftReplica<
     return this.replica.stageText(fieldPath, identities);
   }
 
-  /** Attach a view held elsewhere: see {@link CollaborationLoroAuthoringDocument.attachView}. */
+  /** Attach a view held elsewhere: see {@link CollaborationReplica.attachView}. */
   attachView(send: (update: Uint8Array) => void): CollaborationReplicaView {
     return this.replica.attachView(send);
   }
@@ -642,7 +637,7 @@ export class CollaborationDrafts<
     source: CollaborationReplicaSource<TDocument>
   ): CollaborationDraftReplica<TDocument, TDraft, CollaborationPlanTextFieldPath<TPlan>> {
     return new CollaborationDraftReplica(
-      new CollaborationLoroAuthoringDocument<TDocument>(this.entity, this.plan, source),
+      CollaborationReplica.from<TDocument>(this.entity, this.plan, source),
       this.mapping
     );
   }
@@ -651,7 +646,7 @@ export class CollaborationDrafts<
 /**
  * One text field of a replica held elsewhere, edited here under its own peer
  * and with its own undo. It starts from the snapshot of a view attached with
- * {@link CollaborationLoroAuthoringDocument.attachView}: `publish` carries this
+ * {@link CollaborationReplica.attachView}: `publish` carries this
  * view's edits to that view's `receive`, and {@link receive} takes the
  * operations its `send` delivers.
  */
@@ -901,7 +896,7 @@ export function materializeCollaborationDocumentFromLoroDoc<
 >(
   doc: LoroDoc,
   plan: CollaborationEntityPlan,
-  revision: string | null = "loro:materialized"
+  revision: string | null = "replica:materialized"
 ): TDocument {
   const index = collaborationPlanIndex(plan);
   const document: ClientRecord = {};

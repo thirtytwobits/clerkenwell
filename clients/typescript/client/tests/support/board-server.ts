@@ -6,11 +6,8 @@
  * against a frontier it recognises, and lets another writer change the
  * document behind the editor's back.
  */
-import type {
-  AuthoringResourceIdentity,
-  AuthoringRuntime,
-  AuthoringSessionHandle
-} from "@clerkenwell/client";
+import type { AuthoringResourceIdentity, AuthoringRuntime } from "@clerkenwell/client";
+import type { AuthoringSessionHandle } from "../../src/authoring-runtime";
 
 import { BOARD_PLAN, type BoardDocument } from "./plans";
 import {

@@ -18,6 +18,11 @@ serde_json.workspace = true
 sha2 = "0.11.0"
 uuid = { version = "1", features = ["v4"] }
 
+[features]
+# The stored envelope format, for Clerkenwell's own tests.
+testing = []
+
 [dev-dependencies]
+clerkenwell-store = { path = ".", features = ["testing"] }
 loro.workspace = true
 tempfile = "3"

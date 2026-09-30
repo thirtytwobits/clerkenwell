@@ -56,12 +56,13 @@ fn an_envelope_in_an_earlier_format_is_described_but_its_content_refused() {
     keep_in_format_1(&path, &format_1_fields());
     let kept = std::fs::read(&path).expect("read");
 
-    let refused = service.load(&note()).expect_err("an earlier format");
+    let refused = service
+        .detail(&NOTE_PLAN, &note())
+        .expect_err("an earlier format");
     assert_eq!(
         refusal_code(&refused),
         Some("collaboration_envelope_upgrade_required")
     );
-    assert!(service.detail(&NOTE_PLAN, &note()).is_err());
     let inspection = service.verify(&note());
     assert!(!inspection.valid);
     assert_eq!(
@@ -93,7 +94,10 @@ fn an_envelope_in_an_earlier_format_is_described_but_its_content_refused() {
 #[test]
 fn an_upgrade_returns_what_the_earlier_format_kept_and_leaves_the_document_as_it_was() {
     let (_root, service, path) = seeded();
-    let before = service.load(&note()).expect("load").expect("an envelope");
+    let before = service
+        .summary(&note())
+        .expect("summary")
+        .expect("a document");
     let earlier = format_1_fields();
     keep_in_format_1(&path, &earlier);
 
@@ -103,18 +107,13 @@ fn an_upgrade_returns_what_the_earlier_format_kept_and_leaves_the_document_as_it
         .expect("an earlier format");
 
     assert_eq!(Value::Object(removed), earlier);
-    let after = service.load(&note()).expect("load").expect("an envelope");
+    let after = service
+        .summary(&note())
+        .expect("summary")
+        .expect("a document");
     assert_eq!(after.envelope_version, ENVELOPE_VERSION);
-    assert_eq!(
-        service
-            .summary(&note())
-            .expect("summary")
-            .expect("a document")
-            .envelope_version,
-        ENVELOPE_VERSION
-    );
     assert_eq!(after.generation, before.generation);
-    assert_eq!(after.etag(), before.etag());
+    assert_eq!(after.etag, before.etag);
     assert_eq!(
         service
             .detail(&NOTE_PLAN, &note())
@@ -127,13 +126,19 @@ fn an_upgrade_returns_what_the_earlier_format_kept_and_leaves_the_document_as_it
 #[test]
 fn a_format_2_envelope_upgrades_and_returns_where_it_recorded_a_move_from() {
     let (_root, service, path) = seeded();
-    let before = service.load(&note()).expect("load").expect("an envelope");
+    let before = service
+        .summary(&note())
+        .expect("summary")
+        .expect("a document");
     let mut envelope: serde_json::Map<String, Value> =
         serde_json::from_slice(&std::fs::read(&path).expect("read")).expect("an envelope");
     envelope.insert("envelope_version".to_string(), json!(2));
     envelope.insert("pending_rename_from".to_string(), json!("note-0"));
     std::fs::write(&path, serde_json::to_vec_pretty(&envelope).expect("json")).expect("write");
-    assert!(service.load(&note()).is_err(), "an earlier format");
+    assert!(
+        service.detail(&NOTE_PLAN, &note()).is_err(),
+        "an earlier format"
+    );
 
     let removed = service
         .upgrade_envelope(&note())
@@ -144,9 +149,12 @@ fn a_format_2_envelope_upgrades_and_returns_where_it_recorded_a_move_from() {
         Value::Object(removed),
         json!({ "pending_rename_from": "note-0" })
     );
-    let after = service.load(&note()).expect("load").expect("an envelope");
+    let after = service
+        .summary(&note())
+        .expect("summary")
+        .expect("a document");
     assert_eq!(after.envelope_version, ENVELOPE_VERSION);
-    assert_eq!(after.etag(), before.etag());
+    assert_eq!(after.etag, before.etag);
 }
 
 #[test]
@@ -165,7 +173,10 @@ fn upgrading_an_envelope_already_in_the_current_format_changes_nothing() {
 #[test]
 fn envelope_bytes_no_service_reads_upgrade_to_what_a_service_reads() {
     let (root, service, path) = seeded();
-    let before = service.load(&note()).expect("load").expect("an envelope");
+    let before = service
+        .summary(&note())
+        .expect("summary")
+        .expect("a document");
     let earlier = format_1_fields();
     keep_in_format_1(&path, &earlier);
     drop(service);
@@ -177,10 +188,13 @@ fn envelope_bytes_no_service_reads_upgrade_to_what_a_service_reads() {
 
     assert_eq!(Value::Object(removed), earlier);
     let reader = CollaborationService::new(root.path(), PLANS, POLICY);
-    let after = reader.load(&note()).expect("load").expect("an envelope");
+    let after = reader
+        .summary(&note())
+        .expect("summary")
+        .expect("a document");
     assert_eq!(after.envelope_version, ENVELOPE_VERSION);
     assert_eq!(after.generation, before.generation);
-    assert_eq!(after.etag(), before.etag());
+    assert_eq!(after.etag, before.etag);
 }
 
 #[test]

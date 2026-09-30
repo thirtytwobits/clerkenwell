@@ -13,12 +13,12 @@
         "$ref": "#/$defs/NoteDocument"
       },
       "revision": {
-        "kind": "loro"
+        "kind": "replica"
       },
       "authoring": {
         "kind": "collaborative",
         "rationale": "Writers edit a note concurrently: its body merges, and a change of status is decided explicitly.",
-        "contentMutation": "note.importLoroUpdate",
+        "contentMutation": "note.importUpdate",
         "planningMutations": [],
         "commandMutations": [],
         "lifecycleMutations": [
@@ -40,12 +40,12 @@
         "Note"
       ]
     },
-    "note.importLoroUpdate": {
+    "note.importUpdate": {
       "params": {
-        "$ref": "#/$defs/LoroUpdateParams"
+        "$ref": "#/$defs/ReplicaUpdateParams"
       },
       "result": {
-        "$ref": "#/$defs/LoroUpdateResult"
+        "$ref": "#/$defs/ReplicaUpdateResult"
       },
       "touches": [
         "Note"
@@ -77,11 +77,11 @@
       "Note": {
         "schemaVersion": 1,
         "migrationIds": [
-          "note-loro-layout-v1"
+          "note-layout-v1"
         ],
         "authoringState": {
           "projection": "notes.authoringState",
-          "importMutation": "note.importLoroUpdate"
+          "importMutation": "note.importUpdate"
         },
         "rootContainer": "note",
         "fields": {
@@ -208,7 +208,7 @@
         }
       }
     },
-    "LoroUpdateParams": {
+    "ReplicaUpdateParams": {
       "type": "object",
       "additionalProperties": false,
       "required": [
@@ -281,7 +281,7 @@
         }
       }
     },
-    "LoroUpdateResult": {
+    "ReplicaUpdateResult": {
       "type": "object",
       "additionalProperties": false,
       "required": [

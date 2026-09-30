@@ -25,7 +25,7 @@ pub enum NoteDocumentStatus {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, PartialEq, Eq)]
-pub enum LoroUpdateParamsExchangeMode {
+pub enum ReplicaUpdateParamsExchangeMode {
     #[serde(rename = "incremental")]
     Incremental,
     #[serde(rename = "bootstrap")]
@@ -75,11 +75,11 @@ pub struct NoteMutationResult {
 
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, PartialEq)]
 #[serde(deny_unknown_fields)]
-pub struct LoroUpdateParams {
+pub struct ReplicaUpdateParams {
     pub note_id: String,
     #[schemars(length(min = 1))]
     pub operation_id: String,
-    pub exchange_mode: LoroUpdateParamsExchangeMode,
+    pub exchange_mode: ReplicaUpdateParamsExchangeMode,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub base_frontier_base64: Option<String>,
     #[schemars(length(min = 1))]
@@ -103,7 +103,7 @@ pub struct DraftEntry {
 
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, PartialEq)]
 #[serde(deny_unknown_fields)]
-pub struct LoroUpdateResult {
+pub struct ReplicaUpdateResult {
     pub note_id: String,
     pub etag: String,
     pub accepted_frontier_base64: String,
@@ -139,7 +139,7 @@ pub const NOTE_ENTITY: &str = "Note";
 pub const NOTES_AUTHORING_STATE_PROJECTION: &str = "notes.authoringState";
 
 pub const NOTE_CREATE_MUTATION: &str = "note.create";
-pub const NOTE_IMPORT_LORO_UPDATE_MUTATION: &str = "note.importLoroUpdate";
+pub const NOTE_IMPORT_UPDATE_MUTATION: &str = "note.importUpdate";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ProjectionName {
@@ -169,7 +169,7 @@ impl ProjectionName {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum MutationName {
     NoteCreate,
-    NoteImportLoroUpdate,
+    NoteImportUpdate,
 }
 
 #[rustfmt::skip]
@@ -179,8 +179,8 @@ impl MutationName {
             Self::NoteCreate => {
                 NOTE_CREATE_MUTATION
             },
-            Self::NoteImportLoroUpdate => {
-                NOTE_IMPORT_LORO_UPDATE_MUTATION
+            Self::NoteImportUpdate => {
+                NOTE_IMPORT_UPDATE_MUTATION
             },
         }
     }
@@ -190,8 +190,8 @@ impl MutationName {
             NOTE_CREATE_MUTATION => {
                 Some(Self::NoteCreate)
             },
-            NOTE_IMPORT_LORO_UPDATE_MUTATION => {
-                Some(Self::NoteImportLoroUpdate)
+            NOTE_IMPORT_UPDATE_MUTATION => {
+                Some(Self::NoteImportUpdate)
             },
             _ => None,
         }
@@ -200,7 +200,7 @@ impl MutationName {
 
 pub const ENTITY_NAMES: &[&str] = &["Note"];
 pub const PROJECTION_NAMES: &[&str] = &["notes.authoringState"];
-pub const MUTATION_NAMES: &[&str] = &["note.create", "note.importLoroUpdate"];
+pub const MUTATION_NAMES: &[&str] = &["note.create", "note.importUpdate"];
 pub const SESSION_DRAFTS_MNEMONIC_KEY: &str = "notes.session.drafts";
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -225,15 +225,15 @@ pub enum ProjectionTransportPatch {
 pub enum ProjectionTransportMutationResult {
     #[serde(rename = "note.create")]
     NoteCreate(NoteMutationResult),
-    #[serde(rename = "note.importLoroUpdate")]
-    NoteImportLoroUpdate(LoroUpdateResult),
+    #[serde(rename = "note.importUpdate")]
+    NoteImportUpdate(ReplicaUpdateResult),
 }
 
 impl ProjectionTransportMutationResult {
     pub const fn mutation_name(&self) -> MutationName {
         match self {
             Self::NoteCreate(_) => MutationName::NoteCreate,
-            Self::NoteImportLoroUpdate(_) => MutationName::NoteImportLoroUpdate,
+            Self::NoteImportUpdate(_) => MutationName::NoteImportUpdate,
         }
     }
 }
@@ -255,7 +255,7 @@ pub static GENERATED_MUTATION_SPECS: &[GeneratedMutationSpec] = &[
         touches: &["Note"],
     },
     GeneratedMutationSpec {
-        name: NOTE_IMPORT_LORO_UPDATE_MUTATION,
+        name: NOTE_IMPORT_UPDATE_MUTATION,
         touches: &["Note"],
     },
 ];
@@ -265,8 +265,8 @@ pub static GENERATED_ENTITY_AUTHORING_SPECS: &[GeneratedEntityAuthoringSpec] = &
         entity: "Note",
         kind: GeneratedAuthoringPolicyKind::Collaborative,
         rationale: "Writers edit a note concurrently: its body merges, and a change of status is decided explicitly.",
-        mutations: &[NOTE_CREATE_MUTATION, NOTE_IMPORT_LORO_UPDATE_MUTATION],
-        content_mutation: Some(NOTE_IMPORT_LORO_UPDATE_MUTATION),
+        mutations: &[NOTE_CREATE_MUTATION, NOTE_IMPORT_UPDATE_MUTATION],
+        content_mutation: Some(NOTE_IMPORT_UPDATE_MUTATION),
         planning_mutations: &[],
         command_mutations: &[],
         lifecycle_mutations: &[NOTE_CREATE_MUTATION],
@@ -387,11 +387,11 @@ pub static NOTE_COLLABORATION_SPEC: GeneratedCollaborationEntitySpec =
         name: "Note",
         id_field: "note_id",
         schema_version: 1,
-        migration_ids: &["note-loro-layout-v1"],
+        migration_ids: &["note-layout-v1"],
         authoring_projection: NOTES_AUTHORING_STATE_PROJECTION,
         authoring_document: None,
         authoring_store_params: &[],
-        import_mutation: NOTE_IMPORT_LORO_UPDATE_MUTATION,
+        import_mutation: NOTE_IMPORT_UPDATE_MUTATION,
         root_container: "note",
         fields: NOTE_COLLABORATION_FIELDS,
     };

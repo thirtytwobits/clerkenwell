@@ -11,16 +11,16 @@
       "schema": "#/$defs/NoteDocument",
       "identityField": "note_id",
       "revision": {
-        "kind": "loro"
+        "kind": "replica"
       },
       "projections": [
         "notes.authoringState"
       ],
       "mutations": [
         "note.create",
-        "note.importLoroUpdate"
+        "note.importUpdate"
       ],
-      "contentMutation": "note.importLoroUpdate",
+      "contentMutation": "note.importUpdate",
       "planningMutations": [],
       "commandMutations": [],
       "lifecycleMutations": [
@@ -40,10 +40,10 @@
       "collaboration": {
         "schemaVersion": 1,
         "migrationIds": [
-          "note-loro-layout-v1"
+          "note-layout-v1"
         ],
         "authoringStateProjection": "notes.authoringState",
-        "importMutation": "note.importLoroUpdate",
+        "importMutation": "note.importUpdate",
         "fieldCount": 5
       },
       "diagnostics": [
@@ -80,9 +80,9 @@
       "generatedRegistryOwner": "GENERATED_MUTATION_SPECS"
     },
     {
-      "name": "note.importLoroUpdate",
-      "params": "#/$defs/LoroUpdateParams",
-      "result": "#/$defs/LoroUpdateResult",
+      "name": "note.importUpdate",
+      "params": "#/$defs/ReplicaUpdateParams",
+      "result": "#/$defs/ReplicaUpdateResult",
       "touches": [
         "Note"
       ],

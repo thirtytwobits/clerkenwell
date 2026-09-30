@@ -6,7 +6,7 @@ Every section is a hard constraint.
 
 ```
 crates/clerkenwell-schema       plan types generated bindings instantiate
-crates/clerkenwell-doc          plan-driven Loro replicas, text at a frontier, conflict policy; re-exports loro
+crates/clerkenwell-doc          plan-driven Loro replicas, text at a frontier, conflict policy
 crates/clerkenwell-session      projection wire contracts, registry, subscriptions, resume from what a client holds, serving commands
 crates/clerkenwell-axum         the session protocol over axum WebSocket connections
 crates/clerkenwell-events       the change-event envelope and the in-process feed commits are announced on
@@ -17,6 +17,7 @@ crates/clerkenwell-conformance  Rust and TypeScript replicas of one definition d
 conformance/                    the Node bridges the conformance tests drive
 examples/notes                  a runnable walk-through of the framework over one note, and a server of notes
 clients/typescript/             @clerkenwell/client (React-free) and @clerkenwell/react
+tools/public-api                each crate's public API record
 ```
 
 ## The framework knows no application
@@ -35,9 +36,11 @@ those tests.
 
 `loro-release.json` records the approved Rust `loro` and npm `loro-crdt` pair and their
 source. `Cargo.toml` pins `loro` to it and the TypeScript client depends on its npm package.
-Consumers take `loro` through `clerkenwell-doc`'s re-export. Every Cargo workspace that
-builds these crates carries the recorded `generic-btree` override, because workspace
-patches do not propagate. Change the record, the manifests and the lockfiles together.
+Loro is Clerkenwell's implementation: no public Rust or TypeScript signature names a Loro
+type, nothing public is named after Loro, and an application that uses Loro depends on it
+itself. Every Cargo workspace that builds these crates carries the recorded `generic-btree`
+override, because workspace patches do not propagate. Change the record, the manifests and
+the lockfiles together.
 
 ## Invariants
 
@@ -47,6 +50,10 @@ patches do not propagate. Change the record, the manifests and the lockfiles tog
 - Reads are pure: a query never writes, bootstraps, repairs or migrates.
 - Corruption is reported, never materialised as an empty document.
 - Generated files are never edited by hand; `clerkenwell-codegen --check` gates them.
+- A crate exports only what its `public-api.txt` records. `clerkenwell-public-api` writes the
+  records, and its tests refuse any difference, any Loro type and any name after Loro.
+- A TypeScript package exports only what its entry files name. Its `public-api.json` records
+  those names, and a test refuses any difference, any Loro type and any name after Loro.
 
 ## Validation
 
@@ -62,6 +69,8 @@ Run one Cargo command at a time; parallel runs contend for the same locks.
 ## Testing
 
 - New behaviour adds or extends a test. The only exception is a mechanical move.
+- A crate's integration tests reach its internals through its `testing` feature, which the
+  crate's dev-dependency on itself enables.
 - Tests state behaviour, contracts and constraints. Do not assert incidental values: set a
   value and read it back, or check it satisfies the contract.
 - Tests encode intended behaviour. Never read the implementation to decide what a test

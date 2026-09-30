@@ -374,6 +374,7 @@ name = "clerkenwell-codegen"
 version = "0.1.0"
 dependencies = [
  "clap",
+ "clerkenwell-codegen",
  "clerkenwell-notebook",
  "icu_collator",
  "indexmap",
@@ -396,6 +397,7 @@ dependencies = [
  "clerkenwell-example-notes",
  "clerkenwell-notebook",
  "clerkenwell-schema",
+ "loro",
  "serde_json",
  "tempfile",
  "tokio",
@@ -455,6 +457,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "clerkenwell-public-api"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "proc-macro2",
+ "quote",
+ "syn 2.0.119",
+]
+
+[[package]]
 name = "clerkenwell-schema"
 version = "0.1.0"
 
@@ -481,6 +493,7 @@ dependencies = [
  "clerkenwell-doc",
  "clerkenwell-events",
  "clerkenwell-schema",
+ "clerkenwell-store",
  "fs2",
  "loro",
  "serde",

@@ -18,7 +18,7 @@ import {
   subscribeProjection,
   watchProjection
 } from "@clerkenwell/client";
-import { CollaborationLoroAuthoringDocument } from "@clerkenwell/client/loro";
+import { CollaborationReplica } from "@clerkenwell/client/replica";
 
 import {
   COLLABORATION_PLANS,
@@ -41,8 +41,8 @@ function client(): ProjectionClient<Model> {
   return new ProjectionClient<Model>(new RpcSocket({ url, reconnectOnClose: false }));
 }
 
-function replica(updateBase64: string): CollaborationLoroAuthoringDocument<Note> {
-  return new CollaborationLoroAuthoringDocument<Note>("Note", COLLABORATION_PLANS.Note, {
+function replica(updateBase64: string): CollaborationReplica<Note> {
+  return CollaborationReplica.from<Note>("Note", COLLABORATION_PLANS.Note, {
     kind: "update",
     updateBase64
   });
@@ -56,7 +56,7 @@ const { note_id } = await ada.projectionMutate("note.create", { title: "Launch p
 let delivered!: (note: Note) => void;
 let failed!: (error: unknown) => void;
 const written = new Promise<Note>((resolve, reject) => { delivered = resolve; failed = reject; });
-let held: CollaborationLoroAuthoringDocument<Note> | undefined;
+let held: CollaborationReplica<Note> | undefined;
 const watch = await watchProjection<Model, "notes.authoringState">({
   client: ada,
   plans: PROJECTION_COMPOSITION_PLANS,
@@ -99,7 +99,7 @@ const read = await subscribeProjection<Model, "notes.authoringState">({
 });
 const edited = replica(read.snapshot.update_base64);
 edited.replaceDocument({ ...edited.currentDocument(), body });
-await grace.projectionMutate("note.importLoroUpdate", {
+await grace.projectionMutate("note.importUpdate", {
   note_id,
   operation_id: "grace-body",
   exchange_mode: "incremental",

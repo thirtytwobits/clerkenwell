@@ -11,9 +11,9 @@ import {
   AuthoringRuntime,
   fromPersistedRuntime,
   toPersistedRuntime,
-  type AuthoringRuntimeState,
-  type AuthoringSessionHandle
+  type AuthoringRuntimeState
 } from "@clerkenwell/client";
+import type { AuthoringSessionHandle } from "../src/authoring-runtime";
 
 import { FakeBoardServer, openBoardSession } from "./support/board-server";
 import { boardDocument, type BoardDocument } from "./support/plans";

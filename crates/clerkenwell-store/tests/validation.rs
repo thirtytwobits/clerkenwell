@@ -39,5 +39,5 @@ fn a_rejecting_validator_fails_the_commit_with_its_own_error() {
         Err(AppError::Store(error)) => panic!("expected the validator's rejection, got {error}"),
         Ok(envelope) => panic!("expected the validator's rejection, got {envelope:?}"),
     }
-    assert!(service.load(&document).expect("read store").is_none());
+    assert!(service.summary(&document).expect("read store").is_none());
 }

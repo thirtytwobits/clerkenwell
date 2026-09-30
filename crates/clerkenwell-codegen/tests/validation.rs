@@ -3,8 +3,8 @@
 
 mod common;
 
-use clerkenwell_codegen::json::Json;
-use clerkenwell_codegen::{build_outputs, Definition, Error};
+use clerkenwell_codegen::testing::{self, Json};
+use clerkenwell_codegen::{build_outputs, Error};
 use common::{json, merge, notebook_config, notebook_document, push, refusal, remove, set};
 
 fn assert_mentions(message: &str, fragments: &[&str]) {
@@ -142,7 +142,7 @@ fn validation_only_keywords_leave_the_generated_types_alone() {
     );
 
     let render = |document: Json| {
-        let definition = Definition::from_json(document, &config.project).expect("valid");
+        let definition = testing::definition(document, &config.project).expect("valid");
         build_outputs(&definition, &config).expect("renders")
     };
     let with = render(constrained);
@@ -215,33 +215,39 @@ fn collaboration_metadata_covers_the_complete_entity_schema() {
     );
 }
 
-/// A configured leaf schema is stored whole, so it is one path to cover; any
-/// other object schema is covered property by property.
+/// An uncovered path is named as the shallowest path under which no field
+/// covers anything: an object no field stores is named once.
 #[test]
-fn a_configured_leaf_schema_is_one_collaboration_path() {
-    let mut document = notebook_document();
-    remove(&mut document, "/collaboration/entities/Note/fields/body");
-    let config = notebook_config();
-    assert!(config
-        .project
-        .collaboration_leaf_schemas
-        .iter()
-        .any(|leaf| leaf == "MimeValue"));
-    let expect_refusal = |project| match Definition::from_json(document.clone(), &project) {
-        Err(Error::Definition(message)) => message,
-        other => panic!("expected a refusal, got {other:?}"),
+fn an_uncovered_path_is_named_at_the_shallowest_object_left_uncovered() {
+    let refusal_without = |fields: &[&str]| {
+        let mut document = notebook_document();
+        for field in fields {
+            remove(
+                &mut document,
+                &format!("/collaboration/entities/Note/fields/{field}"),
+            );
+        }
+        match testing::definition(document, &notebook_config().project) {
+            Err(Error::Definition(message)) => message,
+            other => panic!("expected a refusal, got {other:?}"),
+        }
     };
 
-    let as_leaf = expect_refusal(config.project.clone());
+    let body = refusal_without(&["body"]);
     assert!(
-        as_leaf.ends_with("does not cover entity schema paths: body."),
-        "{as_leaf}"
+        body.ends_with("does not cover entity schema paths: body."),
+        "{body}"
     );
-
-    let mut project = config.project;
-    project.collaboration_leaf_schemas.clear();
-    let as_object = expect_refusal(project);
-    assert_mentions(&as_object, &["body.$mime", "body.value"]);
+    let both = refusal_without(&["meta.owner", "meta.reviewer"]);
+    assert!(
+        both.ends_with("does not cover entity schema paths: meta."),
+        "{both}"
+    );
+    let one = refusal_without(&["meta.reviewer"]);
+    assert!(
+        one.ends_with("does not cover entity schema paths: meta.reviewer."),
+        "{one}"
+    );
 }
 
 #[test]
@@ -250,7 +256,7 @@ fn a_session_owning_entity_needs_the_configured_session_mnemonic() {
 
     let mut unnamed = config.project.clone();
     unnamed.authoring_session_mnemonic = None;
-    match Definition::from_json(notebook_document(), &unnamed) {
+    match testing::definition(notebook_document(), &unnamed) {
         Err(Error::Definition(message)) => assert_mentions(
             &message,
             &["entities.Note.authoring.kind", "authoringSessionMnemonic"],
@@ -274,14 +280,10 @@ fn a_session_owning_entity_needs_the_configured_session_mnemonic() {
 #[test]
 fn every_configured_name_must_be_declared_by_the_definition() {
     type Configure = fn(&mut clerkenwell_codegen::Project);
-    let cases: [(Configure, &[&str]); 3] = [
+    let cases: [(Configure, &[&str]); 2] = [
         (
             |project| project.authoring_session_mnemonic = Some("absent".to_owned()),
             &["mnemonic.absent"],
-        ),
-        (
-            |project| project.collaboration_leaf_schemas.push("Absent".to_owned()),
-            &["collaborationLeafSchemas", "\"Absent\""],
         ),
         (
             |project| {
@@ -296,7 +298,7 @@ fn every_configured_name_must_be_declared_by_the_definition() {
     for (configure, fragments) in cases {
         let mut project = config.project.clone();
         configure(&mut project);
-        match Definition::from_json(notebook_document(), &project) {
+        match testing::definition(notebook_document(), &project) {
             Err(Error::Definition(message)) => assert_mentions(&message, fragments),
             other => panic!("{fragments:?}: expected a refusal, got {other:?}"),
         }
@@ -819,7 +821,7 @@ fn a_construct_a_renderer_cannot_represent_is_refused_at_generation() {
     for (pointer, schema, fragment) in cases {
         let mut document = notebook_document();
         set(&mut document, pointer, json(schema));
-        let definition = Definition::from_json(document, &config.project)
+        let definition = testing::definition(document, &config.project)
             .unwrap_or_else(|error| panic!("{pointer} validates: {error}"));
         match build_outputs(&definition, &config) {
             Err(Error::Definition(message)) => assert_mentions(&message, &[fragment]),
@@ -833,7 +835,7 @@ fn a_construct_a_renderer_cannot_represent_is_refused_at_generation() {
 fn incomplete_ownership_is_refused_at_generation() {
     let config = notebook_config();
     let render = |document: Json| {
-        let definition = Definition::from_json(document, &config.project).expect("validates");
+        let definition = testing::definition(document, &config.project).expect("validates");
         build_outputs(&definition, &config)
     };
 
@@ -908,7 +910,7 @@ fn a_field_naming_its_document_reaches_both_plans() {
         "/collaboration/entities/Note/fields/created_at/namesDocument",
         json("true"),
     );
-    let definition = Definition::from_json(document, &notebook_config().project)
+    let definition = testing::definition(document, &notebook_config().project)
         .expect("an immutable required string may name its document");
 
     let outputs = build_outputs(&definition, &notebook_config()).expect("renders");

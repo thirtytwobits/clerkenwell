@@ -1,6 +1,6 @@
 //! A whole-document edit is validated before anything is written.
 
-use clerkenwell_doc::LoroAuthoringDocument;
+use clerkenwell_doc::CollaborationReplica;
 use clerkenwell_schema::{
     GeneratedCollaborationConflict, GeneratedCollaborationEntitySpec,
     GeneratedCollaborationFieldSpec, GeneratedCollaborationStorageKind,
@@ -72,7 +72,7 @@ static NOTE_PLAN: GeneratedCollaborationEntitySpec = GeneratedCollaborationEntit
     authoring_projection: "notes.authoringState",
     authoring_document: None,
     authoring_store_params: &[],
-    import_mutation: "note.importLoroUpdate",
+    import_mutation: "note.importUpdate",
     root_container: "note",
     fields: NOTE_FIELDS,
 };
@@ -85,12 +85,12 @@ fn note() -> Value {
     })
 }
 
-fn replica() -> LoroAuthoringDocument {
-    LoroAuthoringDocument::from_document(&NOTE_PLAN, &note()).expect("seed replica")
+fn replica() -> CollaborationReplica {
+    CollaborationReplica::from_document(&NOTE_PLAN, &note()).expect("seed replica")
 }
 
 /// Everything an observer can see of a replica: its operations and its document.
-fn observed(replica: &LoroAuthoringDocument) -> (String, Value) {
+fn observed(replica: &CollaborationReplica) -> (String, Value) {
     (
         replica.accepted_frontier_base64(),
         replica.materialized_document("rev").expect("materialise"),

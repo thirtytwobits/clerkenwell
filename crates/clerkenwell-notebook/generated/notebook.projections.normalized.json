@@ -8,7 +8,7 @@
     "entities": [
       {
         "authoringState": {
-          "importMutation": "board.importLoroUpdate",
+          "importMutation": "board.importUpdate",
           "projection": "boards.authoringState"
         },
         "fields": [
@@ -318,7 +318,7 @@
           }
         ],
         "migrationIds": [
-          "board-loro-layout-v1",
+          "board-layout-v1",
           "board-column-order-v2",
           "board-card-notes-v3"
         ],
@@ -328,7 +328,7 @@
       },
       {
         "authoringState": {
-          "importMutation": "note.importLoroUpdate",
+          "importMutation": "note.importUpdate",
           "projection": "notes.authoringState"
         },
         "fields": [
@@ -610,7 +610,7 @@
           }
         ],
         "migrationIds": [
-          "note-loro-layout-v1"
+          "note-layout-v1"
         ],
         "name": "Note",
         "rootContainer": "note",
@@ -1093,45 +1093,6 @@
       "additionalProperties": false,
       "name": "EmptyResult",
       "properties": {},
-      "type": "object"
-    },
-    {
-      "additionalProperties": false,
-      "name": "LoroUpdateParams",
-      "properties": {
-        "entity_id": {
-          "type": "string"
-        },
-        "exchange_mode": {
-          "enum": [
-            "incremental",
-            "bootstrap"
-          ],
-          "type": "string"
-        },
-        "update": {
-          "minLength": 1,
-          "type": "string"
-        }
-      },
-      "required": [
-        "entity_id",
-        "update",
-        "exchange_mode"
-      ],
-      "type": "object"
-    },
-    {
-      "additionalProperties": false,
-      "name": "LoroUpdateResult",
-      "properties": {
-        "etag": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "etag"
-      ],
       "type": "object"
     },
     {
@@ -1662,6 +1623,45 @@
       "name": "RawPayload",
       "opaqueReason": "A replica's own error report, forwarded verbatim for diagnosis.",
       "type": "json"
+    },
+    {
+      "additionalProperties": false,
+      "name": "ReplicaUpdateParams",
+      "properties": {
+        "entity_id": {
+          "type": "string"
+        },
+        "exchange_mode": {
+          "enum": [
+            "incremental",
+            "bootstrap"
+          ],
+          "type": "string"
+        },
+        "update": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "entity_id",
+        "update",
+        "exchange_mode"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "name": "ReplicaUpdateResult",
+      "properties": {
+        "etag": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "etag"
+      ],
+      "type": "object"
     },
     {
       "additionalProperties": false,
@@ -2212,7 +2212,7 @@
     {
       "authoring": {
         "commandMutations": [],
-        "contentMutation": "board.importLoroUpdate",
+        "contentMutation": "board.importUpdate",
         "kind": "collaborative",
         "lifecycleMutations": [
           "board.create"
@@ -2226,7 +2226,7 @@
       "id": "board_id",
       "name": "Board",
       "revision": {
-        "kind": "loro"
+        "kind": "replica"
       },
       "schema": {
         "$ref": "#/$defs/BoardDocument"
@@ -2238,7 +2238,7 @@
           "note.pin",
           "note.moveToBoard"
         ],
-        "contentMutation": "note.importLoroUpdate",
+        "contentMutation": "note.importUpdate",
         "kind": "collaborative",
         "lifecycleMutations": [
           "note.create",
@@ -2251,7 +2251,7 @@
       "id": "note_id",
       "name": "Note",
       "revision": {
-        "kind": "loro"
+        "kind": "replica"
       },
       "schema": {
         "$ref": "#/$defs/NoteDocument"
@@ -2376,12 +2376,12 @@
       ]
     },
     {
-      "name": "board.importLoroUpdate",
+      "name": "board.importUpdate",
       "params": {
-        "$ref": "#/$defs/LoroUpdateParams"
+        "$ref": "#/$defs/ReplicaUpdateParams"
       },
       "result": {
-        "$ref": "#/$defs/LoroUpdateResult"
+        "$ref": "#/$defs/ReplicaUpdateResult"
       },
       "touches": [
         "Board"
@@ -2424,12 +2424,12 @@
       ]
     },
     {
-      "name": "note.importLoroUpdate",
+      "name": "note.importUpdate",
       "params": {
-        "$ref": "#/$defs/LoroUpdateParams"
+        "$ref": "#/$defs/ReplicaUpdateParams"
       },
       "result": {
-        "$ref": "#/$defs/LoroUpdateResult"
+        "$ref": "#/$defs/ReplicaUpdateResult"
       },
       "touches": [
         "Note"

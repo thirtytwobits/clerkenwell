@@ -24,11 +24,11 @@ use serde::de::DeserializeOwned;
 use serde_json::{json, Value};
 
 use crate::model::{
-    LoroUpdateParams, LoroUpdateParamsExchangeMode, LoroUpdateResult, NoteCreateParams,
-    NoteMutationResult, ProjectionTransportMutationResult, ProjectionTransportPatch,
-    ProjectionTransportSnapshot, GENERATED_COLLABORATION_SPECS, GENERATED_ENTITY_AUTHORING_SPECS,
-    GENERATED_MUTATION_SPECS, GENERATED_PROJECTION_SPECS, NOTE_CREATE_MUTATION,
-    NOTE_IMPORT_LORO_UPDATE_MUTATION,
+    NoteCreateParams, NoteMutationResult, ProjectionTransportMutationResult,
+    ProjectionTransportPatch, ProjectionTransportSnapshot, ReplicaUpdateParams,
+    ReplicaUpdateParamsExchangeMode, ReplicaUpdateResult, GENERATED_COLLABORATION_SPECS,
+    GENERATED_ENTITY_AUTHORING_SPECS, GENERATED_MUTATION_SPECS, GENERATED_PROJECTION_SPECS,
+    NOTE_CREATE_MUTATION, NOTE_IMPORT_UPDATE_MUTATION,
 };
 use crate::{validate, COMMIT_POLICY, NOTE};
 
@@ -85,10 +85,10 @@ impl NotesServer {
         Ok(NoteMutationResult { note_id, etag })
     }
 
-    fn import(&self, params: LoroUpdateParams) -> Result<LoroUpdateResult, RpcFailure> {
+    fn import(&self, params: ReplicaUpdateParams) -> Result<ReplicaUpdateResult, RpcFailure> {
         let document = note(&params.note_id);
         match params.exchange_mode {
-            LoroUpdateParamsExchangeMode::Bootstrap => {
+            ReplicaUpdateParamsExchangeMode::Bootstrap => {
                 self.service
                     .bootstrap_update(
                         NOTE,
@@ -102,14 +102,14 @@ impl NotesServer {
                     .service
                     .authoring_state(NOTE, &document, None)
                     .map_err(refused)?;
-                Ok(LoroUpdateResult {
+                Ok(ReplicaUpdateResult {
                     note_id: params.note_id,
                     etag: state.etag,
                     accepted_frontier_base64: state.accepted_frontier_base64,
                     missing_update_base64: state.update_base64,
                 })
             }
-            LoroUpdateParamsExchangeMode::Incremental => {
+            ReplicaUpdateParamsExchangeMode::Incremental => {
                 let base_frontier_base64 = params.base_frontier_base64.ok_or_else(|| {
                     RpcFailure::new(
                         ProjectionErrorCode::InvalidParams,
@@ -133,7 +133,7 @@ impl NotesServer {
                         validate,
                     )
                     .map_err(refused)?;
-                Ok(LoroUpdateResult {
+                Ok(ReplicaUpdateResult {
                     note_id: params.note_id,
                     etag: imported.etag,
                     accepted_frontier_base64: imported.accepted_frontier_base64,
@@ -190,9 +190,9 @@ impl ProjectionHost for NotesServer {
             NOTE_CREATE_MUTATION => self
                 .create(decode(params)?)
                 .map(ProjectionTransportMutationResult::NoteCreate),
-            NOTE_IMPORT_LORO_UPDATE_MUTATION => self
+            NOTE_IMPORT_UPDATE_MUTATION => self
                 .import(decode(params)?)
-                .map(ProjectionTransportMutationResult::NoteImportLoroUpdate),
+                .map(ProjectionTransportMutationResult::NoteImportUpdate),
             other => Err(RpcFailure::new(
                 ProjectionErrorCode::UnsupportedMutation,
                 format!("The notes server does not run \"{other}\"."),

@@ -3,7 +3,6 @@
   "regenerateCommand": "cargo run -p clerkenwell-codegen -- --config crates/clerkenwell-notebook/clerkenwell-codegen.json",
   "header": ["SPDX-License-Identifier: MIT"],
   "authoringSessionMnemonic": "session.drafts",
-  "collaborationLeafSchemas": ["MimeValue"],
   "entityDiagnostics": {
     "SyncHealth": ["sync.health", "replica-lag"]
   },

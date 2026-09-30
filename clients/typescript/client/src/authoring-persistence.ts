@@ -4,13 +4,13 @@
  * The persisted authoring runtime: its stored shape, and the conversions
  * between it and the live runtime state.
  */
-import {
-  authoringSessionRequiresDurableRestoration,
-  type AuthoringExchangeMode,
-  type AuthoringRuntimeState,
-  type AuthoringSession,
-  type AuthoringSessionStatus
+import type {
+  AuthoringExchangeMode,
+  AuthoringRuntimeState,
+  AuthoringSession,
+  AuthoringSessionStatus
 } from "./authoring-session";
+import { authoringSessionRequiresDurableRestoration } from "./authoring-state-machine";
 
 export interface PersistedAuthoringResourceIdentity {
   entity: string;

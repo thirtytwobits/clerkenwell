@@ -6,9 +6,9 @@
 import type { CollaborationPlanTextFieldPath } from "@clerkenwell/client";
 import {
   CollaborationDrafts,
-  CollaborationLoroAuthoringDocument,
+  CollaborationReplica,
   documentDraftMapping
-} from "@clerkenwell/client/loro";
+} from "@clerkenwell/client/replica";
 
 import {
   BOARD_PLAN,
@@ -17,8 +17,8 @@ import {
   type NoteDocument
 } from "./plans";
 
-export type NoteReplica = CollaborationLoroAuthoringDocument<NoteDocument>;
-export type BoardReplica = CollaborationLoroAuthoringDocument<BoardDocument>;
+export type NoteReplica = CollaborationReplica<NoteDocument>;
+export type BoardReplica = CollaborationReplica<BoardDocument>;
 
 /** A board's declared text fields. */
 export type BoardTextFieldPath = CollaborationPlanTextFieldPath<typeof BOARD_PLAN>;
@@ -31,22 +31,22 @@ export const BOARD_DRAFTS = new CollaborationDrafts(
 );
 
 export function noteReplica(document: NoteDocument): NoteReplica {
-  return new CollaborationLoroAuthoringDocument("Note", NOTE_PLAN, { kind: "document", document });
+  return CollaborationReplica.from("Note", NOTE_PLAN, { kind: "document", document });
 }
 
 export function noteReplicaFromUpdate(updateBase64: string): NoteReplica {
-  return new CollaborationLoroAuthoringDocument<NoteDocument>("Note", NOTE_PLAN, {
+  return CollaborationReplica.from<NoteDocument>("Note", NOTE_PLAN, {
     kind: "update",
     updateBase64
   });
 }
 
 export function boardReplica(document: BoardDocument): BoardReplica {
-  return new CollaborationLoroAuthoringDocument("Board", BOARD_PLAN, { kind: "document", document });
+  return CollaborationReplica.from("Board", BOARD_PLAN, { kind: "document", document });
 }
 
 export function boardReplicaFromUpdate(updateBase64: string): BoardReplica {
-  return new CollaborationLoroAuthoringDocument<BoardDocument>("Board", BOARD_PLAN, {
+  return CollaborationReplica.from<BoardDocument>("Board", BOARD_PLAN, {
     kind: "update",
     updateBase64
   });
@@ -67,7 +67,7 @@ export function roundTripBoard(document: BoardDocument): BoardDocument {
  * once for each import order.
  */
 export function mergeRewrites<TDocument extends object>(
-  seed: CollaborationLoroAuthoringDocument<TDocument>,
+  seed: CollaborationReplica<TDocument>,
   rewrites: readonly [(document: TDocument) => TDocument, (document: TDocument) => TDocument]
 ): { forward: TDocument; reverse: TDocument } {
   const frontier = seed.acceptedFrontierBase64();

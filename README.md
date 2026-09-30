@@ -18,8 +18,8 @@ operations and forensic recovery.
 | `clerkenwell-codegen` | the definition language, the authoring-state projection it declares for each collaborative entity, its validation, and the Rust, TypeScript and fixture generator |
 | `clerkenwell-conformance` | cross-language conformance: Rust and TypeScript replicas of one definition's entities exchange the generated fixture operations, concurrent edits and text consumption, and must converge; TypeScript clients sync a note through the Rust notes server |
 
-`loro-release.json` records the approved Rust and npm Loro release pair. Consumers take
-`loro` through `clerkenwell-doc`.
+`loro-release.json` records the approved Rust and npm Loro release pair. No public API
+names a Loro type or is named after Loro; an application that uses Loro depends on it itself.
 
 ## Example
 
@@ -35,8 +35,8 @@ and `npm test` run from the repository root.
 
 | Package | Owns |
 |---|---|
-| `@clerkenwell/client` | plan types, projection materialisation and subscriptions, the projection protocol over a JSON-RPC WebSocket with reconnection, the authoring state machine and its persisted form, text bindings, field conflict policy |
-| `@clerkenwell/client/loro` | plan-driven Loro replicas, read and written as an application's drafts; the package's only importer of `loro-crdt` |
+| `@clerkenwell/client` | plan types, projection materialisation and subscriptions, the projection protocol over a JSON-RPC WebSocket with reconnection, the authoring runtime and its persisted form, text bindings, field conflict policy |
+| `@clerkenwell/client/replica` | plan-driven Loro replicas, read and written as an application's drafts; the package's only importer of `loro-crdt` |
 | `@clerkenwell/react` | React stores, edit overlays, text-binding hooks, autosync and the authoring runtime provider |
 
 ## Licence

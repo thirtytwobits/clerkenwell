@@ -10,7 +10,7 @@ import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
 import type { CollaborationEntityPlan, TextBinding, TextBindingChange } from "@clerkenwell/client";
-import { CollaborationLoroAuthoringDocument } from "@clerkenwell/client/loro";
+import { CollaborationReplica } from "@clerkenwell/client/replica";
 import { replaceTextBindingValue, useTextBindingValue } from "@clerkenwell/react";
 
 const PLAN = {
@@ -31,7 +31,7 @@ const PLAN = {
 } as const satisfies CollaborationEntityPlan;
 
 function binding(text: string): TextBinding {
-  return new CollaborationLoroAuthoringDocument("Memo", PLAN, { kind: "document", document: { text } })
+  return CollaborationReplica.from("Memo", PLAN, { kind: "document", document: { text } })
     .bindText("text");
 }
 

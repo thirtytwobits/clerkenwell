@@ -144,7 +144,7 @@
       "additionalProperties": false,
       "required": ["kind"],
       "properties": {
-        "kind": { "enum": ["contentHash", "loro"] },
+        "kind": { "enum": ["contentHash", "replica"] },
         "field": { "type": "string", "minLength": 1 }
       },
       "allOf": [
@@ -161,7 +161,7 @@
         {
           "if": {
             "properties": {
-              "kind": { "const": "loro" }
+              "kind": { "const": "replica" }
             }
           },
           "then": {

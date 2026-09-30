@@ -9,17 +9,9 @@ use serde_json::{Map, Value};
 use similar::algorithms::{myers, Capture};
 use similar::DiffOp;
 
-use crate::CollaborationLoroError;
+use crate::{update_error, CollaborationReplicaError};
 
 type IdentityContext = HashMap<String, String>;
-
-/// Where property text without a stored MIME type takes one from: the same
-/// path in `document` when that holds a `text/` MIME type, else `default_mime`.
-#[derive(Debug, Clone, Copy)]
-struct MimeSource<'a> {
-    document: &'a Value,
-    default_mime: &'a str,
-}
 
 const STRUCTURED_MAP_PRESENCE_CONTAINER: &str = "collaboration.structured_map_presence";
 const KEYED_SEQUENCE_PRESENCE_CONTAINER: &str = "collaboration.keyed_sequence_presence";
@@ -29,7 +21,7 @@ pub(crate) fn declared_text(
     doc: &LoroDoc,
     field_path: &str,
     context: &IdentityContext,
-) -> Result<loro::LoroText, CollaborationLoroError> {
+) -> Result<loro::LoroText, CollaborationReplicaError> {
     let field = plan
         .fields
         .iter()
@@ -60,7 +52,7 @@ pub(crate) fn declared_text(
 pub(crate) fn validate_document(
     plan: &GeneratedCollaborationEntitySpec,
     document: &Value,
-) -> Result<(), CollaborationLoroError> {
+) -> Result<(), CollaborationReplicaError> {
     document
         .as_object()
         .ok_or_else(|| invalid_field("$", "an object"))?;
@@ -136,7 +128,7 @@ pub(crate) fn write_document_changes(
     doc: &LoroDoc,
     previous: &Value,
     next: &Value,
-) -> Result<(), CollaborationLoroError> {
+) -> Result<(), CollaborationReplicaError> {
     validate_document(plan, next)?;
     for field in plan.fields {
         if field.path.contains(".*.")
@@ -168,34 +160,7 @@ pub(crate) fn materialize_document(
     plan: &GeneratedCollaborationEntitySpec,
     doc: &LoroDoc,
     revision: &str,
-) -> Result<Value, CollaborationLoroError> {
-    materialize_document_internal(plan, doc, revision, None)
-}
-
-pub(crate) fn materialize_document_resolving_text_mime(
-    plan: &GeneratedCollaborationEntitySpec,
-    doc: &LoroDoc,
-    revision: &str,
-    mime_source: &Value,
-    default_mime: &str,
-) -> Result<Value, CollaborationLoroError> {
-    materialize_document_internal(
-        plan,
-        doc,
-        revision,
-        Some(MimeSource {
-            document: mime_source,
-            default_mime,
-        }),
-    )
-}
-
-fn materialize_document_internal(
-    plan: &GeneratedCollaborationEntitySpec,
-    doc: &LoroDoc,
-    revision: &str,
-    mime_source: Option<MimeSource<'_>>,
-) -> Result<Value, CollaborationLoroError> {
+) -> Result<Value, CollaborationReplicaError> {
     let mut document = Value::Object(Map::new());
     for field in plan.fields {
         if field.path.contains(".*.")
@@ -213,7 +178,7 @@ fn materialize_document_internal(
                 )?;
             }
             _ => {
-                if let Some(value) = read_field(doc, field, &IdentityContext::new(), mime_source)? {
+                if let Some(value) = read_field(doc, field, &IdentityContext::new())? {
                     if !(is_empty_optional_value(&value)
                         && !field.required
                         && !is_object_storage_kind(field.storage_kind))
@@ -225,8 +190,7 @@ fn materialize_document_internal(
         }
     }
     for sequence in direct_child_sequences(plan, None) {
-        let items =
-            materialize_sequence(plan, doc, sequence, &IdentityContext::new(), mime_source)?;
+        let items = materialize_sequence(plan, doc, sequence, &IdentityContext::new())?;
         if sequence.required
             || !items.is_empty()
             || sequence_is_explicitly_present(doc, sequence, &IdentityContext::new())?
@@ -250,8 +214,7 @@ fn materialize_sequence(
     doc: &LoroDoc,
     sequence: &GeneratedCollaborationFieldSpec,
     context: &IdentityContext,
-    mime_source: Option<MimeSource<'_>>,
-) -> Result<Vec<Value>, CollaborationLoroError> {
+) -> Result<Vec<Value>, CollaborationReplicaError> {
     let order_template = sequence
         .order_container
         .ok_or_else(|| invalid_field(sequence.path, "an order container"))?;
@@ -281,7 +244,7 @@ fn materialize_sequence(
                 }
                 GeneratedCollaborationStorageKind::DerivedRevision => {}
                 _ => {
-                    if let Some(value) = read_field(doc, field, &item_context, mime_source)? {
+                    if let Some(value) = read_field(doc, field, &item_context)? {
                         if !(is_empty_optional_value(&value)
                             && !field.required
                             && !is_object_storage_kind(field.storage_kind))
@@ -293,7 +256,7 @@ fn materialize_sequence(
             }
         }
         for child in direct_child_sequences(plan, Some(sequence.path)) {
-            let child_items = materialize_sequence(plan, doc, child, &item_context, mime_source)?;
+            let child_items = materialize_sequence(plan, doc, child, &item_context)?;
             if child.required
                 || !child_items.is_empty()
                 || sequence_is_explicitly_present(doc, child, &item_context)?
@@ -326,7 +289,7 @@ fn complete_required_members<'a>(
     members: impl Iterator<Item = &'a GeneratedCollaborationFieldSpec>,
     prefix: &str,
     node: &mut Value,
-) -> Result<(), CollaborationLoroError> {
+) -> Result<(), CollaborationReplicaError> {
     for field in members.filter(|field| field.required_in_parent && !field.required) {
         let path = field
             .path
@@ -369,7 +332,7 @@ fn validate_sequence(
     parent: &Value,
     sequence: &GeneratedCollaborationFieldSpec,
     context: &IdentityContext,
-) -> Result<(), CollaborationLoroError> {
+) -> Result<(), CollaborationReplicaError> {
     let relative_path = sequence_relative_path(plan, sequence);
     let items: &[Value] = match value_at_path(parent, relative_path) {
         Some(value) => value
@@ -432,7 +395,7 @@ fn write_sequence_changes(
     previous_parent: &Value,
     next_parent: &Value,
     context: &IdentityContext,
-) -> Result<(), CollaborationLoroError> {
+) -> Result<(), CollaborationReplicaError> {
     let identity_path = sequence
         .identity_path
         .ok_or_else(|| invalid_field(sequence.path, "an identity path"))?;
@@ -454,12 +417,17 @@ fn write_sequence_changes(
     let next_is_present = value_at_path(next_parent, relative_path).is_some();
     let presence = doc.get_map(KEYED_SEQUENCE_PRESENCE_CONTAINER);
     if next_is_present || sequence.required {
-        presence.insert(order_container.as_str(), true)?;
+        presence
+            .insert(order_container.as_str(), true)
+            .map_err(update_error)?;
     } else if presence.get(order_container.as_str()).is_some() {
-        presence.delete(order_container.as_str())?;
+        presence
+            .delete(order_container.as_str())
+            .map_err(update_error)?;
     }
     if previous_order != next_order {
-        write_string_list(&doc.get_list(order_container.as_str()), &next_order)?;
+        write_string_list(&doc.get_list(order_container.as_str()), &next_order)
+            .map_err(update_error)?;
     }
     let previous_by_identity = previous_items.into_iter().collect::<HashMap<_, _>>();
     let prefix = format!("{}.*.", sequence.path);
@@ -506,7 +474,7 @@ fn sequence_is_explicitly_present(
     doc: &LoroDoc,
     sequence: &GeneratedCollaborationFieldSpec,
     context: &IdentityContext,
-) -> Result<bool, CollaborationLoroError> {
+) -> Result<bool, CollaborationReplicaError> {
     let order_template = sequence
         .order_container
         .ok_or_else(|| invalid_field(sequence.path, "an order container"))?;
@@ -523,7 +491,7 @@ fn write_field_if_changed(
     previous: Option<&Value>,
     next: Option<&Value>,
     context: &IdentityContext,
-) -> Result<(), CollaborationLoroError> {
+) -> Result<(), CollaborationReplicaError> {
     if previous == next {
         return Ok(());
     }
@@ -540,7 +508,7 @@ fn write_field_if_changed(
                 .ok_or_else(|| invalid_field(field.path, "a scalar key"))?;
             let map = doc.get_map(container.as_str());
             if absent {
-                map.delete(key)?;
+                map.delete(key).map_err(update_error)?;
                 return Ok(());
             }
             match field.codec {
@@ -549,19 +517,21 @@ fn write_field_if_changed(
                         key,
                         next.and_then(Value::as_i64)
                             .ok_or_else(|| invalid_field(field.path, "an integer"))?,
-                    )?;
+                    )
+                    .map_err(update_error)?;
                 }
                 GeneratedCollaborationValueCodec::Number => {
                     map.insert(
                         key,
                         next.and_then(Value::as_f64)
                             .ok_or_else(|| invalid_field(field.path, "a number"))?,
-                    )?;
+                    )
+                    .map_err(update_error)?;
                 }
                 GeneratedCollaborationValueCodec::OptionalNumber => {
                     match next.and_then(Value::as_f64) {
-                        Some(value) => map.insert(key, value)?,
-                        None => map.delete(key)?,
+                        Some(value) => map.insert(key, value).map_err(update_error)?,
+                        None => map.delete(key).map_err(update_error)?,
                     }
                 }
                 GeneratedCollaborationValueCodec::Boolean => {
@@ -569,22 +539,24 @@ fn write_field_if_changed(
                         key,
                         next.and_then(Value::as_bool)
                             .ok_or_else(|| invalid_field(field.path, "a boolean"))?,
-                    )?;
+                    )
+                    .map_err(update_error)?;
                 }
                 GeneratedCollaborationValueCodec::String => {
                     map.insert(
                         key,
                         next.and_then(Value::as_str)
                             .ok_or_else(|| invalid_field(field.path, "a string"))?,
-                    )?;
+                    )
+                    .map_err(update_error)?;
                 }
                 GeneratedCollaborationValueCodec::OptionalString => {
                     match next.and_then(Value::as_str) {
                         Some(value) if !value.is_empty() => {
-                            map.insert(key, value)?;
+                            map.insert(key, value).map_err(update_error)?;
                         }
                         _ => {
-                            map.delete(key)?;
+                            map.delete(key).map_err(update_error)?;
                         }
                     }
                 }
@@ -597,7 +569,8 @@ fn write_field_if_changed(
                 if field.codec == GeneratedCollaborationValueCodec::PropertyText {
                     let (metadata_container, metadata_key) = resolve_metadata(field, context)?;
                     doc.get_map(metadata_container.as_str())
-                        .delete(metadata_key)?;
+                        .delete(metadata_key)
+                        .map_err(update_error)?;
                 }
                 return Ok(());
             }
@@ -617,14 +590,16 @@ fn write_field_if_changed(
                 let (mime, _) = property_text(field, next)?;
                 let (metadata_container, metadata_key) = resolve_metadata(field, context)?;
                 doc.get_map(metadata_container.as_str())
-                    .insert(metadata_key, mime)?;
+                    .insert(metadata_key, mime)
+                    .map_err(update_error)?;
             }
         }
         GeneratedCollaborationStorageKind::OrderedList => {
             write_string_list(
                 &doc.get_list(container.as_str()),
                 &string_array(next, field.path, field.required)?,
-            )?;
+            )
+            .map_err(update_error)?;
         }
         GeneratedCollaborationStorageKind::StructuredList => {
             let values = next
@@ -633,7 +608,7 @@ fn write_field_if_changed(
                 .iter()
                 .map(json_to_loro)
                 .collect::<Result<Vec<_>, _>>()?;
-            write_list(&doc.get_list(container.as_str()), &values)?;
+            write_list(&doc.get_list(container.as_str()), &values).map_err(update_error)?;
         }
         GeneratedCollaborationStorageKind::StructuredMap => {
             let values = match next {
@@ -643,10 +618,11 @@ fn write_field_if_changed(
                     let mut keys = Vec::new();
                     map.for_each(|key, _| keys.push(key.to_string()));
                     for key in keys {
-                        map.delete(&key)?;
+                        map.delete(&key).map_err(update_error)?;
                     }
                     doc.get_map(STRUCTURED_MAP_PRESENCE_CONTAINER)
-                        .delete(container.as_str())?;
+                        .delete(container.as_str())
+                        .map_err(update_error)?;
                     return Ok(());
                 }
                 _ => return Err(invalid_field(field.path, "an object")),
@@ -658,7 +634,8 @@ fn write_field_if_changed(
                 .unwrap_or_default();
             write_structured_map_changes(&map, &previous_values, values)?;
             doc.get_map(STRUCTURED_MAP_PRESENCE_CONTAINER)
-                .insert(container.as_str(), true)?;
+                .insert(container.as_str(), true)
+                .map_err(update_error)?;
         }
         GeneratedCollaborationStorageKind::StructuredDocument => {
             let values = match next {
@@ -668,10 +645,11 @@ fn write_field_if_changed(
                     let mut keys = Vec::new();
                     map.for_each(|key, _| keys.push(key.to_string()));
                     for key in keys {
-                        map.delete(&key)?;
+                        map.delete(&key).map_err(update_error)?;
                     }
                     doc.get_map(STRUCTURED_MAP_PRESENCE_CONTAINER)
-                        .delete(container.as_str())?;
+                        .delete(container.as_str())
+                        .map_err(update_error)?;
                     return Ok(());
                 }
                 _ => return Err(invalid_field(field.path, "an object")),
@@ -683,7 +661,8 @@ fn write_field_if_changed(
                 .unwrap_or_default();
             write_structured_document_changes(&map, &previous_values, values)?;
             doc.get_map(STRUCTURED_MAP_PRESENCE_CONTAINER)
-                .insert(container.as_str(), true)?;
+                .insert(container.as_str(), true)
+                .map_err(update_error)?;
         }
         GeneratedCollaborationStorageKind::DerivedIdentity
         | GeneratedCollaborationStorageKind::DerivedRevision
@@ -696,8 +675,7 @@ fn read_field(
     doc: &LoroDoc,
     field: &GeneratedCollaborationFieldSpec,
     context: &IdentityContext,
-    mime_source: Option<MimeSource<'_>>,
-) -> Result<Option<Value>, CollaborationLoroError> {
+) -> Result<Option<Value>, CollaborationReplicaError> {
     let container = resolve_container(field, context)?;
     Ok(match field.storage_kind {
         GeneratedCollaborationStorageKind::Scalar => {
@@ -716,18 +694,12 @@ fn read_field(
             Some(match field.codec {
                 GeneratedCollaborationValueCodec::PropertyText => {
                     let (metadata_container, metadata_key) = resolve_metadata(field, context)?;
-                    let stored_mime = doc
+                    let mime = doc
                         .get_map(metadata_container.as_str())
                         .get(metadata_key)
                         .map(|value| value.get_deep_value().to_json_value())
-                        .and_then(|value| value.as_str().map(str::to_string));
-                    let mime = match (stored_mime, mime_source) {
-                        (Some(mime), _) => mime,
-                        (None, Some(source)) => source_property_mime(source, field, context)?,
-                        (None, None) => {
-                            return Err(invalid_field(field.path, "a stored MIME value"));
-                        }
-                    };
+                        .and_then(|value| value.as_str().map(str::to_string))
+                        .ok_or_else(|| invalid_field(field.path, "a stored MIME value"))?;
                     serde_json::json!({
                         "$mime": mime,
                         "value": text,
@@ -780,40 +752,6 @@ fn read_field(
         | GeneratedCollaborationStorageKind::DerivedRevision
         | GeneratedCollaborationStorageKind::KeyedSequence => None,
     })
-}
-
-fn source_property_mime(
-    source: MimeSource<'_>,
-    field: &GeneratedCollaborationFieldSpec,
-    context: &IdentityContext,
-) -> Result<String, CollaborationLoroError> {
-    let property = if context.is_empty() {
-        value_at_path(source.document, field.path)
-    } else {
-        let (sequence_path, item_path) = field
-            .path
-            .split_once(".*.")
-            .ok_or_else(|| invalid_field(field.path, "a keyed field path"))?;
-        let (identity_path, identity_value) = context
-            .iter()
-            .next()
-            .ok_or_else(|| invalid_field(field.path, "a keyed identity value"))?;
-        value_at_path(source.document, sequence_path)
-            .and_then(Value::as_array)
-            .and_then(|items| {
-                items.iter().find(|item| {
-                    value_at_path(item, identity_path).and_then(Value::as_str)
-                        == Some(identity_value.as_str())
-                })
-            })
-            .and_then(|item| value_at_path(item, item_path))
-    };
-    Ok(property
-        .and_then(|value| value.get("$mime"))
-        .and_then(Value::as_str)
-        .filter(|mime| mime.starts_with("text/"))
-        .unwrap_or(source.default_mime)
-        .to_string())
 }
 
 fn direct_child_sequences<'a>(
@@ -887,7 +825,7 @@ fn identity_variable(sequence: &GeneratedCollaborationFieldSpec) -> &'static str
 fn resolve_container(
     field: &GeneratedCollaborationFieldSpec,
     context: &IdentityContext,
-) -> Result<String, CollaborationLoroError> {
+) -> Result<String, CollaborationReplicaError> {
     let template = field
         .container
         .or(field.container_template)
@@ -898,7 +836,7 @@ fn resolve_container(
 fn resolve_metadata(
     field: &GeneratedCollaborationFieldSpec,
     context: &IdentityContext,
-) -> Result<(String, &'static str), CollaborationLoroError> {
+) -> Result<(String, &'static str), CollaborationReplicaError> {
     let template = field
         .metadata_container
         .or(field.metadata_container_template)
@@ -914,7 +852,7 @@ fn resolve_template(
     path: &str,
     template: &str,
     context: &IdentityContext,
-) -> Result<String, CollaborationLoroError> {
+) -> Result<String, CollaborationReplicaError> {
     let mut resolved = template.to_string();
     for (name, value) in context {
         resolved = resolved.replace(&format!("{{{name}}}"), value);
@@ -930,7 +868,7 @@ fn resolve_template(
 fn validate_declared_value(
     field: &GeneratedCollaborationFieldSpec,
     value: Option<&Value>,
-) -> Result<(), CollaborationLoroError> {
+) -> Result<(), CollaborationReplicaError> {
     match value {
         None | Some(Value::Null) if !field.required => Ok(()),
         _ => validate_field_value(field, value),
@@ -940,7 +878,7 @@ fn validate_declared_value(
 fn validate_field_value(
     field: &GeneratedCollaborationFieldSpec,
     value: Option<&Value>,
-) -> Result<(), CollaborationLoroError> {
+) -> Result<(), CollaborationReplicaError> {
     match field.codec {
         GeneratedCollaborationValueCodec::Integer if value.and_then(Value::as_i64).is_none() => {
             Err(invalid_field(field.path, "an integer"))
@@ -988,7 +926,7 @@ fn keyed_items<'a>(
     document: &'a Value,
     path: &str,
     identity_path: &str,
-) -> Result<Vec<(String, &'a Value)>, CollaborationLoroError> {
+) -> Result<Vec<(String, &'a Value)>, CollaborationReplicaError> {
     value_at_path(document, path)
         .and_then(Value::as_array)
         .map_or(&[][..], Vec::as_slice)
@@ -1026,7 +964,7 @@ fn set_value_at_path(
     root: &mut Value,
     path: &str,
     value: Value,
-) -> Result<(), CollaborationLoroError> {
+) -> Result<(), CollaborationReplicaError> {
     let segments = path.split('.').collect::<Vec<_>>();
     let Some((last, parents)) = segments.split_last() else {
         return Err(invalid_field(path, "a non-empty path"));
@@ -1050,7 +988,7 @@ fn set_value_at_path(
 fn property_text(
     field: &GeneratedCollaborationFieldSpec,
     value: Option<&Value>,
-) -> Result<(String, String), CollaborationLoroError> {
+) -> Result<(String, String), CollaborationReplicaError> {
     let value = value.ok_or_else(|| invalid_field(field.path, "a text property value"))?;
     let mime = value
         .get("$mime")
@@ -1068,7 +1006,7 @@ fn string_array(
     value: Option<&Value>,
     path: &str,
     required: bool,
-) -> Result<Vec<String>, CollaborationLoroError> {
+) -> Result<Vec<String>, CollaborationReplicaError> {
     if value.is_none() && !required {
         return Ok(Vec::new());
     }
@@ -1120,7 +1058,7 @@ fn write_text(
     text: &loro::LoroText,
     path: &str,
     value: &str,
-) -> Result<(), CollaborationLoroError> {
+) -> Result<(), CollaborationReplicaError> {
     text.update(value, loro::UpdateOptions::default())
         .map_err(|_| invalid_field(path, "a text update within the time budget"))
 }
@@ -1184,9 +1122,9 @@ fn write_structured_map_changes(
     map: &LoroMap,
     previous: &Map<String, Value>,
     next: &Map<String, Value>,
-) -> Result<(), CollaborationLoroError> {
+) -> Result<(), CollaborationReplicaError> {
     for key in previous.keys().filter(|key| !next.contains_key(*key)) {
-        map.delete(key)?;
+        map.delete(key).map_err(update_error)?;
     }
 
     for (key, next_value) in next {
@@ -1202,7 +1140,8 @@ fn write_structured_map_changes(
                 .unwrap_or_default();
             write_structured_map_changes(&child, &previous_values, next_values)?;
         } else {
-            map.insert(key, json_to_loro(next_value)?)?;
+            map.insert(key, json_to_loro(next_value)?)
+                .map_err(update_error)?;
         }
     }
     Ok(())
@@ -1254,9 +1193,9 @@ fn write_structured_document_changes(
     map: &LoroMap,
     previous: &Map<String, Value>,
     next: &Map<String, Value>,
-) -> Result<(), CollaborationLoroError> {
+) -> Result<(), CollaborationReplicaError> {
     for key in previous.keys().filter(|key| !next.contains_key(*key)) {
-        map.delete(key)?;
+        map.delete(key).map_err(update_error)?;
     }
 
     for (key, next_value) in next {
@@ -1295,11 +1234,13 @@ fn write_structured_document_changes(
                     )?;
                 }
                 None => {
-                    map.insert(key, json_to_loro(next_value)?)?;
+                    map.insert(key, json_to_loro(next_value)?)
+                        .map_err(update_error)?;
                 }
             },
             _ => {
-                map.insert(key, json_to_loro(next_value)?)?;
+                map.insert(key, json_to_loro(next_value)?)
+                    .map_err(update_error)?;
             }
         }
     }
@@ -1311,8 +1252,9 @@ fn write_keyed_list_changes(
     identity: &str,
     previous: &[Value],
     next: &[Value],
-) -> Result<(), CollaborationLoroError> {
-    map.insert(KEYED_LIST_MARKER, identity)?;
+) -> Result<(), CollaborationReplicaError> {
+    map.insert(KEYED_LIST_MARKER, identity)
+        .map_err(update_error)?;
     let items = ensure_structured_map_child(map, KEYED_LIST_ITEMS)?;
     let previous_by_identity = list_by_identity(previous, identity);
     let next_by_identity = list_by_identity(next, identity);
@@ -1321,7 +1263,7 @@ fn write_keyed_list_changes(
         .keys()
         .filter(|key| !next_by_identity.contains_key(*key))
     {
-        items.delete(key)?;
+        items.delete(key).map_err(update_error)?;
     }
     for (key, value) in &next_by_identity {
         let child = ensure_structured_map_child(&items, key)?;
@@ -1338,7 +1280,8 @@ fn write_keyed_list_changes(
     }
 
     write_string_list(
-        &map.ensure_mergeable_list(KEYED_LIST_ORDER)?,
+        &map.ensure_mergeable_list(KEYED_LIST_ORDER)
+            .map_err(update_error)?,
         &next
             .iter()
             .filter_map(|value| {
@@ -1348,7 +1291,8 @@ fn write_keyed_list_changes(
                     .map(str::to_string)
             })
             .collect::<Vec<_>>(),
-    )?;
+    )
+    .map_err(update_error)?;
     Ok(())
 }
 
@@ -1367,20 +1311,20 @@ fn list_by_identity(values: &[Value], identity: &str) -> Map<String, Value> {
 fn ensure_structured_document_text(
     map: &LoroMap,
     key: &str,
-) -> Result<loro::LoroText, CollaborationLoroError> {
+) -> Result<loro::LoroText, CollaborationReplicaError> {
     if matches!(
         map.get(key),
         Some(ValueOrContainer::Container(Container::Text(_))) | None
     ) {
-        return Ok(map.ensure_mergeable_text(key)?);
+        return map.ensure_mergeable_text(key).map_err(update_error);
     }
 
-    map.delete(key)?;
-    Ok(map.ensure_mergeable_text(key)?)
+    map.delete(key).map_err(update_error)?;
+    map.ensure_mergeable_text(key).map_err(update_error)
 }
 
 /// Rebuilds one structured document level from its containers.
-fn read_structured_document(map: &LoroMap) -> Result<Value, CollaborationLoroError> {
+fn read_structured_document(map: &LoroMap) -> Result<Value, CollaborationReplicaError> {
     let mut keys = Vec::new();
     map.for_each(|key, _| keys.push(key.to_string()));
     let mut values = Map::new();
@@ -1411,7 +1355,7 @@ fn read_structured_document(map: &LoroMap) -> Result<Value, CollaborationLoroErr
     Ok(Value::Object(values))
 }
 
-fn read_keyed_list(map: &LoroMap) -> Result<Value, CollaborationLoroError> {
+fn read_keyed_list(map: &LoroMap) -> Result<Value, CollaborationReplicaError> {
     let identity = map
         .get(KEYED_LIST_MARKER)
         .map(|value| value.get_deep_value().to_json_value())
@@ -1466,19 +1410,19 @@ fn read_keyed_list(map: &LoroMap) -> Result<Value, CollaborationLoroError> {
 fn ensure_structured_map_child(
     map: &LoroMap,
     key: &str,
-) -> Result<LoroMap, CollaborationLoroError> {
+) -> Result<LoroMap, CollaborationReplicaError> {
     if matches!(
         map.get(key),
         Some(ValueOrContainer::Container(Container::Map(_))) | None
     ) {
-        return Ok(map.ensure_mergeable_map(key)?);
+        return map.ensure_mergeable_map(key).map_err(update_error);
     }
 
-    map.delete(key)?;
-    Ok(map.ensure_mergeable_map(key)?)
+    map.delete(key).map_err(update_error)?;
+    map.ensure_mergeable_map(key).map_err(update_error)
 }
 
-pub(crate) fn json_to_loro(value: &Value) -> Result<LoroValue, CollaborationLoroError> {
+pub(crate) fn json_to_loro(value: &Value) -> Result<LoroValue, CollaborationReplicaError> {
     Ok(match value {
         Value::Null => LoroValue::Null,
         Value::Bool(value) => LoroValue::Bool(*value),
@@ -1505,14 +1449,14 @@ pub(crate) fn json_to_loro(value: &Value) -> Result<LoroValue, CollaborationLoro
             values
                 .iter()
                 .map(|(key, value)| Ok((key.clone(), json_to_loro(value)?)))
-                .collect::<Result<HashMap<_, _>, CollaborationLoroError>>()?
+                .collect::<Result<HashMap<_, _>, CollaborationReplicaError>>()?
                 .into(),
         ),
     })
 }
 
-fn invalid_field(path: &str, expected: &'static str) -> CollaborationLoroError {
-    CollaborationLoroError::InvalidField {
+fn invalid_field(path: &str, expected: &'static str) -> CollaborationReplicaError {
+    CollaborationReplicaError::InvalidField {
         path: path.to_string(),
         expected,
     }

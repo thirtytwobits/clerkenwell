@@ -4,13 +4,12 @@
 
 mod common;
 
-use clerkenwell_codegen::json::Json;
+use clerkenwell_codegen::testing::{self, Json};
 use clerkenwell_codegen::Definition;
 use common::{json, merge, notebook_document, refusal, set, validate};
 
 fn collaborative_entities(definition: &Definition) -> Vec<(String, String)> {
-    definition
-        .document()
+    testing::document(definition)
         .get("collaboration")
         .and_then(|collaboration| collaboration.pointer("/entities"))
         .and_then(Json::as_object)
@@ -29,8 +28,10 @@ fn collaborative_entities(definition: &Definition) -> Vec<(String, String)> {
 /// The names of the string parameters `definition` requires of `entity`'s
 /// authoring state.
 fn required_params(definition: &Definition, entity: &str) -> Vec<String> {
-    let params = definition
-        .def(&format!("{entity}AuthoringParams"))
+    let params = testing::document(definition)
+        .get("$defs")
+        .and_then(|defs| defs.get(&format!("{entity}AuthoringParams")))
+        .and_then(Json::as_object)
         .unwrap_or_else(|| panic!("{entity}'s authoring parameters are declared"));
     let required: Vec<String> = params
         .get("required")
@@ -53,10 +54,11 @@ fn required_params(definition: &Definition, entity: &str) -> Vec<String> {
 }
 
 fn entity_id(definition: &Definition, entity: &str) -> String {
-    definition
-        .entity(entity)
+    testing::document(definition)
+        .get("entities")
+        .and_then(|entities| entities.pointer(&format!("/{entity}/id")))
+        .and_then(Json::as_str)
         .expect("a declared entity")
-        .id()
         .to_owned()
 }
 
@@ -66,8 +68,7 @@ fn every_collaborative_entity_has_an_authoring_state_projection_of_the_shared_sh
     let entities = collaborative_entities(&definition);
     assert!(!entities.is_empty());
     for (entity, name) in entities {
-        let projection = definition
-            .document()
+        let projection = testing::document(&definition)
             .get("projections")
             .and_then(|projections| projections.get(&name))
             .unwrap_or_else(|| panic!("{name} is declared"));
@@ -89,8 +90,12 @@ fn every_collaborative_entity_has_an_authoring_state_projection_of_the_shared_sh
             Some(&Json::Array(vec![Json::String(entity.clone())]))
         );
     }
-    assert!(definition.def("AuthoringState").is_some());
-    assert!(definition.def("AuthoringStatePatch").is_some());
+    let defs = testing::document(&definition)
+        .get("$defs")
+        .and_then(Json::as_object)
+        .expect("the definition declares $defs");
+    assert!(defs.get("AuthoringState").is_some());
+    assert!(defs.get("AuthoringStatePatch").is_some());
 }
 
 #[test]
