@@ -4,8 +4,8 @@
 mod support;
 
 use clerkenwell_store::{
-    CollaborationDocumentId, CollaborationService, CollaborationStoragePort,
-    LocalFileCollaborationStorage, ENVELOPE_VERSION,
+    upgrade_envelope_bytes, CollaborationDocumentId, CollaborationService,
+    CollaborationStoragePort, LocalFileCollaborationStorage, ENVELOPE_VERSION,
 };
 use serde_json::{json, Value};
 use support::{accept, NOTE_PLAN, PLANS, POLICY};
@@ -130,4 +130,47 @@ fn upgrading_an_envelope_already_in_the_current_format_changes_nothing() {
         .is_none());
 
     assert_eq!(std::fs::read(&path).expect("read"), kept);
+}
+
+#[test]
+fn envelope_bytes_no_service_reads_upgrade_to_what_a_service_reads() {
+    let (root, service, path) = seeded();
+    let before = service.load(&note()).expect("load").expect("an envelope");
+    let earlier = format_1_fields();
+    keep_in_format_1(&path, &earlier);
+    drop(service);
+
+    let (upgraded, removed) = upgrade_envelope_bytes(&std::fs::read(&path).expect("read"))
+        .expect("upgrade")
+        .expect("an earlier format");
+    std::fs::write(&path, upgraded).expect("write");
+
+    assert_eq!(Value::Object(removed), earlier);
+    let reader = CollaborationService::new(root.path(), PLANS, POLICY);
+    let after = reader.load(&note()).expect("load").expect("an envelope");
+    assert_eq!(after.envelope_version, ENVELOPE_VERSION);
+    assert_eq!(after.generation, before.generation);
+    assert_eq!(after.etag(), before.etag());
+}
+
+#[test]
+fn envelope_bytes_already_in_the_current_format_are_left_as_they_are() {
+    let (_root, _service, path) = seeded();
+
+    assert!(upgrade_envelope_bytes(&std::fs::read(&path).expect("read"))
+        .expect("upgrade")
+        .is_none());
+}
+
+#[test]
+fn envelope_bytes_in_a_format_this_store_does_not_know_are_refused() {
+    let (_root, _service, path) = seeded();
+    let mut envelope: serde_json::Map<String, Value> =
+        serde_json::from_slice(&std::fs::read(&path).expect("read")).expect("an envelope");
+    envelope.insert("envelope_version".to_string(), json!(ENVELOPE_VERSION + 1));
+
+    let refused = upgrade_envelope_bytes(&serde_json::to_vec(&envelope).expect("json"))
+        .expect_err("an unknown format");
+
+    assert_eq!(refusal_code(&refused), Some("collaboration_state_corrupt"));
 }

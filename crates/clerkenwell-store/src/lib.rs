@@ -54,6 +54,10 @@ pub const ENVELOPE_VERSION: u32 = 2;
 /// rendered the document, and whether it had published it.
 const FORMAT_1_FIELDS: [&str; 2] = ["relative_path", "publication_pending"];
 
+/// The fields an earlier envelope format kept that the current one does not,
+/// as an upgrade removed them.
+pub type RetiredEnvelopeFields = serde_json::Map<String, Value>;
+
 #[cfg(test)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum CollaborationFaultPoint {
@@ -1473,45 +1477,14 @@ impl CollaborationService {
     pub fn upgrade_envelope(
         &self,
         document: &CollaborationDocumentId,
-    ) -> StoreResult<Option<serde_json::Map<String, Value>>> {
-        let source = self.storage.source(document);
+    ) -> StoreResult<Option<RetiredEnvelopeFields>> {
         loop {
             let stored = self.stored(document)?;
-            let unreadable = |error: serde_json::Error| {
-                corrupt_state(
-                    document,
-                    format!("envelope {source} is invalid JSON: {error}"),
-                )
-            };
-            let mut fields: serde_json::Map<String, Value> =
-                serde_json::from_slice(&stored.bytes).map_err(unreadable)?;
-            let version = fields
-                .get("envelope_version")
-                .and_then(Value::as_u64)
-                .ok_or_else(|| corrupt_state(document, "the envelope names no format version"))?;
-            if version == u64::from(ENVELOPE_VERSION) {
+            let Some((envelope, removed)) =
+                upgraded_envelope(document, &self.storage.source(document), &stored.bytes)?
+            else {
                 return Ok(None);
-            }
-            if version != 1 {
-                return Err(corrupt_state(
-                    document,
-                    format!("unsupported durable envelope version {version}"),
-                ));
-            }
-            let removed: serde_json::Map<String, Value> = FORMAT_1_FIELDS
-                .iter()
-                .filter_map(|field| {
-                    fields
-                        .remove(*field)
-                        .map(|value| (field.to_string(), value))
-                })
-                .collect();
-            fields.insert(
-                "envelope_version".to_string(),
-                Value::from(ENVELOPE_VERSION),
-            );
-            let envelope: DurableCollaborationEnvelope =
-                serde_json::from_value(Value::Object(fields)).map_err(unreadable)?;
+            };
             if self
                 .swap(document, Some(&stored.version), &envelope)?
                 .is_some()
@@ -2640,6 +2613,81 @@ fn validate_envelope(
         ));
     }
     Ok(())
+}
+
+/// Stored envelope `bytes` rewritten in the current format, and the fields the
+/// earlier format kept that the current one does not; `None` when they are
+/// already current. For envelopes no service reads, such as a staged copy of
+/// a store; [`CollaborationService::upgrade_envelope`] upgrades one a service
+/// keeps.
+pub fn upgrade_envelope_bytes(
+    bytes: &[u8],
+) -> StoreResult<Option<(Vec<u8>, RetiredEnvelopeFields)>> {
+    let named = |field: &str| {
+        serde_json::from_slice::<Value>(bytes)
+            .ok()
+            .and_then(|value| value.get(field)?.as_str().map(str::to_string))
+            .unwrap_or_default()
+    };
+    let document = CollaborationDocumentId::new(named("entity"), named("resource_id"));
+    let Some((envelope, removed)) = upgraded_envelope(&document, "the stored envelope", bytes)?
+    else {
+        return Ok(None);
+    };
+    validate_envelope(&document, &envelope)?;
+    let bytes = serde_json::to_vec_pretty(&envelope)
+        .map_err(|error| StoreError::internal(error.to_string()))?;
+    Ok(Some((bytes, removed)))
+}
+
+/// An envelope rewritten in the current format, and the fields its earlier
+/// format kept that the current one does not.
+type UpgradedEnvelope = (DurableCollaborationEnvelope, RetiredEnvelopeFields);
+
+/// `bytes`, kept at `source`, read as an envelope in the current format,
+/// with the fields an earlier format kept that it does not; `None` when they
+/// are already current.
+fn upgraded_envelope(
+    document: &CollaborationDocumentId,
+    source: &str,
+    bytes: &[u8],
+) -> StoreResult<Option<UpgradedEnvelope>> {
+    let unreadable = |error: serde_json::Error| {
+        corrupt_state(
+            document,
+            format!("envelope {source} is invalid JSON: {error}"),
+        )
+    };
+    let mut fields: serde_json::Map<String, Value> =
+        serde_json::from_slice(bytes).map_err(unreadable)?;
+    let version = fields
+        .get("envelope_version")
+        .and_then(Value::as_u64)
+        .ok_or_else(|| corrupt_state(document, "the envelope names no format version"))?;
+    if version == u64::from(ENVELOPE_VERSION) {
+        return Ok(None);
+    }
+    if version != 1 {
+        return Err(corrupt_state(
+            document,
+            format!("unsupported durable envelope version {version}"),
+        ));
+    }
+    let removed: RetiredEnvelopeFields = FORMAT_1_FIELDS
+        .iter()
+        .filter_map(|field| {
+            fields
+                .remove(*field)
+                .map(|value| (field.to_string(), value))
+        })
+        .collect();
+    fields.insert(
+        "envelope_version".to_string(),
+        Value::from(ENVELOPE_VERSION),
+    );
+    let envelope: DurableCollaborationEnvelope =
+        serde_json::from_value(Value::Object(fields)).map_err(unreadable)?;
+    Ok(Some((envelope, removed)))
 }
 
 fn corrupt_state(document: &CollaborationDocumentId, message: impl Into<String>) -> StoreError {
