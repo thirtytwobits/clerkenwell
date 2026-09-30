@@ -4,14 +4,14 @@
 //! retained operations. A commit imports an update into the accepted replica,
 //! judges it against the plan's field policies, validates the materialised
 //! document, and replaces the envelope only if it is still the one the commit
-//! read. Publication is acknowledged separately from the commit. Corruption is
-//! reported, never read as an empty document, and recovery preserves evidence
-//! and records an audit trail.
+//! read. Corruption is reported, never read as an empty document, and recovery
+//! preserves evidence and records an audit trail.
 //!
 //! The service builds and judges every envelope. A storage port keeps each
 //! document's envelope as bytes and replaces or removes them only from the
 //! version a writer read; the local file port does so under a per-document
-//! lock with an atomic durable write.
+//! lock with an atomic durable write. A store set can hold stores over any
+//! mix of ports.
 //!
 //! A service holds each document it reads, with the replica and materialised
 //! document built from it, and writes every change through to the port. It
@@ -31,7 +31,7 @@ use fs2::FileExt;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 use std::fs::{File, OpenOptions};
 use std::io::Write;
 use std::num::NonZeroU32;
@@ -45,8 +45,14 @@ use uuid::Uuid;
 
 use residency::{Residency, Resident};
 
-/// The envelope format this store reads and writes.
-pub const ENVELOPE_VERSION: u32 = 1;
+/// The envelope format this store reads and writes. An envelope in an
+/// earlier format is refused until [`CollaborationService::upgrade_envelope`]
+/// rewrites it.
+pub const ENVELOPE_VERSION: u32 = 2;
+
+/// Fields format 1 kept that format 2 does not: where the application
+/// rendered the document, and whether it had published it.
+const FORMAT_1_FIELDS: [&str; 2] = ["relative_path", "publication_pending"];
 
 #[cfg(test)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -58,7 +64,6 @@ pub(crate) enum CollaborationFaultPoint {
     AfterTemporarySync,
     AfterRenameBeforeDirectorySync,
     AfterDurableCommit,
-    BeforePublicationAcknowledgement,
 }
 
 /// One pending injected fault, shared by a service and its local storage so a
@@ -161,7 +166,6 @@ pub struct DurableCollaborationEnvelope {
     pub envelope_version: u32,
     pub entity: String,
     pub resource_id: String,
-    pub relative_path: String,
     pub schema_version: u32,
     pub generation: u64,
     pub checkpoint_sequence: u64,
@@ -170,7 +174,6 @@ pub struct DurableCollaborationEnvelope {
     pub checkpoint_sha256: String,
     pub checkpoint_bytes: usize,
     pub retained_operations: Vec<CollaborationOperation>,
-    pub publication_pending: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pending_rename_from: Option<String>,
 }
@@ -202,7 +205,6 @@ impl DurableCollaborationEnvelope {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CollaborationDocumentSummary {
     pub document: CollaborationDocumentId,
-    pub relative_path: String,
     pub schema_version: u32,
     pub generation: u64,
     pub etag: String,
@@ -214,7 +216,6 @@ pub struct CollaborationDocumentSummary {
     /// checkpoint, when any are.
     pub retained_sequences: Option<(u64, u64)>,
     pub retained_count: usize,
-    pub publication_pending: bool,
     /// Where a move the document records as unfinished took it from.
     pub moved_from: Option<String>,
 }
@@ -227,7 +228,6 @@ impl CollaborationDocumentSummary {
                 envelope.entity.clone(),
                 envelope.resource_id.clone(),
             ),
-            relative_path: envelope.relative_path.clone(),
             schema_version: envelope.schema_version,
             generation: envelope.generation,
             etag: envelope.etag(),
@@ -240,7 +240,6 @@ impl CollaborationDocumentSummary {
                 .zip(retained.last())
                 .map(|(first, last)| (first.sequence, last.sequence)),
             retained_count: retained.len(),
-            publication_pending: envelope.publication_pending,
             moved_from: envelope.pending_rename_from.clone(),
         }
     }
@@ -258,7 +257,6 @@ pub struct CollaborationDocumentRead {
 #[derive(Debug, Clone)]
 struct CollaborationCommit {
     document: CollaborationDocumentId,
-    relative_path: String,
     schema_version: u32,
     operation_id: String,
     imported_update: Vec<u8>,
@@ -300,7 +298,6 @@ pub struct CollaborationAuthoringState {
 #[derive(Debug, Clone)]
 pub struct CollaborationImportRequest {
     pub document: CollaborationDocumentId,
-    pub relative_path: String,
     pub schema_version: u32,
     pub operation_id: String,
     pub exchange_mode: CollaborationExchangeMode,
@@ -337,59 +334,6 @@ pub struct CollaborationImportResult {
     pub update_bytes: usize,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CollaborationPublication {
-    pub document: CollaborationDocumentId,
-    pub schema_version: u32,
-    pub generation: u64,
-    pub pending: bool,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CollaborationPublicationScanProblem {
-    pub source: String,
-    pub fingerprint: String,
-    pub code: &'static str,
-    pub message: String,
-}
-
-#[derive(Debug, Default)]
-pub struct CollaborationPublicationScan {
-    pub publications: Vec<CollaborationPublication>,
-    pub problems: Vec<CollaborationPublicationScanProblem>,
-}
-
-/// What a service's earlier publication scans read from each envelope, kept
-/// by a caller that scans repeatedly so an envelope whose stamp has not moved
-/// is not read again.
-#[derive(Debug, Default)]
-pub struct CollaborationPublicationScanCache {
-    reads: HashMap<String, StampedPublicationRead>,
-}
-
-#[derive(Debug, Clone)]
-struct StampedPublicationRead {
-    stamp: String,
-    read: PublicationRead,
-}
-
-/// What one envelope's bytes say about its publication.
-#[derive(Debug, Clone)]
-enum PublicationRead {
-    Publication(CollaborationPublication),
-    Problem(CollaborationPublicationScanProblem),
-}
-
-#[derive(Debug, Deserialize)]
-struct DurableCollaborationPublicationHeader {
-    envelope_version: u32,
-    entity: String,
-    resource_id: String,
-    schema_version: u32,
-    generation: u64,
-    publication_pending: bool,
-}
-
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct CollaborationDocumentInspection {
     pub entity: String,
@@ -401,7 +345,6 @@ pub struct CollaborationDocumentInspection {
     pub retained_operation_count: usize,
     pub checkpoint_bytes: usize,
     pub retained_operation_bytes: usize,
-    pub publication_pending: bool,
     pub migration_required: bool,
     pub valid: bool,
     pub failure_code: Option<String>,
@@ -487,10 +430,6 @@ pub trait CollaborationStoragePort: std::fmt::Debug + Send + Sync {
     /// The envelope kept at `source`, or `None` when none is.
     fn read(&self, source: &str) -> StoreResult<Option<StoredEnvelope>>;
 
-    /// The bytes kept at `source`, or `None` when none are, for a reader that
-    /// will not write them back and so needs no version.
-    fn read_bytes(&self, source: &str) -> StoreResult<Option<Vec<u8>>>;
-
     /// A token, taken without reading the bytes kept at `source`, that differs
     /// from every earlier token for `source` once those bytes change. `None`
     /// when the port cannot vouch for such a token now; the reader then reads
@@ -516,13 +455,13 @@ pub trait CollaborationStoragePort: std::fmt::Debug + Send + Sync {
     ) -> StoreResult<bool>;
 
     /// Keeps `bytes`, read as `document`'s envelope, as evidence under
-    /// `label`, and returns where.
+    /// `label`, and returns where, as the port names places.
     fn preserve(
         &self,
         document: &CollaborationDocumentId,
         label: &str,
         bytes: &[u8],
-    ) -> StoreResult<PathBuf>;
+    ) -> StoreResult<String>;
 
     fn append_recovery_audit(&self, record: &CollaborationRecoveryAuditRecord) -> StoreResult<()>;
 
@@ -549,8 +488,8 @@ pub struct CommitPolicy {
 /// Generated plans define document layout. Resource adapters provide only
 /// their seed document and semantic validator.
 #[derive(Debug, Clone)]
-pub struct CollaborationService<S = LocalFileCollaborationStorage> {
-    storage: S,
+pub struct CollaborationService {
+    storage: Arc<dyn CollaborationStoragePort>,
     plans: &'static [GeneratedCollaborationEntitySpec],
     policy: CommitPolicy,
     counters: Arc<CollaborationRuntimeCounters>,
@@ -575,6 +514,16 @@ pub struct CollaborationStores {
     stores: Arc<RwLock<BTreeMap<String, CollaborationService>>>,
 }
 
+fn registered(name: &str) -> StoreError {
+    StoreError::conflict(format!(
+        "A collaboration store is already registered as {name:?}."
+    ))
+    .with_data(serde_json::json!({
+        "code": "collaboration_store_registered",
+        "store": name,
+    }))
+}
+
 impl CollaborationStores {
     /// A set, holding no store yet, for documents of `plans` committed under
     /// `policy`.
@@ -588,48 +537,58 @@ impl CollaborationStores {
         }
     }
 
-    /// The store named `name`, keeping its envelopes under `root`. Registers it
-    /// when the set holds no store of that name, and refuses a name the set
-    /// holds for another root.
-    pub fn register(&self, name: &str, root: &Path) -> StoreResult<CollaborationService> {
-        let registered = |existing: &CollaborationService| {
-            if existing.storage.root == root {
-                Ok(existing.clone())
-            } else {
-                Err(StoreError::conflict(format!(
-                    "Collaboration store {name:?} keeps its envelopes under {}.",
-                    existing.storage.root.display()
-                ))
-                .with_data(serde_json::json!({
-                    "code": "collaboration_store_registered",
-                    "store": name,
-                })))
-            }
-        };
-        if let Some(existing) = self.read().get(name) {
-            return registered(existing);
+    /// Registers `storage` as the store named `name`, and refuses a name the
+    /// set already holds.
+    pub fn register(
+        &self,
+        name: &str,
+        storage: impl CollaborationStoragePort + 'static,
+    ) -> StoreResult<CollaborationService> {
+        let mut stores = self
+            .stores
+            .write()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if stores.contains_key(name) {
+            return Err(registered(name));
+        }
+        let service = self.service(name, Arc::new(storage));
+        stores.insert(name.to_string(), service.clone());
+        Ok(service)
+    }
+
+    /// The store registered as `name`, or the storage `storage` builds
+    /// registered under it when the set holds none.
+    pub fn store_or_register<P: CollaborationStoragePort + 'static>(
+        &self,
+        name: &str,
+        storage: impl FnOnce() -> P,
+    ) -> CollaborationService {
+        if let Some(existing) = self.store(name) {
+            return existing;
         }
         let mut stores = self
             .stores
             .write()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        if let Some(existing) = stores.get(name) {
-            return registered(existing);
-        }
-        let storage = LocalFileCollaborationStorage::new(root);
-        let service = CollaborationService {
-            #[cfg(test)]
-            faults: storage.faults.clone(),
+        stores
+            .entry(name.to_string())
+            .or_insert_with(|| self.service(name, Arc::new(storage())))
+            .clone()
+    }
+
+    fn service(
+        &self,
+        name: &str,
+        storage: Arc<dyn CollaborationStoragePort>,
+    ) -> CollaborationService {
+        CollaborationService::within(
             storage,
-            plans: self.plans,
-            policy: self.policy,
-            counters: self.counters.clone(),
-            changes: self.changes.clone(),
-            source: name.into(),
-            residency: Arc::new(Residency::new(self.counters.clone())),
-        };
-        stores.insert(name.to_string(), service.clone());
-        Ok(service)
+            self.plans,
+            self.policy,
+            self.counters.clone(),
+            self.changes.clone(),
+            name.to_string(),
+        )
     }
 
     /// The store registered as `name`.
@@ -672,55 +631,66 @@ impl CollaborationStores {
     }
 }
 
-impl CollaborationService<LocalFileCollaborationStorage> {
-    /// A service for documents of `plans` whose envelopes live under `root`.
+impl CollaborationService {
+    /// A service for documents of `plans` whose envelopes live in files under
+    /// `root`.
     pub fn new(
         root: &Path,
         plans: &'static [GeneratedCollaborationEntitySpec],
         policy: CommitPolicy,
     ) -> Self {
         let storage = LocalFileCollaborationStorage::new(root);
-        let counters = Arc::new(CollaborationRuntimeCounters::default());
-        Self {
-            #[cfg(test)]
-            faults: storage.faults.clone(),
-            storage,
-            plans,
-            policy,
-            residency: Arc::new(Residency::new(counters.clone())),
-            counters,
-            changes: Arc::new(ChangeFeed::default()),
-            source: root.display().to_string().into(),
-        }
+        #[cfg(test)]
+        let faults = storage.faults.clone();
+        let service = Self::with_storage(storage, plans, policy, root.display().to_string());
+        #[cfg(test)]
+        let service = Self { faults, ..service };
+        service
     }
-}
 
-impl<S: CollaborationStoragePort> CollaborationService<S> {
     /// A service for documents of `plans` committing through any
     /// implementation of the storage port, whose changes name `source` as
     /// their source.
     pub fn with_storage(
-        storage: S,
+        storage: impl CollaborationStoragePort + 'static,
         plans: &'static [GeneratedCollaborationEntitySpec],
         policy: CommitPolicy,
         source: impl Into<String>,
     ) -> Self {
-        let counters = Arc::new(CollaborationRuntimeCounters::default());
+        Self::within(
+            Arc::new(storage),
+            plans,
+            policy,
+            Arc::new(CollaborationRuntimeCounters::default()),
+            Arc::new(ChangeFeed::default()),
+            source.into(),
+        )
+    }
+
+    /// A service sharing `counters` and `changes`, as the stores of one set do.
+    fn within(
+        storage: Arc<dyn CollaborationStoragePort>,
+        plans: &'static [GeneratedCollaborationEntitySpec],
+        policy: CommitPolicy,
+        counters: Arc<CollaborationRuntimeCounters>,
+        changes: Arc<ChangeFeed>,
+        source: String,
+    ) -> Self {
         Self {
             storage,
             plans,
             policy,
             residency: Arc::new(Residency::new(counters.clone())),
             counters,
-            changes: Arc::new(ChangeFeed::default()),
-            source: source.into().into(),
+            changes,
+            source: source.into(),
             #[cfg(test)]
             faults: CollaborationFaults::default(),
         }
     }
 
-    pub fn storage(&self) -> &S {
-        &self.storage
+    pub fn storage(&self) -> &dyn CollaborationStoragePort {
+        self.storage.as_ref()
     }
 
     /// The feed this service announces each change to a document's accepted
@@ -898,16 +868,7 @@ impl<S: CollaborationStoragePort> CollaborationService<S> {
             held.restamp(stamp);
             return Ok(Some(held));
         }
-        let envelope: DurableCollaborationEnvelope = serde_json::from_slice(&stored.bytes)
-            .map_err(|error| match document {
-                Some(document) => corrupt_state(
-                    document,
-                    format!("envelope {source} is invalid JSON: {error}"),
-                ),
-                None => StoreError::internal(format!(
-                    "Collaboration envelope {source} is invalid JSON: {error}"
-                )),
-            })?;
+        let envelope = parse_envelope(document, source, &stored.bytes)?;
         match document {
             Some(document) => validate_envelope(document, &envelope)?,
             None => validate_envelope(
@@ -1039,7 +1000,6 @@ impl<S: CollaborationStoragePort> CollaborationService<S> {
             envelope_version: ENVELOPE_VERSION,
             entity: document.entity.clone(),
             resource_id: document.resource_id.clone(),
-            relative_path: commit.relative_path,
             schema_version: commit.schema_version,
             generation: current_envelope
                 .map_or(0, |state| state.generation)
@@ -1050,7 +1010,6 @@ impl<S: CollaborationStoragePort> CollaborationService<S> {
             checkpoint_sha256: sha256_hex(&commit.accepted_update),
             checkpoint_bytes: commit.accepted_update.len(),
             retained_operations,
-            publication_pending: true,
             pending_rename_from: None,
         };
         let expected = current.map(|read| read.version.as_str());
@@ -1243,7 +1202,6 @@ impl<S: CollaborationStoragePort> CollaborationService<S> {
                         envelope_version: ENVELOPE_VERSION,
                         entity: request.document.entity.clone(),
                         resource_id: request.document.resource_id.clone(),
-                        relative_path: request.relative_path.clone(),
                         schema_version: request.schema_version,
                         generation: 0,
                         checkpoint_sequence: 0,
@@ -1252,7 +1210,6 @@ impl<S: CollaborationStoragePort> CollaborationService<S> {
                         checkpoint_sha256: sha256_hex(&accepted_update),
                         checkpoint_bytes: accepted_update.len(),
                         retained_operations: Vec::new(),
-                        publication_pending: false,
                         pending_rename_from: None,
                     }
                 }
@@ -1390,7 +1347,6 @@ impl<S: CollaborationStoragePort> CollaborationService<S> {
                 read.as_deref(),
                 CollaborationCommit {
                     document: request.document.clone(),
-                    relative_path: request.relative_path.clone(),
                     schema_version: request.schema_version,
                     operation_id: request.operation_id.clone(),
                     imported_update: imported_update.clone(),
@@ -1486,182 +1442,59 @@ impl<S: CollaborationStoragePort> CollaborationService<S> {
         std::thread::sleep(bound.mul_f64(random as f64 / u64::MAX as f64));
     }
 
-    pub fn acknowledge_publication(
+    /// Rewrites `document`'s envelope in the current format when it is kept
+    /// in an earlier one, and returns the fields the earlier format kept that
+    /// the current one does not; `None` when it is already current. The
+    /// document, its generation and its history are unchanged.
+    pub fn upgrade_envelope(
         &self,
         document: &CollaborationDocumentId,
-        generation: u64,
-    ) -> StoreResult<()> {
-        #[cfg(test)]
-        self.faults
-            .fail_if(CollaborationFaultPoint::BeforePublicationAcknowledgement)?;
+    ) -> StoreResult<Option<serde_json::Map<String, Value>>> {
+        let source = self.storage.source(document);
         loop {
-            let Some(read) = self.read_envelope(document)? else {
-                return Err(missing_state(document));
+            let stored = self.stored(document)?;
+            let unreadable = |error: serde_json::Error| {
+                corrupt_state(
+                    document,
+                    format!("envelope {source} is invalid JSON: {error}"),
+                )
             };
-            if read.envelope.generation != generation || !read.envelope.publication_pending {
-                return Ok(());
+            let mut fields: serde_json::Map<String, Value> =
+                serde_json::from_slice(&stored.bytes).map_err(unreadable)?;
+            let version = fields
+                .get("envelope_version")
+                .and_then(Value::as_u64)
+                .ok_or_else(|| corrupt_state(document, "the envelope names no format version"))?;
+            if version == u64::from(ENVELOPE_VERSION) {
+                return Ok(None);
             }
-            let mut envelope = read.envelope.clone();
-            envelope.publication_pending = false;
+            if version != 1 {
+                return Err(corrupt_state(
+                    document,
+                    format!("unsupported durable envelope version {version}"),
+                ));
+            }
+            let removed: serde_json::Map<String, Value> = FORMAT_1_FIELDS
+                .iter()
+                .filter_map(|field| {
+                    fields
+                        .remove(*field)
+                        .map(|value| (field.to_string(), value))
+                })
+                .collect();
+            fields.insert(
+                "envelope_version".to_string(),
+                Value::from(ENVELOPE_VERSION),
+            );
+            let envelope: DurableCollaborationEnvelope =
+                serde_json::from_value(Value::Object(fields)).map_err(unreadable)?;
             if self
-                .swap(document, Some(&read.version), &envelope)?
+                .swap(document, Some(&stored.version), &envelope)?
                 .is_some()
             {
-                return Ok(());
+                return Ok(Some(removed));
             }
         }
-    }
-
-    pub fn publication_scan(&self) -> StoreResult<CollaborationPublicationScan> {
-        self.publication_rescan(&mut CollaborationPublicationScanCache::default())
-    }
-
-    /// Scans as [`Self::publication_scan`] does, reading only the envelopes
-    /// whose stamp has moved since the scan that filled `cache`.
-    pub fn publication_rescan(
-        &self,
-        cache: &mut CollaborationPublicationScanCache,
-    ) -> StoreResult<CollaborationPublicationScan> {
-        let mut previous = std::mem::take(&mut cache.reads);
-        let mut scan = CollaborationPublicationScan::default();
-        for spec in self.plans {
-            let entity_scan =
-                self.entity_publications(spec.name, &mut previous, &mut cache.reads)?;
-            scan.publications.extend(entity_scan.publications);
-            scan.problems.extend(entity_scan.problems);
-        }
-        scan.publications.sort_by(|left, right| {
-            (&left.document.entity, &left.document.resource_id)
-                .cmp(&(&right.document.entity, &right.document.resource_id))
-        });
-        scan.problems
-            .sort_by(|left, right| left.source.cmp(&right.source));
-        Ok(scan)
-    }
-
-    /// Reads each stored envelope of `entity` only as far as its identity
-    /// and publication state, reporting one that cannot be read that far
-    /// rather than failing the scan. An envelope whose stamp matches its read
-    /// in `previous` is not read again; every stamped read is kept in `next`.
-    fn entity_publications(
-        &self,
-        entity: &str,
-        previous: &mut HashMap<String, StampedPublicationRead>,
-        next: &mut HashMap<String, StampedPublicationRead>,
-    ) -> StoreResult<CollaborationPublicationScan> {
-        let mut scan = CollaborationPublicationScan::default();
-        for source in self.storage.sources(entity)? {
-            // The stamp is taken before the bytes are read, so bytes that
-            // change in between are kept under the older stamp and read again
-            // by the next scan.
-            let stamp = self.storage.stamp(&source).ok().flatten();
-            let cached = previous
-                .remove(&source)
-                .filter(|cached| stamp.as_deref() == Some(cached.stamp.as_str()));
-            let read = match cached {
-                Some(cached) => cached.read,
-                None => match self.publication_read(entity, &source) {
-                    Ok(Some(read)) => read,
-                    Ok(None) => continue,
-                    Err(problem) => {
-                        scan.problems.push(problem);
-                        continue;
-                    }
-                },
-            };
-            if let Some(stamp) = stamp {
-                next.insert(
-                    source,
-                    StampedPublicationRead {
-                        stamp,
-                        read: read.clone(),
-                    },
-                );
-            }
-            match read {
-                PublicationRead::Publication(publication) => scan.publications.push(publication),
-                PublicationRead::Problem(problem) => scan.problems.push(problem),
-            }
-        }
-        Ok(scan)
-    }
-
-    /// What the envelope at `source` says about its publication, or `None`
-    /// when nothing is kept there. `Err` is the problem of bytes that could
-    /// not be read at all, which a later read may not repeat.
-    fn publication_read(
-        &self,
-        entity: &str,
-        source: &str,
-    ) -> Result<Option<PublicationRead>, CollaborationPublicationScanProblem> {
-        let bytes = match self.storage.read_bytes(source) {
-            Ok(Some(bytes)) => bytes,
-            Ok(None) => return Ok(None),
-            Err(error) => {
-                let message = format!("Could not read collaboration publication {source}: {error}");
-                return Err(CollaborationPublicationScanProblem {
-                    source: source.to_string(),
-                    fingerprint: sha256_hex(message.as_bytes()),
-                    code: "collaboration_publication_unreadable",
-                    message,
-                });
-            }
-        };
-        let header: DurableCollaborationPublicationHeader = match serde_json::from_slice(&bytes) {
-            Ok(header) => header,
-            Err(error) => {
-                return Ok(Some(PublicationRead::Problem(
-                    CollaborationPublicationScanProblem {
-                        message: format!(
-                            "Collaboration publication {source} is invalid JSON: {error}"
-                        ),
-                        source: source.to_string(),
-                        fingerprint: sha256_hex(&bytes),
-                        code: "collaboration_publication_invalid_json",
-                    },
-                )));
-            }
-        };
-        let document =
-            CollaborationDocumentId::new(header.entity.clone(), header.resource_id.clone());
-        if header.envelope_version != ENVELOPE_VERSION
-            || header.entity != entity
-            || self.storage.source(&document) != source
-        {
-            return Ok(Some(PublicationRead::Problem(
-                CollaborationPublicationScanProblem {
-                    message: format!(
-                        "Collaboration publication header in {source} does not match its storage identity"
-                    ),
-                    source: source.to_string(),
-                    fingerprint: sha256_hex(&bytes),
-                    code: "collaboration_state_corrupt",
-                },
-            )));
-        }
-        Ok(Some(PublicationRead::Publication(
-            CollaborationPublication {
-                document,
-                schema_version: header.schema_version,
-                generation: header.generation,
-                pending: header.publication_pending,
-            },
-        )))
-    }
-
-    #[cfg(test)]
-    pub fn publications(&self) -> StoreResult<Vec<CollaborationPublication>> {
-        let scan = self.publication_scan()?;
-        if let Some(problem) = scan.problems.first() {
-            return Err(StoreError::internal(problem.message.clone()).with_data(
-                serde_json::json!({
-                    "code": problem.code,
-                    "source": problem.source,
-                    "fingerprint": problem.fingerprint,
-                }),
-            ));
-        }
-        Ok(scan.publications)
     }
 
     /// Removes `document`'s envelope, whatever it holds.
@@ -1669,8 +1502,7 @@ impl<S: CollaborationStoragePort> CollaborationService<S> {
         let source = self.storage.source(document);
         while let Some(stored) = self.storage.read(&source)? {
             if self.remove(document, &stored.version)? {
-                let deleted =
-                    serde_json::from_slice::<DurableCollaborationEnvelope>(&stored.bytes).ok();
+                let deleted = parse_envelope(Some(document), &source, &stored.bytes).ok();
                 self.announce(
                     ChangeKind::Deleted,
                     deleted.as_ref().map(|envelope| envelope.generation),
@@ -1698,7 +1530,6 @@ impl<S: CollaborationStoragePort> CollaborationService<S> {
         &self,
         source: &CollaborationDocumentId,
         destination: &CollaborationDocumentId,
-        relative_path: &str,
     ) -> StoreResult<Option<u64>> {
         if source.entity != destination.entity {
             return Err(StoreError::invalid_request(
@@ -1727,9 +1558,7 @@ impl<S: CollaborationStoragePort> CollaborationService<S> {
             let mut envelope = read.envelope.clone();
             envelope.pending_rename_from = Some(source.resource_id.clone());
             envelope.resource_id = destination.resource_id.clone();
-            envelope.relative_path = relative_path.to_string();
             envelope.generation = envelope.generation.saturating_add(1);
-            envelope.publication_pending = true;
             let Some(moved) = self.swap(destination, None, &envelope)? else {
                 continue;
             };
@@ -1762,31 +1591,6 @@ impl<S: CollaborationStoragePort> CollaborationService<S> {
                     "resource_id": source.resource_id,
                     "destination_resource_id": destination.resource_id,
                 })));
-            }
-        }
-    }
-
-    pub fn update_relative_path(
-        &self,
-        document: &CollaborationDocumentId,
-        relative_path: &str,
-    ) -> StoreResult<Option<u64>> {
-        loop {
-            let Some(read) = self.read_envelope(document)? else {
-                return Ok(None);
-            };
-            if read.envelope.relative_path == relative_path {
-                return Ok(Some(read.envelope.generation));
-            }
-            let mut envelope = read.envelope.clone();
-            envelope.relative_path = relative_path.to_string();
-            envelope.generation = envelope.generation.saturating_add(1);
-            envelope.publication_pending = true;
-            if self
-                .swap(document, Some(&read.version), &envelope)?
-                .is_some()
-            {
-                return Ok(Some(envelope.generation));
             }
         }
     }
@@ -1858,7 +1662,9 @@ impl<S: CollaborationStoragePort> CollaborationService<S> {
         source: &str,
         bytes: &[u8],
     ) -> CollaborationDocumentInspection {
-        let Ok(envelope) = serde_json::from_slice::<DurableCollaborationEnvelope>(bytes) else {
+        let parsed = parse_envelope(None, source, bytes);
+        let Ok(envelope) = parsed else {
+            let upgrade = parsed.as_ref().is_err_and(upgrade_is_required);
             return CollaborationDocumentInspection {
                 entity: entity.to_string(),
                 resource_id: requested_resource_id
@@ -1871,10 +1677,16 @@ impl<S: CollaborationStoragePort> CollaborationService<S> {
                 retained_operation_count: 0,
                 checkpoint_bytes: bytes.len(),
                 retained_operation_bytes: 0,
-                publication_pending: false,
                 migration_required: false,
                 valid: false,
-                failure_code: Some("invalid_envelope_json".to_string()),
+                failure_code: Some(
+                    if upgrade {
+                        "collaboration_envelope_upgrade_required"
+                    } else {
+                        "invalid_envelope_json"
+                    }
+                    .to_string(),
+                ),
             };
         };
         let document =
@@ -1907,7 +1719,6 @@ impl<S: CollaborationStoragePort> CollaborationService<S> {
                 retained_operation_count: 0,
                 checkpoint_bytes: 0,
                 retained_operation_bytes: 0,
-                publication_pending: false,
                 migration_required: false,
                 valid: false,
                 failure_code: Some("collaboration_state_unreadable".to_string()),
@@ -1935,7 +1746,7 @@ impl<S: CollaborationStoragePort> CollaborationService<S> {
         &self,
         document: &CollaborationDocumentId,
         reason: &str,
-    ) -> StoreResult<PathBuf> {
+    ) -> StoreResult<String> {
         self.audit_recovery_request(
             CollaborationRecoveryAction::Quarantine,
             document,
@@ -1949,7 +1760,7 @@ impl<S: CollaborationStoragePort> CollaborationService<S> {
 
     /// Keeps the stored envelope as evidence, then drops its retained
     /// operations so the document reads from its checkpoint alone.
-    pub fn repair(&self, document: &CollaborationDocumentId, reason: &str) -> StoreResult<PathBuf> {
+    pub fn repair(&self, document: &CollaborationDocumentId, reason: &str) -> StoreResult<String> {
         self.audit_recovery_request(
             CollaborationRecoveryAction::Repair,
             document,
@@ -1957,13 +1768,21 @@ impl<S: CollaborationStoragePort> CollaborationService<S> {
             false,
         )?;
         let stored = self.stored(document)?;
-        let mut envelope: DurableCollaborationEnvelope = serde_json::from_slice(&stored.bytes)
-            .map_err(|_| {
+        let mut envelope = parse_envelope(
+            Some(document),
+            &self.storage.source(document),
+            &stored.bytes,
+        )
+        .map_err(|error| {
+            if upgrade_is_required(&error) {
+                error
+            } else {
                 corrupt_state(
                     document,
                     "the envelope JSON cannot be repaired automatically",
                 )
-            })?;
+            }
+        })?;
         let _ = envelope.checkpoint_update(document)?;
         let evidence = self
             .storage
@@ -1973,7 +1792,6 @@ impl<S: CollaborationStoragePort> CollaborationService<S> {
         envelope.retained_operations.clear();
         envelope.compacted_through_sequence = envelope.checkpoint_sequence;
         envelope.generation = envelope.generation.saturating_add(1);
-        envelope.publication_pending = true;
         if self
             .swap(document, Some(&stored.version), &envelope)?
             .is_none()
@@ -2068,7 +1886,6 @@ impl<S: CollaborationStoragePort> CollaborationService<S> {
         &self,
         plan: &'static GeneratedCollaborationEntitySpec,
         document: &CollaborationDocumentId,
-        relative_path: &str,
         seed: &Value,
         validate: impl Fn(&Value) -> Result<(), E>,
     ) -> Result<DurableCollaborationEnvelope, E> {
@@ -2089,14 +1906,13 @@ impl<S: CollaborationStoragePort> CollaborationService<S> {
             .materialized_document(&etag)
             .map_err(|error| collaboration_loro_error(document, error))?;
         validate(&materialized)?;
-        Ok(self.seed(plan, document, relative_path, accepted_update)?)
+        Ok(self.seed(plan, document, accepted_update)?)
     }
 
     pub fn bootstrap_update<E: From<StoreError>>(
         &self,
         plan: &'static GeneratedCollaborationEntitySpec,
         document: &CollaborationDocumentId,
-        relative_path: &str,
         schema_version: u32,
         update_base64: &str,
         validate: impl Fn(&Value) -> Result<(), E>,
@@ -2118,14 +1934,13 @@ impl<S: CollaborationStoragePort> CollaborationService<S> {
             .materialized_document(&etag)
             .map_err(|error| collaboration_loro_error(document, error))?;
         validate(&materialized)?;
-        Ok(self.seed(plan, document, relative_path, accepted_update)?)
+        Ok(self.seed(plan, document, accepted_update)?)
     }
 
     pub fn migrate<E: From<StoreError>>(
         &self,
         plan: &'static GeneratedCollaborationEntitySpec,
         document: &CollaborationDocumentId,
-        relative_path: &str,
         from_schema_version: u32,
         migrated_update_base64: &str,
         validate: impl Fn(&Value) -> Result<(), E>,
@@ -2179,7 +1994,6 @@ impl<S: CollaborationStoragePort> CollaborationService<S> {
                 Some(&read),
                 CollaborationCommit {
                     document: document.clone(),
-                    relative_path: relative_path.to_string(),
                     schema_version: plan.schema_version,
                     operation_id,
                     imported_update: accepted_update.clone(),
@@ -2202,7 +2016,6 @@ impl<S: CollaborationStoragePort> CollaborationService<S> {
         &self,
         plan: &'static GeneratedCollaborationEntitySpec,
         document: &CollaborationDocumentId,
-        relative_path: &str,
         accepted_update: Vec<u8>,
     ) -> StoreResult<DurableCollaborationEnvelope> {
         let operation_id = format!("seed:{}", sha256_hex(&accepted_update));
@@ -2214,7 +2027,6 @@ impl<S: CollaborationStoragePort> CollaborationService<S> {
                 None,
                 CollaborationCommit {
                     document: document.clone(),
-                    relative_path: relative_path.to_string(),
                     schema_version: plan.schema_version,
                     operation_id: operation_id.clone(),
                     imported_update: accepted_update.clone(),
@@ -2330,11 +2142,6 @@ impl LocalFileCollaborationStorage {
             #[cfg(test)]
             faults: CollaborationFaults::default(),
         }
-    }
-
-    #[cfg(test)]
-    fn inject_fault(&self, point: CollaborationFaultPoint) {
-        self.faults.inject(point);
     }
 
     #[cfg(test)]
@@ -2530,10 +2337,6 @@ impl CollaborationStoragePort for LocalFileCollaborationStorage {
         )
     }
 
-    fn read_bytes(&self, source: &str) -> StoreResult<Option<Vec<u8>>> {
-        read_optional(Path::new(source))
-    }
-
     fn stamp(&self, source: &str) -> StoreResult<Option<String>> {
         let metadata = match std::fs::metadata(source) {
             Ok(metadata) => metadata,
@@ -2590,7 +2393,7 @@ impl CollaborationStoragePort for LocalFileCollaborationStorage {
         document: &CollaborationDocumentId,
         label: &str,
         bytes: &[u8],
-    ) -> StoreResult<PathBuf> {
+    ) -> StoreResult<String> {
         let destination = self.root.join("quarantine").join(format!(
             "{}-{}-{}-{}.json",
             safe_entity_name(&document.entity),
@@ -2599,7 +2402,7 @@ impl CollaborationStoragePort for LocalFileCollaborationStorage {
             label
         ));
         write_atomic_durable(&destination, bytes)?;
-        Ok(destination)
+        Ok(destination.display().to_string())
     }
 
     fn append_recovery_audit(&self, record: &CollaborationRecoveryAuditRecord) -> StoreResult<()> {
@@ -2695,12 +2498,57 @@ fn inspection_from_envelope(
             .iter()
             .map(|operation| operation.update_bytes)
             .sum(),
-        publication_pending: envelope.publication_pending,
         migration_required: expected_schema_version
             .is_some_and(|expected| expected != envelope.schema_version),
         valid,
         failure_code,
     }
+}
+
+/// The format version an envelope's bytes declare, read before the rest.
+#[derive(Deserialize)]
+struct DeclaredEnvelopeVersion {
+    envelope_version: u32,
+}
+
+/// `bytes` as the envelope kept at `source`, which `document` names when it
+/// is known. An envelope in an earlier format is reported as needing its
+/// upgrade rather than as unreadable.
+fn parse_envelope(
+    document: Option<&CollaborationDocumentId>,
+    source: &str,
+    bytes: &[u8],
+) -> StoreResult<DurableCollaborationEnvelope> {
+    let unreadable = |error: serde_json::Error| match document {
+        Some(document) => corrupt_state(
+            document,
+            format!("envelope {source} is invalid JSON: {error}"),
+        ),
+        None => StoreError::internal(format!(
+            "Collaboration envelope {source} is invalid JSON: {error}"
+        )),
+    };
+    let declared = serde_json::from_slice::<DeclaredEnvelopeVersion>(bytes)
+        .map_err(&unreadable)?
+        .envelope_version;
+    if declared < ENVELOPE_VERSION {
+        return Err(StoreError::invalid_request(format!(
+            "Collaboration envelope {source} is in format {declared}; upgrade it to format {ENVELOPE_VERSION} before reading it."
+        ))
+        .with_data(serde_json::json!({
+            "code": "collaboration_envelope_upgrade_required",
+            "entity": document.map(|document| document.entity.clone()),
+            "resource_id": document.map(|document| document.resource_id.clone()),
+            "actual": declared,
+            "expected": ENVELOPE_VERSION,
+        })));
+    }
+    serde_json::from_slice(bytes).map_err(unreadable)
+}
+
+fn upgrade_is_required(error: &StoreError) -> bool {
+    error.data.as_ref().and_then(|data| data["code"].as_str())
+        == Some("collaboration_envelope_upgrade_required")
 }
 
 fn validate_envelope(

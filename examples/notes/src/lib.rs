@@ -28,8 +28,6 @@ pub const NOTE: &GeneratedCollaborationEntitySpec = &model::NOTE_COLLABORATION_S
 /// The note every step works on.
 pub const NOTE_ID: &str = "launch-plan";
 
-const RELATIVE_PATH: &str = "notes/launch-plan.json";
-
 /// How the example's store commits.
 pub const COMMIT_POLICY: CommitPolicy = CommitPolicy {
     retained_operations: 8,
@@ -191,7 +189,6 @@ impl Notes {
             NOTE,
             CollaborationImportRequest {
                 document: self.note.clone(),
-                relative_path: RELATIVE_PATH.to_string(),
                 schema_version: NOTE.schema_version,
                 operation_id: operation_id.to_string(),
                 exchange_mode: CollaborationExchangeMode::Incremental,
@@ -213,7 +210,7 @@ pub fn create_note(root: &Path) -> Result<Notes> {
     let service =
         CollaborationService::new(root, model::GENERATED_COLLABORATION_SPECS, COMMIT_POLICY);
     let note = CollaborationDocumentId::new(NOTE.name, NOTE_ID);
-    service.bootstrap(NOTE, &note, RELATIVE_PATH, &seed(), validate)?;
+    service.bootstrap(NOTE, &note, &seed(), validate)?;
     Ok(Notes { service, note })
 }
 

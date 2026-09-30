@@ -28,7 +28,8 @@ use clerkenwell_session::{
 };
 use clerkenwell_store::{
     CollaborationDocumentId, CollaborationExchangeMode, CollaborationImportRequest,
-    CollaborationService, CollaborationStores, CommitPolicy, ImportFence, StoreResult,
+    CollaborationService, CollaborationStores, CommitPolicy, ImportFence,
+    LocalFileCollaborationStorage, StoreResult,
 };
 use serde_json::{json, Value};
 
@@ -211,7 +212,9 @@ impl Library {
             .chain(sessions.iter().map(|session| format!("session/{session}")))
         {
             let root = tempfile::tempdir().expect("a store directory");
-            stores.register(&name, root.path()).expect("register");
+            stores
+                .register(&name, LocalFileCollaborationStorage::new(root.path()))
+                .expect("register");
             roots.push(root);
         }
         Self {
@@ -234,7 +237,6 @@ impl Library {
             .bootstrap(
                 plan,
                 &CollaborationDocumentId::new(plan.name, id),
-                &format!("{}/{id}.json", plan.name),
                 &json!({ plan.id_field: id, "body": "First.", "etag": "" }),
                 accept,
             )
@@ -269,7 +271,6 @@ impl Library {
                 plan,
                 CollaborationImportRequest {
                     document,
-                    relative_path: format!("{}/{id}.json", plan.name),
                     schema_version: plan.schema_version,
                     operation_id: format!("{id}-{body}"),
                     exchange_mode: CollaborationExchangeMode::Incremental,
@@ -635,7 +636,6 @@ fn a_moved_document_leaves_its_old_id_and_arrives_whole_at_its_new_one() {
         .move_document(
             &CollaborationDocumentId::new("Note", "note-1"),
             &CollaborationDocumentId::new("Note", "note-2"),
-            "Note/note-2.json",
         )
         .expect("move");
     let events = block_on(deliver_change(

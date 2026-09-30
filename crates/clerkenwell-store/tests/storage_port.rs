@@ -6,15 +6,13 @@ mod support;
 use clerkenwell_doc::LoroAuthoringDocument;
 use clerkenwell_store::{
     CollaborationDocumentId, CollaborationExchangeMode, CollaborationImportRequest,
-    CollaborationPublicationScanCache, CollaborationRecoveryAction,
-    CollaborationRecoveryAuditRecord, CollaborationService, CollaborationStoragePort, CommitPolicy,
-    DurableCollaborationEnvelope, ImportFence, LocalFileCollaborationStorage, StoreResult,
-    StoredEnvelope,
+    CollaborationRecoveryAction, CollaborationRecoveryAuditRecord, CollaborationService,
+    CollaborationStoragePort, CommitPolicy, DurableCollaborationEnvelope, ImportFence,
+    LocalFileCollaborationStorage, StoreResult, StoredEnvelope,
 };
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
 use std::num::NonZeroU32;
-use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use support::{accept, NOTE_PLAN, PLANS, POLICY};
 
@@ -26,10 +24,6 @@ struct MemoryState {
     envelopes: BTreeMap<String, (String, Vec<u8>)>,
     evidence: Vec<Vec<u8>>,
     audit: Vec<CollaborationRecoveryAuditRecord>,
-    /// How many reads asked for a version as well as the bytes.
-    versioned_reads: usize,
-    /// How many reads asked for the bytes alone.
-    byte_reads: usize,
     /// Runs once, after the next write to the named source has landed.
     after_write: Option<(String, Hook)>,
     /// Whether every compare-and-swap reports that another writer won.
@@ -96,8 +90,7 @@ impl CollaborationStoragePort for MemoryPort {
     }
 
     fn read(&self, source: &str) -> StoreResult<Option<StoredEnvelope>> {
-        let mut state = self.state();
-        state.versioned_reads += 1;
+        let state = self.state();
         Ok(state
             .envelopes
             .get(source)
@@ -105,12 +98,6 @@ impl CollaborationStoragePort for MemoryPort {
                 version: version.clone(),
                 bytes: bytes.clone(),
             }))
-    }
-
-    fn read_bytes(&self, source: &str) -> StoreResult<Option<Vec<u8>>> {
-        let mut state = self.state();
-        state.byte_reads += 1;
-        Ok(state.envelopes.get(source).map(|(_, bytes)| bytes.clone()))
     }
 
     fn stamp(&self, source: &str) -> StoreResult<Option<String>> {
@@ -176,13 +163,10 @@ impl CollaborationStoragePort for MemoryPort {
         _document: &CollaborationDocumentId,
         label: &str,
         bytes: &[u8],
-    ) -> StoreResult<PathBuf> {
+    ) -> StoreResult<String> {
         let mut state = self.state();
         state.evidence.push(bytes.to_vec());
-        Ok(PathBuf::from(format!(
-            "evidence/{}-{label}",
-            state.evidence.len()
-        )))
+        Ok(format!("evidence/{}-{label}", state.evidence.len()))
     }
 
     fn append_recovery_audit(&self, record: &CollaborationRecoveryAuditRecord) -> StoreResult<()> {
@@ -194,8 +178,6 @@ impl CollaborationStoragePort for MemoryPort {
         Ok(self.state().audit.clone())
     }
 }
-
-const RELATIVE_PATH: &str = "notes/note-1.yaml";
 
 fn note() -> CollaborationDocumentId {
     CollaborationDocumentId::new("Note", "note-1")
@@ -233,7 +215,6 @@ fn edits(count: usize) -> Edits {
 fn request(operation_id: &str, base: &str, update: &str) -> CollaborationImportRequest {
     CollaborationImportRequest {
         document: note(),
-        relative_path: RELATIVE_PATH.to_string(),
         schema_version: NOTE_PLAN.schema_version,
         operation_id: operation_id.to_string(),
         exchange_mode: CollaborationExchangeMode::Incremental,
@@ -243,12 +224,11 @@ fn request(operation_id: &str, base: &str, update: &str) -> CollaborationImportR
     }
 }
 
-/// What an envelope says about a document's history and publication,
-/// leaving out how its checkpoint is encoded.
+/// What an envelope says about a document's history, leaving out how its
+/// checkpoint is encoded.
 fn history(envelope: &DurableCollaborationEnvelope) -> Value {
     json!({
         "resource_id": envelope.resource_id,
-        "relative_path": envelope.relative_path,
         "schema_version": envelope.schema_version,
         "generation": envelope.generation,
         "checkpoint_sequence": envelope.checkpoint_sequence,
@@ -258,33 +238,29 @@ fn history(envelope: &DurableCollaborationEnvelope) -> Value {
             .iter()
             .map(|operation| json!([operation.operation_id, operation.sequence]))
             .collect::<Vec<_>>(),
-        "publication_pending": envelope.publication_pending,
         "pending_rename_from": envelope.pending_rename_from,
     })
 }
 
-/// Drives one document through commits, a retry, publication, a path
-/// change, a rename and recovery, recording what the service reports.
-fn drive<S: CollaborationStoragePort>(service: &CollaborationService<S>, edits: &Edits) -> Value {
+/// Drives one document through commits, a retry, a rename and recovery,
+/// recording what the service reports.
+fn drive(service: &CollaborationService, edits: &Edits) -> Value {
     let mut observed = Vec::new();
     let document = note();
     service
         .bootstrap_update(
             &NOTE_PLAN,
             &document,
-            RELATIVE_PATH,
             NOTE_PLAN.schema_version,
             &edits.seed_update,
             accept,
         )
         .expect("seed");
-    let mut generation = 0;
     for (operation_id, base, update) in &edits.edits {
         let imported = service
             .import(&NOTE_PLAN, request(operation_id, base, update), accept)
             .expect("commit");
         assert!(!imported.duplicate, "{operation_id} is new");
-        generation = imported.generation;
     }
     let (operation_id, base, update) = edits.edits.last().expect("an edit");
     let retried = service
@@ -293,19 +269,9 @@ fn drive<S: CollaborationStoragePort>(service: &CollaborationService<S>, edits: 
     assert!(retried.duplicate, "a retried operation is a duplicate");
     observed.push(history(&service.load(&document).unwrap().unwrap()));
 
-    service
-        .acknowledge_publication(&document, generation)
-        .expect("acknowledge");
-    observed.push(history(&service.load(&document).unwrap().unwrap()));
-    service
-        .update_relative_path(&document, "notes/moved-note-1.yaml")
-        .expect("path")
-        .expect("the document exists");
-    observed.push(history(&service.load(&document).unwrap().unwrap()));
-
     let renamed = CollaborationDocumentId::new("Note", "note-2");
     service
-        .move_document(&document, &renamed, "notes/note-2.yaml")
+        .move_document(&document, &renamed)
         .expect("move")
         .expect("the document exists");
     assert!(
@@ -374,13 +340,7 @@ fn quarantine_preserves_the_stored_bytes_through_the_port() {
     let service = CollaborationService::with_storage(port.clone(), PLANS, POLICY, "memory-port");
     let document = note();
     service
-        .bootstrap(
-            &NOTE_PLAN,
-            &document,
-            RELATIVE_PATH,
-            &seed_document(),
-            accept,
-        )
+        .bootstrap(&NOTE_PLAN, &document, &seed_document(), accept)
         .expect("seed");
 
     service
@@ -395,128 +355,13 @@ fn quarantine_preserves_the_stored_bytes_through_the_port() {
 }
 
 #[test]
-fn a_publication_scan_reads_bytes_without_asking_for_versions() {
-    let port = MemoryPort::default();
-    let service = CollaborationService::with_storage(port.clone(), PLANS, POLICY, "memory-port");
-    let document = note();
-    service
-        .bootstrap(
-            &NOTE_PLAN,
-            &document,
-            RELATIVE_PATH,
-            &seed_document(),
-            accept,
-        )
-        .expect("seed");
-    port.state().versioned_reads = 0;
-
-    let scan = service.publication_scan().expect("scan");
-
-    assert!(scan
-        .publications
-        .iter()
-        .any(|publication| publication.document == document));
-    assert_eq!(port.state().versioned_reads, 0);
-}
-
-#[test]
-fn a_rescan_reads_again_only_the_envelopes_whose_bytes_changed() {
-    let port = MemoryPort::default();
-    let service = CollaborationService::with_storage(port.clone(), PLANS, POLICY, "memory-port");
-    let edits = edits(1);
-    let document = note();
-    service
-        .bootstrap_update(
-            &NOTE_PLAN,
-            &document,
-            RELATIVE_PATH,
-            NOTE_PLAN.schema_version,
-            &edits.seed_update,
-            accept,
-        )
-        .expect("seed");
-    let neighbour = CollaborationDocumentId::new("Note", "note-2");
-    service
-        .bootstrap(
-            &NOTE_PLAN,
-            &neighbour,
-            "notes/note-2.yaml",
-            &json!({ "note_id": "note-2", "body": "Seeded.", "etag": "" }),
-            accept,
-        )
-        .expect("seed neighbour");
-    let mut cache = CollaborationPublicationScanCache::default();
-    let first = service.publication_rescan(&mut cache).expect("first scan");
-
-    port.state().byte_reads = 0;
-    let unchanged = service
-        .publication_rescan(&mut cache)
-        .expect("unchanged scan");
-    assert_eq!(unchanged.publications, first.publications);
-    assert_eq!(port.state().byte_reads, 0);
-
-    let (operation_id, base, update) = &edits.edits[0];
-    let imported = service
-        .import(&NOTE_PLAN, request(operation_id, base, update), accept)
-        .expect("commit");
-    port.state().byte_reads = 0;
-    let changed = service
-        .publication_rescan(&mut cache)
-        .expect("changed scan");
-    assert_eq!(port.state().byte_reads, 1);
-    let edited = changed
-        .publications
-        .iter()
-        .find(|publication| publication.document == document)
-        .expect("the edited document is published");
-    assert_eq!(edited.generation, imported.generation);
-    assert!(changed
-        .publications
-        .iter()
-        .any(|publication| publication.document == neighbour));
-}
-
-#[test]
-fn a_rescan_drops_an_envelope_that_is_no_longer_kept() {
-    let port = MemoryPort::default();
-    let service = CollaborationService::with_storage(port.clone(), PLANS, POLICY, "memory-port");
-    let document = note();
-    service
-        .bootstrap(
-            &NOTE_PLAN,
-            &document,
-            RELATIVE_PATH,
-            &seed_document(),
-            accept,
-        )
-        .expect("seed");
-    let mut cache = CollaborationPublicationScanCache::default();
-    service.publication_rescan(&mut cache).expect("first scan");
-
-    let source = port.source(&document);
-    port.state().envelopes.remove(&source);
-    let scan = service.publication_rescan(&mut cache).expect("rescan");
-
-    assert!(scan
-        .publications
-        .iter()
-        .all(|publication| publication.document != document));
-}
-
-#[test]
 fn commits_racing_through_one_port_both_land() {
     let port = MemoryPort::default();
     let first = CollaborationService::with_storage(port.clone(), PLANS, POLICY, "memory-port");
     let second = CollaborationService::with_storage(port, PLANS, POLICY, "memory-port");
     let document = note();
     first
-        .bootstrap(
-            &NOTE_PLAN,
-            &document,
-            RELATIVE_PATH,
-            &seed_document(),
-            accept,
-        )
+        .bootstrap(&NOTE_PLAN, &document, &seed_document(), accept)
         .expect("seed");
     let state = first
         .authoring_state(&NOTE_PLAN, &document, None)
@@ -561,7 +406,6 @@ fn a_move_takes_the_source_as_it_stands_when_another_writer_commits_during_it() 
         .bootstrap_update(
             &NOTE_PLAN,
             &document,
-            RELATIVE_PATH,
             NOTE_PLAN.schema_version,
             &edits.seed_update,
             accept,
@@ -580,7 +424,7 @@ fn a_move_takes_the_source_as_it_stands_when_another_writer_commits_during_it() 
     );
 
     service
-        .move_document(&document, &renamed, "notes/note-2.yaml")
+        .move_document(&document, &renamed)
         .expect("move")
         .expect("the document exists");
 
@@ -613,7 +457,6 @@ fn an_import_that_keeps_losing_its_commit_is_refused_after_the_attempts_its_poli
         .bootstrap_update(
             &NOTE_PLAN,
             &note(),
-            RELATIVE_PATH,
             NOTE_PLAN.schema_version,
             &edits.seed_update,
             accept,
@@ -650,7 +493,6 @@ fn an_envelope_keeps_the_latest_operations_its_policy_retains() {
         .bootstrap_update(
             &NOTE_PLAN,
             &note(),
-            RELATIVE_PATH,
             NOTE_PLAN.schema_version,
             &edits.seed_update,
             accept,

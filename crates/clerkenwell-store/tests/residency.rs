@@ -4,14 +4,14 @@
 mod support;
 
 use std::collections::BTreeMap;
-use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use clerkenwell_doc::LoroAuthoringDocument;
 use clerkenwell_store::{
     CollaborationDocumentId, CollaborationExchangeMode, CollaborationImportRequest,
     CollaborationRecoveryAuditRecord, CollaborationService, CollaborationStoragePort,
-    CollaborationStores, ImportFence, StoreError, StoreResult, StoredEnvelope,
+    CollaborationStores, ImportFence, LocalFileCollaborationStorage, StoreError, StoreResult,
+    StoredEnvelope,
 };
 use serde_json::{json, Value};
 use support::{accept, NOTE_PLAN, PLANS, POLICY};
@@ -75,14 +75,6 @@ impl CollaborationStoragePort for MemoryPort {
             }))
     }
 
-    fn read_bytes(&self, source: &str) -> StoreResult<Option<Vec<u8>>> {
-        Ok(self
-            .state()
-            .envelopes
-            .get(source)
-            .map(|(_, bytes)| bytes.clone()))
-    }
-
     fn stamp(&self, source: &str) -> StoreResult<Option<String>> {
         let state = self.state();
         Ok(state
@@ -144,8 +136,8 @@ impl CollaborationStoragePort for MemoryPort {
         _document: &CollaborationDocumentId,
         label: &str,
         _bytes: &[u8],
-    ) -> StoreResult<PathBuf> {
-        Ok(PathBuf::from(label))
+    ) -> StoreResult<String> {
+        Ok(label.to_string())
     }
 
     fn append_recovery_audit(&self, _record: &CollaborationRecoveryAuditRecord) -> StoreResult<()> {
@@ -157,22 +149,19 @@ impl CollaborationStoragePort for MemoryPort {
     }
 }
 
-const RELATIVE_PATH: &str = "notes/note-1.yaml";
-
 fn note(resource_id: &str) -> CollaborationDocumentId {
     CollaborationDocumentId::new("Note", resource_id)
 }
 
-fn service(port: &MemoryPort) -> CollaborationService<MemoryPort> {
+fn service(port: &MemoryPort) -> CollaborationService {
     CollaborationService::with_storage(port.clone(), PLANS, POLICY, "notes")
 }
 
-fn bootstrap<S: CollaborationStoragePort>(service: &CollaborationService<S>, resource_id: &str) {
+fn bootstrap(service: &CollaborationService, resource_id: &str) {
     service
         .bootstrap(
             &NOTE_PLAN,
             &note(resource_id),
-            RELATIVE_PATH,
             &json!({ "note_id": resource_id, "body": "Seeded.", "etag": "" }),
             accept,
         )
@@ -181,8 +170,8 @@ fn bootstrap<S: CollaborationStoragePort>(service: &CollaborationService<S>, res
 
 /// Imports an edit setting the note's body, from what `service` reads now,
 /// judged by `validate`.
-fn edit<S: CollaborationStoragePort>(
-    service: &CollaborationService<S>,
+fn edit(
+    service: &CollaborationService,
     body: &str,
     validate: impl Fn(&Value) -> StoreResult<()>,
 ) -> StoreResult<String> {
@@ -203,7 +192,6 @@ fn edit<S: CollaborationStoragePort>(
             &NOTE_PLAN,
             CollaborationImportRequest {
                 document: note("note-1"),
-                relative_path: RELATIVE_PATH.to_string(),
                 schema_version: NOTE_PLAN.schema_version,
                 operation_id: format!("edit-{body}"),
                 exchange_mode: CollaborationExchangeMode::Incremental,
@@ -218,7 +206,7 @@ fn edit<S: CollaborationStoragePort>(
         .map(|imported| imported.etag)
 }
 
-fn body<S: CollaborationStoragePort>(service: &CollaborationService<S>) -> Value {
+fn body(service: &CollaborationService) -> Value {
     service
         .detail(&NOTE_PLAN, &note("note-1"))
         .expect("detail")
@@ -352,7 +340,9 @@ fn a_deleted_document_is_no_longer_served() {
 fn the_counters_report_what_the_stores_hold_until_they_let_it_go() {
     let root = tempfile::tempdir().expect("temp store");
     let stores = CollaborationStores::new(PLANS, POLICY);
-    let store = stores.register("notes", root.path()).expect("register");
+    let store = stores
+        .register("notes", LocalFileCollaborationStorage::new(root.path()))
+        .expect("register");
     for resource_id in ["note-1", "note-2"] {
         bootstrap(&store, resource_id);
     }
@@ -394,7 +384,6 @@ fn a_summary_describes_a_stored_document_as_its_envelope_does() {
         .expect("an envelope");
 
     assert_eq!(summary.document, note("note-1"));
-    assert_eq!(summary.relative_path, envelope.relative_path);
     assert_eq!(summary.generation, envelope.generation);
     assert_eq!(summary.etag, envelope.etag());
     assert_eq!(summary.retained_count, envelope.retained_operations.len());
@@ -416,7 +405,7 @@ fn a_moved_document_is_summarised_with_where_it_came_from() {
     bootstrap(&service, "note-1");
 
     service
-        .move_document(&note("note-1"), &note("note-2"), "notes/note-2.yaml")
+        .move_document(&note("note-1"), &note("note-2"))
         .expect("move")
         .expect("moved");
 
@@ -426,7 +415,6 @@ fn a_moved_document_is_summarised_with_where_it_came_from() {
         .expect("summary")
         .expect("a summary");
     assert_eq!(moved.moved_from.as_deref(), Some("note-1"));
-    assert_eq!(moved.relative_path, "notes/note-2.yaml");
 }
 
 #[test]
