@@ -12,8 +12,15 @@
 //! document's envelope as bytes and replaces or removes them only from the
 //! version a writer read; the local file port does so under a per-document
 //! lock with an atomic durable write.
+//!
+//! A service holds each document it reads, with the replica and materialised
+//! document built from it, and writes every change through to the port. It
+//! serves what it holds while the port's stamp vouches that the stored bytes
+//! are unchanged, and otherwise reads them again. Recovery reads the stored
+//! bytes.
 
 mod error;
+mod residency;
 
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use clerkenwell_doc::{CollaborationLoroError, LoroAuthoringDocument};
@@ -35,6 +42,8 @@ use std::sync::Mutex;
 use std::sync::{Arc, RwLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use uuid::Uuid;
+
+use residency::{Residency, Resident};
 
 /// The envelope format this store reads and writes.
 pub const ENVELOPE_VERSION: u32 = 1;
@@ -189,6 +198,62 @@ impl DurableCollaborationEnvelope {
     }
 }
 
+/// A stored document described without its accepted state.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CollaborationDocumentSummary {
+    pub document: CollaborationDocumentId,
+    pub relative_path: String,
+    pub schema_version: u32,
+    pub generation: u64,
+    pub etag: String,
+    pub checkpoint_sha256: String,
+    pub checkpoint_bytes: usize,
+    pub checkpoint_sequence: u64,
+    pub compacted_through_sequence: u64,
+    /// The sequences of the first and last operations kept past the
+    /// checkpoint, when any are.
+    pub retained_sequences: Option<(u64, u64)>,
+    pub retained_count: usize,
+    pub publication_pending: bool,
+    /// Where a move the document records as unfinished took it from.
+    pub moved_from: Option<String>,
+}
+
+impl CollaborationDocumentSummary {
+    fn of(envelope: &DurableCollaborationEnvelope) -> Self {
+        let retained = &envelope.retained_operations;
+        Self {
+            document: CollaborationDocumentId::new(
+                envelope.entity.clone(),
+                envelope.resource_id.clone(),
+            ),
+            relative_path: envelope.relative_path.clone(),
+            schema_version: envelope.schema_version,
+            generation: envelope.generation,
+            etag: envelope.etag(),
+            checkpoint_sha256: envelope.checkpoint_sha256.clone(),
+            checkpoint_bytes: envelope.checkpoint_bytes,
+            checkpoint_sequence: envelope.checkpoint_sequence,
+            compacted_through_sequence: envelope.compacted_through_sequence,
+            retained_sequences: retained
+                .first()
+                .zip(retained.last())
+                .map(|(first, last)| (first.sequence, last.sequence)),
+            retained_count: retained.len(),
+            publication_pending: envelope.publication_pending,
+            moved_from: envelope.pending_rename_from.clone(),
+        }
+    }
+}
+
+/// A document as one read found it: what it is, and its accepted state
+/// materialised, both of one stored version.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CollaborationDocumentRead {
+    pub summary: CollaborationDocumentSummary,
+    pub document: Value,
+}
+
 /// One operation to commit over the envelope the service read.
 #[derive(Debug, Clone)]
 struct CollaborationCommit {
@@ -213,13 +278,6 @@ enum CollaborationCommitOutcome {
     Stale,
 }
 
-/// An envelope as the service read it, with the version that names it.
-#[derive(Debug, Clone)]
-struct ReadEnvelope {
-    version: String,
-    envelope: DurableCollaborationEnvelope,
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum CollaborationExchangeMode {
@@ -228,7 +286,7 @@ pub enum CollaborationExchangeMode {
 }
 
 /// A document's accepted state as one peer receives it.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CollaborationAuthoringState {
     pub schema_version: u32,
     pub accepted_frontier_base64: String,
@@ -377,6 +435,10 @@ pub struct CollaborationRuntimeCountersSnapshot {
     pub resync_requirements: u64,
     pub materialisation_failures: u64,
     pub commit_contention: u64,
+    /// Documents the services sharing these counters hold in memory.
+    pub resident_documents: u64,
+    /// The accepted update bytes of the documents held in memory.
+    pub resident_checkpoint_bytes: u64,
 }
 
 #[derive(Debug, Default)]
@@ -386,6 +448,8 @@ struct CollaborationRuntimeCounters {
     resync_requirements: AtomicU64,
     materialisation_failures: AtomicU64,
     commit_contention: AtomicU64,
+    resident_documents: AtomicU64,
+    resident_checkpoint_bytes: AtomicU64,
 }
 
 impl CollaborationRuntimeCounters {
@@ -396,6 +460,8 @@ impl CollaborationRuntimeCounters {
             resync_requirements: self.resync_requirements.load(Ordering::Relaxed),
             materialisation_failures: self.materialisation_failures.load(Ordering::Relaxed),
             commit_contention: self.commit_contention.load(Ordering::Relaxed),
+            resident_documents: self.resident_documents.load(Ordering::Relaxed),
+            resident_checkpoint_bytes: self.resident_checkpoint_bytes.load(Ordering::Relaxed),
         }
     }
 }
@@ -490,6 +556,7 @@ pub struct CollaborationService<S = LocalFileCollaborationStorage> {
     counters: Arc<CollaborationRuntimeCounters>,
     changes: Arc<ChangeFeed>,
     source: Arc<str>,
+    residency: Arc<Residency>,
     #[cfg(test)]
     faults: CollaborationFaults,
 }
@@ -559,6 +626,7 @@ impl CollaborationStores {
             counters: self.counters.clone(),
             changes: self.changes.clone(),
             source: name.into(),
+            residency: Arc::new(Residency::new(self.counters.clone())),
         };
         stores.insert(name.to_string(), service.clone());
         Ok(service)
@@ -612,13 +680,15 @@ impl CollaborationService<LocalFileCollaborationStorage> {
         policy: CommitPolicy,
     ) -> Self {
         let storage = LocalFileCollaborationStorage::new(root);
+        let counters = Arc::new(CollaborationRuntimeCounters::default());
         Self {
             #[cfg(test)]
             faults: storage.faults.clone(),
             storage,
             plans,
             policy,
-            counters: Arc::new(CollaborationRuntimeCounters::default()),
+            residency: Arc::new(Residency::new(counters.clone())),
+            counters,
             changes: Arc::new(ChangeFeed::default()),
             source: root.display().to_string().into(),
         }
@@ -635,11 +705,13 @@ impl<S: CollaborationStoragePort> CollaborationService<S> {
         policy: CommitPolicy,
         source: impl Into<String>,
     ) -> Self {
+        let counters = Arc::new(CollaborationRuntimeCounters::default());
         Self {
             storage,
             plans,
             policy,
-            counters: Arc::new(CollaborationRuntimeCounters::default()),
+            residency: Arc::new(Residency::new(counters.clone())),
+            counters,
             changes: Arc::new(ChangeFeed::default()),
             source: source.into().into(),
             #[cfg(test)]
@@ -684,9 +756,22 @@ impl<S: CollaborationStoragePort> CollaborationService<S> {
             .find(|plan| plan.name == envelope.entity)?;
         let document =
             CollaborationDocumentId::new(envelope.entity.clone(), envelope.resource_id.clone());
-        load_authoring_document(plan, &document, envelope)
-            .ok()
-            .map(|authoring| authoring.accepted_frontier_base64())
+        // The held replica, when it is of this state, serves the readers the
+        // announcement brings as well.
+        let held = self
+            .residency
+            .get(&self.storage.source(&document))
+            .filter(|held| {
+                held.envelope.checkpoint_sha256 == envelope.checkpoint_sha256
+                    && held.envelope.schema_version == envelope.schema_version
+            });
+        match held {
+            Some(held) => Self::replica(plan, &document, &held).ok(),
+            None => load_authoring_document(plan, &document, envelope)
+                .ok()
+                .map(Arc::new),
+        }
+        .map(|authoring| authoring.accepted_frontier_base64())
     }
 
     /// `document`'s validated envelope, or `None` when it has none.
@@ -694,26 +779,56 @@ impl<S: CollaborationStoragePort> CollaborationService<S> {
         &self,
         document: &CollaborationDocumentId,
     ) -> StoreResult<Option<DurableCollaborationEnvelope>> {
-        Ok(self.read_envelope(document)?.map(|read| read.envelope))
+        Ok(self
+            .read_envelope(document)?
+            .map(|read| read.envelope.clone()))
+    }
+
+    /// What `document` is, or `None` when none is stored.
+    pub fn summary(
+        &self,
+        document: &CollaborationDocumentId,
+    ) -> StoreResult<Option<CollaborationDocumentSummary>> {
+        Ok(self
+            .read_envelope(document)?
+            .map(|read| CollaborationDocumentSummary::of(&read.envelope)))
+    }
+
+    /// What every stored document of `entity` is, in resource order.
+    pub fn summaries(&self, entity: &str) -> StoreResult<Vec<CollaborationDocumentSummary>> {
+        let mut summaries = Vec::new();
+        for source in self.storage.sources(entity)? {
+            if let Some(read) = self.resident(&source, None)? {
+                summaries.push(CollaborationDocumentSummary::of(&read.envelope));
+            }
+        }
+        summaries.sort_by(|left, right| left.document.resource_id.cmp(&right.document.resource_id));
+        Ok(summaries)
+    }
+
+    /// `document`'s accepted state materialised with what it is, or `None`
+    /// when none is stored.
+    pub fn read_document(
+        &self,
+        plan: &'static GeneratedCollaborationEntitySpec,
+        document: &CollaborationDocumentId,
+    ) -> StoreResult<Option<CollaborationDocumentRead>> {
+        let Some(resident) = self.read_envelope(document)? else {
+            return Ok(None);
+        };
+        Ok(Some(CollaborationDocumentRead {
+            document: (*Self::materialized(plan, document, &resident)?).clone(),
+            summary: CollaborationDocumentSummary::of(&resident.envelope),
+        }))
     }
 
     /// Every stored envelope of `entity`, validated, in resource order.
     pub fn envelopes(&self, entity: &str) -> StoreResult<Vec<DurableCollaborationEnvelope>> {
         let mut envelopes = Vec::new();
         for source in self.storage.sources(entity)? {
-            let Some(stored) = self.storage.read(&source)? else {
-                continue;
-            };
-            let envelope: DurableCollaborationEnvelope = serde_json::from_slice(&stored.bytes)
-                .map_err(|error| {
-                    StoreError::internal(format!(
-                        "Collaboration envelope {source} is invalid JSON: {error}"
-                    ))
-                })?;
-            let document =
-                CollaborationDocumentId::new(envelope.entity.clone(), envelope.resource_id.clone());
-            validate_envelope(&document, &envelope)?;
-            envelopes.push(envelope);
+            if let Some(read) = self.resident(&source, None)? {
+                envelopes.push(read.envelope.clone());
+            }
         }
         envelopes.sort_by(|left, right| left.resource_id.cmp(&right.resource_id));
         Ok(envelopes)
@@ -752,27 +867,88 @@ impl<S: CollaborationStoragePort> CollaborationService<S> {
     fn read_envelope(
         &self,
         document: &CollaborationDocumentId,
-    ) -> StoreResult<Option<ReadEnvelope>> {
-        let source = self.storage.source(document);
-        let Some(stored) = self.storage.read(&source)? else {
+    ) -> StoreResult<Option<Arc<Resident>>> {
+        self.resident(&self.storage.source(document), Some(document))
+    }
+
+    /// The document kept at `source` as this service holds it. What it holds
+    /// is served while the storage port's stamp vouches for it, and kept when
+    /// the bytes read in its place carry its version; anything else is read,
+    /// judged as `document`'s envelope (or as the envelope it names) and held.
+    fn resident(
+        &self,
+        source: &str,
+        document: Option<&CollaborationDocumentId>,
+    ) -> StoreResult<Option<Arc<Resident>>> {
+        let held = self.residency.get(source);
+        // Taken before the read, so a write between the two leaves a stamp
+        // that no longer vouches for what was read.
+        let stamp = self.storage.stamp(source)?;
+        if let Some(held) = held
+            .as_ref()
+            .filter(|held| held.vouched_for_by(stamp.as_deref()))
+        {
+            return Ok(Some(held.clone()));
+        }
+        let Some(stored) = self.storage.read(source)? else {
+            self.residency.forget(source);
             return Ok(None);
         };
+        if let Some(held) = held.filter(|held| held.version == stored.version) {
+            held.restamp(stamp);
+            return Ok(Some(held));
+        }
         let envelope: DurableCollaborationEnvelope = serde_json::from_slice(&stored.bytes)
-            .map_err(|error| {
-                corrupt_state(
+            .map_err(|error| match document {
+                Some(document) => corrupt_state(
                     document,
                     format!("envelope {source} is invalid JSON: {error}"),
-                )
+                ),
+                None => StoreError::internal(format!(
+                    "Collaboration envelope {source} is invalid JSON: {error}"
+                )),
             })?;
-        validate_envelope(document, &envelope)?;
-        Ok(Some(ReadEnvelope {
-            version: stored.version,
-            envelope,
-        }))
+        match document {
+            Some(document) => validate_envelope(document, &envelope)?,
+            None => validate_envelope(
+                &CollaborationDocumentId::new(
+                    envelope.entity.clone(),
+                    envelope.resource_id.clone(),
+                ),
+                &envelope,
+            )?,
+        }
+        let resident = Arc::new(Resident::new(stored.version, stamp, envelope));
+        self.residency.hold(source, resident.clone());
+        Ok(Some(resident))
+    }
+
+    /// The replica of the document `resident` holds, built once.
+    fn replica(
+        plan: &'static GeneratedCollaborationEntitySpec,
+        document: &CollaborationDocumentId,
+        resident: &Resident,
+    ) -> StoreResult<Arc<LoroAuthoringDocument>> {
+        resident.replica(|envelope| load_authoring_document(plan, document, envelope))
+    }
+
+    /// The document `resident` holds, materialised once.
+    fn materialized(
+        plan: &'static GeneratedCollaborationEntitySpec,
+        document: &CollaborationDocumentId,
+        resident: &Resident,
+    ) -> StoreResult<Arc<Value>> {
+        let replica = Self::replica(plan, document, resident)?;
+        resident.materialized(|| {
+            replica
+                .materialized_document(&resident.envelope.etag())
+                .map_err(|error| collaboration_loro_error(document, error))
+        })
     }
 
     /// Stores `envelope` as `document`'s if the stored version is still
     /// `expected`, returning the new version, or `None` when it has moved.
+    /// The service holds what it stored.
     fn swap(
         &self,
         document: &CollaborationDocumentId,
@@ -782,19 +958,36 @@ impl<S: CollaborationStoragePort> CollaborationService<S> {
         validate_envelope(document, envelope)?;
         let bytes = serde_json::to_vec_pretty(envelope)
             .map_err(|error| StoreError::internal(error.to_string()))?;
-        self.storage.compare_and_swap(document, expected, &bytes)
+        let stored = self.storage.compare_and_swap(document, expected, &bytes)?;
+        if let Some(version) = &stored {
+            self.residency.hold(
+                &self.storage.source(document),
+                Arc::new(Resident::new(version.clone(), None, envelope.clone())),
+            );
+        }
+        Ok(stored)
+    }
+
+    /// Removes `document`'s envelope if its stored version is still
+    /// `expected`, and stops holding it.
+    fn remove(&self, document: &CollaborationDocumentId, expected: &str) -> StoreResult<bool> {
+        let removed = self.storage.compare_and_remove(document, expected)?;
+        if removed {
+            self.residency.forget(&self.storage.source(document));
+        }
+        Ok(removed)
     }
 
     /// Appends `commit`'s operation to the envelope the service read, or
     /// reports it as a duplicate of one that envelope already holds.
     fn commit(
         &self,
-        current: Option<&ReadEnvelope>,
+        current: Option<&Resident>,
         commit: CollaborationCommit,
     ) -> StoreResult<CollaborationCommitOutcome> {
         let document = commit.document;
         let operation_id = commit.operation_id;
-        if let Some(ReadEnvelope { envelope, .. }) = current {
+        if let Some(Resident { envelope, .. }) = current {
             if let Some(existing) = envelope
                 .retained_operations
                 .iter()
@@ -888,15 +1081,12 @@ impl<S: CollaborationStoragePort> CollaborationService<S> {
         plan: &'static GeneratedCollaborationEntitySpec,
         document: &CollaborationDocumentId,
     ) -> StoreResult<Option<Value>> {
-        let Some(envelope) = self.load(document)? else {
+        let Some(resident) = self.read_envelope(document)? else {
             return Ok(None);
         };
-        let authoring = load_authoring_document(plan, document, &envelope)?;
-        let etag = collaboration_etag(&envelope.checkpoint_update(document)?);
-        authoring
-            .materialized_document(&etag)
-            .map(Some)
-            .map_err(|error| collaboration_loro_error(document, error))
+        Ok(Some(
+            (*Self::materialized(plan, document, &resident)?).clone(),
+        ))
     }
 
     /// The accepted state for a peer that holds every operation up to
@@ -907,7 +1097,7 @@ impl<S: CollaborationStoragePort> CollaborationService<S> {
         document: &CollaborationDocumentId,
         held_frontier_base64: Option<&str>,
     ) -> StoreResult<CollaborationAuthoringState> {
-        let envelope = self.load(document)?.ok_or_else(|| {
+        let resident = self.read_envelope(document)?.ok_or_else(|| {
             StoreError::not_found(format!(
                 "No collaborative {} document exists for \"{}\".",
                 document.entity, document.resource_id
@@ -918,14 +1108,17 @@ impl<S: CollaborationStoragePort> CollaborationService<S> {
                 "resource_id": document.resource_id,
             }))
         })?;
-        let update = envelope.checkpoint_update(document)?;
-        let authoring = load_authoring_document(plan, document, &envelope)?;
+        // Building the replica checks the checkpoint the whole update is.
+        let authoring = Self::replica(plan, document, &resident)?;
+        let envelope = &resident.envelope;
         let lacking = match held_frontier_base64 {
-            None => BASE64.encode(&update),
+            None => envelope.checkpoint_update_base64.clone(),
             Some(held) => match authoring.export_incremental_update_base64(held) {
                 Ok(lacking) => lacking,
                 // A frontier from another history places nothing the peer holds.
-                Err(CollaborationLoroError::UnknownFrontier) => BASE64.encode(&update),
+                Err(CollaborationLoroError::UnknownFrontier) => {
+                    envelope.checkpoint_update_base64.clone()
+                }
                 Err(error) => return Err(collaboration_loro_error(document, error)),
             },
         };
@@ -933,7 +1126,7 @@ impl<S: CollaborationStoragePort> CollaborationService<S> {
             schema_version: envelope.schema_version,
             accepted_frontier_base64: authoring.accepted_frontier_base64(),
             update_base64: lacking,
-            etag: collaboration_etag(&update),
+            etag: envelope.etag(),
         })
     }
 
@@ -1194,7 +1387,7 @@ impl<S: CollaborationStoragePort> CollaborationService<S> {
             #[cfg(test)]
             self.faults.fail_if(CollaborationFaultPoint::Validated)?;
             let outcome = self.commit(
-                read.as_ref(),
+                read.as_deref(),
                 CollaborationCommit {
                     document: request.document.clone(),
                     relative_path: request.relative_path.clone(),
@@ -1233,6 +1426,17 @@ impl<S: CollaborationStoragePort> CollaborationService<S> {
                 (durable, value)
             };
             let accepted_update = durable_update;
+            let authoring = Arc::new(authoring);
+            if let Some(held) = self
+                .residency
+                .get(&self.storage.source(&request.document))
+                .filter(|held| {
+                    held.envelope.generation == accepted.generation
+                        && held.envelope.checkpoint_sha256 == accepted.checkpoint_sha256
+                })
+            {
+                held.offer(authoring.clone(), materialized.clone());
+            }
             let missing_update_base64 = authoring
                 .missing_update_base64(
                     (request.exchange_mode == CollaborationExchangeMode::Incremental)
@@ -1297,7 +1501,7 @@ impl<S: CollaborationStoragePort> CollaborationService<S> {
             if read.envelope.generation != generation || !read.envelope.publication_pending {
                 return Ok(());
             }
-            let mut envelope = read.envelope;
+            let mut envelope = read.envelope.clone();
             envelope.publication_pending = false;
             if self
                 .swap(document, Some(&read.version), &envelope)?
@@ -1464,7 +1668,7 @@ impl<S: CollaborationStoragePort> CollaborationService<S> {
     pub fn delete(&self, document: &CollaborationDocumentId) -> StoreResult<()> {
         let source = self.storage.source(document);
         while let Some(stored) = self.storage.read(&source)? {
-            if self.storage.compare_and_remove(document, &stored.version)? {
+            if self.remove(document, &stored.version)? {
                 let deleted =
                     serde_json::from_slice::<DurableCollaborationEnvelope>(&stored.bytes).ok();
                 self.announce(
@@ -1520,7 +1724,7 @@ impl<S: CollaborationStoragePort> CollaborationService<S> {
                     "resource_id": destination.resource_id,
                 })));
             }
-            let mut envelope = read.envelope;
+            let mut envelope = read.envelope.clone();
             envelope.pending_rename_from = Some(source.resource_id.clone());
             envelope.resource_id = destination.resource_id.clone();
             envelope.relative_path = relative_path.to_string();
@@ -1529,7 +1733,7 @@ impl<S: CollaborationStoragePort> CollaborationService<S> {
             let Some(moved) = self.swap(destination, None, &envelope)? else {
                 continue;
             };
-            if self.storage.compare_and_remove(source, &read.version)? {
+            if self.remove(source, &read.version)? {
                 self.announce(ChangeKind::Moved, Some(envelope.generation), || {
                     let frontier = self.accepted_frontier(&envelope);
                     ChangeData {
@@ -1547,7 +1751,7 @@ impl<S: CollaborationStoragePort> CollaborationService<S> {
             }
             // The source changed after it was copied: withdraw the copy and
             // move what the source holds now.
-            if !self.storage.compare_and_remove(destination, &moved)? {
+            if !self.remove(destination, &moved)? {
                 return Err(StoreError::conflict(format!(
                     "Collaboration documents {}/{} and {}/{} both changed while one moved to the other.",
                     source.entity, source.resource_id, destination.entity, destination.resource_id
@@ -1574,7 +1778,7 @@ impl<S: CollaborationStoragePort> CollaborationService<S> {
             if read.envelope.relative_path == relative_path {
                 return Ok(Some(read.envelope.generation));
             }
-            let mut envelope = read.envelope;
+            let mut envelope = read.envelope.clone();
             envelope.relative_path = relative_path.to_string();
             envelope.generation = envelope.generation.saturating_add(1);
             envelope.publication_pending = true;
@@ -1946,7 +2150,7 @@ impl<S: CollaborationStoragePort> CollaborationService<S> {
                 .ok_or_else(|| missing_state(document))?;
             let current = &read.envelope;
             if current.schema_version == plan.schema_version {
-                return Ok(read.envelope);
+                return Ok(read.envelope.clone());
             }
             if current.schema_version != from_schema_version {
                 return Err(StoreError::invalid_request(format!(
