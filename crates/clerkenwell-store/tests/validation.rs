@@ -26,7 +26,7 @@ fn a_rejecting_validator_fails_the_commit_with_its_own_error() {
     let reason = "notes must not be empty";
     let seed = json!({ "note_id": "note-1", "body": "", "etag": "" });
 
-    let refused = service.bootstrap(&NOTE_PLAN, &document, "note-1", &seed, |note: &Value| {
+    let refused = service.bootstrap(&NOTE_PLAN, &document, &seed, |note: &Value| {
         if note["body"].as_str().is_some_and(str::is_empty) {
             Err(AppError::Rejected(reason.to_string()))
         } else {

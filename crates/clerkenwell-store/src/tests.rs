@@ -32,6 +32,7 @@ const fn field(
         required: true,
         required_in_parent: true,
         conflict,
+        names_document: false,
     }
 }
 
@@ -58,8 +59,20 @@ const fn plan(
 use GeneratedCollaborationConflict::{Explicit, Immutable, Merge};
 use GeneratedCollaborationStorageKind::{DerivedRevision, Scalar, Text};
 
+/// A field holding the id of the document it is in.
+const fn naming(
+    path: &'static str,
+    container: &'static str,
+    key: &'static str,
+) -> GeneratedCollaborationFieldSpec {
+    GeneratedCollaborationFieldSpec {
+        names_document: true,
+        ..field(path, Scalar, Some(container), Some(key), Immutable)
+    }
+}
+
 static NOTE_FIELDS: &[GeneratedCollaborationFieldSpec] = &[
-    field("note_id", Scalar, Some("note"), Some("note_id"), Immutable),
+    naming("note_id", "note", "note_id"),
     field("title", Scalar, Some("note"), Some("title"), Explicit),
     field("body", Text, Some("body"), None, Merge),
     field("summary", Text, Some("summary"), None, Merge),
@@ -70,9 +83,17 @@ static TASK_FIELDS: &[GeneratedCollaborationFieldSpec] = &[
     field("label", Text, Some("label"), None, Merge),
     field("etag", DerivedRevision, None, None, Immutable),
 ];
+/// A document that names itself twice, as a card and on its face.
+static CARD_FIELDS: &[GeneratedCollaborationFieldSpec] = &[
+    naming("card_id", "card", "card_id"),
+    naming("face.card_id", "card", "face.card_id"),
+    field("label", Text, Some("label"), None, Merge),
+    field("etag", DerivedRevision, None, None, Immutable),
+];
 static NOTE_PLAN: GeneratedCollaborationEntitySpec = plan("Note", "note_id", "note", NOTE_FIELDS);
 static TASK_PLAN: GeneratedCollaborationEntitySpec = plan("Task", "task_id", "task", TASK_FIELDS);
-static PLANS: &[GeneratedCollaborationEntitySpec] = &[NOTE_PLAN, TASK_PLAN];
+static CARD_PLAN: GeneratedCollaborationEntitySpec = plan("Card", "card_id", "card", CARD_FIELDS);
+static PLANS: &[GeneratedCollaborationEntitySpec] = &[NOTE_PLAN, TASK_PLAN, CARD_PLAN];
 
 /// The commit policy these tests run under.
 const POLICY: CommitPolicy = CommitPolicy {
@@ -88,8 +109,6 @@ const POLICY: CommitPolicy = CommitPolicy {
 fn accept(_: &Value) -> StoreResult<()> {
     Ok(())
 }
-
-const RELATIVE_PATH: &str = "notes/fixture.yaml";
 
 fn note_seed() -> Value {
     json!({
@@ -118,7 +137,7 @@ fn initialise(
     let resource_id = seed["note_id"].as_str().expect("note ID").to_string();
     let document = CollaborationDocumentId::new("Note", resource_id);
     service
-        .bootstrap(&NOTE_PLAN, &document, RELATIVE_PATH, &seed, accept)
+        .bootstrap(&NOTE_PLAN, &document, &seed, accept)
         .expect("bootstrap collaboration document");
     let state = service
         .authoring_state(&NOTE_PLAN, &document, None)
@@ -136,7 +155,7 @@ fn reading_missing_collaboration_documents_does_not_create_storage_or_lock_files
         assert!(service.envelopes("Note").unwrap().is_empty());
         assert!(!service.verify(&id).valid);
         assert!(service.inspect(None, None, None).unwrap().0.is_empty());
-        assert!(service.publication_scan().unwrap().publications.is_empty());
+        assert!(service.summaries("Note").unwrap().is_empty());
     }
     assert_eq!(std::fs::read_dir(temp.path()).unwrap().count(), 0);
 }
@@ -375,7 +394,6 @@ fn edit_request(
     client.replace_document(&edited).expect("edit client");
     CollaborationImportRequest {
         document: document.clone(),
-        relative_path: RELATIVE_PATH.to_string(),
         schema_version: state.schema_version,
         operation_id: operation_id.to_string(),
         exchange_mode: CollaborationExchangeMode::Incremental,
@@ -512,7 +530,6 @@ fn captured_text_consumption_preserves_later_edits_across_restart_and_retry() {
         &service,
         CollaborationImportRequest {
             document: document.clone(),
-            relative_path: RELATIVE_PATH.to_string(),
             schema_version: state.schema_version,
             operation_id: "later-text".to_string(),
             exchange_mode: CollaborationExchangeMode::Incremental,
@@ -525,7 +542,6 @@ fn captured_text_consumption_preserves_later_edits_across_restart_and_retry() {
     .unwrap();
     let request = CollaborationImportRequest {
         document: document.clone(),
-        relative_path: RELATIVE_PATH.to_string(),
         schema_version: state.schema_version,
         operation_id: "captured-consumption".to_string(),
         exchange_mode: CollaborationExchangeMode::Incremental,
@@ -585,7 +601,7 @@ fn pre_commit_faults_leave_the_previous_generation_atomically_visible() {
             &["body"],
             json!("retained local edit"),
         );
-        service.storage().inject_fault(point);
+        service.faults.inject(point);
 
         let error = import(&service, request, &seed).expect_err("fault must interrupt import");
         assert_eq!(
@@ -598,12 +614,11 @@ fn pre_commit_faults_leave_the_previous_generation_atomically_visible() {
             .expect("baseline remains");
         assert_eq!(after.generation, before.generation);
         assert_eq!(after.checkpoint_sha256, before.checkpoint_sha256);
-        assert_eq!(after.publication_pending, before.publication_pending);
     }
 }
 
 #[test]
-fn post_commit_faults_leave_the_new_generation_recoverably_pending() {
+fn post_commit_faults_leave_the_new_generation_durably_accepted() {
     for point in [
         CollaborationFaultPoint::AfterRenameBeforeDirectorySync,
         CollaborationFaultPoint::AfterDurableCommit,
@@ -623,15 +638,14 @@ fn post_commit_faults_leave_the_new_generation_recoverably_pending() {
             &["body"],
             replacement.clone(),
         );
-        service.storage().inject_fault(point);
+        service.faults.inject(point);
 
-        import(&service, request, &seed).expect_err("fault reports interrupted publication");
+        import(&service, request, &seed).expect_err("fault reports the interrupted commit");
         let after = open_service(root.path())
             .load(&document)
             .expect("restart reads committed generation")
             .expect("committed envelope");
         assert!(after.generation > before.generation);
-        assert!(after.publication_pending);
         let materialized = service
             .detail(&NOTE_PLAN, &document)
             .expect("materialize accepted generation")
@@ -640,98 +654,21 @@ fn post_commit_faults_leave_the_new_generation_recoverably_pending() {
     }
 }
 
-#[test]
-fn process_loss_before_publication_ack_is_recovered_exactly_once() {
-    let root = TempDir::new().expect("temp workspace");
-    let (service, document, seed, state) = initialise(root.path());
-    let request = edit_request(
-        &document,
-        &seed,
-        &state,
-        "publication-loss",
-        &["summary"],
-        json!("accepted before process loss"),
-    );
-    let accepted = import(&service, request, &seed).expect("durable import");
-    service
-        .storage()
-        .inject_fault(CollaborationFaultPoint::BeforePublicationAcknowledgement);
-    service
-        .acknowledge_publication(&document, accepted.generation)
-        .expect_err("simulated process loss");
-
-    let restarted = open_service(root.path());
-    let pending = restarted
-        .publications()
-        .expect("restart publication scan")
-        .into_iter()
-        .find(|publication| publication.document == document)
-        .expect("accepted operation remains discoverable");
-    assert!(pending.pending);
-    restarted
-        .acknowledge_publication(&document, pending.generation)
-        .expect("publish after restart");
-    restarted
-        .acknowledge_publication(&document, pending.generation)
-        .expect("duplicate acknowledgement is idempotent");
-    assert!(
-        !restarted
-            .load(&document)
-            .expect("read acknowledged state")
-            .expect("collaboration state")
-            .publication_pending
-    );
-}
-
-#[test]
-fn publication_scan_reads_identity_without_materialising_authoritative_payloads() {
-    let root = TempDir::new().expect("temp workspace");
-    let (service, document, _seed, _state) = initialise(root.path());
-    let path = service.storage().envelope_path(&document);
-    let mut persisted: Value =
-        serde_json::from_slice(&std::fs::read(&path).expect("read durable collaboration envelope"))
-            .expect("parse durable collaboration envelope");
-    persisted["checkpoint_update_base64"] = json!("not valid base64");
-    std::fs::write(
-        &path,
-        serde_json::to_vec_pretty(&persisted).expect("serialise corrupted envelope"),
-    )
-    .expect("write corrupted collaboration envelope");
-
-    let publications = service
-        .publications()
-        .expect("publication identity remains observable");
-    assert!(
-        publications
-            .iter()
-            .any(|publication| publication.document == document),
-        "publication scan must observe document identity without decoding its payload"
-    );
-
-    let error = service
-        .load(&document)
-        .expect_err("authoritative reads must still validate payload integrity");
-    assert_eq!(
-        error.data.as_ref().and_then(|data| data["code"].as_str()),
-        Some("collaboration_state_corrupt")
-    );
-}
-
 #[cfg(unix)]
 #[test]
-fn a_rescan_observes_a_same_length_rewrite_that_keeps_the_modification_time() {
+fn a_read_observes_a_same_length_rewrite_that_keeps_the_modification_time() {
     let root = TempDir::new().expect("temp workspace");
     let (service, document, _seed, _state) = initialise(root.path());
-    let path = service.storage().envelope_path(&document);
+    let path = LocalFileCollaborationStorage::new(root.path()).envelope_path(&document);
     let mut envelope: Value = serde_json::from_slice(&std::fs::read(&path).expect("read envelope"))
         .expect("parse envelope");
     let original = serde_json::to_vec(&envelope).expect("serialise envelope");
     std::fs::write(&path, &original).expect("write envelope");
     std::thread::sleep(SETTLED_METADATA_AGE + Duration::from_millis(100));
-    let mut cache = CollaborationPublicationScanCache::default();
-    service
-        .publication_rescan(&mut cache)
-        .expect("settled scan");
+    // Read twice: once to hold the document, once to hold it under a settled stamp.
+    for _ in 0..2 {
+        service.load(&document).expect("settled read");
+    }
 
     let modified = std::fs::metadata(&path)
         .and_then(|metadata| metadata.modified())
@@ -750,35 +687,11 @@ fn a_rescan_observes_a_same_length_rewrite_that_keeps_the_modification_time() {
         .expect("keep the modification time");
     drop(file);
 
-    let scan = service.publication_rescan(&mut cache).expect("rescan");
-    let publication = scan
-        .publications
-        .iter()
-        .find(|publication| publication.document == document)
-        .expect("the rewritten document is published");
-    assert_eq!(publication.generation, generation);
-}
-
-#[test]
-fn publication_scan_isolates_an_invalid_envelope_from_healthy_publications() {
-    let root = TempDir::new().expect("temp workspace");
-    let (service, document, _seed, _state) = initialise(root.path());
-    let invalid_path = service.storage().entity_dir("Note").join("invalid.json");
-    std::fs::write(&invalid_path, b"not json").expect("write invalid envelope");
-
-    let scan = service.publication_scan().expect("best-effort scan");
-    assert!(
-        scan.publications
-            .iter()
-            .any(|publication| publication.document == document),
-        "a malformed neighbour must not hide a healthy publication"
-    );
-    assert_eq!(scan.problems.len(), 1);
-    assert_eq!(
-        scan.problems[0].code,
-        "collaboration_publication_invalid_json"
-    );
-    assert_eq!(scan.problems[0].source, invalid_path.display().to_string());
+    let read = service
+        .load(&document)
+        .expect("read")
+        .expect("the rewritten document");
+    assert_eq!(read.generation, generation);
 }
 
 #[test]
@@ -837,7 +750,7 @@ fn two_services_over_one_store_serialise_concurrent_commits_and_converge() {
 fn corruption_is_reported_and_checkpoint_repair_preserves_evidence() {
     let root = TempDir::new().expect("temp workspace");
     let (service, document, _seed, _) = initialise(root.path());
-    let path = service.storage().envelope_path(&document);
+    let path = LocalFileCollaborationStorage::new(root.path()).envelope_path(&document);
     let original = std::fs::read(&path).expect("original envelope");
     let mut envelope: DurableCollaborationEnvelope =
         serde_json::from_slice(&original).expect("parse envelope");
@@ -894,9 +807,11 @@ fn operator_recovery_requests_are_durably_audited_without_reason_text() {
     assert!(records
         .iter()
         .all(|record| { record.reason_sha256.as_deref() != Some(private_reason) }));
-    assert!(!std::fs::read_to_string(service.storage().audit_path())
-        .expect("audit text")
-        .contains(private_reason));
+    assert!(
+        !std::fs::read_to_string(LocalFileCollaborationStorage::new(root.path()).audit_path())
+            .expect("audit text")
+            .contains(private_reason)
+    );
 }
 
 /// A structurally valid envelope whose checkpoint is not a Loro document:
@@ -905,14 +820,12 @@ fn opaque_envelope(
     entity: &str,
     resource_id: &str,
     schema_version: u32,
-    publication_pending: bool,
 ) -> DurableCollaborationEnvelope {
     let checkpoint = resource_id.as_bytes();
     DurableCollaborationEnvelope {
         envelope_version: ENVELOPE_VERSION,
         entity: entity.to_string(),
         resource_id: resource_id.to_string(),
-        relative_path: resource_id.to_string(),
         schema_version,
         generation: 1,
         checkpoint_sequence: 0,
@@ -921,8 +834,6 @@ fn opaque_envelope(
         checkpoint_sha256: sha256_hex(checkpoint),
         checkpoint_bytes: checkpoint.len(),
         retained_operations: Vec::new(),
-        publication_pending,
-        pending_rename_from: None,
     }
 }
 
@@ -964,10 +875,7 @@ fn reads_leave_every_stored_byte_and_timestamp_unchanged() {
         &["body"],
         json!("an accepted edit"),
     );
-    let accepted = import(&service, request, &seed).expect("accepted edit");
-    service
-        .acknowledge_publication(&document, accepted.generation)
-        .expect("publish");
+    import(&service, request, &seed).expect("accepted edit");
     let before = file_states(root.path());
 
     for _ in 0..2 {
@@ -977,8 +885,11 @@ fn reads_leave_every_stored_byte_and_timestamp_unchanged() {
             .expect("authoring state");
         service.load(&document).expect("load");
         service.envelopes("Note").expect("list entity");
-        service.publication_scan().expect("publication scan");
-        service.publications().expect("publications");
+        service.summary(&document).expect("summary");
+        service.summaries("Note").expect("summaries");
+        service
+            .read_document(&NOTE_PLAN, &document)
+            .expect("read document");
         service.inspect(None, None, None).expect("inspect");
         service.verify(&document);
         service.recovery_audit().expect("recovery audit");
@@ -999,7 +910,6 @@ fn reindex_reads_every_document_and_changes_nothing_but_the_audit() {
                 PLANS[index % PLANS.len()].name,
                 &format!("document-{index:03}"),
                 1,
-                false,
             ))
             .expect("install envelope");
     }
@@ -1015,16 +925,15 @@ fn reindex_reads_every_document_and_changes_nothing_but_the_audit() {
         "an unchanged catalogue keeps its fingerprint"
     );
     let after = files_under(root.path());
-    let audit = service.storage().audit_path();
+    let audit = LocalFileCollaborationStorage::new(root.path()).audit_path();
     let changed = after
         .iter()
         .filter(|(path, bytes)| before.get(*path) != Some(bytes))
         .map(|(path, _)| path.clone())
         .collect::<Vec<_>>();
     assert!(
-        changed
-            .iter()
-            .all(|path| path == &audit || path == &service.storage().audit_lock_path()),
+        changed.iter().all(|path| path == &audit
+            || path == &LocalFileCollaborationStorage::new(root.path()).audit_lock_path()),
         "reindex wrote more than its audit record: {changed:?}"
     );
     assert!(before.keys().all(|path| after.contains_key(path)));
@@ -1033,8 +942,7 @@ fn reindex_reads_every_document_and_changes_nothing_but_the_audit() {
 #[test]
 fn inspection_reports_a_required_migration_for_every_generated_plan() {
     for spec in PLANS {
-        let envelope =
-            |schema_version| opaque_envelope(spec.name, "resource", schema_version, false);
+        let envelope = |schema_version| opaque_envelope(spec.name, "resource", schema_version);
         assert!(
             !inspection_from_envelope(PLANS, envelope(spec.schema_version), true, None)
                 .migration_required,
@@ -1225,10 +1133,9 @@ fn a_moved_document_keeps_its_history_under_its_new_identity() {
     import(&service, request, &seed).expect("edit");
     let before = service.load(&document).unwrap().expect("stored");
     let renamed = CollaborationDocumentId::new("Note", "note-2");
-    let relative_path = "notes/renamed.yaml";
 
     let generation = service
-        .move_document(&document, &renamed, relative_path)
+        .move_document(&NOTE_PLAN, &document, &renamed, accept)
         .expect("move")
         .expect("the document exists");
 
@@ -1236,24 +1143,98 @@ fn a_moved_document_keeps_its_history_under_its_new_identity() {
     let moved = service.load(&renamed).unwrap().expect("moved");
     assert_eq!(moved.generation, generation);
     assert!(moved.generation > before.generation);
-    assert!(moved.publication_pending);
-    assert_eq!(moved.relative_path, relative_path);
-    assert_eq!(
-        moved.pending_rename_from.as_deref(),
-        Some(document.resource_id.as_str())
-    );
     assert_eq!(
         moved.retained_operations.len(),
-        before.retained_operations.len()
+        before.retained_operations.len() + 1,
+        "the move adds the one operation that renames the document"
     );
     assert!(moved
         .retained_operations
         .iter()
         .zip(&before.retained_operations)
         .all(|(moved, before)| moved.operation_id == before.operation_id));
+    let detail = service.detail(&NOTE_PLAN, &renamed).unwrap().unwrap();
+    assert_eq!(detail["body"], json!("written before the move"));
+    assert_eq!(detail["note_id"], json!(renamed.resource_id));
+}
+
+#[test]
+fn a_move_rewrites_every_field_naming_the_document_in_the_write_that_creates_it() {
+    let root = TempDir::new().expect("temp workspace");
+    let service = open_service(root.path());
+    let card = CollaborationDocumentId::new("Card", "ace");
+    service
+        .bootstrap(
+            &CARD_PLAN,
+            &card,
+            &json!({
+                "card_id": "ace",
+                "face": { "card_id": "ace" },
+                "label": "High card.",
+                "etag": "",
+            }),
+            accept,
+        )
+        .expect("bootstrap");
+    let renamed = CollaborationDocumentId::new("Card", "king");
+
+    service
+        .move_document(&CARD_PLAN, &card, &renamed, accept)
+        .expect("move")
+        .expect("the card exists");
+
+    // A second service reads only what is stored.
+    let stored = open_service(root.path());
+    assert!(stored.load(&card).unwrap().is_none());
+    let detail = stored.detail(&CARD_PLAN, &renamed).unwrap().unwrap();
+    assert_eq!(detail["card_id"], json!(renamed.resource_id));
+    assert_eq!(detail["face"]["card_id"], json!(renamed.resource_id));
+    assert_eq!(detail["label"], json!("High card."));
+}
+
+#[test]
+fn a_move_its_validator_refuses_moves_nothing() {
+    let root = TempDir::new().expect("temp workspace");
+    let (service, document, _, _) = initialise(root.path());
+    let before = files_under(root.path());
+    let renamed = CollaborationDocumentId::new("Note", "note-2");
+
+    let error = service
+        .move_document(&NOTE_PLAN, &document, &renamed, |_: &Value| {
+            Err(StoreError::invalid_request("refused"))
+        })
+        .expect_err("the validator refuses the renamed document");
+
+    assert_eq!(error.kind, StoreErrorKind::InvalidRequest);
+    assert_eq!(files_under(root.path()), before);
+}
+
+#[test]
+fn a_move_of_a_document_that_names_no_field_commits_no_operation() {
+    let root = TempDir::new().expect("temp workspace");
+    let service = open_service(root.path());
+    let task = CollaborationDocumentId::new("Task", "task-1");
+    service
+        .bootstrap(
+            &TASK_PLAN,
+            &task,
+            &json!({ "task_id": "task-1", "label": "Write.", "etag": "" }),
+            accept,
+        )
+        .expect("bootstrap");
+    let before = service.load(&task).unwrap().expect("stored");
+    let renamed = CollaborationDocumentId::new("Task", "task-2");
+
+    service
+        .move_document(&TASK_PLAN, &task, &renamed, accept)
+        .expect("move")
+        .expect("the task exists");
+
+    let moved = service.load(&renamed).unwrap().expect("moved");
+    assert_eq!(moved.checkpoint_sha256, before.checkpoint_sha256);
     assert_eq!(
-        service.detail(&NOTE_PLAN, &renamed).unwrap().unwrap()["body"],
-        json!("written before the move")
+        moved.retained_operations.len(),
+        before.retained_operations.len()
     );
 }
 
@@ -1265,12 +1246,12 @@ fn a_move_onto_a_stored_document_is_refused_and_moves_nothing() {
     let mut other = note_seed();
     other["note_id"] = json!("note-2");
     service
-        .bootstrap(&NOTE_PLAN, &occupied, "notes/other.yaml", &other, accept)
+        .bootstrap(&NOTE_PLAN, &occupied, &other, accept)
         .expect("second document");
     let before = files_under(root.path());
 
     let error = service
-        .move_document(&document, &occupied, "notes/other.yaml")
+        .move_document(&NOTE_PLAN, &document, &occupied, accept)
         .expect_err("the destination is taken");
 
     assert_eq!(error.kind, StoreErrorKind::Conflict);
@@ -1301,7 +1282,6 @@ fn writer_edit(
     writer.replace_document(&edited).expect("edit writer");
     let request = CollaborationImportRequest {
         document: document.clone(),
-        relative_path: RELATIVE_PATH.to_string(),
         schema_version: state.schema_version,
         operation_id: operation_id.to_string(),
         exchange_mode: CollaborationExchangeMode::Incremental,

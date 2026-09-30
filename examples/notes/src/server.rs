@@ -17,7 +17,8 @@ use clerkenwell_session::{
 };
 use clerkenwell_store::{
     CollaborationDocumentId, CollaborationExchangeMode, CollaborationImportRequest,
-    CollaborationService, CollaborationStores, ImportFence, StoreError,
+    CollaborationService, CollaborationStores, ImportFence, LocalFileCollaborationStorage,
+    StoreError,
 };
 use serde::de::DeserializeOwned;
 use serde_json::{json, Value};
@@ -59,7 +60,7 @@ impl NotesServer {
     pub fn new(root: &Path) -> Self {
         let stores = CollaborationStores::new(GENERATED_COLLABORATION_SPECS, COMMIT_POLICY);
         let service = stores
-            .register(NOTES_STORE, root)
+            .register(NOTES_STORE, LocalFileCollaborationStorage::new(root))
             .expect("a new set holds no other store");
         Self {
             service,
@@ -74,13 +75,7 @@ impl NotesServer {
         let note_id = format!("note-{}", self.created.fetch_add(1, Ordering::Relaxed));
         let seed = json!({ "title": params.title, "body": "", "status": "draft" });
         self.service
-            .bootstrap(
-                NOTE,
-                &note(&note_id),
-                &relative_path(&note_id),
-                &seed,
-                validate,
-            )
+            .bootstrap(NOTE, &note(&note_id), &seed, validate)
             .map_err(refused)?;
         let etag = self
             .service
@@ -98,7 +93,6 @@ impl NotesServer {
                     .bootstrap_update(
                         NOTE,
                         &document,
-                        &relative_path(&params.note_id),
                         NOTE.schema_version,
                         &params.update_base64,
                         validate,
@@ -129,7 +123,6 @@ impl NotesServer {
                         NOTE,
                         CollaborationImportRequest {
                             document,
-                            relative_path: relative_path(&params.note_id),
                             schema_version: NOTE.schema_version,
                             operation_id: params.operation_id,
                             exchange_mode: CollaborationExchangeMode::Incremental,
@@ -220,10 +213,6 @@ impl ProjectionHost for NotesServer {
 
 fn note(note_id: &str) -> CollaborationDocumentId {
     CollaborationDocumentId::new(NOTE.name, note_id)
-}
-
-fn relative_path(note_id: &str) -> String {
-    format!("notes/{note_id}.json")
 }
 
 fn decode<T: DeserializeOwned>(params: Value) -> Result<T, RpcFailure> {

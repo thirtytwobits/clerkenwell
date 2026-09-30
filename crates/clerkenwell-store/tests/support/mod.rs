@@ -38,17 +38,21 @@ const fn field(
         required: true,
         required_in_parent: true,
         conflict,
+        names_document: false,
     }
 }
 
 static NOTE_FIELDS: &[GeneratedCollaborationFieldSpec] = &[
-    field(
-        "note_id",
-        GeneratedCollaborationStorageKind::Scalar,
-        Some("note"),
-        Some("note_id"),
-        GeneratedCollaborationConflict::Immutable,
-    ),
+    GeneratedCollaborationFieldSpec {
+        names_document: true,
+        ..field(
+            "note_id",
+            GeneratedCollaborationStorageKind::Scalar,
+            Some("note"),
+            Some("note_id"),
+            GeneratedCollaborationConflict::Immutable,
+        )
+    },
     field(
         "body",
         GeneratedCollaborationStorageKind::Text,

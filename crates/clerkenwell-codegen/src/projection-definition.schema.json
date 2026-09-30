@@ -412,7 +412,8 @@
         "requiredInParent": { "type": "boolean" },
         "conflict": {
           "enum": ["immutable", "explicit", "merge", "lastWriterWins"]
-        }
+        },
+        "namesDocument": { "type": "boolean" }
       }
     },
     "collaborationStorage": {

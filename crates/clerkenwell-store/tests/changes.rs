@@ -13,8 +13,6 @@ use clerkenwell_store::{
 use serde_json::{json, Value};
 use support::{accept, NOTE_PLAN, PLANS, POLICY};
 
-const RELATIVE_PATH: &str = "notes/note-1.yaml";
-
 fn note(resource_id: &str) -> CollaborationDocumentId {
     CollaborationDocumentId::new("Note", resource_id)
 }
@@ -41,7 +39,7 @@ fn heard_service() -> (
 
 fn bootstrap(service: &CollaborationService) {
     service
-        .bootstrap(&NOTE_PLAN, &note("note-1"), RELATIVE_PATH, &seed(), accept)
+        .bootstrap(&NOTE_PLAN, &note("note-1"), &seed(), accept)
         .expect("bootstrap");
 }
 
@@ -68,7 +66,6 @@ fn edit(
             &NOTE_PLAN,
             CollaborationImportRequest {
                 document: note("note-1"),
-                relative_path: RELATIVE_PATH.to_string(),
                 schema_version: NOTE_PLAN.schema_version,
                 operation_id: operation_id.to_string(),
                 exchange_mode: CollaborationExchangeMode::Incremental,
@@ -130,7 +127,7 @@ fn each_accepted_commit_announces_the_state_it_took_the_document_from_and_to() {
 fn what_does_not_change_the_accepted_state_announces_nothing() {
     let (_root, service, heard) = heard_service();
     bootstrap(&service);
-    let accepted = edit(&service, "edit-once", "Once.");
+    edit(&service, "edit-once", "Once.");
     let announced = heard.lock().unwrap().len();
 
     bootstrap(&service);
@@ -141,7 +138,6 @@ fn what_does_not_change_the_accepted_state_announces_nothing() {
         &NOTE_PLAN,
         CollaborationImportRequest {
             document: note("note-1"),
-            relative_path: RELATIVE_PATH.to_string(),
             schema_version: NOTE_PLAN.schema_version,
             operation_id: "edit-refused".to_string(),
             exchange_mode: CollaborationExchangeMode::Incremental,
@@ -166,9 +162,6 @@ fn what_does_not_change_the_accepted_state_announces_nothing() {
     );
     assert!(refused.is_err());
     service
-        .acknowledge_publication(&note("note-1"), accepted.generation)
-        .expect("acknowledge");
-    service
         .delete(&note("note-absent"))
         .expect("delete nothing");
 
@@ -180,7 +173,7 @@ fn a_move_announces_where_the_document_went_and_where_it_came_from() {
     let (_root, service, heard) = heard_service();
     bootstrap(&service);
     let generation = service
-        .move_document(&note("note-1"), &note("note-2"), "notes/note-2.yaml")
+        .move_document(&NOTE_PLAN, &note("note-1"), &note("note-2"), accept)
         .expect("move")
         .expect("moved");
 
@@ -190,9 +183,13 @@ fn a_move_announces_where_the_document_went_and_where_it_came_from() {
     assert_eq!(moved.subject, "Note/note-2");
     assert_eq!(moved.data.moved_from.as_deref(), Some("note-1"));
     assert_eq!(moved.generation, Some(generation));
-    assert_eq!(moved.data.etag_before, moved.data.etag_after);
-    assert_eq!(moved.data.etag_after, heard[0].data.etag_after);
-    assert_eq!(moved.data.frontier_after, heard[0].data.frontier_after);
+    assert_eq!(moved.data.etag_before, heard[0].data.etag_after);
+    assert_eq!(moved.data.frontier_before, heard[0].data.frontier_after);
+    assert_ne!(
+        moved.data.etag_after, moved.data.etag_before,
+        "the move renames the document"
+    );
+    assert!(moved.data.operation_id.is_some());
 }
 
 #[test]

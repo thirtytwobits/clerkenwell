@@ -740,6 +740,17 @@ fn check_collaboration_entity(
             ));
         }
         check_collaboration_storage(&format!("{context}.fields.{path}.storage"), field.storage())?;
+        if field.names_document()
+            && !(field.storage_kind() == "scalar"
+                && field.codec() == "string"
+                && field.conflict() == "immutable"
+                && field.required()
+                && !path.contains('*'))
+        {
+            return refuse(format!(
+                "{context}.fields.{path}.namesDocument requires a required, immutable scalar string outside every keyed sequence."
+            ));
+        }
         let codec = field.codec();
         if codec == "propertyText" {
             if !truthy(field.storage_setting("metadataContainer"))
