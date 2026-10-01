@@ -6,14 +6,14 @@
 import type {
   ProjectionCompositionPlan,
   ProjectionCompositionPlans
-} from "./plans";
+} from "./plans.js";
 import type {
   ProjectionModel,
   ProjectionName,
   ProjectionSnapshot,
   ProjectionTransportPatch
-} from "./projection-model";
-import type { ProjectionTransportEvent } from "./protocol";
+} from "./projection-model.js";
+import type { ProjectionTransportEvent } from "./protocol.js";
 
 export interface MaterializedProjectionValue<TSnapshot> {
   subscription_id: number;

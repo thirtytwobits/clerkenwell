@@ -20,9 +20,9 @@ export type {
   QueuedAuthoringOperation,
   RedactedAuthoringRuntimeDiagnostic,
   RedactedAuthoringSessionDiagnostic
-} from "./authoring-session";
-export { AuthoringRuntime, redactedAuthoringRuntimeDiagnostic } from "./authoring-runtime";
-export { authoringSessionAcceptsDraft } from "./authoring-state-machine";
+} from "./authoring-session.js";
+export { AuthoringRuntime, redactedAuthoringRuntimeDiagnostic } from "./authoring-runtime.js";
+export { authoringSessionAcceptsDraft } from "./authoring-state-machine.js";
 
 // What an application persists of the runtime.
 export type {
@@ -31,13 +31,13 @@ export type {
   PersistedAuthoringRuntimeState,
   PersistedAuthoringSessionState,
   PersistedQueuedAuthoringOperation
-} from "./authoring-persistence";
+} from "./authoring-persistence.js";
 export {
   durableSessions,
   fromPersistedRuntime,
   sameSessions,
   toPersistedRuntime
-} from "./authoring-persistence";
+} from "./authoring-persistence.js";
 
 // Plans, as generated bindings instantiate them.
 export type {
@@ -52,9 +52,9 @@ export type {
   CollaborationValueCodec,
   ProjectionCompositionPlan,
   ProjectionCompositionPlans
-} from "./plans";
-export { resolveCollaborationContainer } from "./plans";
-export { conflictingFieldPaths } from "./conflict-policy";
+} from "./plans.js";
+export { resolveCollaborationContainer } from "./plans.js";
+export { conflictingFieldPaths } from "./conflict-policy.js";
 
 // A projection model's names, parameters and payloads.
 export type {
@@ -71,7 +71,7 @@ export type {
   ProjectionTransportMutationResult,
   ProjectionTransportPatch,
   ProjectionTransportSnapshot
-} from "./projection-model";
+} from "./projection-model.js";
 
 // The session protocol on the wire.
 export type {
@@ -86,7 +86,7 @@ export type {
   ProjectionTransportEvent,
   ProjectionUnsubscribeAccepted,
   ProjectionUnsubscribeCommand
-} from "./protocol";
+} from "./protocol.js";
 export {
   PROJECTION_MUTATE_METHOD,
   PROJECTION_RESYNC_METHOD,
@@ -94,7 +94,7 @@ export {
   PROJECTION_UNSUBSCRIBE_METHOD,
   PROJECTION_UPDATE_NOTIFICATION,
   isProjectionTransportEvent
-} from "./protocol";
+} from "./protocol.js";
 
 // The socket, the projection client, subscription and materialisation.
 export type {
@@ -103,9 +103,9 @@ export type {
   RpcSocketState,
   RpcSocketStatus,
   WebSocketLike
-} from "./rpc-socket";
-export { RpcError, RpcSocket } from "./rpc-socket";
-export { ProjectionClient } from "./projection-client";
+} from "./rpc-socket.js";
+export { RpcError, RpcSocket } from "./rpc-socket.js";
+export { ProjectionClient } from "./projection-client.js";
 export type {
   ProjectionConnectionState,
   ProjectionNotification,
@@ -113,20 +113,20 @@ export type {
   ProjectionSubscription,
   ProjectionTransport,
   ProjectionWatch
-} from "./projection-subscription";
-export { subscribeProjection, watchProjection } from "./projection-subscription";
+} from "./projection-subscription.js";
+export { subscribeProjection, watchProjection } from "./projection-subscription.js";
 export type {
   MaterializedProjection,
   MaterializedProjectionFor,
   MaterializedProjectionValue,
   ProjectionMaterializerState
-} from "./materialize";
+} from "./materialize.js";
 export {
   ProjectionMaterializerError,
   applyProjectionEvent,
   createProjectionMaterializerState
-} from "./materialize";
+} from "./materialize.js";
 
 // Text binding.
-export type { TextBinding, TextBindingChange, TextEdit, TextSelection } from "./text-binding";
-export { validateTextEdits } from "./text-binding";
+export type { TextBinding, TextBindingChange, TextEdit, TextSelection } from "./text-binding.js";
+export { validateTextEdits } from "./text-binding.js";

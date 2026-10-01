@@ -8,14 +8,21 @@
     "node": ">=22"
   },
   "exports": {
-    ".": "./src/index.ts"
+    ".": {
+      "@clerkenwell/source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
   },
   "files": [
+    "dist",
     "src"
   ],
   "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "prepack": "npm run build",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "test": "node --import tsx --test \"tests/**/*.test.ts\" \"tests/**/*.test.tsx\""
+    "test": "node --conditions=@clerkenwell/source --import tsx --test \"tests/**/*.test.ts\" \"tests/**/*.test.tsx\""
   },
   "dependencies": {
     "@clerkenwell/client": "0.1.0"

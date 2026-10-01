@@ -8,8 +8,8 @@ import test from "node:test";
 
 import { ProjectionClient, RpcError, watchProjection } from "@clerkenwell/client";
 
-import { fakeSocket, settle } from "./support/fake-socket";
-import { TEST_COMPOSITION_PLANS, type TestProjectionModel } from "./support/projections";
+import { fakeSocket, settle } from "./support/fake-socket.js";
+import { TEST_COMPOSITION_PLANS, type TestProjectionModel } from "./support/projections.js";
 
 function projectionClient() {
   const harness = fakeSocket();

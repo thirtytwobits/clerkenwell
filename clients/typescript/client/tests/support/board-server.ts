@@ -7,15 +7,15 @@
  * document behind the editor's back.
  */
 import type { AuthoringResourceIdentity, AuthoringRuntime } from "@clerkenwell/client";
-import type { AuthoringSessionHandle } from "../../src/authoring-runtime";
+import type { AuthoringSessionHandle } from "../../src/authoring-runtime.js";
 
-import { BOARD_PLAN, type BoardDocument } from "./plans";
+import { BOARD_PLAN, type BoardDocument } from "./plans.js";
 import {
   BOARD_DRAFTS,
   boardReplica,
   type BoardReplica,
   type BoardTextFieldPath
-} from "./replicas";
+} from "./replicas.js";
 
 export interface BoardAuthoringState {
   schema_version: number;

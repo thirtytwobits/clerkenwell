@@ -21,7 +21,7 @@ import {
   TEST_COMPOSITION_PLANS,
   type NoteSummary,
   type TestProjectionModel
-} from "./support/projections";
+} from "./support/projections.js";
 
 type Model = TestProjectionModel;
 

@@ -5,7 +5,7 @@
  * the controllers an application edits a session through.
  */
 
-import type { TextBinding } from "./text-binding";
+import type { TextBinding } from "./text-binding.js";
 
 export type AuthoringSessionStatus =
   | "bootstrapping"

@@ -30,8 +30,12 @@ WebSocket clients: `cargo run -p clerkenwell-example-notes --bin notes-server`.
 
 ## TypeScript packages
 
-An npm workspace under `clients/typescript/`, consumed as TypeScript source. `npm run typecheck`
-and `npm test` run from the repository root.
+An npm workspace under `clients/typescript/`. Each package publishes ES modules and their
+declarations, built into `dist/` under `NodeNext` resolution, so relative imports name their
+`.js` file. Clerkenwell's own typecheck, tests and conformance bridge resolve the packages to
+their TypeScript source through the `@clerkenwell/source` export condition; a consumer never
+sets it. `npm run typecheck`, `npm test` and `npm run package:check` run from the repository
+root.
 
 | Package | Owns |
 |---|---|

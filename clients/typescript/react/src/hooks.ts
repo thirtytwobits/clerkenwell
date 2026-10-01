@@ -5,7 +5,7 @@
  */
 import { useSyncExternalStore } from "react";
 
-import type { ProjectionReadableStore } from "./store";
+import type { ProjectionReadableStore } from "./store.js";
 
 export function useProjectionSnapshot<TSnapshot>(
   store: ProjectionReadableStore<TSnapshot>

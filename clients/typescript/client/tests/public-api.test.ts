@@ -9,7 +9,7 @@ import test from "node:test";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { assertRecordedPublicApi, namesAfterLoro, packagesNamedByExports } from "./support/public-api";
+import { assertRecordedPublicApi, namesAfterLoro, packagesNamedByExports } from "./support/public-api.js";
 
 test("the client's entry points export exactly what public-api.json records", () => {
   assertRecordedPublicApi(path.resolve(path.dirname(fileURLToPath(import.meta.url)), ".."));

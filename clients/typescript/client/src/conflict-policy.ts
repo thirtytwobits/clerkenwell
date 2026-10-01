@@ -7,12 +7,12 @@
  * `merge` and `lastWriterWins` fields always accept. Fields inside a keyed
  * sequence are judged per item, addressed by the item's identity.
  */
-import { areJsonValuesEqual } from "./json-value-equality";
+import { areJsonValuesEqual } from "./json-value-equality.js";
 import {
   clientSegment,
   type CollaborationEntityPlan,
   type CollaborationFieldPlan
-} from "./plans";
+} from "./plans.js";
 
 /**
  * The declared field paths an edit from `base` to `client` changes against

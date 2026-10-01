@@ -35,7 +35,7 @@ impl Bridge {
             workspace.display()
         );
         let mut child = Command::new("node")
-            .args(["--import", "tsx"])
+            .args(["--conditions=@clerkenwell/source", "--import", "tsx"])
             .arg(crate::workspace().join("conformance/bridge.ts"))
             .arg("--plans")
             .arg(&bindings.typescript_plans)

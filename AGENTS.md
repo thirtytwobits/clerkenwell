@@ -63,6 +63,7 @@ the lockfiles together.
 | Rust tests | `npm ci`, then `cargo test --workspace` |
 | Rust tests without Node | `cargo test --workspace --exclude clerkenwell-conformance` |
 | TypeScript clients | `npm run typecheck && npm test` |
+| The packages as a consumer receives them | `npm run package:check` |
 
 Run one Cargo command at a time; parallel runs contend for the same locks.
 

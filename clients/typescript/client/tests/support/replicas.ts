@@ -15,7 +15,7 @@ import {
   NOTE_PLAN,
   type BoardDocument,
   type NoteDocument
-} from "./plans";
+} from "./plans.js";
 
 export type NoteReplica = CollaborationReplica<NoteDocument>;
 export type BoardReplica = CollaborationReplica<BoardDocument>;

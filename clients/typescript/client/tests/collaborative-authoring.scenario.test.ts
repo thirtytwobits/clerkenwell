@@ -16,8 +16,8 @@ import {
   openBoardSession,
   relabelTask,
   renameTask
-} from "./support/board-server";
-import { boardDocument } from "./support/plans";
+} from "./support/board-server.js";
+import { boardDocument } from "./support/plans.js";
 
 const resource = { entity: "Board", resourceKey: "board-1" } as const;
 

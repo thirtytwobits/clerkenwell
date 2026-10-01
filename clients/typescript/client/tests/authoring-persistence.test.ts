@@ -13,7 +13,7 @@ import {
   sameSessions,
   toPersistedRuntime
 } from "@clerkenwell/client";
-import { authoringSessionRequiresDurableRestoration } from "../src/authoring-state-machine";
+import { authoringSessionRequiresDurableRestoration } from "../src/authoring-state-machine.js";
 
 const resource = { entity: "Note", resourceKey: "persisted" } as const;
 const other = { entity: "Note", resourceKey: "untouched" } as const;

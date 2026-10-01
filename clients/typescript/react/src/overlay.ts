@@ -3,8 +3,8 @@
  *
  * Reusable local edit overlay state for projection-backed React surfaces.
  */
-import { ProjectionExternalStore } from "./store";
-import type { ProjectionReadableStore, ProjectionReactStoreListener } from "./store";
+import { ProjectionExternalStore } from "./store.js";
+import type { ProjectionReadableStore, ProjectionReactStoreListener } from "./store.js";
 
 export type ProjectionOverlayStatus =
   | "clean"

@@ -9,8 +9,8 @@ import type {
   AuthoringRuntimeState,
   AuthoringSession,
   AuthoringSessionStatus
-} from "./authoring-session";
-import { authoringSessionRequiresDurableRestoration } from "./authoring-state-machine";
+} from "./authoring-session.js";
+import { authoringSessionRequiresDurableRestoration } from "./authoring-state-machine.js";
 
 export interface PersistedAuthoringResourceIdentity {
   entity: string;

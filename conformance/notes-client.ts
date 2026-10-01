@@ -24,7 +24,7 @@ import {
   COLLABORATION_PLANS,
   PROJECTION_COMPOSITION_PLANS,
   type GeneratedProjectionModel
-} from "../examples/notes/generated/typescript/index";
+} from "../examples/notes/generated/typescript/index.js";
 
 type Model = GeneratedProjectionModel;
 type Note = Record<string, unknown>;

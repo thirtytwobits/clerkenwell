@@ -9,23 +9,23 @@ export {
   useAuthoringRuntime,
   useAuthoringRuntimePersistence,
   useAuthoringRuntimeSnapshot
-} from "./authoring-runtime";
+} from "./authoring-runtime.js";
 export type {
   CollaborativeAutosyncHandle,
   CollaborativeAutosyncOptions
-} from "./collaborative-autosync";
+} from "./collaborative-autosync.js";
 export {
   DEFAULT_COLLABORATIVE_AUTOSYNC_DELAY_MS,
   useCollaborativeAutosync
-} from "./collaborative-autosync";
-export { useProjectionSelector, useProjectionSnapshot } from "./hooks";
+} from "./collaborative-autosync.js";
+export { useProjectionSelector, useProjectionSnapshot } from "./hooks.js";
 export type {
   ProjectionEditOverlayOptions,
   ProjectionEditOverlaySnapshot,
   ProjectionOverlayConflict,
   ProjectionOverlayStatus
-} from "./overlay";
-export { ProjectionEditOverlay } from "./overlay";
-export type { ProjectionReactStoreListener, ProjectionReadableStore } from "./store";
-export { ProjectionExternalStore } from "./store";
-export { replaceTextBindingValue, useTextBindingValue } from "./text-binding";
+} from "./overlay.js";
+export { ProjectionEditOverlay } from "./overlay.js";
+export type { ProjectionReactStoreListener, ProjectionReadableStore } from "./store.js";
+export { ProjectionExternalStore } from "./store.js";
+export { replaceTextBindingValue, useTextBindingValue } from "./text-binding.js";

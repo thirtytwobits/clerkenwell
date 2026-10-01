@@ -8,15 +8,26 @@
     "node": ">=22"
   },
   "exports": {
-    ".": "./src/index.ts",
-    "./replica": "./src/replica.ts"
+    ".": {
+      "@clerkenwell/source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./replica": {
+      "@clerkenwell/source": "./src/replica.ts",
+      "types": "./dist/replica.d.ts",
+      "default": "./dist/replica.js"
+    }
   },
   "files": [
+    "dist",
     "src"
   ],
   "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "prepack": "npm run build",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "test": "node --import tsx --test \"tests/**/*.test.ts\""
+    "test": "node --conditions=@clerkenwell/source --import tsx --test \"tests/**/*.test.ts\""
   },
   "dependencies": {
     "loro-crdt": "https://github.com/thirtytwobits/loro/releases/download/primrose-551d0da5b943/loro-crdt-1.16.1.tgz"

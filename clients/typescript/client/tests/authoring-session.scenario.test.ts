@@ -8,7 +8,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { AuthoringRuntime } from "@clerkenwell/client";
-import { authoringLeaveDecision } from "../src/authoring-state-machine";
+import { authoringLeaveDecision } from "../src/authoring-state-machine.js";
 
 test("edit, dismiss, restart, reconnect, and exactly-once replay retain one session", () => {
   const resource = { entity: "Note", resourceKey: "restartable" } as const;

@@ -9,7 +9,7 @@ import test from "node:test";
 
 import { conflictingFieldPaths } from "@clerkenwell/client";
 
-import { COLLABORATION_PLANS } from "../../../../crates/clerkenwell-notebook/generated/typescript/index";
+import { COLLABORATION_PLANS } from "../../../../crates/clerkenwell-notebook/generated/typescript/index.js";
 
 type Entity = keyof typeof COLLABORATION_PLANS;
 type ClientRecord = Record<string, unknown>;

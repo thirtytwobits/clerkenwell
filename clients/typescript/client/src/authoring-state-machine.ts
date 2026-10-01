@@ -5,8 +5,8 @@
  * drive sessions through `AuthoringRuntime`, which owns every transition.
  */
 
-import type { AuthoringExchangeMode, AuthoringResourceIdentity, AuthoringSession, AuthoringSessionStatus, QueuedAuthoringOperation } from "./authoring-session";
-import { areJsonValuesEqual } from "./json-value-equality";
+import type { AuthoringExchangeMode, AuthoringResourceIdentity, AuthoringSession, AuthoringSessionStatus, QueuedAuthoringOperation } from "./authoring-session.js";
+import { areJsonValuesEqual } from "./json-value-equality.js";
 
 export type AuthoringLeaveDecision =
   | { kind: "allow"; restoration: "notRequired" | "durable" }

@@ -10,7 +10,7 @@ import test from "node:test";
 import {
   collaborationDocumentToLoroDoc,
   materializeCollaborationDocumentFromLoroDoc
-} from "../src/collaboration-replica";
+} from "../src/collaboration-replica.js";
 
 import {
   BOARD_PLAN,
@@ -18,8 +18,8 @@ import {
   noteDocument,
   type BoardDocument,
   type NoteDocument
-} from "./support/plans";
-import { boardReplica, mergeRewrites, noteReplica } from "./support/replicas";
+} from "./support/plans.js";
+import { boardReplica, mergeRewrites, noteReplica } from "./support/replicas.js";
 
 function mergeNotes(
   base: NoteDocument,

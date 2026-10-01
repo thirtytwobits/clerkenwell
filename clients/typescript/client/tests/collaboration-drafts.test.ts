@@ -9,8 +9,8 @@ import test from "node:test";
 import { AuthoringRuntime } from "@clerkenwell/client";
 import { CollaborationDrafts, documentDraftMapping } from "@clerkenwell/client/replica";
 
-import { BOARD_PLAN, boardDocument, type BoardColumn, type BoardDocument } from "./support/plans";
-import { insert } from "./support/text";
+import { BOARD_PLAN, boardDocument, type BoardColumn, type BoardDocument } from "./support/plans.js";
+import { insert } from "./support/text.js";
 
 /** Drafts a board as its columns alone. */
 const COLUMN_DRAFTS = new CollaborationDrafts("Board", BOARD_PLAN, {

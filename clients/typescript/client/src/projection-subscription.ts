@@ -4,15 +4,15 @@
  * Projection subscriptions over any transport that speaks the projection
  * session protocol.
  */
-import { applyProjectionEvent, createProjectionMaterializerState } from "./materialize";
-import type { ProjectionCompositionPlans } from "./plans";
+import { applyProjectionEvent, createProjectionMaterializerState } from "./materialize.js";
+import type { ProjectionCompositionPlans } from "./plans.js";
 import type {
   ProjectionModel,
   ProjectionName,
   ProjectionParams,
   ProjectionPatch,
   ProjectionSnapshot
-} from "./projection-model";
+} from "./projection-model.js";
 import {
   isProjectionTransportEvent,
   PROJECTION_UPDATE_NOTIFICATION,
@@ -20,7 +20,7 @@ import {
   type ProjectionSubscribeAccepted,
   type ProjectionTransportEvent,
   type ProjectionUnsubscribeAccepted
-} from "./protocol";
+} from "./protocol.js";
 
 /** A message the server pushes; projection events arrive as `projection.update`. */
 export interface ProjectionNotification {

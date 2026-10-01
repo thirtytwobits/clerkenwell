@@ -11,8 +11,8 @@ import type {
   ProjectionModel,
   ProjectionName,
   ProjectionParams
-} from "./projection-model";
-import type { ProjectionTransport } from "./projection-subscription";
+} from "./projection-model.js";
+import type { ProjectionTransport } from "./projection-subscription.js";
 import {
   PROJECTION_MUTATE_METHOD,
   PROJECTION_RESYNC_METHOD,
@@ -22,8 +22,8 @@ import {
   type ProjectionResyncAccepted,
   type ProjectionSubscribeAccepted,
   type ProjectionUnsubscribeAccepted
-} from "./protocol";
-import { RpcError, type RpcNotification, type RpcSocket, type RpcSocketState } from "./rpc-socket";
+} from "./protocol.js";
+import { RpcError, type RpcNotification, type RpcSocket, type RpcSocketState } from "./rpc-socket.js";
 
 export class ProjectionClient<M extends ProjectionModel = ProjectionModel> implements ProjectionTransport<M> {
   constructor(readonly socket: RpcSocket) {}
