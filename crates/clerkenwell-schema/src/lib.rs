@@ -12,26 +12,14 @@ pub enum GeneratedAuthoringPolicyKind {
     ReadOnly,
 }
 
-/// How a concurrent edit to an entity is judged.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum GeneratedAuthoringConflictPolicy {
-    ExpectedRevision,
-    GeneratedFieldPolicy,
-}
-
-/// An entity's authoring policy and the role of each mutation that touches it.
+/// An entity's authoring policy: its kind, the mutations that touch it, and
+/// those that only plan a change.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct GeneratedEntityAuthoringSpec {
     pub entity: &'static str,
     pub kind: GeneratedAuthoringPolicyKind,
-    pub rationale: &'static str,
     pub mutations: &'static [&'static str],
-    pub content_mutation: Option<&'static str>,
     pub planning_mutations: &'static [&'static str],
-    pub command_mutations: &'static [&'static str],
-    pub lifecycle_mutations: &'static [&'static str],
-    pub session_mnemonic_key: Option<&'static str>,
-    pub conflict_policy: Option<GeneratedAuthoringConflictPolicy>,
 }
 
 /// How a client applies a projection's snapshots and patches.
@@ -166,7 +154,6 @@ pub struct GeneratedCollaborationEntitySpec {
     pub name: &'static str,
     pub id_field: &'static str,
     pub schema_version: u32,
-    pub migration_ids: &'static [&'static str],
     pub authoring_projection: &'static str,
     /// The resource id of the one document every subscription to the
     /// authoring state follows, when the entity has exactly one.

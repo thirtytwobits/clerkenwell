@@ -31,24 +31,14 @@ pub fn normalized_document(definition: &Definition) -> Json {
 
     let mut collaboration_document = Object::new();
     collaboration_document.insert("version", collaboration.version().into());
-    collaboration_document.insert(
-        "compatibility",
-        collaboration.compatibility().clone().into(),
-    );
     collaboration_document.insert("entities", Json::Array(collaboration_entities));
 
     let document = definition.document();
     let mut normalized = Object::new();
     normalized.insert("version", definition.version().into());
-    normalized.insert("compatibility", definition.compatibility().clone().into());
     normalized.insert("namespace", definition.namespace().into());
-    for (key, section) in [
-        ("entities", "entities"),
-        ("projections", "projections"),
-        ("mutations", "mutations"),
-        ("mnemonic", "mnemonic"),
-    ] {
-        normalized.insert(key, named_entries(document.object_field(section)));
+    for section in ["entities", "projections", "mutations"] {
+        normalized.insert(section, named_entries(document.object_field(section)));
     }
     normalized.insert("collaboration", collaboration_document.into());
     normalized.insert("definitions", named_entries(definition.defs()));

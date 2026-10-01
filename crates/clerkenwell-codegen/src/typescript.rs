@@ -1,13 +1,13 @@
-//! The TypeScript model module and the mnemonic module.
+//! The TypeScript model module.
 
 use crate::config::Project;
-use crate::definition::{Definition, Fields};
+use crate::definition::Definition;
 use crate::error::{refuse, Result};
 use crate::json::{number_to_string, string_literal, Json, Object};
-use crate::names::{constant_name, name_constant_identifier, object_key, pascal_identifier};
+use crate::names::{name_constant_identifier, pascal_identifier};
 use crate::schema::{
-    object_at, primitive_union_types, read_string_array, resolve_ref, schema_ref_name,
-    schema_ref_type_name, stringify_or_undefined,
+    object_at, primitive_union_types, read_string_array, schema_ref_type_name,
+    stringify_or_undefined,
 };
 
 /// The generated-file header as a block comment, without a trailing newline.
@@ -76,12 +76,6 @@ pub fn render_model_module(definition: &Definition, project: &Project) -> Result
     lines.push(readonly_tuple("MUTATION_NAMES", &mutation_names));
     lines.push("export type MutationName = typeof MUTATION_NAMES[number];".to_owned());
     lines.push(String::new());
-    let mnemonic_keys: Object = definition
-        .mnemonics()
-        .map(|mnemonic| (mnemonic.name, Json::from(mnemonic.key())))
-        .collect();
-    lines.push(readonly_object("MNEMONIC_KEYS", &mnemonic_keys));
-    lines.push(String::new());
     lines.push(contract_interfaces(definition)?);
     lines.push(String::new());
     lines.extend(
@@ -106,7 +100,7 @@ pub fn render_model_module(definition: &Definition, project: &Project) -> Result
         ]
         .map(str::to_owned),
     );
-    lines.push(composition_metadata(definition, project));
+    lines.push(composition_metadata(definition));
     lines.push(String::new());
     Ok(format!("{}\n", lines.join("\n")))
 }
@@ -179,7 +173,7 @@ fn contract_interfaces(definition: &Definition) -> Result<String> {
     Ok(lines.join("\n"))
 }
 
-fn composition_metadata(definition: &Definition, project: &Project) -> String {
+fn composition_metadata(definition: &Definition) -> String {
     let plans: Object = definition
         .projections()
         .map(|projection| {
@@ -192,11 +186,6 @@ fn composition_metadata(definition: &Definition, project: &Project) -> String {
         .mutations()
         .map(|mutation| (mutation.name, Json::from(mutation.touches())))
         .collect();
-    let session_key = project
-        .authoring_session_mnemonic
-        .as_deref()
-        .and_then(|name| definition.mnemonic(name))
-        .map(|mnemonic| Json::from(mnemonic.key()));
     let authoring_plans: Object = definition
         .entities()
         .map(|entity| {
@@ -208,31 +197,9 @@ fn composition_metadata(definition: &Definition, project: &Project) -> String {
             let mut plan = Object::new();
             plan.insert("kind", entity.authoring_kind().into());
             plan.insert("schemaVersion", definition.version().into());
-            plan.insert("rationale", entity.rationale().into());
             plan.insert("revision", entity.revision().clone().into());
             plan.insert("mutations", mutations.into());
-            plan.insert_some("contentMutation", entity.content_mutation().map(Json::from));
             plan.insert("planningMutations", entity.planning_mutations().into());
-            plan.insert("commandMutations", entity.command_mutations().into());
-            plan.insert("lifecycleMutations", entity.lifecycle_mutations().into());
-            let session = if entity.owns_session() {
-                let mut session = Object::new();
-                session.insert_some("mnemonicKey", session_key.clone());
-                session.insert("leavePolicy", "durableRestoreOrConfirmDiscard".into());
-                session.insert(
-                    "conflictPolicy",
-                    if entity.authoring_kind() == "collaborative" {
-                        "generatedFieldPolicy"
-                    } else {
-                        "expectedRevision"
-                    }
-                    .into(),
-                );
-                session.into()
-            } else {
-                Json::Null
-            };
-            plan.insert("authoringSession", session);
             (entity.name, Json::from(plan))
         })
         .collect();
@@ -277,27 +244,17 @@ fn collaboration_metadata(definition: &Definition) -> String {
                 .collect();
             let mut plan = Object::new();
             plan.insert("schemaVersion", entity.schema_version().into());
-            plan.insert("migrationIds", entity.migration_ids().into());
             plan.insert("authoringState", entity.authoring_state().clone().into());
             plan.insert("rootContainer", entity.root_container().into());
             plan.insert("fields", fields.into());
             (entity.name, Json::from(plan))
         })
         .collect();
-    let compatibility = collaboration.compatibility();
     [
         "export type CollaborationEntityPlan = ClerkenwellCollaborationEntityPlan<ProjectionName, MutationName>;".to_owned(),
         format!(
             "export const COLLABORATION_DEFINITION_VERSION = {} as const;",
             number_to_string(collaboration.version())
-        ),
-        format!(
-            "export const COLLABORATION_MINIMUM_READER_VERSION = {} as const;",
-            number_to_string(compatibility.number_field("minimumReaderVersion"))
-        ),
-        format!(
-            "export const COLLABORATION_MINIMUM_WRITER_VERSION = {} as const;",
-            number_to_string(compatibility.number_field("minimumWriterVersion"))
         ),
         format!(
             "export const COLLABORATION_PLANS = {} as const satisfies Record<string, CollaborationEntityPlan>;",
@@ -442,191 +399,6 @@ fn schema_to_typescript(schema: &Object) -> Result<String> {
     }
 }
 
-/// The mnemonic module: each entry's plan, key and standalone JSON Schema.
-pub fn render_mnemonic_module(
-    definition: &Definition,
-    project: &Project,
-    model_specifier: &str,
-) -> Result<String> {
-    let mut type_imports: Vec<String> = Vec::new();
-    for mnemonic in definition.mnemonics() {
-        let type_name = schema_ref_type_name(mnemonic.schema())?;
-        if !type_imports.contains(&type_name) {
-            type_imports.push(type_name);
-        }
-    }
-    let mut lines = vec![
-        module_header(project),
-        String::new(),
-        format!(
-            "import type {{ {} }} from {};",
-            type_imports.join(", "),
-            string_literal(model_specifier)
-        ),
-        String::new(),
-    ];
-
-    lines.push("export const MNEMONIC_PLANS = {".to_owned());
-    for mnemonic in definition.mnemonics() {
-        lines.push(format!("  {}: {{", object_key(mnemonic.name)));
-        lines.push(format!("    key: {},", string_literal(mnemonic.key())));
-        lines.push(format!(
-            "    version: {},",
-            number_to_string(mnemonic.version())
-        ));
-        lines.push(format!(
-            "    cachePolicy: {},",
-            string_literal(mnemonic.cache_policy())
-        ));
-        lines.push(format!(
-            "    migrationIds: {},",
-            Json::from(mnemonic.migration_ids()).stringify()
-        ));
-        lines.push(format!(
-            "    recovery: {}",
-            string_literal(mnemonic.recovery())
-        ));
-        lines.push("  },".to_owned());
-    }
-    lines.push("} as const;".to_owned());
-    lines.push(String::new());
-
-    // Plain JSON Schema data rather than a persistence library's builder calls:
-    // the model is a contract, independent of how a client persists.
-    for mnemonic in definition.mnemonics() {
-        let definition_name = schema_ref_name(
-            definition,
-            mnemonic.schema(),
-            &format!("mnemonic.{}.schema", mnemonic.name),
-        )?;
-        let schema_name = pascal_identifier(&definition_name);
-        let prefix = constant_name(mnemonic.name);
-        let schema = definition.def(&definition_name).expect("resolved above");
-        lines.push(format!(
-            "export const {prefix}_MNEMONIC_KEY = {};",
-            string_literal(mnemonic.key())
-        ));
-        lines.push(String::new());
-        lines.push(format!("export const {prefix}_MNEMONIC_DEFINITION = {{"));
-        lines.push(format!("  key: {prefix}_MNEMONIC_KEY,"));
-        lines.push(format!(
-            "  version: {},",
-            number_to_string(mnemonic.version())
-        ));
-        lines.push(format!(
-            "  schema: {}",
-            crate::names::js_trim_start(&json_schema(definition, schema, 2)?)
-        ));
-        lines.push("} as const;".to_owned());
-        lines.push(String::new());
-        lines.push(format!(
-            "export type {schema_name}MnemonicValue = {schema_name};"
-        ));
-        lines.push(String::new());
-    }
-    Ok(lines.join("\n"))
-}
-
-/// The schema subset as plain JSON Schema with references inlined, so each
-/// emitted schema stands alone.
-fn json_schema(definition: &Definition, schema: &Object, indent: usize) -> Result<String> {
-    let pad = " ".repeat(indent);
-    if matches!(schema.get("$ref"), Some(Json::String(_))) {
-        return json_schema(
-            definition,
-            resolve_ref(definition, schema, "mnemonic schema")?,
-            indent,
-        );
-    }
-    if let Some(values) = schema.get("enum").and_then(Json::as_array) {
-        let values: Vec<String> = values.iter().map(Json::stringify).collect();
-        return Ok(format!(
-            "{pad}{{ \"type\": \"string\", \"enum\": [{}] }}",
-            values.join(", ")
-        ));
-    }
-    if let Some(members) = primitive_union_types(schema)? {
-        let members: Vec<String> = members.into_iter().map(string_literal).collect();
-        return Ok(format!("{pad}{{ \"type\": [{}] }}", members.join(", ")));
-    }
-    let schema_type = schema.get("type");
-    let trim = crate::names::js_trim_start;
-    match schema_type.and_then(Json::as_str) {
-        Some("object") => {
-            if let Some(additional) = object_at(schema, "additionalProperties") {
-                let rendered = json_schema(definition, additional, indent + 2)?;
-                return Ok([
-                    format!("{pad}{{"),
-                    format!("{pad}  \"type\": \"object\","),
-                    format!("{pad}  \"additionalProperties\": {}", trim(&rendered)),
-                    format!("{pad}}}"),
-                ]
-                .join("\n"));
-            }
-            if object_at(schema, "oneOf").is_some() {
-                return refuse("Cannot render a tagged union as a mnemonic schema.");
-            }
-            let Some(properties) = object_at(schema, "properties") else {
-                return refuse(
-                    "Cannot render an object schema without properties as a mnemonic schema.",
-                );
-            };
-            if properties.is_empty() {
-                return Ok(format!(
-                    "{pad}{{ \"type\": \"object\", \"properties\": {{}}, \"additionalProperties\": false }}"
-                ));
-            }
-            let required = read_string_array(schema.get("required"), "schema.required")?;
-            let mut property_lines = Vec::new();
-            for (property_name, property_schema) in properties.iter() {
-                let property_schema = property_schema
-                    .as_object()
-                    .expect("validation requires object property schemas");
-                let rendered = json_schema(definition, property_schema, indent + 6)?;
-                property_lines.push(format!(
-                    "{}{}: {}",
-                    " ".repeat(indent + 4),
-                    string_literal(property_name),
-                    trim(&rendered)
-                ));
-            }
-            let required_names: Vec<String> = required.into_iter().map(string_literal).collect();
-            Ok([
-                format!("{pad}{{"),
-                format!("{pad}  \"type\": \"object\","),
-                format!("{pad}  \"properties\": {{"),
-                property_lines.join(",\n"),
-                format!("{pad}  }},"),
-                format!("{pad}  \"required\": [{}],", required_names.join(", ")),
-                format!("{pad}  \"additionalProperties\": false"),
-                format!("{pad}}}"),
-            ]
-            .join("\n"))
-        }
-        Some("array") => {
-            let items = object_at(schema, "items").expect("validation requires array items");
-            let rendered = json_schema(definition, items, indent + 2)?;
-            Ok([
-                format!("{pad}{{"),
-                format!("{pad}  \"type\": \"array\","),
-                format!("{pad}  \"items\": {}", trim(&rendered)),
-                format!("{pad}}}"),
-            ]
-            .join("\n"))
-        }
-        Some(primitive @ ("string" | "boolean" | "integer" | "number")) => Ok(format!(
-            "{pad}{{ \"type\": {} }}",
-            string_literal(primitive)
-        )),
-        // Any JSON is valid; the value type comes from the generated alias.
-        Some("json") => Ok(format!("{pad}{{}}")),
-        _ => refuse(format!(
-            "Cannot render unsupported mnemonic schema type {}.",
-            stringify_or_undefined(schema_type)
-        )),
-    }
-}
-
 fn name_constants(suffix: &str, values: &[&str]) -> Vec<String> {
     values
         .iter()
@@ -647,17 +419,6 @@ fn readonly_tuple(name: &str, values: &[&str]) -> String {
         .collect();
     format!(
         "export const {name} = [\n{}\n] as const;",
-        rendered.join("\n")
-    )
-}
-
-fn readonly_object(name: &str, entries: &Object) -> String {
-    let rendered: Vec<String> = entries
-        .iter()
-        .map(|(key, value)| format!("  {}: {},", string_literal(key), value.stringify()))
-        .collect();
-    format!(
-        "export const {name} = {{\n{}\n}} as const;",
         rendered.join("\n")
     )
 }

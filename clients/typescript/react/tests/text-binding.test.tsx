@@ -15,7 +15,6 @@ import { replaceTextBindingValue, useTextBindingValue } from "@clerkenwell/react
 
 const PLAN = {
   schemaVersion: 1,
-  migrationIds: [],
   authoringState: { projection: "memo.authoringState", importMutation: "memo.importUpdate" },
   rootContainer: "memo",
   fields: {

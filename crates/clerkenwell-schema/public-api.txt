@@ -1,10 +1,6 @@
 # The public API of clerkenwell_schema. Written by `cargo run -p clerkenwell-public-api`.
 # Types named from: none
 
-enum clerkenwell_schema::GeneratedAuthoringConflictPolicy
-derive clerkenwell_schema::GeneratedAuthoringConflictPolicy: Clone, Copy, Debug, Eq, PartialEq
-variant clerkenwell_schema::GeneratedAuthoringConflictPolicy::ExpectedRevision
-variant clerkenwell_schema::GeneratedAuthoringConflictPolicy::GeneratedFieldPolicy
 enum clerkenwell_schema::GeneratedAuthoringPolicyKind
 derive clerkenwell_schema::GeneratedAuthoringPolicyKind: Clone, Copy, Debug, Eq, PartialEq
 variant clerkenwell_schema::GeneratedAuthoringPolicyKind::Collaborative
@@ -25,7 +21,6 @@ field clerkenwell_schema::GeneratedCollaborationEntitySpec::authoring_store_para
 field clerkenwell_schema::GeneratedCollaborationEntitySpec::fields: &'static [GeneratedCollaborationFieldSpec]
 field clerkenwell_schema::GeneratedCollaborationEntitySpec::id_field: &'static str
 field clerkenwell_schema::GeneratedCollaborationEntitySpec::import_mutation: &'static str
-field clerkenwell_schema::GeneratedCollaborationEntitySpec::migration_ids: &'static [&'static str]
 field clerkenwell_schema::GeneratedCollaborationEntitySpec::name: &'static str
 field clerkenwell_schema::GeneratedCollaborationEntitySpec::root_container: &'static str
 field clerkenwell_schema::GeneratedCollaborationEntitySpec::schema_version: u32
@@ -74,16 +69,10 @@ variant clerkenwell_schema::GeneratedCollaborationValueCodec::StringList
 variant clerkenwell_schema::GeneratedCollaborationValueCodec::StructuredJson
 struct clerkenwell_schema::GeneratedEntityAuthoringSpec
 derive clerkenwell_schema::GeneratedEntityAuthoringSpec: Clone, Copy, Debug, Eq, PartialEq
-field clerkenwell_schema::GeneratedEntityAuthoringSpec::command_mutations: &'static [&'static str]
-field clerkenwell_schema::GeneratedEntityAuthoringSpec::conflict_policy: Option<GeneratedAuthoringConflictPolicy>
-field clerkenwell_schema::GeneratedEntityAuthoringSpec::content_mutation: Option<&'static str>
 field clerkenwell_schema::GeneratedEntityAuthoringSpec::entity: &'static str
 field clerkenwell_schema::GeneratedEntityAuthoringSpec::kind: GeneratedAuthoringPolicyKind
-field clerkenwell_schema::GeneratedEntityAuthoringSpec::lifecycle_mutations: &'static [&'static str]
 field clerkenwell_schema::GeneratedEntityAuthoringSpec::mutations: &'static [&'static str]
 field clerkenwell_schema::GeneratedEntityAuthoringSpec::planning_mutations: &'static [&'static str]
-field clerkenwell_schema::GeneratedEntityAuthoringSpec::rationale: &'static str
-field clerkenwell_schema::GeneratedEntityAuthoringSpec::session_mnemonic_key: Option<&'static str>
 enum clerkenwell_schema::GeneratedMaterializationPlan
 derive clerkenwell_schema::GeneratedMaterializationPlan: Clone, Copy, Debug, Eq, PartialEq
 variant clerkenwell_schema::GeneratedMaterializationPlan::KeyedCollection { collection_field: &'static str, item_field: &'static str, item_identity_field: &'static str, patch_identity_field: &'static str }

@@ -257,7 +257,6 @@ mod nested {
         name: "Board",
         id_field: "board_id",
         schema_version: 1,
-        migration_ids: &[],
         authoring_projection: "boards.authoringState",
         authoring_document: None,
         authoring_store_params: &[],

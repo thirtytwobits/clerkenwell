@@ -1,10 +1,9 @@
 //! Projection definition code generator.
 //!
 //! One JSON definition document declares a project's entities, projections,
-//! mutations, mnemonic overlays and collaborative document layouts. This crate
-//! validates it and generates, from it alone, the Rust model module, the
-//! TypeScript model and mnemonic modules, the normalised IR, both fixture
-//! corpora and the coverage report.
+//! mutations and collaborative document layouts. This crate validates it and
+//! generates, from it alone, the Rust model module, the TypeScript model
+//! module, the normalised IR and both fixture corpora.
 //!
 //! The generator accepts only the JSON Schema subset its renderers represent
 //! exactly, and refuses a definition that would need a wider or ambiguous
@@ -12,7 +11,6 @@
 
 mod collate;
 mod config;
-mod coverage;
 mod definition;
 mod error;
 mod expand;
@@ -37,23 +35,19 @@ pub use error::{Error, Result};
 pub struct GeneratedOutputs {
     pub collaboration_fixtures: String,
     pub contract_fixtures: String,
-    pub coverage_report: String,
     pub normalized_definition: String,
     pub typescript_model: String,
-    pub typescript_mnemonic: String,
     pub rust_model: String,
 }
 
 impl GeneratedOutputs {
     /// Each artefact beside the path it is written to.
-    pub fn with_paths<'a>(&'a self, paths: &'a OutputPaths) -> [(&'a Path, &'a str); 7] {
+    pub fn with_paths<'a>(&'a self, paths: &'a OutputPaths) -> [(&'a Path, &'a str); 5] {
         [
             (&paths.collaboration_fixtures, &self.collaboration_fixtures),
             (&paths.contract_fixtures, &self.contract_fixtures),
-            (&paths.coverage_report, &self.coverage_report),
             (&paths.normalized_definition, &self.normalized_definition),
             (&paths.typescript_model, &self.typescript_model),
-            (&paths.typescript_mnemonic, &self.typescript_mnemonic),
             (&paths.rust_model, &self.rust_model),
         ]
         .map(|(path, content)| (path.as_path(), content.as_str()))
@@ -76,22 +70,14 @@ pub fn build_outputs(definition: &Definition, config: &Config) -> Result<Generat
     let project = &config.project;
     let collaboration_fixtures = fixtures::render_collaboration_fixtures(definition)?;
     let contract_fixtures = fixtures::render_contract_fixtures(definition)?;
-    let coverage_report = coverage::render_coverage_report(definition, project)?;
     let normalized_definition = normalize::render_normalized_definition(definition);
     let rust_model = rust::render_model_module(definition, project)?;
-    let typescript_mnemonic = typescript::render_mnemonic_module(
-        definition,
-        project,
-        &config.typescript_model_specifier()?,
-    )?;
     let typescript_model = typescript::render_model_module(definition, project)?;
     Ok(GeneratedOutputs {
         collaboration_fixtures,
         contract_fixtures,
-        coverage_report,
         normalized_definition,
         typescript_model,
-        typescript_mnemonic,
         rust_model,
     })
 }
@@ -108,7 +94,7 @@ pub enum Mode {
 /// Loads the definition `config` names, renders it, and writes or checks the
 /// artefacts. Returns the paths whose content changed.
 pub fn generate(config: &Config, mode: Mode) -> Result<Vec<PathBuf>> {
-    let definition = Definition::load(&config.definition, &config.project)?;
+    let definition = Definition::load(&config.definition)?;
     let outputs = build_outputs(&definition, config)?;
     let mut changed = Vec::new();
     for (path, content) in outputs.with_paths(&config.outputs) {
@@ -159,15 +145,14 @@ fn write(path: &Path, content: &str) -> Result<()> {
 #[cfg(feature = "testing")]
 pub mod testing {
     pub use crate::collate::locale_compare;
-    pub use crate::coverage::{collect_payload_coverage, PayloadCoverage};
     pub use crate::json::{number_to_string, Json, Object};
     pub use crate::normalize::normalized_document;
     pub use crate::validate::{schema_keywords, META_SCHEMA};
-    use crate::{Definition, Project, Result};
+    use crate::{Definition, Result};
 
     /// Validates `document` as [`Definition::load`] validates a file.
-    pub fn definition(document: Json, project: &Project) -> Result<Definition> {
-        Definition::from_json(document, project)
+    pub fn definition(document: Json) -> Result<Definition> {
+        Definition::from_json(document)
     }
 
     /// The document `definition` holds, with the declarations its

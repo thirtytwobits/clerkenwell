@@ -39,9 +39,9 @@ pub fn json(text: &str) -> Json {
     Json::parse(text).expect("test JSON parses")
 }
 
-/// Validates `document` with the notebook configuration's project names.
+/// Validates `document` as the generator validates a definition file.
 pub fn validate(document: Json) -> Result<Definition> {
-    testing::definition(document, &notebook_config().project)
+    testing::definition(document)
 }
 
 /// The message `document` is refused with.

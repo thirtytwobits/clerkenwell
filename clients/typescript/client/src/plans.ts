@@ -75,7 +75,6 @@ export interface CollaborationEntityPlan<
   TMutation extends string = string
 > {
   readonly schemaVersion: number;
-  readonly migrationIds: readonly string[];
   readonly authoringState: {
     readonly projection: TProjection;
     readonly importMutation: TMutation;
@@ -180,19 +179,9 @@ export type AuthoringPolicyKind =
 export interface AuthoringPlan<TMutation extends string = string> {
   readonly kind: AuthoringPolicyKind;
   readonly schemaVersion: number;
-  readonly rationale: string;
   readonly revision:
     | { readonly kind: "contentHash"; readonly field: string }
     | { readonly kind: "replica" };
   readonly mutations: readonly TMutation[];
-  readonly contentMutation?: TMutation;
   readonly planningMutations: readonly TMutation[];
-  readonly commandMutations: readonly TMutation[];
-  readonly lifecycleMutations: readonly TMutation[];
-  readonly authoringSession: null | {
-    /** The storage key the application persists the authoring runtime under. */
-    readonly mnemonicKey: string;
-    readonly leavePolicy: "durableRestoreOrConfirmDiscard";
-    readonly conflictPolicy: "generatedFieldPolicy" | "expectedRevision";
-  };
 }

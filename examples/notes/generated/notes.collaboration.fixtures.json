@@ -4,9 +4,6 @@
     {
       "entity": "Note",
       "schemaVersion": 1,
-      "migrationIds": [
-        "note-layout-v1"
-      ],
       "wireDocument": {
         "title": "title-value",
         "body": "body-value",

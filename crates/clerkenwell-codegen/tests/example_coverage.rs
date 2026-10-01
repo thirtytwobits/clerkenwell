@@ -111,7 +111,7 @@ fn every_collaboration_storage_kind_codec_and_conflict_policy_is_used() {
 }
 
 #[test]
-fn every_entity_projection_and_mnemonic_policy_is_used() {
+fn every_entity_and_projection_policy_is_used() {
     let document = expanded_notebook();
     assert_covers(
         "authoring kind",
@@ -137,16 +137,6 @@ fn every_entity_projection_and_mnemonic_policy_is_used() {
         "remove mode",
         admitted("/definitions/materialization/properties/removeMode/enum"),
         used(&document, "/projections", "/materialization/removeMode"),
-    );
-    assert_covers(
-        "cache policy",
-        admitted("/definitions/mnemonic/properties/cachePolicy/enum"),
-        used(&document, "/mnemonic", "/cachePolicy"),
-    );
-    assert_covers(
-        "mnemonic recovery",
-        admitted("/definitions/mnemonic/properties/recovery/enum"),
-        used(&document, "/mnemonic", "/recovery"),
     );
     let settings: BTreeSet<String> = document
         .pointer("/projections")

@@ -37,7 +37,6 @@ fn normalised_ir_is_deterministic_across_source_object_ordering() {
         "/entities",
         "/projections",
         "/mutations",
-        "/mnemonic",
         "/collaboration/entities",
         "/collaboration/entities/Board/fields",
         "/$defs",
@@ -60,7 +59,7 @@ fn normalised_ir_is_deterministic_across_source_object_ordering() {
 #[test]
 fn generated_outputs_are_deterministic() {
     let config = notebook_config();
-    let definition = Definition::load(&config.definition, &config.project).expect("valid");
+    let definition = Definition::load(&config.definition).expect("valid");
     let first = build_outputs(&definition, &config).expect("renders");
     let second = build_outputs(&definition, &config).expect("renders");
     assert_eq!(first, second);
@@ -80,7 +79,7 @@ fn the_committed_example_outputs_pass_check() {
 #[test]
 fn generated_rust_satisfies_rustfmt() {
     let config = notebook_config();
-    let definition = Definition::load(&config.definition, &config.project).expect("valid");
+    let definition = Definition::load(&config.definition).expect("valid");
     let outputs = build_outputs(&definition, &config).expect("renders");
     let directory = tempfile::tempdir().expect("a temporary directory");
     let path = directory.path().join("model.rs");
@@ -93,6 +92,34 @@ fn generated_rust_satisfies_rustfmt() {
     assert!(status.success(), "the generated Rust is not rustfmt-clean");
 }
 
+/// The generated Rust imports `JsonValue` and `HashMap` exactly when its types
+/// use them: the notebook uses both, the notes example neither.
+#[test]
+fn generated_rust_imports_only_what_it_uses() {
+    let notes =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/notes/clerkenwell-codegen.json");
+    let configs = [
+        notebook_config(),
+        Config::load(&notes).expect("the notes configuration loads"),
+    ];
+    for config in configs {
+        let definition = Definition::load(&config.definition).expect("valid");
+        let rust = build_outputs(&definition, &config)
+            .expect("renders")
+            .rust_model;
+        for (import, name) in [
+            ("use serde_json::Value as JsonValue;", "JsonValue"),
+            ("use std::collections::HashMap;", "HashMap"),
+        ] {
+            let imported = rust.lines().any(|line| line == import);
+            let used = rust
+                .lines()
+                .any(|line| line != import && line.contains(name));
+            assert_eq!(imported, used, "{}: {import}", config.definition.display());
+        }
+    }
+}
+
 /// A configuration pointing every output into `directory`, over the example
 /// definition.
 fn config_writing_into(directory: &Path) -> Config {
@@ -101,10 +128,8 @@ fn config_writing_into(directory: &Path) -> Config {
     for path in [
         &mut outputs.collaboration_fixtures,
         &mut outputs.contract_fixtures,
-        &mut outputs.coverage_report,
         &mut outputs.normalized_definition,
         &mut outputs.typescript_model,
-        &mut outputs.typescript_mnemonic,
         &mut outputs.rust_model,
     ] {
         let relative = path
@@ -121,10 +146,8 @@ fn all_output_paths(config: &Config) -> Vec<PathBuf> {
     vec![
         outputs.collaboration_fixtures.clone(),
         outputs.contract_fixtures.clone(),
-        outputs.coverage_report.clone(),
         outputs.normalized_definition.clone(),
         outputs.typescript_model.clone(),
-        outputs.typescript_mnemonic.clone(),
         outputs.rust_model.clone(),
     ]
 }
@@ -161,7 +184,7 @@ fn check_fails_when_generated_outputs_drift() {
     let config = config_writing_into(directory.path());
     generate(&config, Mode::Write).expect("writes");
     std::fs::write(&config.outputs.typescript_model, "stale\n").expect("overwritten");
-    std::fs::remove_file(&config.outputs.coverage_report).expect("removed");
+    std::fs::remove_file(&config.outputs.normalized_definition).expect("removed");
 
     let error = generate(&config, Mode::Check).expect_err("drift is stale");
     let Error::Stale { command, paths } = &error else {
@@ -171,7 +194,7 @@ fn check_fails_when_generated_outputs_drift() {
     paths.sort();
     let mut expected = vec![
         config.outputs.typescript_model.clone(),
-        config.outputs.coverage_report.clone(),
+        config.outputs.normalized_definition.clone(),
     ];
     expected.sort();
     assert_eq!(paths, expected);
@@ -225,7 +248,7 @@ fn changing_the_definition_makes_check_name_exactly_the_outputs_it_changes() {
     );
     std::fs::write(&config.definition, document.stringify_pretty()).expect("rewritten");
 
-    let definition = Definition::load(&config.definition, &config.project).expect("still valid");
+    let definition = Definition::load(&config.definition).expect("still valid");
     let rendered = build_outputs(&definition, &config).expect("renders");
     let mut changed: Vec<PathBuf> = rendered
         .with_paths(&config.outputs)
@@ -308,10 +331,8 @@ fn configuration_paths_resolve_relative_to_the_configuration_file() {
     for (key, resolved) in [
         ("collaborationFixtures", &outputs.collaboration_fixtures),
         ("contractFixtures", &outputs.contract_fixtures),
-        ("coverageReport", &outputs.coverage_report),
         ("normalizedDefinition", &outputs.normalized_definition),
         ("typescriptModel", &outputs.typescript_model),
-        ("typescriptMnemonic", &outputs.typescript_mnemonic),
         ("rustModel", &outputs.rust_model),
     ] {
         assert_eq!(resolved, &base.join(written(&format!("/outputs/{key}"))));
@@ -352,13 +373,9 @@ fn a_header_line_that_would_end_the_comment_is_refused() {
 #[test]
 fn the_configured_header_and_command_open_every_generated_code_file() {
     let config = notebook_config();
-    let definition = Definition::load(&config.definition, &config.project).expect("valid");
+    let definition = Definition::load(&config.definition).expect("valid");
     let outputs = build_outputs(&definition, &config).expect("renders");
-    for code in [
-        &outputs.rust_model,
-        &outputs.typescript_model,
-        &outputs.typescript_mnemonic,
-    ] {
+    for code in [&outputs.rust_model, &outputs.typescript_model] {
         let opening: String = code.lines().take(8).collect::<Vec<_>>().join("\n");
         for line in &config.project.header {
             assert!(opening.contains(line.as_str()), "{opening}");

@@ -8,7 +8,6 @@ import { CollaborationReplica } from "@clerkenwell/client/replica";
 
 const SCRATCH_PLAN = {
   schemaVersion: 1,
-  migrationIds: [],
   authoringState: { projection: "scratch.authoringState", importMutation: "scratch.importUpdate" },
   rootContainer: "scratch",
   fields: {
