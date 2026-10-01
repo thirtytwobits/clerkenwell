@@ -1,0 +1,11 @@
+[workspace]
+members = ["crates/*"]
+resolver = "2"
+
+# The version every member inherits.
+[workspace.package]
+edition = "2021"
+version = "0.3.0"   # released together
+
+[workspace.dependencies]
+unrelated = "0.3.0"

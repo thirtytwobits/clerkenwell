@@ -1,0 +1,18 @@
+[package]
+name = "clerkenwell-release"
+description = "Sets and checks the one version every Clerkenwell crate and package is released at"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+clap.workspace = true
+jsonc-parser = { version = "0.34.0", features = ["cst"] }
+serde_json.workspace = true
+thiserror.workspace = true
+toml_edit = "0.25.15"
+
+[dev-dependencies]
+tempfile.workspace = true
