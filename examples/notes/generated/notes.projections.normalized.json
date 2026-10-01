@@ -68,9 +68,6 @@
             }
           }
         ],
-        "migrationIds": [
-          "note-layout-v1"
-        ],
         "name": "Note",
         "rootContainer": "note",
         "schemaVersion": 1

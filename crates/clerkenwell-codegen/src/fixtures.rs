@@ -117,14 +117,6 @@ fn collaboration_entity_fixture(
     let mut fixture = Object::new();
     fixture.insert("entity", entity.name.into());
     fixture.insert("schemaVersion", entity.schema_version().into());
-    fixture.insert(
-        "migrationIds",
-        entity
-            .raw
-            .get("migrationIds")
-            .cloned()
-            .unwrap_or(Json::Null),
-    );
     let client_document = map_fixture_keys(&Json::Object(document.clone()));
     fixture.insert("wireDocument", document.into());
     fixture.insert("clientDocument", client_document);

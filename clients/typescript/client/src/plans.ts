@@ -75,7 +75,6 @@ export interface CollaborationEntityPlan<
   TMutation extends string = string
 > {
   readonly schemaVersion: number;
-  readonly migrationIds: readonly string[];
   readonly authoringState: {
     readonly projection: TProjection;
     readonly importMutation: TMutation;

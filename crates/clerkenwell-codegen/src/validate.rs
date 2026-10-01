@@ -544,11 +544,6 @@ fn check_collaboration_entity(
 ) -> Result<()> {
     let entity_name = collaboration.name;
     let context = format!("collaboration.entities.{entity_name}");
-    if collaboration.migration_ids().is_empty() {
-        return refuse(format!(
-            "{context}.migrationIds must declare the current layout migration."
-        ));
-    }
     let projection_depends = definition
         .projection(collaboration.authoring_projection())
         .is_some_and(|projection| projection.depends_on().contains(&entity_name));

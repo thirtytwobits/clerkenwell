@@ -418,9 +418,6 @@
     "entities": {
       "Note": {
         "schemaVersion": 1,
-        "migrationIds": [
-          "note-layout-v1"
-        ],
         "authoringState": {
           "projection": "notes.authoringState",
           "importMutation": "note.importUpdate"
@@ -686,11 +683,6 @@
       },
       "Board": {
         "schemaVersion": 3,
-        "migrationIds": [
-          "board-layout-v1",
-          "board-column-order-v2",
-          "board-card-notes-v3"
-        ],
         "authoringState": {
           "projection": "boards.authoringState",
           "importMutation": "board.importUpdate"

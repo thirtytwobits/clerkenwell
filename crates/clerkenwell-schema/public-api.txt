@@ -21,7 +21,6 @@ field clerkenwell_schema::GeneratedCollaborationEntitySpec::authoring_store_para
 field clerkenwell_schema::GeneratedCollaborationEntitySpec::fields: &'static [GeneratedCollaborationFieldSpec]
 field clerkenwell_schema::GeneratedCollaborationEntitySpec::id_field: &'static str
 field clerkenwell_schema::GeneratedCollaborationEntitySpec::import_mutation: &'static str
-field clerkenwell_schema::GeneratedCollaborationEntitySpec::migration_ids: &'static [&'static str]
 field clerkenwell_schema::GeneratedCollaborationEntitySpec::name: &'static str
 field clerkenwell_schema::GeneratedCollaborationEntitySpec::root_container: &'static str
 field clerkenwell_schema::GeneratedCollaborationEntitySpec::schema_version: u32

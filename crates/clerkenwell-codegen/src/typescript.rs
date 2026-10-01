@@ -244,7 +244,6 @@ fn collaboration_metadata(definition: &Definition) -> String {
                 .collect();
             let mut plan = Object::new();
             plan.insert("schemaVersion", entity.schema_version().into());
-            plan.insert("migrationIds", entity.migration_ids().into());
             plan.insert("authoringState", entity.authoring_state().clone().into());
             plan.insert("rootContainer", entity.root_container().into());
             plan.insert("fields", fields.into());

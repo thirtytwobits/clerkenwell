@@ -186,9 +186,6 @@ export const COLLABORATION_DEFINITION_VERSION = 1 as const;
 export const COLLABORATION_PLANS = {
   "Note": {
     "schemaVersion": 1,
-    "migrationIds": [
-      "note-layout-v1"
-    ],
     "authoringState": {
       "projection": "notes.authoringState",
       "importMutation": "note.importUpdate"

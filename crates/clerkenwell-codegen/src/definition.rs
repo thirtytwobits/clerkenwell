@@ -349,10 +349,6 @@ impl<'a> CollaborationEntity<'a> {
         self.raw.number_field("schemaVersion")
     }
 
-    pub fn migration_ids(&self) -> Vec<&'a str> {
-        self.raw.strs_field("migrationIds")
-    }
-
     pub fn authoring_state(&self) -> &'a Object {
         self.raw.object_field("authoringState")
     }

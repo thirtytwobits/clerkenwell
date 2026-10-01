@@ -261,7 +261,6 @@
       "additionalProperties": false,
       "required": [
         "schemaVersion",
-        "migrationIds",
         "authoringState",
         "rootContainer",
         "fields"
@@ -270,12 +269,6 @@
         "schemaVersion": {
           "type": "integer",
           "minimum": 1
-        },
-        "migrationIds": {
-          "type": "array",
-          "items": { "type": "string", "minLength": 1 },
-          "minItems": 1,
-          "uniqueItems": true
         },
         "authoringState": { "$ref": "#/definitions/collaborationAuthoringState" },
         "rootContainer": { "type": "string", "minLength": 1 },

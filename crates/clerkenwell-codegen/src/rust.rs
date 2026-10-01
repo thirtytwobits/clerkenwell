@@ -493,7 +493,6 @@ fn collaboration_metadata(definition: &Definition) -> String {
                     "schema_version",
                     Expr::atom(number_to_string(entity.schema_version())),
                 ),
-                ("migration_ids", literals(&entity.migration_ids())),
                 (
                     "authoring_projection",
                     projection_path(entity.authoring_projection()),

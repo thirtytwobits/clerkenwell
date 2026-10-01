@@ -808,9 +808,6 @@ export const COLLABORATION_DEFINITION_VERSION = 1 as const;
 export const COLLABORATION_PLANS = {
   "Note": {
     "schemaVersion": 1,
-    "migrationIds": [
-      "note-layout-v1"
-    ],
     "authoringState": {
       "projection": "notes.authoringState",
       "importMutation": "note.importUpdate"
@@ -1117,11 +1114,6 @@ export const COLLABORATION_PLANS = {
   },
   "Board": {
     "schemaVersion": 3,
-    "migrationIds": [
-      "board-layout-v1",
-      "board-column-order-v2",
-      "board-card-notes-v3"
-    ],
     "authoringState": {
       "projection": "boards.authoringState",
       "importMutation": "board.importUpdate"

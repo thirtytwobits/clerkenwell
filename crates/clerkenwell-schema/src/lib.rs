@@ -154,7 +154,6 @@ pub struct GeneratedCollaborationEntitySpec {
     pub name: &'static str,
     pub id_field: &'static str,
     pub schema_version: u32,
-    pub migration_ids: &'static [&'static str],
     pub authoring_projection: &'static str,
     /// The resource id of the one document every subscription to the
     /// authoring state follows, when the entity has exactly one.

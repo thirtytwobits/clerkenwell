@@ -312,11 +312,6 @@
             }
           }
         ],
-        "migrationIds": [
-          "board-layout-v1",
-          "board-column-order-v2",
-          "board-card-notes-v3"
-        ],
         "name": "Board",
         "rootContainer": "board",
         "schemaVersion": 3
@@ -603,9 +598,6 @@
               "codec": "number"
             }
           }
-        ],
-        "migrationIds": [
-          "note-layout-v1"
         ],
         "name": "Note",
         "rootContainer": "note",

@@ -45,7 +45,6 @@ const fn plan(
         name,
         id_field,
         schema_version: 1,
-        migration_ids: &[],
         authoring_projection: "authoringState",
         authoring_document: None,
         authoring_store_params: &[],

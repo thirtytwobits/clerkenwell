@@ -46,9 +46,6 @@
     "entities": {
       "Note": {
         "schemaVersion": 1,
-        "migrationIds": [
-          "note-layout-v1"
-        ],
         "authoringState": {
           "projection": "notes.authoringState",
           "importMutation": "note.importUpdate"

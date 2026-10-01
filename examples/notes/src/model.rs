@@ -354,7 +354,6 @@ pub static NOTE_COLLABORATION_SPEC: GeneratedCollaborationEntitySpec =
         name: "Note",
         id_field: "note_id",
         schema_version: 1,
-        migration_ids: &["note-layout-v1"],
         authoring_projection: NOTES_AUTHORING_STATE_PROJECTION,
         authoring_document: None,
         authoring_store_params: &[],

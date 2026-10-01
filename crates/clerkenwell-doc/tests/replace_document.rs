@@ -67,7 +67,6 @@ static NOTE_PLAN: GeneratedCollaborationEntitySpec = GeneratedCollaborationEntit
     name: "Note",
     id_field: "note_id",
     schema_version: 1,
-    migration_ids: &[],
     authoring_projection: "notes.authoringState",
     authoring_document: None,
     authoring_store_params: &[],
