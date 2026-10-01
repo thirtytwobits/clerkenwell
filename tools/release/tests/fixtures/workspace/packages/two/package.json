@@ -1,0 +1,10 @@
+{
+  "name": "@fixture/two",
+  "version": "0.3.0",
+  "dependencies": {
+    "@fixture/one": "0.3.0"
+  },
+  "devDependencies": {
+    "unrelated": "0.3.0"
+  }
+}

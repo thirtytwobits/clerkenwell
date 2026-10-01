@@ -18,6 +18,7 @@ conformance/                    the Node bridges the conformance tests drive
 examples/notes                  a runnable walk-through of the framework over one note, and a server of notes
 clients/typescript/             @clerkenwell/client (React-free) and @clerkenwell/react
 tools/public-api                each crate's public API record
+tools/release                   the one version every crate and package is released at
 ```
 
 ## The framework knows no application

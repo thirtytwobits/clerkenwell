@@ -1,0 +1,9 @@
+{
+  "name": "fixture",
+  "private": true,
+  "workspaces": [
+    "packages/one",
+    "packages/two",
+    "packages/three"
+  ]
+}
