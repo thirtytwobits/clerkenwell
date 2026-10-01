@@ -1,0 +1,13 @@
+{
+  "name": "@fixture/three",
+  "version": "0.3.0",
+  "devDependencies": {
+    "@fixture/one": "0.3.0"
+  },
+  "peerDependencies": {
+    "@fixture/one": "0.3.0"
+  },
+  "optionalDependencies": {
+    "@fixture/two": "0.3.0"
+  }
+}

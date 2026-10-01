@@ -91,9 +91,17 @@ fn every_place_that_states_the_version_is_read() {
             "packages/one/package.json version",
             "packages/two/package.json version",
             "packages/two/package.json dependencies.@fixture/one",
+            "packages/three/package.json version",
+            "packages/three/package.json devDependencies.@fixture/one",
+            "packages/three/package.json peerDependencies.@fixture/one",
+            "packages/three/package.json optionalDependencies.@fixture/two",
             "package-lock.json packages.packages/one.version",
             "package-lock.json packages.packages/two.version",
             "package-lock.json packages.packages/two.dependencies.@fixture/one",
+            "package-lock.json packages.packages/three.version",
+            "package-lock.json packages.packages/three.devDependencies.@fixture/one",
+            "package-lock.json packages.packages/three.peerDependencies.@fixture/one",
+            "package-lock.json packages.packages/three.optionalDependencies.@fixture/two",
         ]
     );
     assert_eq!(
@@ -173,6 +181,25 @@ fn a_lower_version_is_refused_and_changes_no_file() {
 }
 
 #[test]
+fn a_bump_that_fails_on_a_late_file_changes_no_file() {
+    let cases = [
+        ("\"packages\": {", "\"packages\": {{"),
+        ("\"packages/three\": {", "\"packages/four\": {"),
+    ];
+    for (from, to) in cases {
+        let workspace = fixture();
+        edit(workspace.path(), "package-lock.json", from, to);
+        let before = files(workspace.path());
+        let failed = bump(workspace.path(), version("0.4.0"));
+        assert!(
+            matches!(failed, Err(Error::Parse { .. } | Error::Missing { .. })),
+            "{failed:?}"
+        );
+        assert_eq!(files(workspace.path()), before);
+    }
+}
+
+#[test]
 fn each_place_that_disagrees_is_reported() {
     let cases = [
         (
@@ -204,6 +231,24 @@ fn each_place_that_disagrees_is_reported() {
             "\"@fixture/two\",\n      \"version\": \"0.3.0\"",
             "\"@fixture/two\",\n      \"version\": \"0.2.9\"",
             "package-lock.json packages.packages/two.version",
+        ),
+        (
+            "packages/three/package.json",
+            "\"devDependencies\": {\n    \"@fixture/one\": \"0.3.0\"",
+            "\"devDependencies\": {\n    \"@fixture/one\": \"0.2.9\"",
+            "packages/three/package.json devDependencies.@fixture/one",
+        ),
+        (
+            "packages/three/package.json",
+            "\"peerDependencies\": {\n    \"@fixture/one\": \"0.3.0\"",
+            "\"peerDependencies\": {\n    \"@fixture/one\": \">=0.3.0\"",
+            "packages/three/package.json peerDependencies.@fixture/one",
+        ),
+        (
+            "package-lock.json",
+            "\"optionalDependencies\": {\n        \"@fixture/two\": \"0.3.0\"",
+            "\"optionalDependencies\": {\n        \"@fixture/two\": \"0.2.9\"",
+            "package-lock.json packages.packages/three.optionalDependencies.@fixture/two",
         ),
     ];
     for (file, from, to, place) in cases {

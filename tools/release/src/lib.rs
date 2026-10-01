@@ -136,7 +136,7 @@ const WORKSPACE_PLACE: &str = "Cargo.toml workspace.package.version";
 /// Every place under `root` that states the version, the Cargo workspace's
 /// first.
 pub fn statements(root: &Path) -> Result<Vec<Statement>, Error> {
-    survey(root, None)
+    Ok(survey(root, None)?.0)
 }
 
 /// The version every place under `root` states, or every place that
@@ -162,37 +162,53 @@ pub fn agreed(root: &Path) -> Result<Version, Error> {
 
 /// Moves every place under `root` to `version` and returns it once every
 /// place agrees. A version lower than the Cargo workspace's is refused.
+/// Every file is read and edited before any is written, so a file that
+/// cannot be read or edited leaves every file as it was.
 pub fn bump(root: &Path, version: Version) -> Result<Version, Error> {
-    let current: Version = cargo_workspace(root, None)?.version.parse()?;
+    let (statements, edits) = survey(root, Some(version))?;
+    let current: Version = statements[0].version.parse()?;
     if version < current {
         return Err(Error::Downgrade {
             requested: version,
             current,
         });
     }
-    survey(root, Some(version))?;
+    for edit in edits {
+        std::fs::write(&edit.path, edit.text).map_err(|source| Error::Write {
+            path: edit.path,
+            source,
+        })?;
+    }
     agreed(root)
 }
 
-/// Reads every statement, and with `set`, writes `set` in its place. Returns
-/// the statements as they were read.
-fn survey(root: &Path, set: Option<Version>) -> Result<Vec<Statement>, Error> {
+/// A file's new text.
+struct Edit {
+    path: PathBuf,
+    text: String,
+}
+
+/// Reads every statement, the Cargo workspace's first, and with `set`, the
+/// edit to each file that puts `set` in each place. Returns the statements as
+/// they were read.
+fn survey(root: &Path, set: Option<Version>) -> Result<(Vec<Statement>, Vec<Edit>), Error> {
     let root = root.canonicalize().map_err(|source| Error::Read {
         path: root.to_owned(),
         source,
     })?;
-    let mut statements = vec![cargo_workspace(&root, set)?];
+    let mut edits = Vec::new();
+    let mut statements = vec![cargo_workspace(&root, set, &mut edits)?];
     let members = cargo_members(&root)?;
     for member in &members {
-        statements.push(cargo_member(&root, member, set)?);
+        statements.push(cargo_member(&root, member, set, &mut edits)?);
     }
-    statements.extend(cargo_lock(&root, &members, set)?);
+    statements.extend(cargo_lock(&root, &members, set, &mut edits)?);
     let packages = npm_packages(&root)?;
     for package in &packages {
-        statements.extend(npm_manifest(&root, package, &packages, set)?);
+        statements.extend(npm_manifest(&root, package, &packages, set, &mut edits)?);
     }
-    statements.extend(npm_lock(&root, &packages, set)?);
-    Ok(statements)
+    statements.extend(npm_lock(&root, &packages, set, &mut edits)?);
+    Ok((statements, edits))
 }
 
 fn read(path: &Path) -> Result<String, Error> {
@@ -202,15 +218,14 @@ fn read(path: &Path) -> Result<String, Error> {
     })
 }
 
-/// Writes `text` to `path` when it differs from `original`.
-fn write(path: &Path, original: &str, text: &str) -> Result<(), Error> {
-    if text == original {
-        return Ok(());
+/// Records `text` as the edit to `path` when it differs from `original`.
+fn stage(edits: &mut Vec<Edit>, path: &Path, original: &str, text: String) {
+    if text != original {
+        edits.push(Edit {
+            path: path.to_owned(),
+            text,
+        });
     }
-    std::fs::write(path, text).map_err(|source| Error::Write {
-        path: path.to_owned(),
-        source,
-    })
 }
 
 fn relative(root: &Path, path: &Path) -> String {
@@ -244,7 +259,11 @@ fn set_toml(value: &mut toml_edit::Value, version: Version) {
 }
 
 /// `[workspace.package] version` in the root `Cargo.toml`.
-fn cargo_workspace(root: &Path, set: Option<Version>) -> Result<Statement, Error> {
+fn cargo_workspace(
+    root: &Path,
+    set: Option<Version>,
+    edits: &mut Vec<Edit>,
+) -> Result<Statement, Error> {
     let path = root.join("Cargo.toml");
     let text = read(&path)?;
     let mut document = parse_toml(&path, &text)?;
@@ -261,7 +280,7 @@ fn cargo_workspace(root: &Path, set: Option<Version>) -> Result<Statement, Error
     };
     if let Some(version) = set {
         set_toml(value, version);
-        write(&path, &text, &document.to_string())?;
+        stage(edits, &path, &text, document.to_string());
     }
     Ok(statement)
 }
@@ -314,7 +333,12 @@ fn cargo_members(root: &Path) -> Result<Vec<Member>, Error> {
 
 /// A member's version as Cargo resolves it. A member that states its own
 /// version has it rewritten; one that inherits the workspace's follows it.
-fn cargo_member(root: &Path, member: &Member, set: Option<Version>) -> Result<Statement, Error> {
+fn cargo_member(
+    root: &Path,
+    member: &Member,
+    set: Option<Version>,
+    edits: &mut Vec<Edit>,
+) -> Result<Statement, Error> {
     let place = relative(root, &member.manifest);
     let statement = Statement {
         place: format!("{place} package.version"),
@@ -330,7 +354,7 @@ fn cargo_member(root: &Path, member: &Member, set: Option<Version>) -> Result<St
             .filter(|value| value.is_str());
         if let Some(value) = stated {
             set_toml(value, version);
-            write(&member.manifest, &text, &document.to_string())?;
+            stage(edits, &member.manifest, &text, document.to_string());
         }
     }
     Ok(statement)
@@ -341,6 +365,7 @@ fn cargo_lock(
     root: &Path,
     members: &[Member],
     set: Option<Version>,
+    edits: &mut Vec<Edit>,
 ) -> Result<Vec<Statement>, Error> {
     let path = root.join("Cargo.lock");
     let text = read(&path)?;
@@ -371,9 +396,7 @@ fn cargo_lock(
             set_toml(value, version);
         }
     }
-    if set.is_some() {
-        write(&path, &text, &document.to_string())?;
-    }
+    stage(edits, &path, &text, document.to_string());
     Ok(statements)
 }
 
@@ -492,13 +515,14 @@ fn npm_manifest(
     package: &Package,
     packages: &[Package],
     set: Option<Version>,
+    edits: &mut Vec<Edit>,
 ) -> Result<Vec<Statement>, Error> {
     let path = root.join(&package.directory).join("package.json");
     let text = read(&path)?;
     let (document, manifest) = parse_json(&path, &text)?;
     let prefix = format!("{} ", relative(root, &path));
     let statements = package_statements(&manifest, &path, &prefix, packages, set)?;
-    write(&path, &text, &document.to_string())?;
+    stage(edits, &path, &text, document.to_string());
     Ok(statements)
 }
 
@@ -507,6 +531,7 @@ fn npm_lock(
     root: &Path,
     packages: &[Package],
     set: Option<Version>,
+    edits: &mut Vec<Edit>,
 ) -> Result<Vec<Statement>, Error> {
     let path = root.join("package-lock.json");
     let text = read(&path)?;
@@ -522,6 +547,6 @@ fn npm_lock(
         let prefix = format!("package-lock.json packages.{}.", package.directory);
         statements.extend(package_statements(&entry, &path, &prefix, packages, set)?);
     }
-    write(&path, &text, &document.to_string())?;
+    stage(edits, &path, &text, document.to_string());
     Ok(statements)
 }
