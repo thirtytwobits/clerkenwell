@@ -18,7 +18,7 @@ interface EntryPoints {
 
 function entryPoints(packageDirectory: string): EntryPoints {
   const manifest = JSON.parse(readFileSync(path.join(packageDirectory, "package.json"), "utf8")) as {
-    exports: Record<string, string>;
+    exports: Record<string, { "@clerkenwell/source": string }>;
   };
   const configPath = path.join(packageDirectory, "tsconfig.json");
   const config = ts.getParsedCommandLineOfConfigFile(configPath, {}, {
@@ -30,8 +30,9 @@ function entryPoints(packageDirectory: string): EntryPoints {
   if (config === undefined) {
     throw new Error(`${configPath} could not be read.`);
   }
+  // Each entry point's source, which its published declarations are built from.
   const entries = Object.entries(manifest.exports).map(
-    ([specifier, file]) => [specifier, path.resolve(packageDirectory, file)] as const
+    ([specifier, conditions]) => [specifier, path.resolve(packageDirectory, conditions["@clerkenwell/source"])] as const
   );
   const program = ts.createProgram(entries.map(([, file]) => file), config.options);
   const checker = program.getTypeChecker();

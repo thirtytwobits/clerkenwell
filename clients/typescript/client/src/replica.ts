@@ -9,7 +9,7 @@ export type {
   CollaborationDraftMapping,
   CollaborationReplicaSource,
   CollaborationReplicaView
-} from "./collaboration-replica";
+} from "./collaboration-replica.js";
 export {
   CollaborationDraftReplica,
   CollaborationDrafts,
@@ -18,4 +18,4 @@ export {
   collaborationReplicaSource,
   documentDraftMapping,
   requireCollaborationSchemaVersion
-} from "./collaboration-replica";
+} from "./collaboration-replica.js";

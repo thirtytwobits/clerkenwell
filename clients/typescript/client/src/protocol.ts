@@ -11,7 +11,7 @@ import type {
   ProjectionTransportMutationResult,
   ProjectionTransportPatch,
   ProjectionTransportSnapshot
-} from "./projection-model";
+} from "./projection-model.js";
 
 export const PROJECTION_SUBSCRIBE_METHOD = "projection.subscribe";
 export const PROJECTION_RESYNC_METHOD = "projection.resync";

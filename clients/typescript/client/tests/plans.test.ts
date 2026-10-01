@@ -8,7 +8,7 @@ import test from "node:test";
 
 import { resolveCollaborationContainer } from "@clerkenwell/client";
 
-import { BOARD_PLAN } from "./support/plans";
+import { BOARD_PLAN } from "./support/plans.js";
 
 test("a container template takes each placeholder from the identities it is given", () => {
   const identities = { column_id: "todo", task_id: "task-1" };

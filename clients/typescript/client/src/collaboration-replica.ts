@@ -18,7 +18,7 @@ import {
   type ImportStatus,
   type LoroEventBatch
 } from "loro-crdt";
-import { base64ToBytes, bytesToBase64 } from "./binary";
+import { base64ToBytes, bytesToBase64 } from "./binary.js";
 import {
   clientSegment,
   resolveCollaborationContainer,
@@ -26,10 +26,10 @@ import {
   type CollaborationFieldPlan,
   type CollaborationPlanTextFieldPath,
   type CollaborationStorageKind
-} from "./plans";
-import { areJsonValuesEqual } from "./json-value-equality";
-import type { AuthoringSessionController, AuthoringTextStageController } from "./authoring-session";
-import { validateTextEdits, type TextBinding, type TextBindingChange, type TextEdit, type TextSelection } from "./text-binding";
+} from "./plans.js";
+import { areJsonValuesEqual } from "./json-value-equality.js";
+import type { AuthoringSessionController, AuthoringTextStageController } from "./authoring-session.js";
+import { validateTextEdits, type TextBinding, type TextBindingChange, type TextEdit, type TextSelection } from "./text-binding.js";
 
 const STRUCTURED_MAP_PRESENCE_CONTAINER = "collaboration.structured_map_presence";
 const KEYED_SEQUENCE_PRESENCE_CONTAINER = "collaboration.keyed_sequence_presence";

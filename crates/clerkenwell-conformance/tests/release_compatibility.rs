@@ -26,7 +26,12 @@ fn wasm(request: Value) -> Value {
         workspace.display()
     );
     let mut child = Command::new("node")
-        .args(["--import", "tsx", "conformance/loro-release-bridge.ts"])
+        .args([
+            "--conditions=@clerkenwell/source",
+            "--import",
+            "tsx",
+            "conformance/loro-release-bridge.ts",
+        ])
         .current_dir(&workspace)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())

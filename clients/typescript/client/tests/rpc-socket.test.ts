@@ -9,7 +9,7 @@ import test from "node:test";
 
 import { RpcError, type RpcSocketState } from "@clerkenwell/client";
 
-import { fakeSocket, pause, settle } from "./support/fake-socket";
+import { fakeSocket, pause, settle } from "./support/fake-socket.js";
 
 test("a request resolves with the result its response carries", async () => {
   const { socket, latest } = fakeSocket();

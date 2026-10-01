@@ -12,9 +12,9 @@ import {
   toPersistedRuntime
 } from "@clerkenwell/client";
 
-import { FakeBoardServer, openBoardSession, renameTask } from "./support/board-server";
-import { BOARD_PLAN, boardDocument, type BoardDocument } from "./support/plans";
-import { insert } from "./support/text";
+import { FakeBoardServer, openBoardSession, renameTask } from "./support/board-server.js";
+import { BOARD_PLAN, boardDocument, type BoardDocument } from "./support/plans.js";
+import { insert } from "./support/text.js";
 
 const resource = { entity: "Board", resourceKey: "board-1" } as const;
 

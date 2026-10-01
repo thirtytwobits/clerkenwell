@@ -8,8 +8,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import fc from "fast-check";
 
-import { noteDocument, type NoteDocument } from "./support/plans";
-import { noteReplica, noteReplicaFromUpdate, roundTripNote } from "./support/replicas";
+import { noteDocument, type NoteDocument } from "./support/plans.js";
+import { noteReplica, noteReplicaFromUpdate, roundTripNote } from "./support/replicas.js";
 
 const entry = fc.constantFrom("a", "b", "c", "d", "e", "f");
 

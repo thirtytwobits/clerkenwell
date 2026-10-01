@@ -13,7 +13,7 @@ import {
   assertRecordedPublicApi,
   namesAfterLoro,
   packagesNamedByExports
-} from "../../client/tests/support/public-api";
+} from "../../client/tests/support/public-api.js";
 
 test("the React binding exports exactly what public-api.json records", () => {
   assertRecordedPublicApi(path.resolve(path.dirname(fileURLToPath(import.meta.url)), ".."));

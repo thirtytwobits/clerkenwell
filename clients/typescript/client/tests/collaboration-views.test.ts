@@ -10,9 +10,9 @@ import test from "node:test";
 import type { TextBindingChange } from "@clerkenwell/client";
 import { CollaborationTextView } from "@clerkenwell/client/replica";
 
-import { boardDocument, NOTE_PLAN, noteDocument } from "./support/plans";
-import { BOARD_DRAFTS, noteReplica, type NoteReplica } from "./support/replicas";
-import { insert, replaceAll } from "./support/text";
+import { boardDocument, NOTE_PLAN, noteDocument } from "./support/plans.js";
+import { BOARD_DRAFTS, noteReplica, type NoteReplica } from "./support/replicas.js";
+import { insert, replaceAll } from "./support/text.js";
 
 /** A view whose messages to and from its replica wait until they are pumped. */
 interface LinkedView {

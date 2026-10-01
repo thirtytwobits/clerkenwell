@@ -27,7 +27,7 @@ import {
   resolveAuthoringDraftForBaselineAdoption,
   startAuthoringSession,
   supersedeBlockedAuthoringOperations
-} from "../src/authoring-state-machine";
+} from "../src/authoring-state-machine.js";
 
 
 const resource = { entity: "Note", resourceKey: "note" } as const;

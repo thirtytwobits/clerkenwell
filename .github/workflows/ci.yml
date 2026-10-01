@@ -111,3 +111,23 @@ jobs:
 
       - name: Test
         run: npm test
+
+  packages:
+    name: Packages
+    runs-on: ubuntu-26.04
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Pack, install and import as a consumer
+        run: npm run package:check

@@ -15,8 +15,8 @@ import {
   openBoardSession,
   relabelTask,
   renameTask
-} from "./support/board-server";
-import { boardDocument } from "./support/plans";
+} from "./support/board-server.js";
+import { boardDocument } from "./support/plans.js";
 
 type TaskId = "task-1" | "task-2" | "task-3";
 

@@ -9,7 +9,7 @@ import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
 import { AuthoringRuntime } from "@clerkenwell/client";
-import { authoringSessionId } from "../../client/src/authoring-state-machine";
+import { authoringSessionId } from "../../client/src/authoring-state-machine.js";
 import {
   AuthoringRuntimeProvider,
   useAuthoringRuntime,

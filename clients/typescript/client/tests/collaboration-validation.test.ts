@@ -11,7 +11,7 @@ import test from "node:test";
 
 import type { CollaborationEntityPlan, CollaborationFieldPlan } from "@clerkenwell/client";
 import { CollaborationReplica } from "@clerkenwell/client/replica";
-import { collaborationDocumentToLoroDoc } from "../src/collaboration-replica";
+import { collaborationDocumentToLoroDoc } from "../src/collaboration-replica.js";
 
 import {
   BOARD_PLAN,
@@ -21,7 +21,7 @@ import {
   noteDocument,
   type BoardDocument,
   type NoteDocument
-} from "./support/plans";
+} from "./support/plans.js";
 
 const REMOVE = Symbol("remove");
 

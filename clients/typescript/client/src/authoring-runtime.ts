@@ -5,9 +5,9 @@
  * and their offline operations, and the controllers it hands out.
  */
 
-import type { AuthoringResourceIdentity, AuthoringRuntimeListener, AuthoringRuntimeState, AuthoringSession, AuthoringSessionController, AuthoringTextStageConfirmation, AuthoringTextStageController, QueuedAuthoringOperation, RedactedAuthoringRuntimeDiagnostic, RedactedAuthoringSessionDiagnostic } from "./authoring-session";
-import { acknowledgeAuthoringOperation, adoptAuthoringBaseline, authoringSessionAcceptsDraft, authoringSessionId, authoringSessionRequiresDurableRestoration, beginAuthoringReplay, blockAuthoringSession, bootstrapAuthoringSession, discardAuthoringChanges, disconnectAuthoringSession, documentsEqual, modifyAuthoringSession, queueAuthoringOperation, reconnectAuthoringSession, rejectAuthoringOperation, startAuthoringSession, supersedeBlockedAuthoringOperations } from "./authoring-state-machine";
-import type { TextBinding } from "./text-binding";
+import type { AuthoringResourceIdentity, AuthoringRuntimeListener, AuthoringRuntimeState, AuthoringSession, AuthoringSessionController, AuthoringTextStageConfirmation, AuthoringTextStageController, QueuedAuthoringOperation, RedactedAuthoringRuntimeDiagnostic, RedactedAuthoringSessionDiagnostic } from "./authoring-session.js";
+import { acknowledgeAuthoringOperation, adoptAuthoringBaseline, authoringSessionAcceptsDraft, authoringSessionId, authoringSessionRequiresDurableRestoration, beginAuthoringReplay, blockAuthoringSession, bootstrapAuthoringSession, discardAuthoringChanges, disconnectAuthoringSession, documentsEqual, modifyAuthoringSession, queueAuthoringOperation, reconnectAuthoringSession, rejectAuthoringOperation, startAuthoringSession, supersedeBlockedAuthoringOperations } from "./authoring-state-machine.js";
+import type { TextBinding } from "./text-binding.js";
 
 /**
  * A controller whose replica records a session's draft as operations and

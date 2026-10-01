@@ -7,7 +7,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import fc from "fast-check";
 
-import { base64ToBytes, bytesToBase64 } from "../src/binary";
+import { base64ToBytes, bytesToBase64 } from "../src/binary.js";
 
 test("any byte sequence round-trips through base64", () => {
   fc.assert(

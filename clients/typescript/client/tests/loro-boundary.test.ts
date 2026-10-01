@@ -16,7 +16,7 @@ const PACKAGE_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "
 const SOURCE_DIR = path.join(PACKAGE_DIR, "src");
 
 interface PackageManifest {
-  exports: Record<string, string>;
+  exports: Record<string, { "@clerkenwell/source": string }>;
 }
 
 async function manifest(): Promise<PackageManifest> {
@@ -44,7 +44,7 @@ async function reachable(entry: string): Promise<Map<string, string[]>> {
     graph.set(file, specifiers);
     for (const specifier of specifiers) {
       if (specifier.startsWith(".")) {
-        pending.push(`${path.resolve(path.dirname(file), specifier)}.ts`);
+        pending.push(path.resolve(path.dirname(file), specifier).replace(/\.js$/, ".ts"));
       }
     }
   }
@@ -53,7 +53,7 @@ async function reachable(entry: string): Promise<Map<string, string[]>> {
 
 test("only modules behind the /replica entry import loro-crdt", async () => {
   const { exports } = await manifest();
-  const behindReplica = await reachable(path.resolve(PACKAGE_DIR, exports["./replica"]!));
+  const behindReplica = await reachable(path.resolve(PACKAGE_DIR, exports["./replica"]!["@clerkenwell/source"]));
   const importers: string[] = [];
   for (const name of await readdir(SOURCE_DIR)) {
     const file = path.join(SOURCE_DIR, name);
@@ -68,8 +68,8 @@ test("only modules behind the /replica entry import loro-crdt", async () => {
 
 test("nothing the main entry reaches imports loro-crdt or the /replica module", async () => {
   const { exports } = await manifest();
-  const mainEntry = path.resolve(PACKAGE_DIR, exports["."]!);
-  const replicaEntry = path.resolve(PACKAGE_DIR, exports["./replica"]!);
+  const mainEntry = path.resolve(PACKAGE_DIR, exports["."]!["@clerkenwell/source"]);
+  const replicaEntry = path.resolve(PACKAGE_DIR, exports["./replica"]!["@clerkenwell/source"]);
 
   const graph = await reachable(mainEntry);
 

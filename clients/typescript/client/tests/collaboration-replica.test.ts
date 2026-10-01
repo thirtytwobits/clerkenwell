@@ -15,7 +15,7 @@ import {
 import {
   collaborationDocumentToLoroDoc,
   materializeCollaborationDocumentFromLoroDoc
-} from "../src/collaboration-replica";
+} from "../src/collaboration-replica.js";
 
 import {
   BOARD_PLAN,
@@ -26,8 +26,8 @@ import {
   noteDocument,
   type BoardDocument,
   type NoteDocument
-} from "./support/plans";
-import { renameTask } from "./support/board-server";
+} from "./support/plans.js";
+import { renameTask } from "./support/board-server.js";
 import {
   boardReplica,
   boardReplicaFromUpdate,
@@ -35,7 +35,7 @@ import {
   noteReplicaFromUpdate,
   roundTripBoard,
   roundTripNote
-} from "./support/replicas";
+} from "./support/replicas.js";
 
 const noteFields: readonly CollaborationFieldPlan[] = Object.values(NOTE_PLAN.fields);
 

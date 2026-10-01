@@ -13,12 +13,12 @@ import {
   toPersistedRuntime,
   type AuthoringRuntimeState
 } from "@clerkenwell/client";
-import type { AuthoringSessionHandle } from "../src/authoring-runtime";
+import type { AuthoringSessionHandle } from "../src/authoring-runtime.js";
 
-import { FakeBoardServer, openBoardSession } from "./support/board-server";
-import { boardDocument, type BoardDocument } from "./support/plans";
-import { BOARD_DRAFTS, type BoardTextFieldPath } from "./support/replicas";
-import { insert } from "./support/text";
+import { FakeBoardServer, openBoardSession } from "./support/board-server.js";
+import { boardDocument, type BoardDocument } from "./support/plans.js";
+import { BOARD_DRAFTS, type BoardTextFieldPath } from "./support/replicas.js";
+import { insert } from "./support/text.js";
 
 const resource = { entity: "Board", resourceKey: "board-1" } as const;
 const noted = { column_id: "todo", task_id: "task-1" } as const;

@@ -14,7 +14,7 @@ import {
   toPersistedRuntime
 } from "@clerkenwell/client";
 
-import { createScratchTextBinding, insert, replaceAll } from "./support/text";
+import { createScratchTextBinding, insert, replaceAll } from "./support/text.js";
 
 const resource = { entity: "Note", resourceKey: "note" } as const;
 

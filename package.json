@@ -11,12 +11,16 @@
     "clients/typescript/react"
   ],
   "scripts": {
+    "build": "npm run build -w @clerkenwell/client && npm run build -w @clerkenwell/react",
     "typecheck": "npm run typecheck --workspaces && tsc --noEmit -p conformance",
-    "test": "npm run test --workspaces"
+    "test": "npm run test --workspaces",
+    "package:check": "node clients/typescript/package-check.mjs"
   },
   "devDependencies": {
+    "@arethetypeswrong/cli": "^0.18.5",
     "@types/node": "^25.3.5",
     "fast-check": "^4.6.0",
+    "publint": "^0.3.24",
     "tsx": "^4.21.0",
     "typescript": "^5.9.3"
   }

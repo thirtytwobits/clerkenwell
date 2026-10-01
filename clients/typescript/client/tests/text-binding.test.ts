@@ -9,14 +9,14 @@ import test from "node:test";
 
 import type { TextBindingChange } from "@clerkenwell/client";
 
-import { boardDocument, noteDocument } from "./support/plans";
+import { boardDocument, noteDocument } from "./support/plans.js";
 import {
   boardReplica,
   boardReplicaFromUpdate,
   noteReplica,
   type NoteReplica
-} from "./support/replicas";
-import { insert } from "./support/text";
+} from "./support/replicas.js";
+import { insert } from "./support/text.js";
 
 const initialText = "Before 🦊 after";
 const secondText = "Second field";

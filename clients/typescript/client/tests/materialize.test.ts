@@ -23,7 +23,7 @@ import {
   type NoteRecord,
   type NoteSummary,
   type TestProjectionModel
-} from "./support/projections";
+} from "./support/projections.js";
 
 type Model = TestProjectionModel;
 type State = ProjectionMaterializerState<Model>;

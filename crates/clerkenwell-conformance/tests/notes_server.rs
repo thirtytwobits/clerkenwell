@@ -27,7 +27,7 @@ async fn run_clients(arguments: &[&str]) -> Vec<Value> {
     );
 
     let run = tokio::process::Command::new("node")
-        .args(["--import", "tsx"])
+        .args(["--conditions=@clerkenwell/source", "--import", "tsx"])
         .arg(workspace.join("conformance/notes-client.ts"))
         .args(["--url", &url])
         .args(arguments)

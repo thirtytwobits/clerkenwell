@@ -5,7 +5,7 @@
  * notifications delivered to listeners, and the socket reopened with backoff
  * after it closes.
  */
-import type { ProjectionErrorEnvelope } from "./protocol";
+import type { ProjectionErrorEnvelope } from "./protocol.js";
 
 /** The WebSocket a socket runs over: what browsers and Node both provide. */
 export interface WebSocketLike {
