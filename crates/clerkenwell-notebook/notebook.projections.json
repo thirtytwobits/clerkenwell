@@ -1,12 +1,5 @@
 {
   "version": 2,
-  "compatibility": {
-    "minimumReaderVersion": 2,
-    "minimumWriterVersion": 1,
-    "migrationIds": [
-      "notebook-definition-v1-to-v2"
-    ]
-  },
   "namespace": "notebook",
   "entities": {
     "Note": {
@@ -19,18 +12,7 @@
       },
       "authoring": {
         "kind": "collaborative",
-        "rationale": "Notes are edited concurrently; every field declares how concurrent edits merge.",
-        "contentMutation": "note.importUpdate",
-        "planningMutations": [],
-        "commandMutations": [
-          "note.pin",
-          "note.moveToBoard"
-        ],
-        "lifecycleMutations": [
-          "note.create",
-          "note.rename",
-          "note.delete"
-        ]
+        "planningMutations": []
       }
     },
     "Board": {
@@ -43,15 +25,9 @@
       },
       "authoring": {
         "kind": "collaborative",
-        "rationale": "Boards reorder columns and cards concurrently through keyed sequences.",
-        "contentMutation": "board.importUpdate",
         "planningMutations": [
           "board.reconcileArchivedColumnOrder",
           "note.moveToBoard"
-        ],
-        "commandMutations": [],
-        "lifecycleMutations": [
-          "board.create"
         ]
       }
     },
@@ -66,14 +42,8 @@
       },
       "authoring": {
         "kind": "optimisticDocument",
-        "rationale": "Tasks are saved whole against the revision they were read at.",
-        "contentMutation": "task.save",
         "planningMutations": [
           "task.schedule"
-        ],
-        "commandMutations": [],
-        "lifecycleMutations": [
-          "task.archive"
         ]
       }
     },
@@ -88,12 +58,7 @@
       },
       "authoring": {
         "kind": "commandOwned",
-        "rationale": "Workspace settings change only through explicit commands.",
-        "planningMutations": [],
-        "commandMutations": [
-          "workspace.configure"
-        ],
-        "lifecycleMutations": []
+        "planningMutations": []
       }
     },
     "Activity": {
@@ -107,10 +72,7 @@
       },
       "authoring": {
         "kind": "readOnly",
-        "rationale": "The activity log is written by the service and only read by clients.",
-        "planningMutations": [],
-        "commandMutations": [],
-        "lifecycleMutations": []
+        "planningMutations": []
       }
     },
     "SyncHealth": {
@@ -124,12 +86,7 @@
       },
       "authoring": {
         "kind": "commandOwned",
-        "rationale": "Replication health is reported by replicas and reset by operators.",
-        "planningMutations": [],
-        "commandMutations": [
-          "sync.reset"
-        ],
-        "lifecycleMutations": []
+        "planningMutations": []
       }
     }
   },
@@ -456,51 +413,8 @@
       ]
     }
   },
-  "mnemonic": {
-    "session.drafts": {
-      "key": "notebook.session.drafts",
-      "version": 2,
-      "schema": {
-        "$ref": "#/$defs/SessionDrafts"
-      },
-      "cachePolicy": "localDraft",
-      "migrationIds": [
-        "session-drafts-v1-to-v2"
-      ],
-      "recovery": "authoringRuntime"
-    },
-    "board.view": {
-      "key": "notebook.board.view",
-      "version": 1,
-      "schema": {
-        "$ref": "#/$defs/BoardViewState"
-      },
-      "cachePolicy": "lastKnownSnapshot",
-      "migrationIds": [
-        "board-view-normalise-v1"
-      ],
-      "recovery": "legacyDraftTransfer"
-    },
-    "noteSelection": {
-      "key": "notebook.note.selection",
-      "version": 1,
-      "schema": {
-        "$ref": "#/$defs/NoteSelectionState"
-      },
-      "cachePolicy": "lastKnownSnapshot",
-      "migrationIds": [
-        "note-selection-v1"
-      ],
-      "recovery": "schemaMigration"
-    }
-  },
   "collaboration": {
     "version": 1,
-    "compatibility": {
-      "minimumReaderVersion": 1,
-      "minimumWriterVersion": 1,
-      "migrationIds": []
-    },
     "entities": {
       "Note": {
         "schemaVersion": 1,
@@ -1082,14 +996,14 @@
         },
         "value": {
           "type": "json",
-          "opaqueReason": "The envelope's `$mime` says how to read the value, and `application/json` admits any JSON."
+          "description": "The envelope's `$mime` says how to read the value, and `application/json` admits any JSON."
         }
       },
       "title": "A value tagged with the media type that says how to read it"
     },
     "RawPayload": {
       "type": "json",
-      "opaqueReason": "A replica's own error report, forwarded verbatim for diagnosis."
+      "description": "A replica's own error report, forwarded verbatim for diagnosis."
     },
     "SortKey": {
       "type": [
@@ -1104,11 +1018,6 @@
         "number"
       ],
       "description": "A count or a measure."
-    },
-    "NoFilters": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {}
     },
     "EmptyResult": {
       "type": "object",
@@ -1738,44 +1647,6 @@
         }
       }
     },
-    "BoardViewState": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "collapsed_columns",
-        "zoom",
-        "density",
-        "sort",
-        "filters"
-      ],
-      "properties": {
-        "board_id": {
-          "type": "string"
-        },
-        "collapsed_columns": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        },
-        "zoom": {
-          "type": "number"
-        },
-        "density": {
-          "type": "string",
-          "enum": [
-            "compact",
-            "comfortable"
-          ]
-        },
-        "sort": {
-          "$ref": "#/$defs/SortKey"
-        },
-        "filters": {
-          "$ref": "#/$defs/NoFilters"
-        }
-      }
-    },
     "TaskState": {
       "type": "object",
       "discriminator": "phase",
@@ -1812,7 +1683,7 @@
             },
             "evidence": {
               "type": "json",
-              "opaqueReason": "Whatever the reviewer attached; the task only records that it exists."
+              "description": "Whatever the reviewer attached; the task only records that it exists."
             }
           }
         },
@@ -1914,7 +1785,7 @@
         },
         "metadata": {
           "type": "json",
-          "opaqueReason": "Integrations annotate tasks with their own keys."
+          "description": "Integrations annotate tasks with their own keys."
         },
         "sort_key": {
           "$ref": "#/$defs/SortKey"
@@ -2412,67 +2283,6 @@
       "additionalProperties": false,
       "properties": {
         "peer": {
-          "type": "string"
-        }
-      }
-    },
-    "DraftEntry": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "entity",
-        "entity_id",
-        "saved_at",
-        "payload"
-      ],
-      "properties": {
-        "entity": {
-          "type": "string"
-        },
-        "entity_id": {
-          "type": "string"
-        },
-        "saved_at": {
-          "type": "string"
-        },
-        "payload": {
-          "type": "json",
-          "opaqueReason": "The unsent edit, in whichever entity's shape it was made."
-        }
-      }
-    },
-    "DraftMap": {
-      "type": "object",
-      "additionalProperties": {
-        "$ref": "#/$defs/DraftEntry"
-      }
-    },
-    "SessionDrafts": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "drafts"
-      ],
-      "properties": {
-        "drafts": {
-          "$ref": "#/$defs/DraftMap"
-        }
-      }
-    },
-    "NoteSelectionState": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "note_ids"
-      ],
-      "properties": {
-        "note_ids": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        },
-        "anchor": {
           "type": "string"
         }
       }

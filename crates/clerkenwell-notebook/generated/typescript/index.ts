@@ -30,8 +30,6 @@ export type SortKey = string | number;
 
 export type Quantity = number;
 
-export type NoFilters = {};
-
 export type EmptyResult = {};
 
 export type ReplicaUpdateParams = {
@@ -207,15 +205,6 @@ export type BoardMutationResult = {
   "etag": string;
 };
 
-export type BoardViewState = {
-  "board_id"?: string;
-  "collapsed_columns": string[];
-  "zoom": number;
-  "density": "compact" | "comfortable";
-  "sort": SortKey;
-  "filters": NoFilters;
-};
-
 export type TaskState =
   | {
   "phase": "open";
@@ -384,24 +373,6 @@ export type SyncResetParams = {
   "peer"?: string;
 };
 
-export type DraftEntry = {
-  "entity": string;
-  "entity_id": string;
-  "saved_at": string;
-  "payload": unknown;
-};
-
-export type DraftMap = Record<string, DraftEntry>;
-
-export type SessionDrafts = {
-  "drafts": DraftMap;
-};
-
-export type NoteSelectionState = {
-  "note_ids": string[];
-  "anchor"?: string;
-};
-
 export type AuthoringState = {
   "schema_version": number;
   "accepted_frontier_base64": string;
@@ -497,12 +468,6 @@ export const MUTATION_NAMES = [
   "sync.reset",
 ] as const;
 export type MutationName = typeof MUTATION_NAMES[number];
-
-export const MNEMONIC_KEYS = {
-  "session.drafts": "notebook.session.drafts",
-  "board.view": "notebook.board.view",
-  "noteSelection": "notebook.note.selection",
-} as const;
 
 export interface ProjectionParamsByName {
   "notes.list": NotesListParams;
@@ -756,7 +721,6 @@ export const AUTHORING_PLANS = {
   "Note": {
     "kind": "collaborative",
     "schemaVersion": 2,
-    "rationale": "Notes are edited concurrently; every field declares how concurrent edits merge.",
     "revision": {
       "kind": "replica"
     },
@@ -768,27 +732,11 @@ export const AUTHORING_PLANS = {
       "note.pin",
       "note.moveToBoard"
     ],
-    "contentMutation": "note.importUpdate",
-    "planningMutations": [],
-    "commandMutations": [
-      "note.pin",
-      "note.moveToBoard"
-    ],
-    "lifecycleMutations": [
-      "note.create",
-      "note.rename",
-      "note.delete"
-    ],
-    "authoringSession": {
-      "mnemonicKey": "notebook.session.drafts",
-      "leavePolicy": "durableRestoreOrConfirmDiscard",
-      "conflictPolicy": "generatedFieldPolicy"
-    }
+    "planningMutations": []
   },
   "Board": {
     "kind": "collaborative",
     "schemaVersion": 2,
-    "rationale": "Boards reorder columns and cards concurrently through keyed sequences.",
     "revision": {
       "kind": "replica"
     },
@@ -798,25 +746,14 @@ export const AUTHORING_PLANS = {
       "board.importUpdate",
       "board.reconcileArchivedColumnOrder"
     ],
-    "contentMutation": "board.importUpdate",
     "planningMutations": [
       "board.reconcileArchivedColumnOrder",
       "note.moveToBoard"
-    ],
-    "commandMutations": [],
-    "lifecycleMutations": [
-      "board.create"
-    ],
-    "authoringSession": {
-      "mnemonicKey": "notebook.session.drafts",
-      "leavePolicy": "durableRestoreOrConfirmDiscard",
-      "conflictPolicy": "generatedFieldPolicy"
-    }
+    ]
   },
   "Task": {
     "kind": "optimisticDocument",
     "schemaVersion": 2,
-    "rationale": "Tasks are saved whole against the revision they were read at.",
     "revision": {
       "kind": "contentHash",
       "field": "revision"
@@ -826,24 +763,13 @@ export const AUTHORING_PLANS = {
       "task.schedule",
       "task.archive"
     ],
-    "contentMutation": "task.save",
     "planningMutations": [
       "task.schedule"
-    ],
-    "commandMutations": [],
-    "lifecycleMutations": [
-      "task.archive"
-    ],
-    "authoringSession": {
-      "mnemonicKey": "notebook.session.drafts",
-      "leavePolicy": "durableRestoreOrConfirmDiscard",
-      "conflictPolicy": "expectedRevision"
-    }
+    ]
   },
   "Workspace": {
     "kind": "commandOwned",
     "schemaVersion": 2,
-    "rationale": "Workspace settings change only through explicit commands.",
     "revision": {
       "kind": "contentHash",
       "field": "revision"
@@ -851,31 +777,21 @@ export const AUTHORING_PLANS = {
     "mutations": [
       "workspace.configure"
     ],
-    "planningMutations": [],
-    "commandMutations": [
-      "workspace.configure"
-    ],
-    "lifecycleMutations": [],
-    "authoringSession": null
+    "planningMutations": []
   },
   "Activity": {
     "kind": "readOnly",
     "schemaVersion": 2,
-    "rationale": "The activity log is written by the service and only read by clients.",
     "revision": {
       "kind": "contentHash",
       "field": "revision"
     },
     "mutations": [],
-    "planningMutations": [],
-    "commandMutations": [],
-    "lifecycleMutations": [],
-    "authoringSession": null
+    "planningMutations": []
   },
   "SyncHealth": {
     "kind": "commandOwned",
     "schemaVersion": 2,
-    "rationale": "Replication health is reported by replicas and reset by operators.",
     "revision": {
       "kind": "contentHash",
       "field": "revision"
@@ -883,19 +799,12 @@ export const AUTHORING_PLANS = {
     "mutations": [
       "sync.reset"
     ],
-    "planningMutations": [],
-    "commandMutations": [
-      "sync.reset"
-    ],
-    "lifecycleMutations": [],
-    "authoringSession": null
+    "planningMutations": []
   }
 } as const satisfies Record<EntityName, GeneratedAuthoringPlan>;
 
 export type CollaborationEntityPlan = ClerkenwellCollaborationEntityPlan<ProjectionName, MutationName>;
 export const COLLABORATION_DEFINITION_VERSION = 1 as const;
-export const COLLABORATION_MINIMUM_READER_VERSION = 1 as const;
-export const COLLABORATION_MINIMUM_WRITER_VERSION = 1 as const;
 export const COLLABORATION_PLANS = {
   "Note": {
     "schemaVersion": 1,

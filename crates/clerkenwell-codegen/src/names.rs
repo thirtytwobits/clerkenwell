@@ -137,20 +137,6 @@ pub fn rust_property_enum_name(definition_name: &str, property_name: &str) -> St
     )
 }
 
-/// A TypeScript object key: bare where that is valid syntax, quoted otherwise.
-pub fn object_key(key: &str) -> String {
-    let mut characters = key.chars();
-    let bare = characters
-        .next()
-        .is_some_and(|c| c.is_ascii_alphabetic() || c == '_' || c == '$')
-        && characters.all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '$');
-    if bare {
-        key.to_owned()
-    } else {
-        crate::json::string_literal(key)
-    }
-}
-
 /// Length in UTF-16 code units, the unit ECMAScript measures strings in.
 pub fn utf16_len(value: &str) -> usize {
     value.encode_utf16().count()
@@ -166,10 +152,6 @@ fn is_js_whitespace(character: char) -> bool {
 
 pub fn js_trim(value: &str) -> &str {
     value.trim_matches(is_js_whitespace)
-}
-
-pub fn js_trim_start(value: &str) -> &str {
-    value.trim_start_matches(is_js_whitespace)
 }
 
 #[cfg(test)]

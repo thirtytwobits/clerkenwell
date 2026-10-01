@@ -4,8 +4,8 @@ use std::process::ExitCode;
 use clap::Parser;
 use clerkenwell_codegen::{generate, Config, Mode};
 
-/// Validates a projection definition and generates its Rust, TypeScript,
-/// fixture and coverage artefacts.
+/// Validates a projection definition and generates its Rust, TypeScript and
+/// fixture artefacts.
 #[derive(Parser)]
 #[command(version)]
 struct Cli {

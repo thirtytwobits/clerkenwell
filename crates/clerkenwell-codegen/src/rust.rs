@@ -2,7 +2,7 @@
 //! and the registry and collaboration plan constants.
 
 use crate::config::Project;
-use crate::definition::{Definition, Fields, Materialization};
+use crate::definition::{Definition, Materialization};
 use crate::error::{refuse, Result};
 use crate::json::{number_to_string, string_literal, Json, Object};
 use crate::layout::{self, Expr};
@@ -70,33 +70,7 @@ pub(crate) fn collect_rust_property_enums(definition: &Definition) -> Vec<RustPr
 
 /// The model crate's source.
 pub fn render_model_module(definition: &Definition, project: &Project) -> Result<String> {
-    let mut lines: Vec<String> = crate::header_lines(project)
-        .into_iter()
-        .map(|line| {
-            if line.is_empty() {
-                "//!".to_owned()
-            } else {
-                format!("//! {line}")
-            }
-        })
-        .collect();
-    lines.extend(
-        [
-            "",
-            "pub use clerkenwell_schema::{",
-            "    GeneratedAuthoringConflictPolicy, GeneratedAuthoringPolicyKind, GeneratedCollaborationConflict,",
-            "    GeneratedCollaborationEntitySpec, GeneratedCollaborationFieldSpec,",
-            "    GeneratedCollaborationStorageKind, GeneratedCollaborationValueCodec,",
-            "    GeneratedEntityAuthoringSpec, GeneratedMaterializationPlan, GeneratedMutationSpec,",
-            "    GeneratedProjectionSpec, GeneratedRemoveMode, GeneratedSnapshotMode,",
-            "};",
-            "use serde::{Deserialize, Serialize};",
-            "use serde_json::Value as JsonValue;",
-            "use std::collections::HashMap;",
-            "",
-        ]
-        .map(str::to_owned),
-    );
+    let mut lines: Vec<String> = Vec::new();
 
     // TypeScript inlines literal unions; Rust names an enum for each, before
     // the structs that use them.
@@ -132,12 +106,6 @@ pub fn render_model_module(definition: &Definition, project: &Project) -> Result
     lines.push(string_slice_constant("ENTITY_NAMES", &entity_names));
     lines.push(string_slice_constant("PROJECTION_NAMES", &projection_names));
     lines.push(string_slice_constant("MUTATION_NAMES", &mutation_names));
-    for mnemonic in definition.mnemonics() {
-        lines.push(string_constant(
-            &format!("{}_MNEMONIC_KEY", constant_name(mnemonic.name)),
-            mnemonic.key(),
-        ));
-    }
     lines.push(String::new());
     let projections: Vec<_> = definition.projections().collect();
     lines.push(transport_enum(
@@ -172,11 +140,44 @@ pub fn render_model_module(definition: &Definition, project: &Project) -> Result
             .collect::<Result<Vec<_>>>()?,
     ));
     lines.push(String::new());
-    lines.push(registry_metadata(definition, project));
+    lines.push(registry_metadata(definition));
     lines.push(String::new());
     lines.push(collaboration_metadata(definition));
     lines.push(String::new());
-    Ok(lines.join("\n"))
+    let body = lines.join("\n");
+
+    let mut header: Vec<String> = crate::header_lines(project)
+        .into_iter()
+        .map(|line| {
+            if line.is_empty() {
+                "//!".to_owned()
+            } else {
+                format!("//! {line}")
+            }
+        })
+        .collect();
+    header.extend(
+        [
+            "",
+            "pub use clerkenwell_schema::{",
+            "    GeneratedAuthoringPolicyKind, GeneratedCollaborationConflict, GeneratedCollaborationEntitySpec,",
+            "    GeneratedCollaborationFieldSpec, GeneratedCollaborationStorageKind,",
+            "    GeneratedCollaborationValueCodec, GeneratedEntityAuthoringSpec, GeneratedMaterializationPlan,",
+            "    GeneratedMutationSpec, GeneratedProjectionSpec, GeneratedRemoveMode, GeneratedSnapshotMode,",
+            "};",
+            "use serde::{Deserialize, Serialize};",
+        ]
+        .map(str::to_owned),
+    );
+    // A model with no `json` field or record type imports neither.
+    if body.contains("JsonValue") {
+        header.push("use serde_json::Value as JsonValue;".to_owned());
+    }
+    if body.contains("HashMap<") {
+        header.push("use std::collections::HashMap;".to_owned());
+    }
+    header.push(String::new());
+    Ok(format!("{}\n{body}", header.join("\n")))
 }
 
 fn transport_enum(enum_name: &str, tag: &str, entries: &[(&str, String)]) -> String {
@@ -256,7 +257,7 @@ fn spec(name: &str, fields: Vec<(&str, Expr)>) -> Expr {
     )
 }
 
-fn registry_metadata(definition: &Definition, project: &Project) -> String {
+fn registry_metadata(definition: &Definition) -> String {
     let projections = definition
         .projections()
         .map(|projection| {
@@ -285,11 +286,6 @@ fn registry_metadata(definition: &Definition, project: &Project) -> String {
             )
         })
         .collect();
-    let session_key = project
-        .authoring_session_mnemonic
-        .as_deref()
-        .and_then(|name| definition.mnemonic(name))
-        .map(|mnemonic| mnemonic.key());
     let entities = definition
         .entities()
         .map(|entity| {
@@ -298,12 +294,6 @@ fn registry_metadata(definition: &Definition, project: &Project) -> String {
                 .filter(|mutation| mutation.touches().contains(&entity.name))
                 .map(|mutation| mutation.name)
                 .collect();
-            let kind = entity.authoring_kind();
-            let conflict_policy = match kind {
-                "collaborative" => Some("GeneratedFieldPolicy"),
-                "optimisticDocument" => Some("ExpectedRevision"),
-                _ => None,
-            };
             spec(
                 "GeneratedEntityAuthoringSpec",
                 vec![
@@ -312,36 +302,13 @@ fn registry_metadata(definition: &Definition, project: &Project) -> String {
                         "kind",
                         Expr::atom(format!(
                             "GeneratedAuthoringPolicyKind::{}",
-                            pascal_identifier(kind)
+                            pascal_identifier(entity.authoring_kind())
                         )),
                     ),
-                    ("rationale", literal(entity.rationale())),
                     ("mutations", mutation_paths(&touching)),
-                    (
-                        "content_mutation",
-                        Expr::option(entity.content_mutation().map(mutation_path)),
-                    ),
                     (
                         "planning_mutations",
                         mutation_paths(&entity.planning_mutations()),
-                    ),
-                    (
-                        "command_mutations",
-                        mutation_paths(&entity.command_mutations()),
-                    ),
-                    (
-                        "lifecycle_mutations",
-                        mutation_paths(&entity.lifecycle_mutations()),
-                    ),
-                    (
-                        "session_mnemonic_key",
-                        Expr::option(session_key.filter(|_| entity.owns_session()).map(literal)),
-                    ),
-                    (
-                        "conflict_policy",
-                        Expr::option(conflict_policy.map(|policy| {
-                            Expr::atom(format!("GeneratedAuthoringConflictPolicy::{policy}"))
-                        })),
                     ),
                 ],
             )
@@ -441,19 +408,10 @@ fn materialization_plan(materialization: Materialization) -> Expr {
 
 fn collaboration_metadata(definition: &Definition) -> String {
     let collaboration = definition.collaboration();
-    let compatibility = collaboration.compatibility();
     let mut lines = Vec::new();
     lines.push(format!(
         "pub const COLLABORATION_DEFINITION_VERSION: u32 = {};",
         number_to_string(collaboration.version())
-    ));
-    lines.push(format!(
-        "pub const COLLABORATION_MINIMUM_READER_VERSION: u32 = {};",
-        number_to_string(compatibility.number_field("minimumReaderVersion"))
-    ));
-    lines.push(format!(
-        "pub const COLLABORATION_MINIMUM_WRITER_VERSION: u32 = {};",
-        number_to_string(compatibility.number_field("minimumWriterVersion"))
     ));
     lines.push(String::new());
     for entity in collaboration.entities() {

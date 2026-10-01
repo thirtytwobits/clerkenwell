@@ -1,10 +1,5 @@
 {
   "version": 1,
-  "compatibility": {
-    "minimumReaderVersion": 1,
-    "minimumWriterVersion": 1,
-    "migrationIds": []
-  },
   "namespace": "notes",
   "entities": {
     "Note": {
@@ -17,13 +12,7 @@
       },
       "authoring": {
         "kind": "collaborative",
-        "rationale": "Writers edit a note concurrently: its body merges, and a change of status is decided explicitly.",
-        "contentMutation": "note.importUpdate",
-        "planningMutations": [],
-        "commandMutations": [],
-        "lifecycleMutations": [
-          "note.create"
-        ]
+        "planningMutations": []
       }
     }
   },
@@ -52,27 +41,8 @@
       ]
     }
   },
-  "mnemonic": {
-    "session.drafts": {
-      "key": "notes.session.drafts",
-      "version": 1,
-      "schema": {
-        "$ref": "#/$defs/SessionDrafts"
-      },
-      "cachePolicy": "localDraft",
-      "migrationIds": [
-        "session-drafts-v1"
-      ],
-      "recovery": "authoringRuntime"
-    }
-  },
   "collaboration": {
     "version": 1,
-    "compatibility": {
-      "minimumReaderVersion": 1,
-      "minimumWriterVersion": 1,
-      "migrationIds": []
-    },
     "entities": {
       "Note": {
         "schemaVersion": 1,
@@ -238,46 +208,6 @@
         "update_base64": {
           "type": "string",
           "minLength": 1
-        }
-      }
-    },
-    "SessionDrafts": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "drafts"
-      ],
-      "properties": {
-        "drafts": {
-          "type": "object",
-          "additionalProperties": {
-            "$ref": "#/$defs/DraftEntry"
-          }
-        }
-      }
-    },
-    "DraftEntry": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "entity",
-        "entity_id",
-        "saved_at",
-        "payload"
-      ],
-      "properties": {
-        "entity": {
-          "type": "string"
-        },
-        "entity_id": {
-          "type": "string"
-        },
-        "saved_at": {
-          "type": "string"
-        },
-        "payload": {
-          "type": "json",
-          "opaqueReason": "The unsent edit, in the entity's shape."
         }
       }
     },

@@ -5,7 +5,10 @@ mod common;
 
 use clerkenwell_codegen::testing::{self, Json};
 use clerkenwell_codegen::{build_outputs, Error};
-use common::{json, merge, notebook_config, notebook_document, push, refusal, remove, set};
+use common::{
+    json, merge, notebook_config, notebook_document, push, refusal, remove, set, validate,
+    with_defs,
+};
 
 fn assert_mentions(message: &str, fragments: &[&str]) {
     for fragment in fragments {
@@ -142,14 +145,13 @@ fn validation_only_keywords_leave_the_generated_types_alone() {
     );
 
     let render = |document: Json| {
-        let definition = testing::definition(document, &config.project).expect("valid");
+        let definition = testing::definition(document).expect("valid");
         build_outputs(&definition, &config).expect("renders")
     };
     let with = render(constrained);
     let without = render(unconstrained);
 
     assert_eq!(with.typescript_model, without.typescript_model);
-    assert_eq!(with.typescript_mnemonic, without.typescript_mnemonic);
     assert_ne!(with.rust_model, without.rust_model);
     let types_only = |rust: &str| -> Vec<String> {
         rust.lines()
@@ -187,7 +189,7 @@ fn mutation_effects_and_materialisation_strategy_reject_definition_drift() {
     );
     assert_mentions(
         &refusal(unknown_touch),
-        &["entities.Note.authoring.lifecycleMutations references mutation \"note.rename\" that does not touch Note"],
+        &["mutations.note.rename.touches references unknown entity \"Missing\""],
     );
 
     let mut wrong_strategy = notebook_document();
@@ -227,7 +229,7 @@ fn an_uncovered_path_is_named_at_the_shallowest_object_left_uncovered() {
                 &format!("/collaboration/entities/Note/fields/{field}"),
             );
         }
-        match testing::definition(document, &notebook_config().project) {
+        match testing::definition(document) {
             Err(Error::Definition(message)) => message,
             other => panic!("expected a refusal, got {other:?}"),
         }
@@ -248,61 +250,6 @@ fn an_uncovered_path_is_named_at_the_shallowest_object_left_uncovered() {
         one.ends_with("does not cover entity schema paths: meta.reviewer."),
         "{one}"
     );
-}
-
-#[test]
-fn a_session_owning_entity_needs_the_configured_session_mnemonic() {
-    let config = notebook_config();
-
-    let mut unnamed = config.project.clone();
-    unnamed.authoring_session_mnemonic = None;
-    match testing::definition(notebook_document(), &unnamed) {
-        Err(Error::Definition(message)) => assert_mentions(
-            &message,
-            &["entities.Note.authoring.kind", "authoringSessionMnemonic"],
-        ),
-        other => panic!("expected a refusal, got {other:?}"),
-    }
-
-    let mut document = notebook_document();
-    let session = config
-        .project
-        .authoring_session_mnemonic
-        .clone()
-        .expect("the example names its session mnemonic");
-    remove(&mut document, &format!("/mnemonic/{session}"));
-    assert_mentions(
-        &refusal(document),
-        &[&format!("requires mnemonic.{session}.")],
-    );
-}
-
-#[test]
-fn every_configured_name_must_be_declared_by_the_definition() {
-    type Configure = fn(&mut clerkenwell_codegen::Project);
-    let cases: [(Configure, &[&str]); 2] = [
-        (
-            |project| project.authoring_session_mnemonic = Some("absent".to_owned()),
-            &["mnemonic.absent"],
-        ),
-        (
-            |project| {
-                project
-                    .entity_diagnostics
-                    .insert("Absent".to_owned(), vec!["diagnostic".to_owned()]);
-            },
-            &["entityDiagnostics", "\"Absent\""],
-        ),
-    ];
-    let config = notebook_config();
-    for (configure, fragments) in cases {
-        let mut project = config.project.clone();
-        configure(&mut project);
-        match testing::definition(notebook_document(), &project) {
-            Err(Error::Definition(message)) => assert_mentions(&message, fragments),
-            other => panic!("{fragments:?}: expected a refusal, got {other:?}"),
-        }
-    }
 }
 
 #[test]
@@ -328,22 +275,6 @@ fn a_definition_outside_the_meta_schema_is_refused_naming_the_instance_path() {
 fn every_semantic_rule_refuses_naming_the_definition_path() {
     type Mutation = fn(&mut Json);
     let cases: &[(&str, Mutation, &[&str])] = &[
-        (
-            "reader version",
-            |d| set(d, "/compatibility/minimumReaderVersion", json("9")),
-            &["compatibility.minimumReaderVersion"],
-        ),
-        (
-            "collaboration writer version",
-            |d| {
-                set(
-                    d,
-                    "/collaboration/compatibility/minimumWriterVersion",
-                    json("9"),
-                )
-            },
-            &["collaboration.compatibility.minimumWriterVersion"],
-        ),
         (
             "type name collision",
             |d| {
@@ -372,39 +303,6 @@ fn every_semantic_rule_refuses_naming_the_definition_path() {
                 )
             },
             &["entities.Note.authoring.kind"],
-        ),
-        (
-            "content mutation",
-            |d| {
-                set(
-                    d,
-                    "/entities/Task/authoring/contentMutation",
-                    json(r#""note.pin""#),
-                )
-            },
-            &["entities.Task.authoring.contentMutation"],
-        ),
-        (
-            "content and lifecycle",
-            |d| {
-                push(
-                    d,
-                    "/entities/Task/authoring/lifecycleMutations",
-                    json(r#""task.save""#),
-                )
-            },
-            &["entities.Task.authoring", "task.save"],
-        ),
-        (
-            "classified twice",
-            |d| {
-                push(
-                    d,
-                    "/entities/Task/authoring/commandMutations",
-                    json(r#""task.schedule""#),
-                )
-            },
-            &["entities.Task.authoring", "task.schedule"],
         ),
         (
             "planning not touching",
@@ -454,17 +352,6 @@ fn every_semantic_rule_refuses_naming_the_definition_path() {
                 )
             },
             &["mutations.sync.reset.touches", "Activity"],
-        ),
-        (
-            "mnemonic schema",
-            |d| {
-                set(
-                    d,
-                    "/mnemonic/noteSelection/schema",
-                    json(r##"{ "$ref": "#/$defs/Missing" }"##),
-                )
-            },
-            &["mnemonic.noteSelection.schema"],
         ),
         (
             "output name",
@@ -577,7 +464,7 @@ fn every_semantic_rule_refuses_naming_the_definition_path() {
                 set(
                     d,
                     "/collaboration/entities/Note/authoringState/importMutation",
-                    json(r#""note.pin""#),
+                    json(r#""task.save""#),
                 )
             },
             &["collaboration.entities.Note.authoringState.importMutation"],
@@ -799,7 +686,7 @@ fn a_construct_a_renderer_cannot_represent_is_refused_at_generation() {
     for (pointer, schema, fragment) in cases {
         let mut document = notebook_document();
         set(&mut document, pointer, json(schema));
-        let definition = testing::definition(document, &config.project)
+        let definition = testing::definition(document)
             .unwrap_or_else(|error| panic!("{pointer} validates: {error}"));
         match build_outputs(&definition, &config) {
             Err(Error::Definition(message)) => assert_mentions(&message, &[fragment]),
@@ -808,40 +695,57 @@ fn a_construct_a_renderer_cannot_represent_is_refused_at_generation() {
     }
 }
 
-/// Ownership gaps validation admits are refused by the coverage report.
+/// A tagged union's Rust and TypeScript renderings differ in kind rather than
+/// spelling, so each way of declaring a malformed one must fail rather than
+/// render something plausible.
 #[test]
-fn incomplete_ownership_is_refused_at_generation() {
-    let config = notebook_config();
-    let render = |document: Json| {
-        let definition = testing::definition(document, &config.project).expect("validates");
-        build_outputs(&definition, &config)
-    };
-
-    let mut unclassified = notebook_document();
-    let archive = unclassified
-        .pointer("/mutations/task.archive")
-        .cloned()
-        .expect("declared");
-    set(&mut unclassified, "/mutations/task.touch", archive);
-    match render(unclassified) {
-        Err(Error::Definition(message)) => {
-            assert_mentions(&message, &["entity:Task:authoringMutationClassification"])
-        }
-        other => panic!("expected a refusal, got {other:?}"),
+fn a_malformed_tagged_union_is_rejected() {
+    let empty_variant = r#"{ "type": "object", "additionalProperties": false, "properties": {} }"#;
+    let cases = [
+        (
+            "no discriminator",
+            format!(r#"{{ "type": "object", "oneOf": {{ "a": {empty_variant} }} }}"#),
+            "discriminator must name the property carrying the tag",
+        ),
+        (
+            "no variants at all",
+            r#"{ "type": "object", "discriminator": "kind", "oneOf": {} }"#.to_owned(),
+            "at least one variant",
+        ),
+        (
+            "a variant restating the tag",
+            format!(
+                r#"{{ "type": "object", "discriminator": "kind", "oneOf": {{
+                    "a": {{ "type": "object", "additionalProperties": false, "properties": {{ "kind": {{ "type": "string" }} }} }},
+                    "b": {empty_variant} }} }}"#
+            ),
+            "which the tag already carries",
+        ),
+        (
+            "properties beside the variants",
+            format!(
+                r#"{{ "type": "object", "discriminator": "kind", "properties": {{}},
+                    "oneOf": {{ "a": {empty_variant}, "b": {empty_variant} }} }}"#
+            ),
+            "may not declare properties beside its oneOf",
+        ),
+    ];
+    for (name, schema, expected) in cases {
+        let message = refusal(with_defs(&format!(r#"{{ "ProbeUnion": {schema} }}"#)));
+        assert!(message.contains(expected), "{name}: {message}");
     }
+}
 
-    let mut shared_key = notebook_document();
-    let key = shared_key
-        .pointer("/mnemonic/board.view/key")
-        .cloned()
-        .expect("declared");
-    set(&mut shared_key, "/mnemonic/noteSelection/key", key);
-    match render(shared_key) {
-        Err(Error::Definition(message)) => {
-            assert_mentions(&message, &["board.view", "noteSelection"])
-        }
-        other => panic!("expected a refusal, got {other:?}"),
-    }
+/// A union of one is still a union: internal tagging means callers send the tag.
+#[test]
+fn a_single_variant_tagged_union_is_accepted() {
+    validate(with_defs(
+        r#"{ "ProbeUnion": {
+            "type": "object", "discriminator": "kind",
+            "oneOf": { "only": { "type": "object", "additionalProperties": false,
+                "properties": { "title": { "type": "string" } } } } } }"#,
+    ))
+    .expect("a single-variant union is valid");
 }
 
 #[test]

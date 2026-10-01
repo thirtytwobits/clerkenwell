@@ -6,7 +6,6 @@
 
 use std::path::Path;
 
-use crate::config::Project;
 use crate::error::{Error, Result};
 use crate::json::{Json, Object};
 use crate::validate;
@@ -68,7 +67,7 @@ impl Fields for Object {
 
 impl Definition {
     /// Reads and validates the definition at `path`.
-    pub fn load(path: &Path, project: &Project) -> Result<Definition> {
+    pub fn load(path: &Path) -> Result<Definition> {
         let text = std::fs::read_to_string(path).map_err(|source| Error::Read {
             path: path.to_owned(),
             source,
@@ -77,12 +76,11 @@ impl Definition {
             path: path.to_owned(),
             message: error.to_string(),
         })?;
-        Definition::from_json(document, project)
+        Definition::from_json(document)
     }
 
-    /// Validates `document` against the meta-schema, the semantic rules, and
-    /// the names `project` expects it to declare.
-    pub(crate) fn from_json(document: Json, project: &Project) -> Result<Definition> {
+    /// Validates `document` against the meta-schema and the semantic rules.
+    pub(crate) fn from_json(document: Json) -> Result<Definition> {
         validate::check_meta_schema(&document)?;
         let Json::Object(document) = document else {
             return Err(Error::Definition(
@@ -92,8 +90,7 @@ impl Definition {
         let definition = Definition {
             document: crate::expand::expand(document)?,
         };
-        validate::check_semantics(&definition, project)?;
-        validate::check_project_names(&definition, project)?;
+        validate::check_semantics(&definition)?;
         Ok(definition)
     }
 
@@ -104,10 +101,6 @@ impl Definition {
 
     pub(crate) fn version(&self) -> f64 {
         self.document.number_field("version")
-    }
-
-    pub(crate) fn compatibility(&self) -> &Object {
-        self.document.object_field("compatibility")
     }
 
     pub(crate) fn namespace(&self) -> &str {
@@ -161,17 +154,6 @@ impl Definition {
 
     pub(crate) fn mutation(&self, name: &str) -> Option<Mutation<'_>> {
         self.mutations().find(|mutation| mutation.name == name)
-    }
-
-    pub(crate) fn mnemonics(&self) -> impl Iterator<Item = Mnemonic<'_>> {
-        self.section("mnemonic").iter().map(|(name, raw)| Mnemonic {
-            name,
-            raw: object(raw, "mnemonic"),
-        })
-    }
-
-    pub(crate) fn mnemonic(&self, name: &str) -> Option<Mnemonic<'_>> {
-        self.mnemonics().find(|mnemonic| mnemonic.name == name)
     }
 
     pub(crate) fn collaboration(&self) -> Collaboration<'_> {
@@ -242,32 +224,8 @@ impl<'a> Entity<'a> {
         self.authoring().str_field("kind")
     }
 
-    /// Whether the entity is authored in a session a client keeps.
-    pub fn owns_session(&self) -> bool {
-        matches!(
-            self.authoring_kind(),
-            "collaborative" | "optimisticDocument"
-        )
-    }
-
-    pub fn rationale(&self) -> &'a str {
-        self.authoring().str_field("rationale")
-    }
-
-    pub fn content_mutation(&self) -> Option<&'a str> {
-        self.authoring().opt_str("contentMutation")
-    }
-
     pub fn planning_mutations(&self) -> Vec<&'a str> {
         self.authoring().strs_field("planningMutations")
-    }
-
-    pub fn command_mutations(&self) -> Vec<&'a str> {
-        self.authoring().strs_field("commandMutations")
-    }
-
-    pub fn lifecycle_mutations(&self) -> Vec<&'a str> {
-        self.authoring().strs_field("lifecycleMutations")
     }
 }
 
@@ -349,39 +307,6 @@ impl<'a> Mutation<'a> {
     }
 }
 
-/// One `mnemonic` entry.
-#[derive(Clone, Copy, Debug)]
-pub struct Mnemonic<'a> {
-    pub name: &'a str,
-    pub raw: &'a Object,
-}
-
-impl<'a> Mnemonic<'a> {
-    pub fn key(&self) -> &'a str {
-        self.raw.str_field("key")
-    }
-
-    pub fn version(&self) -> f64 {
-        self.raw.number_field("version")
-    }
-
-    pub fn schema(&self) -> &'a Object {
-        self.raw.object_field("schema")
-    }
-
-    pub fn cache_policy(&self) -> &'a str {
-        self.raw.str_field("cachePolicy")
-    }
-
-    pub fn migration_ids(&self) -> Vec<&'a str> {
-        self.raw.strs_field("migrationIds")
-    }
-
-    pub fn recovery(&self) -> &'a str {
-        self.raw.str_field("recovery")
-    }
-}
-
 /// The `collaboration` section.
 #[derive(Clone, Copy, Debug)]
 pub struct Collaboration<'a> {
@@ -391,10 +316,6 @@ pub struct Collaboration<'a> {
 impl<'a> Collaboration<'a> {
     pub fn version(&self) -> f64 {
         self.raw.number_field("version")
-    }
-
-    pub fn compatibility(&self) -> &'a Object {
-        self.raw.object_field("compatibility")
     }
 
     pub fn entities(&self) -> impl Iterator<Item = CollaborationEntity<'a>> {
@@ -469,10 +390,6 @@ impl<'a> CollaborationEntity<'a> {
                 path,
                 raw: object(raw, "collaboration field"),
             })
-    }
-
-    pub fn field_count(&self) -> usize {
-        self.raw.object_field("fields").len()
     }
 }
 

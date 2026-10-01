@@ -57,14 +57,8 @@ static MUTATIONS: &[GeneratedMutationSpec] = &[
 static AUTHORING: &[GeneratedEntityAuthoringSpec] = &[GeneratedEntityAuthoringSpec {
     entity: "Note",
     kind: GeneratedAuthoringPolicyKind::CommandOwned,
-    rationale: "",
     mutations: &["note.rename", "note.preview"],
-    content_mutation: None,
     planning_mutations: &["note.preview"],
-    command_mutations: &["note.rename"],
-    lifecycle_mutations: &[],
-    session_mnemonic_key: None,
-    conflict_policy: None,
 }];
 static REGISTRY: ProjectionRegistry = ProjectionRegistry::new(PROJECTIONS, MUTATIONS, AUTHORING);
 

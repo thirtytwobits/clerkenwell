@@ -5,12 +5,10 @@
   "additionalProperties": false,
   "required": [
     "version",
-    "compatibility",
     "namespace",
     "entities",
     "projections",
     "mutations",
-    "mnemonic",
     "collaboration",
     "$defs"
   ],
@@ -19,7 +17,6 @@
       "type": "integer",
       "minimum": 1
     },
-    "compatibility": { "$ref": "#/definitions/versionCompatibility" },
     "namespace": {
       "type": "string",
       "minLength": 1
@@ -37,10 +34,6 @@
       "type": "object",
       "additionalProperties": { "$ref": "#/definitions/mutation" },
       "minProperties": 1
-    },
-    "mnemonic": {
-      "type": "object",
-      "additionalProperties": { "$ref": "#/definitions/mnemonic" }
     },
     "collaboration": { "$ref": "#/definitions/collaboration" },
     "$defs": {
@@ -61,36 +54,10 @@
         "authoring": { "$ref": "#/definitions/authoringPolicy" }
       }
     },
-    "versionCompatibility": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["minimumReaderVersion", "minimumWriterVersion", "migrationIds"],
-      "properties": {
-        "minimumReaderVersion": {
-          "type": "integer",
-          "minimum": 1
-        },
-        "minimumWriterVersion": {
-          "type": "integer",
-          "minimum": 1
-        },
-        "migrationIds": {
-          "type": "array",
-          "items": { "type": "string", "minLength": 1 },
-          "uniqueItems": true
-        }
-      }
-    },
     "authoringPolicy": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "kind",
-        "rationale",
-        "planningMutations",
-        "commandMutations",
-        "lifecycleMutations"
-      ],
+      "required": ["kind", "planningMutations"],
       "properties": {
         "kind": {
           "enum": [
@@ -100,44 +67,12 @@
             "readOnly"
           ]
         },
-        "rationale": { "type": "string", "minLength": 1 },
-        "contentMutation": { "type": "string", "minLength": 1 },
         "planningMutations": {
           "type": "array",
           "items": { "type": "string", "minLength": 1 },
           "uniqueItems": true
-        },
-        "commandMutations": {
-          "type": "array",
-          "items": { "type": "string", "minLength": 1 },
-          "uniqueItems": true
-        },
-        "lifecycleMutations": {
-          "type": "array",
-          "items": { "type": "string", "minLength": 1 },
-          "uniqueItems": true
         }
-      },
-      "allOf": [
-        {
-          "if": {
-            "properties": {
-              "kind": { "enum": ["collaborative", "optimisticDocument"] }
-            }
-          },
-          "then": { "required": ["contentMutation"] }
-        },
-        {
-          "if": {
-            "properties": {
-              "kind": { "enum": ["commandOwned", "readOnly"] }
-            }
-          },
-          "then": {
-            "not": { "required": ["contentMutation"] }
-          }
-        }
-      ]
+      }
     },
     "revision": {
       "type": "object",
@@ -305,50 +240,15 @@
         }
       }
     },
-    "mnemonic": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "key",
-        "version",
-        "schema",
-        "cachePolicy",
-        "migrationIds",
-        "recovery"
-      ],
-      "properties": {
-        "key": { "type": "string", "minLength": 1 },
-        "version": {
-          "type": "integer",
-          "minimum": 1
-        },
-        "schema": { "$ref": "#/definitions/schemaRef" },
-        "cachePolicy": { "enum": ["localDraft", "lastKnownSnapshot"] },
-        "migrationIds": {
-          "type": "array",
-          "items": { "type": "string", "minLength": 1 },
-          "minItems": 1,
-          "uniqueItems": true
-        },
-        "recovery": {
-          "enum": [
-            "schemaMigration",
-            "legacyDraftTransfer",
-            "authoringRuntime"
-          ]
-        }
-      }
-    },
     "collaboration": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["version", "compatibility", "entities"],
+      "required": ["version", "entities"],
       "properties": {
         "version": {
           "type": "integer",
           "minimum": 1
         },
-        "compatibility": { "$ref": "#/definitions/versionCompatibility" },
         "entities": {
           "type": "object",
           "additionalProperties": { "$ref": "#/definitions/collaborationEntity" },

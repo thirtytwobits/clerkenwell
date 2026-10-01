@@ -7,15 +7,13 @@ use std::sync::OnceLock;
 use indexmap::IndexSet;
 
 use crate::collate::code_unit_compare;
-use crate::config::Project;
 use crate::definition::{CollaborationEntity, CollaborationField, Definition, Fields, Projection};
 use crate::error::{refuse, Result};
 use crate::json::{string_literal, Json, Object};
-use crate::names::{constant_name, name_constant_identifier, pascal_identifier};
+use crate::names::{name_constant_identifier, pascal_identifier};
 use crate::rust::collect_rust_property_enums;
 use crate::schema::{
     has_type, object_at, primitive_union_types, read_string_array, resolve_ref, schema_ref_name,
-    schema_ref_type_name,
 };
 
 /// The meta-schema every definition document must satisfy.
@@ -46,49 +44,10 @@ pub(crate) fn check_meta_schema(document: &Json) -> Result<()> {
     }
 }
 
-/// Every configured name must be one the definition declares.
-pub(crate) fn check_project_names(definition: &Definition, project: &Project) -> Result<()> {
-    if let Some(name) = &project.authoring_session_mnemonic {
-        if definition.mnemonic(name).is_none() {
-            return refuse(format!(
-                "The configured authoringSessionMnemonic {} is not declared in mnemonic.",
-                string_literal(name)
-            ));
-        }
-    }
-    for name in project.entity_diagnostics.keys() {
-        if definition.entity(name).is_none() {
-            return refuse(format!(
-                "The configured entityDiagnostics entry {} is not declared in entities.",
-                string_literal(name)
-            ));
-        }
-    }
-    Ok(())
-}
-
-/// Whether the configured authoring session mnemonic is declared.
-fn has_session_mnemonic(definition: &Definition, project: &Project) -> bool {
-    project
-        .authoring_session_mnemonic
-        .as_deref()
-        .is_some_and(|name| definition.mnemonic(name).is_some())
-}
-
-pub(crate) fn check_semantics(definition: &Definition, project: &Project) -> Result<()> {
+pub(crate) fn check_semantics(definition: &Definition) -> Result<()> {
     let entity_names = definition.entity_names();
     let collaboration = definition.collaboration();
 
-    check_version_compatibility(
-        definition.version(),
-        definition.compatibility(),
-        "compatibility",
-    )?;
-    check_version_compatibility(
-        collaboration.version(),
-        collaboration.compatibility(),
-        "collaboration.compatibility",
-    )?;
     if definition.projection_count() == 0 {
         return refuse(
             "projections must declare a projection, or collaboration an entity whose authoring state is one.".to_owned(),
@@ -141,55 +100,17 @@ pub(crate) fn check_semantics(definition: &Definition, project: &Project) -> Res
                 "entities.{name}.authoring.kind \"collaborative\" requires a replica revision."
             ));
         }
-        if entity.owns_session() && !has_session_mnemonic(definition, project) {
-            return refuse(match &project.authoring_session_mnemonic {
-                Some(mnemonic) => format!(
-                    "entities.{name}.authoring.kind {} requires mnemonic.{mnemonic}.",
-                    string_literal(kind)
-                ),
-                None => format!(
-                    "entities.{name}.authoring.kind {} requires an authoring session mnemonic, and the configuration names none (authoringSessionMnemonic).",
-                    string_literal(kind)
-                ),
-            });
-        }
         let entity_mutations: HashSet<&str> = definition
             .mutations()
             .filter(|mutation| mutation.touches().contains(&name))
             .map(|mutation| mutation.name)
             .collect();
-        let content = entity.content_mutation();
-        if let Some(content) = content {
-            if !entity_mutations.contains(content) {
+        for mutation in entity.planning_mutations() {
+            if !entity_mutations.contains(mutation) {
                 return refuse(format!(
-                    "entities.{name}.authoring.contentMutation must name a mutation touching {name}."
-                ));
-            }
-        }
-        let lifecycle = entity.lifecycle_mutations();
-        let planning = entity.planning_mutations();
-        for mutation in &lifecycle {
-            check_classified_mutation(&entity_mutations, name, "lifecycleMutations", mutation)?;
-            if Some(*mutation) == content {
-                return refuse(format!(
-                    "entities.{name}.authoring cannot classify {} as both content and lifecycle.",
+                    "entities.{name}.authoring.planningMutations references mutation {} that does not touch {name}.",
                     string_literal(mutation)
                 ));
-            }
-        }
-        for mutation in &planning {
-            check_classified_mutation(&entity_mutations, name, "planningMutations", mutation)?;
-            if Some(*mutation) == content || lifecycle.contains(mutation) {
-                return refuse(classified_more_than_once(name, mutation));
-            }
-        }
-        for mutation in entity.command_mutations() {
-            check_classified_mutation(&entity_mutations, name, "commandMutations", mutation)?;
-            if Some(mutation) == content
-                || planning.contains(&mutation)
-                || lifecycle.contains(&mutation)
-            {
-                return refuse(classified_more_than_once(name, mutation));
             }
         }
     }
@@ -280,14 +201,6 @@ pub(crate) fn check_semantics(definition: &Definition, project: &Project) -> Res
         }
     }
 
-    for mnemonic in definition.mnemonics() {
-        schema_ref_name(
-            definition,
-            mnemonic.schema(),
-            &format!("mnemonic.{}.schema", mnemonic.name),
-        )?;
-    }
-
     check_generated_output_names(definition)?;
 
     // Projection and mutation names share a public API namespace.
@@ -307,44 +220,6 @@ pub(crate) fn check_semantics(definition: &Definition, project: &Project) -> Res
     Ok(())
 }
 
-fn check_classified_mutation(
-    entity_mutations: &HashSet<&str>,
-    entity: &str,
-    list: &str,
-    mutation: &str,
-) -> Result<()> {
-    if entity_mutations.contains(mutation) {
-        return Ok(());
-    }
-    refuse(format!(
-        "entities.{entity}.authoring.{list} references mutation {} that does not touch {entity}.",
-        string_literal(mutation)
-    ))
-}
-
-fn classified_more_than_once(entity: &str, mutation: &str) -> String {
-    format!(
-        "entities.{entity}.authoring cannot classify {} more than once.",
-        string_literal(mutation)
-    )
-}
-
-fn check_version_compatibility(version: f64, compatibility: &Object, context: &str) -> Result<()> {
-    let version_text = crate::json::number_to_string(version);
-    if compatibility.number_field("minimumReaderVersion") > version {
-        return refuse(format!(
-            "{context}.minimumReaderVersion cannot exceed version {version_text}."
-        ));
-    }
-    if compatibility.number_field("minimumWriterVersion") > version {
-        return refuse(format!(
-            "{context}.minimumWriterVersion cannot exceed version {version_text}."
-        ));
-    }
-    Ok(())
-}
-
-/// The patch kinds each materialisation strategy consumes.
 fn materialization_patch_kinds(strategy: &str) -> &'static [&'static str] {
     match strategy {
         "keyedCollection" => &["remove", "reset", "upsert"],
@@ -694,11 +569,6 @@ fn check_collaboration_entity(
     let entity = definition
         .entity(entity_name)
         .expect("checked by the caller");
-    if entity.content_mutation() != Some(import_mutation) {
-        return refuse(format!(
-            "{context}.authoringState.importMutation must match entities.{entity_name}.authoring.contentMutation."
-        ));
-    }
 
     let schema_name = schema_ref_name(
         definition,
@@ -1018,7 +888,7 @@ fn shallowest_uncovered<'a>(
 }
 
 /// Generated identifiers from independent concepts can still collide after
-/// normalisation, especially Rust enum helpers and mnemonic constants.
+/// normalisation, especially Rust enum helpers.
 fn check_generated_output_names(definition: &Definition) -> Result<()> {
     let mut output_names: HashMap<String, String> = HashMap::new();
     let mut register = |name: String, source: String| -> Result<()> {
@@ -1082,14 +952,6 @@ fn check_generated_output_names(definition: &Definition) -> Result<()> {
         )?;
         register(pascal_identifier(mutation.name), source)?;
     }
-    for mnemonic in definition.mnemonics() {
-        let schema_name = schema_ref_type_name(mnemonic.schema())?;
-        let prefix = constant_name(mnemonic.name);
-        let source = format!("mnemonic.{}", mnemonic.name);
-        register(format!("{prefix}_MNEMONIC_KEY"), source.clone())?;
-        register(format!("{prefix}_MNEMONIC_SCHEMA"), source.clone())?;
-        register(format!("{schema_name}MnemonicValue"), source)?;
-    }
     Ok(())
 }
 
@@ -1107,9 +969,8 @@ fn check_entity_schema_property(schema: &Object, property: &str, context: &str) 
     ))
 }
 
-/// Keywords that shape a generated type. Each has an exact TypeScript, Rust and
-/// mnemonic rendering; a construct outside them fails instead of widening to
-/// `unknown`.
+/// Keywords that shape a generated type. Each has an exact TypeScript and Rust
+/// rendering; a construct outside them fails instead of widening to `unknown`.
 const TYPE_SCHEMA_KEYS: &[&str] = &[
     "$ref",
     "additionalProperties",
@@ -1130,10 +991,6 @@ const TYPE_SCHEMA_KEYS: &[&str] = &[
 /// renderers ignore them; they ride into the schema-shaped artefacts.
 const VALIDATION_SCHEMA_KEYS: &[&str] = &["const", "minLength"];
 
-/// A `json` field may stay undescribed only by saying why. Reasoned fields are
-/// counted separately in the coverage report.
-const DOCUMENTATION_SCHEMA_KEYS: &[&str] = &["opaqueReason"];
-
 /// Informational: what the owner supplies when the field is absent.
 const ANNOTATION_SCHEMA_KEYS: &[&str] = &["default"];
 
@@ -1142,7 +999,6 @@ pub fn schema_keywords() -> impl Iterator<Item = &'static str> {
     [
         TYPE_SCHEMA_KEYS,
         VALIDATION_SCHEMA_KEYS,
-        DOCUMENTATION_SCHEMA_KEYS,
         ANNOTATION_SCHEMA_KEYS,
     ]
     .into_iter()
@@ -1207,7 +1063,6 @@ fn check_schema_node(definition: &Definition, schema: Option<&Json>, context: &s
 
     check_validation_keywords(schema, context)?;
     check_default_value(schema, context)?;
-    check_opaque_reason(schema, context)?;
 
     match schema_type {
         "object" => {
@@ -1226,8 +1081,8 @@ fn check_schema_node(definition: &Definition, schema: Option<&Json>, context: &s
                     &format!("{context}.additionalProperties"),
                 );
             }
-            // Closed objects keep TypeScript, serde and mnemonic schemas aligned
-            // around the same "no undeclared fields" behaviour.
+            // Closed objects keep TypeScript and serde aligned around the same
+            // "no undeclared fields" behaviour.
             if schema.get("additionalProperties") != Some(&Json::Bool(false)) {
                 return refuse(format!(
                     "{context} object schemas must declare additionalProperties: false or a typed schema."
@@ -1438,26 +1293,6 @@ fn check_default_value(schema: &Object, context: &str) -> Result<()> {
                 "{context}.default must be one of the values its enum admits."
             ));
         }
-    }
-    Ok(())
-}
-
-fn check_opaque_reason(schema: &Object, context: &str) -> Result<()> {
-    let Some(reason) = schema.get("opaqueReason") else {
-        return Ok(());
-    };
-    if !has_type(schema, "json") {
-        return refuse(format!(
-            "{context}.opaqueReason is only meaningful on a json schema; describe this field instead."
-        ));
-    }
-    if reason
-        .as_str()
-        .is_none_or(|reason| crate::names::js_trim(reason).is_empty())
-    {
-        return refuse(format!(
-            "{context}.opaqueReason must be a non-empty string saying why arbitrary JSON is the type."
-        ));
     }
     Ok(())
 }

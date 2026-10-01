@@ -9,7 +9,7 @@ field clerkenwell_codegen::Config::outputs: OutputPaths
 field clerkenwell_codegen::Config::project: Project
 struct clerkenwell_codegen::Definition { .. }
 derive clerkenwell_codegen::Definition: Clone, Debug
-fn clerkenwell_codegen::Definition::load(path: &Path, project: &Project) -> Result<Definition>
+fn clerkenwell_codegen::Definition::load(path: &Path) -> Result<Definition>
 enum clerkenwell_codegen::Error
 derive clerkenwell_codegen::Error: Debug, thiserror::Error
 variant clerkenwell_codegen::Error::Config { path: PathBuf, message: String }
@@ -22,12 +22,10 @@ struct clerkenwell_codegen::GeneratedOutputs
 derive clerkenwell_codegen::GeneratedOutputs: Clone, Debug, Eq, PartialEq
 field clerkenwell_codegen::GeneratedOutputs::collaboration_fixtures: String
 field clerkenwell_codegen::GeneratedOutputs::contract_fixtures: String
-field clerkenwell_codegen::GeneratedOutputs::coverage_report: String
 field clerkenwell_codegen::GeneratedOutputs::normalized_definition: String
 field clerkenwell_codegen::GeneratedOutputs::rust_model: String
-field clerkenwell_codegen::GeneratedOutputs::typescript_mnemonic: String
 field clerkenwell_codegen::GeneratedOutputs::typescript_model: String
-fn clerkenwell_codegen::GeneratedOutputs::with_paths<'a>(&'a self, paths: &'a OutputPaths) -> [(&'a Path, &'a str); 7]
+fn clerkenwell_codegen::GeneratedOutputs::with_paths<'a>(&'a self, paths: &'a OutputPaths) -> [(&'a Path, &'a str); 5]
 enum clerkenwell_codegen::Mode
 derive clerkenwell_codegen::Mode: Clone, Copy, Debug, Eq, PartialEq
 variant clerkenwell_codegen::Mode::Check
@@ -36,15 +34,11 @@ struct clerkenwell_codegen::OutputPaths
 derive clerkenwell_codegen::OutputPaths: Clone, Debug, Deserialize
 field clerkenwell_codegen::OutputPaths::collaboration_fixtures: PathBuf
 field clerkenwell_codegen::OutputPaths::contract_fixtures: PathBuf
-field clerkenwell_codegen::OutputPaths::coverage_report: PathBuf
 field clerkenwell_codegen::OutputPaths::normalized_definition: PathBuf
 field clerkenwell_codegen::OutputPaths::rust_model: PathBuf
-field clerkenwell_codegen::OutputPaths::typescript_mnemonic: PathBuf
 field clerkenwell_codegen::OutputPaths::typescript_model: PathBuf
 struct clerkenwell_codegen::Project
 derive clerkenwell_codegen::Project: Clone, Debug, Default, Deserialize
-field clerkenwell_codegen::Project::authoring_session_mnemonic: Option<String>
-field clerkenwell_codegen::Project::entity_diagnostics: BTreeMap<String, Vec<String>>
 field clerkenwell_codegen::Project::header: Vec<String>
 field clerkenwell_codegen::Project::regenerate_command: String
 type clerkenwell_codegen::Result<T, E = Error> = std::result::Result<T, E>
@@ -99,13 +93,7 @@ fn clerkenwell_codegen::generate(config: &Config, mode: Mode) -> Result<Vec<Path
 #[cfg(feature = "testing")] #[cfg(feature = "testing")] fn clerkenwell_codegen::testing::Object::remove(&mut self, key: &str) -> Option<Json>
 #[cfg(feature = "testing")] fn clerkenwell_codegen::testing::Object::spread(&mut self, other: &Object)
 #[cfg(feature = "testing")] #[cfg(feature = "testing")] fn clerkenwell_codegen::testing::Object::values(&self) -> impl Iterator<Item = &Json>
-#[cfg(feature = "testing")] struct clerkenwell_codegen::testing::PayloadCoverage
-#[cfg(feature = "testing")] derive clerkenwell_codegen::testing::PayloadCoverage: Clone, Debug, Default, PartialEq
-#[cfg(feature = "testing")] field clerkenwell_codegen::testing::PayloadCoverage::projections_carrying_undescribed: Vec<String>
-#[cfg(feature = "testing")] field clerkenwell_codegen::testing::PayloadCoverage::reasoned: Vec<(String, String)>
-#[cfg(feature = "testing")] field clerkenwell_codegen::testing::PayloadCoverage::undescribed: Vec<String>
-#[cfg(feature = "testing")] fn clerkenwell_codegen::testing::collect_payload_coverage(definition: &Definition) -> Result<PayloadCoverage>
-#[cfg(feature = "testing")] fn clerkenwell_codegen::testing::definition(document: Json, project: &Project) -> Result<Definition>
+#[cfg(feature = "testing")] fn clerkenwell_codegen::testing::definition(document: Json) -> Result<Definition>
 #[cfg(feature = "testing")] fn clerkenwell_codegen::testing::document(definition: &Definition) -> &Object
 #[cfg(feature = "testing")] fn clerkenwell_codegen::testing::locale_compare(left: &str, right: &str) -> Ordering
 #[cfg(feature = "testing")] fn clerkenwell_codegen::testing::normalized_document(definition: &Definition) -> Json

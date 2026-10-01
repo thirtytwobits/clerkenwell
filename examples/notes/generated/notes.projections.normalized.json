@@ -1,10 +1,5 @@
 {
   "collaboration": {
-    "compatibility": {
-      "migrationIds": [],
-      "minimumReaderVersion": 1,
-      "minimumWriterVersion": 1
-    },
     "entities": [
       {
         "authoringState": {
@@ -83,11 +78,6 @@
     ],
     "version": 1
   },
-  "compatibility": {
-    "migrationIds": [],
-    "minimumReaderVersion": 1,
-    "minimumWriterVersion": 1
-  },
   "definitions": [
     {
       "additionalProperties": false,
@@ -147,32 +137,6 @@
       },
       "required": [
         "kind"
-      ],
-      "type": "object"
-    },
-    {
-      "additionalProperties": false,
-      "name": "DraftEntry",
-      "properties": {
-        "entity": {
-          "type": "string"
-        },
-        "entity_id": {
-          "type": "string"
-        },
-        "payload": {
-          "opaqueReason": "The unsent edit, in the entity's shape.",
-          "type": "json"
-        },
-        "saved_at": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "entity",
-        "entity_id",
-        "saved_at",
-        "payload"
       ],
       "type": "object"
     },
@@ -313,35 +277,13 @@
         "missing_update_base64"
       ],
       "type": "object"
-    },
-    {
-      "additionalProperties": false,
-      "name": "SessionDrafts",
-      "properties": {
-        "drafts": {
-          "additionalProperties": {
-            "$ref": "#/$defs/DraftEntry"
-          },
-          "type": "object"
-        }
-      },
-      "required": [
-        "drafts"
-      ],
-      "type": "object"
     }
   ],
   "entities": [
     {
       "authoring": {
-        "commandMutations": [],
-        "contentMutation": "note.importUpdate",
         "kind": "collaborative",
-        "lifecycleMutations": [
-          "note.create"
-        ],
-        "planningMutations": [],
-        "rationale": "Writers edit a note concurrently: its body merges, and a change of status is decided explicitly."
+        "planningMutations": []
       },
       "id": "note_id",
       "name": "Note",
@@ -351,21 +293,6 @@
       "schema": {
         "$ref": "#/$defs/NoteDocument"
       }
-    }
-  ],
-  "mnemonic": [
-    {
-      "cachePolicy": "localDraft",
-      "key": "notes.session.drafts",
-      "migrationIds": [
-        "session-drafts-v1"
-      ],
-      "name": "session.drafts",
-      "recovery": "authoringRuntime",
-      "schema": {
-        "$ref": "#/$defs/SessionDrafts"
-      },
-      "version": 1
     }
   ],
   "mutations": [

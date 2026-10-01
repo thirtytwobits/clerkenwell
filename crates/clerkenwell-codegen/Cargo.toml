@@ -1,6 +1,6 @@
 [package]
 name = "clerkenwell-codegen"
-description = "Validates a projection definition and generates its Rust, TypeScript, fixture and coverage artefacts."
+description = "Validates a projection definition and generates its Rust, TypeScript and fixture artefacts."
 version.workspace = true
 edition.workspace = true
 license.workspace = true

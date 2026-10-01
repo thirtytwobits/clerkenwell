@@ -44,17 +44,6 @@ export type ReplicaUpdateParams = {
   "update_base64": string;
 };
 
-export type SessionDrafts = {
-  "drafts": Record<string, DraftEntry>;
-};
-
-export type DraftEntry = {
-  "entity": string;
-  "entity_id": string;
-  "saved_at": string;
-  "payload": unknown;
-};
-
 export type ReplicaUpdateResult = {
   "note_id": string;
   "etag": string;
@@ -101,10 +90,6 @@ export const MUTATION_NAMES = [
   "note.importUpdate",
 ] as const;
 export type MutationName = typeof MUTATION_NAMES[number];
-
-export const MNEMONIC_KEYS = {
-  "session.drafts": "notes.session.drafts",
-} as const;
 
 export interface ProjectionParamsByName {
   "notes.authoringState": NoteAuthoringParams;
@@ -185,7 +170,6 @@ export const AUTHORING_PLANS = {
   "Note": {
     "kind": "collaborative",
     "schemaVersion": 1,
-    "rationale": "Writers edit a note concurrently: its body merges, and a change of status is decided explicitly.",
     "revision": {
       "kind": "replica"
     },
@@ -193,24 +177,12 @@ export const AUTHORING_PLANS = {
       "note.create",
       "note.importUpdate"
     ],
-    "contentMutation": "note.importUpdate",
-    "planningMutations": [],
-    "commandMutations": [],
-    "lifecycleMutations": [
-      "note.create"
-    ],
-    "authoringSession": {
-      "mnemonicKey": "notes.session.drafts",
-      "leavePolicy": "durableRestoreOrConfirmDiscard",
-      "conflictPolicy": "generatedFieldPolicy"
-    }
+    "planningMutations": []
   }
 } as const satisfies Record<EntityName, GeneratedAuthoringPlan>;
 
 export type CollaborationEntityPlan = ClerkenwellCollaborationEntityPlan<ProjectionName, MutationName>;
 export const COLLABORATION_DEFINITION_VERSION = 1 as const;
-export const COLLABORATION_MINIMUM_READER_VERSION = 1 as const;
-export const COLLABORATION_MINIMUM_WRITER_VERSION = 1 as const;
 export const COLLABORATION_PLANS = {
   "Note": {
     "schemaVersion": 1,
