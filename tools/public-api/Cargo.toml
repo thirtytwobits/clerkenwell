@@ -11,4 +11,4 @@ publish = false
 clap.workspace = true
 proc-macro2 = "1.0.107"
 quote = "1.0.47"
-syn = { version = "2.0.119", features = ["full", "visit"] }
+syn = { version = "3.0.6", features = ["full", "visit"] }
