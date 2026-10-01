@@ -624,9 +624,13 @@ impl Crate {
                 };
                 visitor.visit_generics(&block.generics);
                 match &block.trait_ {
-                    Some((negative, trait_path, _)) => {
+                    Some((trait_path, _)) => {
                         visitor.visit_path(trait_path);
-                        let negative = if negative.is_some() { "!" } else { "" };
+                        let negative = if block.modifiers.polarity.is_some() {
+                            "!"
+                        } else {
+                            ""
+                        };
                         entries.push((
                             format!("{path}\u{0}2 {}", render(trait_path)),
                             format!(
@@ -967,7 +971,7 @@ fn signature(path: &str, signature: &Signature) -> String {
     if signature.asyncness.is_some() {
         line.push_str("async ");
     }
-    if signature.unsafety.is_some() {
+    if matches!(signature.safety, syn::Safety::Unsafe(_)) {
         line.push_str("unsafe ");
     }
     let inputs = signature
