@@ -25,8 +25,8 @@ enum Commands {
     /// listing every place that disagrees.
     Check,
     /// Compares this release with the previous one; exits non-zero when a
-    /// patch release changes a public-API record, the definition meta-schema
-    /// or the stored envelope version.
+    /// patch release changes a public-API record, a wire-protocol record, the
+    /// definition meta-schema or the stored envelope version.
     Breaking {
         /// The previous release's Git reference, such as its tag.
         #[arg(long)]

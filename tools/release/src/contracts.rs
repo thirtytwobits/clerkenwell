@@ -1,7 +1,8 @@
 //! The contracts a patch release may not change.
 //!
-//! A change to a public-API record, the definition meta-schema or the stored
-//! envelope version is a breaking change, which in 0.x takes a minor release.
+//! A change to a public-API record, a wire-protocol record, the definition
+//! meta-schema or the stored envelope version is a breaking change, which in
+//! 0.x takes a minor release.
 //! [`check_release`] compares the contracts in a working tree with those at
 //! the previous release's Git reference, and refuses a patch release that
 //! changes any of them.
@@ -30,6 +31,7 @@ pub enum Contract {
 pub const CONTRACTS: &[Contract] = &[
     Contract::Records("public-api.txt"),
     Contract::Records("public-api.json"),
+    Contract::Records("wire-protocol.json"),
     Contract::File("crates/clerkenwell-codegen/src/projection-definition.schema.json"),
     Contract::Constant {
         file: "crates/clerkenwell-store/src/lib.rs",

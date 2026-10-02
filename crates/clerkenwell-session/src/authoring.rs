@@ -14,6 +14,7 @@ use clerkenwell_store::{
     CollaborationDocumentId, CollaborationExchangeMode, CollaborationStores, StoreError,
     StoreErrorKind,
 };
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 
@@ -21,7 +22,7 @@ use crate::server::ProjectionRefusal;
 use crate::transport::ProjectionErrorCode;
 
 /// A document's accepted state as an authoring-state update delivers it.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct AuthoringState {
     /// The layout version the document's operations are written in.
     pub schema_version: u32,
@@ -36,7 +37,7 @@ pub struct AuthoringState {
 }
 
 /// What an authoring-state update leaves its client holding.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct AuthoringHeld {
     pub schema_version: u32,
     pub frontier: String,
@@ -56,7 +57,7 @@ impl From<&AuthoringState> for AuthoringHeld {
 /// What an update leaves its client holding: an authoring state's accepted
 /// state, or what the host names for one of its own projections. A client
 /// sends it back when it subscribes again.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, JsonSchema)]
 #[serde(untagged)]
 pub enum Held<D> {
     Authoring(AuthoringHeld),

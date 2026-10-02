@@ -12,6 +12,8 @@ mod authoring;
 mod registry;
 pub mod server;
 mod subscriptions;
+#[cfg(feature = "testing")]
+pub mod testing;
 pub mod transport;
 
 pub use authoring::{AuthoringHeld, AuthoringState, AuthoringStates, Held};

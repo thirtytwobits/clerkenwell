@@ -3,6 +3,7 @@
 //! Snapshot, patch and mutation-result payloads are the application's own
 //! types, so the accepted-mutation and event contracts are generic over them.
 
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -12,7 +13,7 @@ pub const PROJECTION_UNSUBSCRIBE_METHOD: &str = "projection.unsubscribe";
 pub const PROJECTION_MUTATE_METHOD: &str = "projection.mutate";
 pub const PROJECTION_UPDATE_NOTIFICATION: &str = "projection.update";
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct ProjectionSubscribeCommand {
     pub projection: String,
@@ -25,19 +26,19 @@ pub struct ProjectionSubscribeCommand {
     pub held: Option<Value>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct ProjectionUnsubscribeCommand {
     pub subscription_id: u64,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct ProjectionResyncCommand {
     pub subscription_id: u64,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct ProjectionMutationCommand {
     pub mutation: String,
@@ -48,7 +49,7 @@ pub struct ProjectionMutationCommand {
     pub params: Value,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct ProjectionSubscribeAccepted {
     pub subscription_id: u64,
@@ -63,13 +64,13 @@ fn is_false(value: &bool) -> bool {
     !value
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct ProjectionUnsubscribeAccepted {
     pub removed: bool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct ProjectionResyncAccepted {
     pub subscription_id: u64,
@@ -77,7 +78,7 @@ pub struct ProjectionResyncAccepted {
     pub revision: u64,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct ProjectionMutationAccepted<R> {
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -88,7 +89,7 @@ pub struct ProjectionMutationAccepted<R> {
     pub result: R,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, JsonSchema)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ProjectionTransportEvent<S, P> {
     Snapshot {
@@ -111,7 +112,7 @@ pub enum ProjectionTransportEvent<S, P> {
 }
 
 /// Why a command was refused.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum ProjectionErrorCode {
     UnknownMutation,
@@ -174,7 +175,7 @@ impl ProjectionErrorCode {
 }
 
 /// The command a refusal answers.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum ProjectionOperation {
     Subscribe,
@@ -198,7 +199,7 @@ impl ProjectionOperation {
 }
 
 /// A refused command as its client reads it.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct ProjectionErrorEnvelope {
     pub code: ProjectionErrorCode,
