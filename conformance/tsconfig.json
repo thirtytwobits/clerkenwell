@@ -1,6 +1,7 @@
 {
   "extends": "../tsconfig.base.json",
   "include": [
-    "*.ts"
+    "*.ts",
+    "../crates/clerkenwell-conformance/src/bridge.ts"
   ]
 }

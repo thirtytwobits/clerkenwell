@@ -12,7 +12,12 @@ clerkenwell-doc = { path = "../clerkenwell-doc" }
 clerkenwell-schema = { path = "../clerkenwell-schema" }
 serde_json.workspace = true
 
+[features]
+# Running against this checkout, for Clerkenwell's own tests.
+testing = []
+
 [dev-dependencies]
+clerkenwell-conformance = { path = ".", features = ["testing"] }
 axum = { version = "0.8.8", default-features = false, features = ["tokio", "http1"] }
 base64.workspace = true
 clerkenwell-axum = { path = "../clerkenwell-axum" }

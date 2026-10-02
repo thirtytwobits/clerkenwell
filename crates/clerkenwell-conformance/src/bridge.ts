@@ -2,15 +2,18 @@
  * Copyright (c) 2026 Scott A Dixon
  *
  * TypeScript replicas for the Rust conformance driver in
- * `crates/clerkenwell-conformance`. The bridge is started with one
+ * `crates/clerkenwell-conformance`, which writes this file into the npm project
+ * whose `@clerkenwell/client` it drives. The bridge is started with one
  * definition's generated TypeScript plans and its collaboration fixture
  * corpus, holds named replicas of `@clerkenwell/client/replica`, and answers each
  * JSON request line on standard input with one JSON response line on standard
  * output: `{"ok": true, "value": ...}` or `{"ok": false, "error": "..."}`.
  */
+import { existsSync, readFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
+import path from "node:path";
 import { createInterface } from "node:readline";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 
 import {
@@ -26,6 +29,7 @@ import {
 type Identities = Readonly<Record<string, string>>;
 
 type Request =
+  | { readonly op: "clientVersion" }
   | { readonly op: "seedFixture"; readonly replica: string; readonly entity: string }
   | { readonly op: "hydrate"; readonly replica: string; readonly entity: string; readonly schemaVersion: number; readonly updateBase64: string }
   | { readonly op: "replace"; readonly replica: string; readonly document: object }
@@ -92,8 +96,27 @@ function text(request: { readonly replica: string; readonly field: string; reado
   return replica(request.replica).bindText(request.field, request.identities);
 }
 
+/** The version of the `@clerkenwell/client` package this bridge resolves. */
+function clientVersion(): string {
+  const entry = fileURLToPath(import.meta.resolve("@clerkenwell/client"));
+  for (let directory = path.dirname(entry); ; directory = path.dirname(directory)) {
+    const manifestPath = path.join(directory, "package.json");
+    if (existsSync(manifestPath)) {
+      const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as { readonly name?: string; readonly version?: string };
+      if (manifest.name === "@clerkenwell/client" && manifest.version !== undefined) {
+        return manifest.version;
+      }
+    }
+    if (path.dirname(directory) === directory) {
+      throw new Error(`${entry} is in no @clerkenwell/client package.`);
+    }
+  }
+}
+
 function handle(request: Request): unknown {
   switch (request.op) {
+    case "clientVersion":
+      return clientVersion();
     case "seedFixture": {
       const fixture = fixtures.entities.find(({ entity }) => entity === request.entity);
       if (fixture === undefined) {

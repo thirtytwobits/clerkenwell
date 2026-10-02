@@ -470,9 +470,9 @@ impl Crate {
                 if !is_public(item) {
                     continue;
                 }
-                let conditions = [module.scope.conditions.as_slice(), own].concat();
                 match item {
                     Item::Use(declaration) => {
+                        let conditions = [module.scope.conditions.as_slice(), own].concat();
                         let mut names = Vec::new();
                         flatten(
                             &declaration.tree,
@@ -502,10 +502,12 @@ impl Crate {
                         }
                     }
                     item => {
+                        // The item's own conditions join its module's
+                        // when it is described.
                         if let Some(name) = item_name(item) {
                             exports.push(Export {
                                 path: at(&name),
-                                conditions,
+                                conditions: module.scope.conditions.clone(),
                                 reaches: Reaches::Item {
                                     module: index,
                                     item: item_index,

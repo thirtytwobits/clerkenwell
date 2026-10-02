@@ -3,12 +3,12 @@
 //! A [`Conformance`] run takes a definition's generated Rust plans, its
 //! generated TypeScript plans and its collaboration fixture corpus. It drives
 //! `clerkenwell-doc` replicas in this process and `@clerkenwell/client/replica`
-//! replicas in a Node bridge, `conformance/bridge.ts`, and requires every
-//! exchange to leave both languages holding the same history and
-//! materialising the same document.
+//! replicas in a Node bridge, and requires every exchange to leave both
+//! languages holding the same history and materialising the same document.
 //!
-//! The bridge runs from a Clerkenwell checkout whose npm workspace is
-//! installed (`npm ci`).
+//! The bridge runs in an npm project in which Node resolves `tsx` and
+//! `@clerkenwell/client` at this crate's version, and drives that installed
+//! client.
 
 mod bridge;
 mod corpus;
@@ -38,7 +38,9 @@ pub struct Bindings {
     pub collaboration_fixtures: PathBuf,
 }
 
-/// This Clerkenwell checkout, whose npm workspace runs the bridge.
+/// This Clerkenwell checkout, whose npm workspace runs the bridge in
+/// Clerkenwell's own tests.
+#[cfg(feature = "testing")]
 pub fn workspace() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../..")
@@ -89,15 +91,23 @@ fn plan(
 }
 
 impl Conformance {
-    /// Starts a bridge under this checkout's npm workspace over `bindings`.
+    /// Starts a bridge in this checkout's npm workspace over `bindings`,
+    /// driving the client's TypeScript source.
+    #[cfg(feature = "testing")]
     pub fn start(bindings: &Bindings) -> Self {
-        Self::start_in(bindings, &workspace())
+        Self::launch(bindings, &workspace(), &["@clerkenwell/source"])
     }
 
-    /// Starts a bridge under `workspace` over `bindings`: an installed npm
-    /// workspace whose `tsx` resolves `@clerkenwell/client`, its `/replica`
-    /// entry and `loro-crdt`, such as this checkout's or a consumer's.
-    pub fn start_in(bindings: &Bindings, workspace: &Path) -> Self {
+    /// Starts a bridge in `project` over `bindings`: an npm project in which
+    /// Node resolves `tsx` and `@clerkenwell/client` at this crate's version,
+    /// from its own `node_modules` or a workspace's above it. The bridge
+    /// drives the client as the project installed it. Relative paths are
+    /// taken against this process's working directory.
+    pub fn start_in(bindings: &Bindings, project: &Path) -> Self {
+        Self::launch(bindings, project, &[])
+    }
+
+    fn launch(bindings: &Bindings, project: &Path, conditions: &[&str]) -> Self {
         let corpus = Corpus::load(&bindings.collaboration_fixtures);
         assert!(
             !corpus.entities().is_empty(),
@@ -106,7 +116,7 @@ impl Conformance {
         Self {
             plans: bindings.plans,
             corpus,
-            bridge: Bridge::start(bindings, workspace),
+            bridge: Bridge::start(bindings, project, conditions),
         }
     }
 

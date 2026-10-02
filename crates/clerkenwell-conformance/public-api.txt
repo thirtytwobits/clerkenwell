@@ -12,8 +12,8 @@ fn clerkenwell_conformance::Conformance::concurrent_typing(&self)
 fn clerkenwell_conformance::Conformance::conflict_policy(&self)
 fn clerkenwell_conformance::Conformance::fixture_operations(&self)
 fn clerkenwell_conformance::Conformance::seeding(&self)
-fn clerkenwell_conformance::Conformance::start(bindings: &Bindings) -> Self
-fn clerkenwell_conformance::Conformance::start_in(bindings: &Bindings, workspace: &Path) -> Self
+#[cfg(feature = "testing")] fn clerkenwell_conformance::Conformance::start(bindings: &Bindings) -> Self
+fn clerkenwell_conformance::Conformance::start_in(bindings: &Bindings, project: &Path) -> Self
 fn clerkenwell_conformance::Conformance::text_consumption(&self)
 fn clerkenwell_conformance::check_client_naming(bindings: &Bindings)
-fn clerkenwell_conformance::workspace() -> PathBuf
+#[cfg(feature = "testing")] fn clerkenwell_conformance::workspace() -> PathBuf

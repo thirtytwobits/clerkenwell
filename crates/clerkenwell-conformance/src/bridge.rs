@@ -1,21 +1,33 @@
-//! The Node process holding TypeScript replicas: this checkout's
-//! `conformance/bridge.ts`, run with an npm workspace's `tsx`.
+//! The Node process holding TypeScript replicas: `bridge.ts`, written into
+//! the npm project whose `@clerkenwell/client` it drives and run with that
+//! project's `tsx`.
 
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use serde_json::{json, Value};
 
 use crate::Bindings;
 
-/// A running bridge. Dropping it stops the process.
+/// The bridge's source.
+const SOURCE: &str = include_str!("bridge.ts");
+
+/// The `@clerkenwell/client` version this crate drives: its own.
+const CLIENT_VERSION: &str = env!("CARGO_PKG_VERSION");
+
+/// Where in an npm project the bridge is written.
+const SCRIPT_DIRECTORY: &str = "node_modules/.cache/clerkenwell-conformance";
+
+/// A running bridge. Dropping it stops the process and removes its script.
 pub struct Bridge {
     child: Child,
     io: RefCell<(ChildStdin, BufReader<ChildStdout>)>,
     replicas: Cell<u64>,
+    script: PathBuf,
 }
 
 /// A replica the bridge holds.
@@ -25,23 +37,26 @@ pub struct TypeScriptReplica<'a> {
 }
 
 impl Bridge {
-    /// Starts `conformance/bridge.ts` under `workspace`, an installed npm
-    /// workspace whose `tsx` resolves the client and `loro-crdt`, over the
-    /// TypeScript plans and fixture corpus of `bindings`.
-    pub fn start(bindings: &Bindings, workspace: &Path) -> Self {
-        assert!(
-            workspace.join("node_modules/tsx").is_dir(),
-            "the conformance bridge needs the npm workspace at {}: run `npm ci` there",
-            workspace.display()
-        );
+    /// Starts the bridge in `project`, an npm project in which Node resolves
+    /// `tsx` and `@clerkenwell/client`, over the TypeScript plans and fixture
+    /// corpus of `bindings`. Node resolves packages under `conditions`. A
+    /// client of another version than this crate's is refused.
+    pub fn start(bindings: &Bindings, project: &Path, conditions: &[&str]) -> Self {
+        let project = absolute(project);
+        let directory = project.join(SCRIPT_DIRECTORY);
+        std::fs::create_dir_all(&directory)
+            .unwrap_or_else(|error| panic!("cannot create {}: {error}", directory.display()));
+        require_packages(&project, &directory, conditions);
+        let script = write_script(&directory);
         let mut child = Command::new("node")
-            .args(["--conditions=@clerkenwell/source", "--import", "tsx"])
-            .arg(crate::workspace().join("conformance/bridge.ts"))
+            .args(condition_arguments(conditions))
+            .args(["--import", "tsx"])
+            .arg(&script)
             .arg("--plans")
-            .arg(&bindings.typescript_plans)
+            .arg(absolute(&bindings.typescript_plans))
             .arg("--fixtures")
-            .arg(&bindings.collaboration_fixtures)
-            .current_dir(workspace)
+            .arg(absolute(&bindings.collaboration_fixtures))
+            .current_dir(&project)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit())
@@ -49,11 +64,22 @@ impl Bridge {
             .unwrap_or_else(|error| panic!("the conformance bridge starts under node: {error}"));
         let stdin = child.stdin.take().expect("bridge stdin");
         let stdout = BufReader::new(child.stdout.take().expect("bridge stdout"));
-        Self {
+        let bridge = Self {
             child,
             io: RefCell::new((stdin, stdout)),
             replicas: Cell::new(0),
-        }
+            script,
+        };
+        let installed = bridge.call(json!({ "op": "clientVersion" }));
+        let installed = installed
+            .as_str()
+            .expect("the bridge answers the client's version");
+        assert!(
+            installed == CLIENT_VERSION,
+            "{} has @clerkenwell/client {installed}; clerkenwell-conformance {CLIENT_VERSION} drives the client of its own version",
+            project.display()
+        );
+        bridge
     }
 
     /// Sends one request and returns its value, or the bridge's refusal.
@@ -139,7 +165,63 @@ impl Drop for Bridge {
     fn drop(&mut self) {
         let _ = self.child.kill();
         let _ = self.child.wait();
+        let _ = std::fs::remove_file(&self.script);
     }
+}
+
+/// `path`, absolute against this process's working directory, since the
+/// bridge runs in another.
+fn absolute(path: &Path) -> PathBuf {
+    std::path::absolute(path)
+        .unwrap_or_else(|error| panic!("cannot make {} absolute: {error}", path.display()))
+}
+
+fn condition_arguments<'a>(conditions: &'a [&str]) -> impl Iterator<Item = String> + 'a {
+    conditions
+        .iter()
+        .map(|condition| format!("--conditions={condition}"))
+}
+
+/// Refuses `project` unless Node, resolving from `directory` where the bridge
+/// is written, finds `tsx` and `@clerkenwell/client`: in the project's own
+/// `node_modules` or one above it.
+fn require_packages(project: &Path, directory: &Path, conditions: &[&str]) {
+    const RESOLVE: &str = "for (const name of ['tsx', '@clerkenwell/client']) { \
+        try { import.meta.resolve(name); } catch { console.log(name); } }";
+    let output = Command::new("node")
+        .args(condition_arguments(conditions))
+        .args(["--input-type=module", "--eval", RESOLVE])
+        .current_dir(directory)
+        .output()
+        .unwrap_or_else(|error| panic!("node runs: {error}"));
+    assert!(
+        output.status.success(),
+        "node resolves packages: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let missing = String::from_utf8_lossy(&output.stdout);
+    let missing: Vec<&str> = missing.lines().collect();
+    assert!(
+        missing.is_empty(),
+        "the conformance bridge needs {} installed in {} or a project above it",
+        missing.join(" and "),
+        project.display()
+    );
+}
+
+/// Writes a copy of the bridge into `directory`, inside the project, where
+/// Node resolves packages from that project. Each bridge has its own copy, an
+/// ES module whatever the project's module type.
+fn write_script(directory: &Path) -> PathBuf {
+    static NEXT: AtomicU64 = AtomicU64::new(0);
+    let script = directory.join(format!(
+        "bridge-{}-{}.mts",
+        std::process::id(),
+        NEXT.fetch_add(1, Ordering::Relaxed)
+    ));
+    std::fs::write(&script, SOURCE)
+        .unwrap_or_else(|error| panic!("cannot write {}: {error}", script.display()));
+    script
 }
 
 impl TypeScriptReplica<'_> {

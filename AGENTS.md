@@ -14,7 +14,7 @@ crates/clerkenwell-store        named store sets, durable envelopes, storage por
 crates/clerkenwell-codegen      the definition language, its validation, and the generator
 crates/clerkenwell-notebook     the example definition the tests share, and its generated bindings
 crates/clerkenwell-conformance  Rust and TypeScript replicas of one definition driven against each other
-conformance/                    the Node bridges the conformance tests drive
+conformance/                    the Node scripts Clerkenwell's own conformance tests run
 examples/notes                  a runnable walk-through of the framework over one note, and a server of notes
 clients/typescript/             @clerkenwell/client (React-free) and @clerkenwell/react
 tools/public-api                each crate's public API record
