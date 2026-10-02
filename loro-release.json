@@ -3,7 +3,7 @@
   "source": {
     "kind": "git",
     "url": "https://github.com/thirtytwobits/loro.git",
-    "revision": "551d0da5b943c754caefcba3fd14e4dd369e06bc"
+    "revision": "ef1964a317d743ebd5c0419d35393ff980daa2fe"
   },
   "rust": {
     "version": "1.16.0",
@@ -26,7 +26,7 @@
   },
   "npm": {
     "version": "1.16.1",
-    "url": "https://github.com/thirtytwobits/loro/releases/download/primrose-551d0da5b943/loro-crdt-1.16.1.tgz",
-    "integrity": "sha512-M3WrwdGuYROpOkP3ZHBdZ9g+yTBly6qLwi7elPob/+oSegV0+1P8Mjeg6izaGBKasOb25c8Ch4kG6KzyuR5pxQ=="
+    "url": "https://github.com/thirtytwobits/loro/releases/download/loro-crdt-1.16.1-ef1964a3/loro-crdt-1.16.1.tgz",
+    "integrity": "sha512-psiV6OKdJYZ/GBDMM7F/vbX1QmS+JDfY1IBxj2fXGvrRNtCfnpovVzWn1no/9G34Phg83iiEu/FdbWEFKYEO/w=="
   }
 }

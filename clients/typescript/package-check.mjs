@@ -4,8 +4,9 @@
  * Checks the TypeScript packages as a consumer receives them. Builds and packs
  * each, lints the tarballs with publint and arethetypeswrong, installs them
  * into an empty project, imports every entry point under plain Node, and
- * typechecks two consumers under NodeNext resolution: a Node command-line tool
- * using the client, and a web application using all three entry points.
+ * typechecks two consumers under NodeNext resolution, checking every
+ * declaration file they load: a Node command-line tool using the client, and a
+ * web application using all three entry points.
  */
 import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -99,7 +100,7 @@ try {
             types,
             strict: true,
             noEmit: true,
-            skipLibCheck: true
+            skipLibCheck: false
           },
           files: [`${name}.ts`]
         },

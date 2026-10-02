@@ -55,8 +55,7 @@ Each release is a `vX.Y.Z` tag and a GitHub release; `CHANGELOG.md` describes ea
 | Conformance | `clerkenwell-conformance` as a crate, with `tsx` and the client installed in the npm project it runs in |
 | A checkout instead of a release | a Cargo `[patch]` with a path, and `npm link` to a package built with `npm run build` |
 
-`@clerkenwell/client` installs `loro-crdt` from a GitHub release tarball. Its declarations need
-`skipLibCheck: true`, which `tsc --init` sets.
+`@clerkenwell/client` installs `loro-crdt` from a GitHub release tarball.
 
 ## Licence
 
