@@ -1,0 +1,93 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+env:
+  CI: true
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  RUST_BACKTRACE: 1
+  RUST_TOOLCHAIN: 1.97.1
+
+jobs:
+  gate:
+    name: Gate
+    uses: ./.github/workflows/ci.yml
+
+  release:
+    name: Release
+    needs: gate
+    runs-on: ubuntu-26.04
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Cache Rust toolchain
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.rustup/toolchains
+            ~/.rustup/update-hashes
+          key: rustup-${{ runner.os }}-${{ env.RUST_TOOLCHAIN }}-rustfmt-clippy
+
+      - name: Set up Rust
+        run: |
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --component rustfmt --component clippy
+          rustup default "$RUST_TOOLCHAIN"
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install the npm workspace
+        run: npm ci
+
+      - name: Check the tag names the version every manifest states
+        run: |
+          version="$(cargo run --quiet -p clerkenwell-release -- check)"
+          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::The tag $GITHUB_REF_NAME does not name the version $version."
+            exit 1
+          fi
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+
+      - name: Refuse a patch release that changes a contract
+        run: |
+          previous="$(git describe --tags --abbrev=0 --match 'v[0-9]*' "$GITHUB_REF_NAME^" 2>/dev/null || true)"
+          if [ -n "$previous" ]; then
+            cargo run --quiet -p clerkenwell-release -- breaking --since "$previous"
+          fi
+
+      - name: Check the packages as a consumer receives them
+        run: npm run package:check
+
+      - name: Pack the npm packages
+        run: |
+          mkdir "$RUNNER_TEMP/packages"
+          npm pack --workspaces --pack-destination "$RUNNER_TEMP/packages"
+
+      - name: Write the release notes
+        run: cargo run --quiet -p clerkenwell-release -- notes "$VERSION" > "$RUNNER_TEMP/notes.md"
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" --verify-tag --title "$GITHUB_REF_NAME" \
+            --notes-file "$RUNNER_TEMP/notes.md" "$RUNNER_TEMP"/packages/*.tgz

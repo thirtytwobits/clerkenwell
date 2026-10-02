@@ -43,6 +43,21 @@ root.
 | `@clerkenwell/client/replica` | plan-driven Loro replicas, read and written as an application's drafts; the package's only importer of `loro-crdt` |
 | `@clerkenwell/react` | React stores, edit overlays, text-binding hooks, autosync and the authoring runtime provider |
 
+## Using a release
+
+Each release is a `vX.Y.Z` tag and a GitHub release; `CHANGELOG.md` describes each one.
+
+| Need | How |
+|---|---|
+| A crate | `clerkenwell-store = { git = "https://github.com/thirtytwobits/clerkenwell", tag = "vX.Y.Z" }`, and in the workspace's root `Cargo.toml` the `[patch.crates-io]` override for `generic-btree` that this repository's `Cargo.toml` carries |
+| An npm package | the tarball attached to the release: `npm install https://github.com/thirtytwobits/clerkenwell/releases/download/vX.Y.Z/clerkenwell-client-X.Y.Z.tgz`; for the React binding, `clerkenwell-react-X.Y.Z.tgz` in the same install |
+| The generator | `cargo install clerkenwell-codegen --git https://github.com/thirtytwobits/clerkenwell --tag vX.Y.Z --locked` |
+| Conformance | `clerkenwell-conformance` as a crate, with `tsx` and the client installed in the npm project it runs in |
+| A checkout instead of a release | a Cargo `[patch]` with a path, and `npm link` to a package built with `npm run build` |
+
+`@clerkenwell/client` installs `loro-crdt` from a GitHub release tarball. Its declarations need
+`skipLibCheck: true`, which `tsc --init` sets.
+
 ## Licence
 
 MIT. See [`LICENSE`](LICENSE).
