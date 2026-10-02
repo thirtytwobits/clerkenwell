@@ -367,7 +367,7 @@ checksum = "1c133bc6a41be0d194c306b5506d15e6feeea7b1d6604bd3f8310dfb2ca96486"
 
 [[package]]
 name = "clerkenwell-axum"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "axum",
  "clerkenwell-axum",
@@ -384,7 +384,7 @@ dependencies = [
 
 [[package]]
 name = "clerkenwell-codegen"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "clap",
  "clerkenwell-codegen",
@@ -401,7 +401,7 @@ dependencies = [
 
 [[package]]
 name = "clerkenwell-conformance"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "axum",
  "base64 0.23.1",
@@ -419,7 +419,7 @@ dependencies = [
 
 [[package]]
 name = "clerkenwell-doc"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "base64 0.23.1",
  "clerkenwell-notebook",
@@ -433,7 +433,7 @@ dependencies = [
 
 [[package]]
 name = "clerkenwell-events"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -441,7 +441,7 @@ dependencies = [
 
 [[package]]
 name = "clerkenwell-example-notes"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "axum",
  "clap",
@@ -462,7 +462,7 @@ dependencies = [
 
 [[package]]
 name = "clerkenwell-notebook"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "clerkenwell-schema",
  "schemars",
@@ -472,7 +472,7 @@ dependencies = [
 
 [[package]]
 name = "clerkenwell-public-api"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "clap",
  "proc-macro2",
@@ -482,7 +482,7 @@ dependencies = [
 
 [[package]]
 name = "clerkenwell-release"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "clap",
  "jsonc-parser",
@@ -494,11 +494,11 @@ dependencies = [
 
 [[package]]
 name = "clerkenwell-schema"
-version = "0.1.0"
+version = "0.2.0"
 
 [[package]]
 name = "clerkenwell-session"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "clerkenwell-doc",
  "clerkenwell-events",
@@ -514,7 +514,7 @@ dependencies = [
 
 [[package]]
 name = "clerkenwell-store"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "base64 0.23.1",
  "chrono",
