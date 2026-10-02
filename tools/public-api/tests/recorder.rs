@@ -49,7 +49,8 @@ fn an_item_behind_a_cfg_carries_its_condition() {
         .find(|line| line.contains("behind_a_feature"))
         .expect("the gated item");
 
-    assert!(line.starts_with("#[cfg(feature = \"extra\")]"), "{line}");
+    assert!(line.starts_with("#[cfg(feature = \"extra\")] "), "{line}");
+    assert_eq!(line.matches("#[cfg(").count(), 1, "{line}");
 }
 
 #[test]

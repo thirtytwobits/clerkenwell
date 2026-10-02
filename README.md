@@ -16,7 +16,7 @@ operations and forensic recovery.
 | `clerkenwell-events` | the change-event envelope, a CloudEvents 1.0 event naming a document, its generation and the frontiers a change took it between, and the in-process feed that carries it; it depends on nothing collaborative |
 | `clerkenwell-store` | durable single-authority storage: a set of named stores over whatever storage ports the application registers, accepted documents held in memory and written through, envelopes, a replaceable storage port, fenced compare-and-swap commits, quarantine, repair and an audit log; each commit, repair and deletion is announced on the store's change feed |
 | `clerkenwell-codegen` | the definition language, the authoring-state projection it declares for each collaborative entity, its validation, and the Rust, TypeScript and fixture generator |
-| `clerkenwell-conformance` | cross-language conformance: Rust and TypeScript replicas of one definition's entities exchange the generated fixture operations, concurrent edits and text consumption, and must converge; TypeScript clients sync a note through the Rust notes server |
+| `clerkenwell-conformance` | cross-language conformance: Rust and TypeScript replicas of one definition's entities exchange the generated fixture operations, concurrent edits and text consumption, and must converge; TypeScript clients sync a note through the Rust notes server. An application runs it in its npm project, against the `@clerkenwell/client` installed there |
 
 `loro-release.json` records the approved Rust and npm Loro release pair. No public API
 names a Loro type or is named after Loro; an application that uses Loro depends on it itself.
