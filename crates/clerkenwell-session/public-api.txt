@@ -6,13 +6,13 @@ derive clerkenwell_session::AcceptedMutation: Clone, Debug, PartialEq
 field clerkenwell_session::AcceptedMutation::mutation: String
 field clerkenwell_session::AcceptedMutation::result: M
 struct clerkenwell_session::AuthoringHeld
-derive clerkenwell_session::AuthoringHeld: Clone, Debug, Deserialize, Eq, PartialEq, Serialize
+derive clerkenwell_session::AuthoringHeld: Clone, Debug, Deserialize, Eq, JsonSchema, PartialEq, Serialize
 impl From<&AuthoringState> for clerkenwell_session::AuthoringHeld
 field clerkenwell_session::AuthoringHeld::etag: String
 field clerkenwell_session::AuthoringHeld::frontier: String
 field clerkenwell_session::AuthoringHeld::schema_version: u32
 struct clerkenwell_session::AuthoringState
-derive clerkenwell_session::AuthoringState: Clone, Debug, Deserialize, Eq, PartialEq, Serialize
+derive clerkenwell_session::AuthoringState: Clone, Debug, Deserialize, Eq, JsonSchema, PartialEq, Serialize
 field clerkenwell_session::AuthoringState::accepted_frontier_base64: String
 field clerkenwell_session::AuthoringState::etag: String
 field clerkenwell_session::AuthoringState::exchange_modes: Vec<CollaborationExchangeMode>
@@ -29,7 +29,7 @@ derive clerkenwell_session::FollowingDelivery: Clone, Copy, Debug, Eq, PartialEq
 variant clerkenwell_session::FollowingDelivery::AlreadyHeld
 variant clerkenwell_session::FollowingDelivery::Superseded
 enum clerkenwell_session::Held<D>
-derive clerkenwell_session::Held: Clone, Debug, Eq, PartialEq, Serialize
+derive clerkenwell_session::Held: Clone, Debug, Eq, JsonSchema, PartialEq, Serialize
 variant clerkenwell_session::Held::Authoring(AuthoringHeld)
 variant clerkenwell_session::Held::Host(D)
 impl<D> fn clerkenwell_session::Held::authoring(&self) -> Option<&AuthoringHeld>
@@ -176,13 +176,16 @@ async fn clerkenwell_session::server::publish<H, C>(host: &H, connection: &C, ac
 async fn clerkenwell_session::server::resync_all<H, C>(host: &H, connection: &C, reason: &str) -> Vec<Event<H>> where H: ProjectionHost, C: ProjectionConnection<H::Patch, Held<H::Delivery>>,
 async fn clerkenwell_session::server::serve<H, C>(host: &H, connection: &C, command: ProjectionCommand) -> Result<Reply<H>, H::Failure> where H: ProjectionHost, C: ProjectionConnection<H::Patch, Held<H::Delivery>>,
 async fn clerkenwell_session::server::serve_request<H, C>(host: &H, connection: &C, method: &str, params: Option<Value>) -> Option<Result<Reply<H>, H::Failure>> where H: ProjectionHost, C: ProjectionConnection<H::Patch, Held<H::Delivery>>,
+#[cfg(feature = "testing")] const clerkenwell_session::testing::WIRE_PROTOCOL_RECORD: &str
+#[cfg(feature = "testing")] fn clerkenwell_session::testing::strip_annotations(schema: &mut Value)
+#[cfg(feature = "testing")] fn clerkenwell_session::testing::wire_protocol() -> Value
 const clerkenwell_session::transport::PROJECTION_MUTATE_METHOD: &str
 const clerkenwell_session::transport::PROJECTION_RESYNC_METHOD: &str
 const clerkenwell_session::transport::PROJECTION_SUBSCRIBE_METHOD: &str
 const clerkenwell_session::transport::PROJECTION_UNSUBSCRIBE_METHOD: &str
 const clerkenwell_session::transport::PROJECTION_UPDATE_NOTIFICATION: &str
 enum clerkenwell_session::transport::ProjectionErrorCode
-derive clerkenwell_session::transport::ProjectionErrorCode: Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize
+derive clerkenwell_session::transport::ProjectionErrorCode: Clone, Copy, Debug, Deserialize, Eq, Hash, JsonSchema, PartialEq, Serialize
 const clerkenwell_session::transport::ProjectionErrorCode::ALL: [Self; 12]
 variant clerkenwell_session::transport::ProjectionErrorCode::BaseRevisionInFuture
 variant clerkenwell_session::transport::ProjectionErrorCode::Conflict
@@ -200,7 +203,7 @@ fn clerkenwell_session::transport::ProjectionErrorCode::as_str(self) -> &'static
 fn clerkenwell_session::transport::ProjectionErrorCode::parse(code: &str) -> Option<Self>
 fn clerkenwell_session::transport::ProjectionErrorCode::retryable(self) -> bool
 struct clerkenwell_session::transport::ProjectionErrorEnvelope
-derive clerkenwell_session::transport::ProjectionErrorEnvelope: Clone, Debug, Deserialize, PartialEq, Serialize
+derive clerkenwell_session::transport::ProjectionErrorEnvelope: Clone, Debug, Deserialize, JsonSchema, PartialEq, Serialize
 field clerkenwell_session::transport::ProjectionErrorEnvelope::code: ProjectionErrorCode
 field clerkenwell_session::transport::ProjectionErrorEnvelope::details: Option<Value>
 field clerkenwell_session::transport::ProjectionErrorEnvelope::message: String
@@ -209,49 +212,49 @@ fn clerkenwell_session::transport::ProjectionErrorEnvelope::new(code: Projection
 field clerkenwell_session::transport::ProjectionErrorEnvelope::operation: ProjectionOperation
 field clerkenwell_session::transport::ProjectionErrorEnvelope::retryable: bool
 struct clerkenwell_session::transport::ProjectionMutationAccepted<R>
-derive clerkenwell_session::transport::ProjectionMutationAccepted: Clone, Debug, Deserialize, PartialEq, Serialize
+derive clerkenwell_session::transport::ProjectionMutationAccepted: Clone, Debug, Deserialize, JsonSchema, PartialEq, Serialize
 field clerkenwell_session::transport::ProjectionMutationAccepted::base_revision: Option<u64>
 field clerkenwell_session::transport::ProjectionMutationAccepted::operation_id: Option<String>
 field clerkenwell_session::transport::ProjectionMutationAccepted::result: R
 field clerkenwell_session::transport::ProjectionMutationAccepted::revision: u64
 struct clerkenwell_session::transport::ProjectionMutationCommand
-derive clerkenwell_session::transport::ProjectionMutationCommand: Clone, Debug, Deserialize, PartialEq, Serialize
+derive clerkenwell_session::transport::ProjectionMutationCommand: Clone, Debug, Deserialize, JsonSchema, PartialEq, Serialize
 field clerkenwell_session::transport::ProjectionMutationCommand::base_revision: Option<u64>
 field clerkenwell_session::transport::ProjectionMutationCommand::mutation: String
 field clerkenwell_session::transport::ProjectionMutationCommand::operation_id: Option<String>
 field clerkenwell_session::transport::ProjectionMutationCommand::params: Value
 enum clerkenwell_session::transport::ProjectionOperation
-derive clerkenwell_session::transport::ProjectionOperation: Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize
+derive clerkenwell_session::transport::ProjectionOperation: Clone, Copy, Debug, Deserialize, Eq, JsonSchema, PartialEq, Serialize
 variant clerkenwell_session::transport::ProjectionOperation::Mutate
 variant clerkenwell_session::transport::ProjectionOperation::Resync
 variant clerkenwell_session::transport::ProjectionOperation::Subscribe
 variant clerkenwell_session::transport::ProjectionOperation::Unsubscribe
 fn clerkenwell_session::transport::ProjectionOperation::for_method(method: &str) -> Option<Self>
 struct clerkenwell_session::transport::ProjectionResyncAccepted
-derive clerkenwell_session::transport::ProjectionResyncAccepted: Clone, Debug, Deserialize, Eq, PartialEq, Serialize
+derive clerkenwell_session::transport::ProjectionResyncAccepted: Clone, Debug, Deserialize, Eq, JsonSchema, PartialEq, Serialize
 field clerkenwell_session::transport::ProjectionResyncAccepted::from_revision: u64
 field clerkenwell_session::transport::ProjectionResyncAccepted::revision: u64
 field clerkenwell_session::transport::ProjectionResyncAccepted::subscription_id: u64
 struct clerkenwell_session::transport::ProjectionResyncCommand
-derive clerkenwell_session::transport::ProjectionResyncCommand: Clone, Debug, Deserialize, Eq, PartialEq, Serialize
+derive clerkenwell_session::transport::ProjectionResyncCommand: Clone, Debug, Deserialize, Eq, JsonSchema, PartialEq, Serialize
 field clerkenwell_session::transport::ProjectionResyncCommand::subscription_id: u64
 struct clerkenwell_session::transport::ProjectionSubscribeAccepted
-derive clerkenwell_session::transport::ProjectionSubscribeAccepted: Clone, Debug, Deserialize, Eq, PartialEq, Serialize
+derive clerkenwell_session::transport::ProjectionSubscribeAccepted: Clone, Debug, Deserialize, Eq, JsonSchema, PartialEq, Serialize
 field clerkenwell_session::transport::ProjectionSubscribeAccepted::revision: u64
 field clerkenwell_session::transport::ProjectionSubscribeAccepted::subscription_id: u64
 field clerkenwell_session::transport::ProjectionSubscribeAccepted::up_to_date: bool
 struct clerkenwell_session::transport::ProjectionSubscribeCommand
-derive clerkenwell_session::transport::ProjectionSubscribeCommand: Clone, Debug, Deserialize, PartialEq, Serialize
+derive clerkenwell_session::transport::ProjectionSubscribeCommand: Clone, Debug, Deserialize, JsonSchema, PartialEq, Serialize
 field clerkenwell_session::transport::ProjectionSubscribeCommand::held: Option<Value>
 field clerkenwell_session::transport::ProjectionSubscribeCommand::params: Option<Value>
 field clerkenwell_session::transport::ProjectionSubscribeCommand::projection: String
 enum clerkenwell_session::transport::ProjectionTransportEvent<S, P>
-derive clerkenwell_session::transport::ProjectionTransportEvent: Clone, Debug, Deserialize, PartialEq, Serialize
+derive clerkenwell_session::transport::ProjectionTransportEvent: Clone, Debug, Deserialize, JsonSchema, PartialEq, Serialize
 variant clerkenwell_session::transport::ProjectionTransportEvent::Patch { subscription_id: u64, from_revision: u64, to_revision: u64, patch: P, #[serde(default, skip_serializing_if = "Option::is_none")] held: Option<Value> }
 variant clerkenwell_session::transport::ProjectionTransportEvent::Snapshot { subscription_id: u64, revision: u64, snapshot: S, #[doc = " What the update leaves the client holding, for it to send back when"] #[doc = " it subscribes again. Absent when the server does not name it."] #[serde(default, skip_serializing_if = "Option::is_none")] held: Option<Value> }
 struct clerkenwell_session::transport::ProjectionUnsubscribeAccepted
-derive clerkenwell_session::transport::ProjectionUnsubscribeAccepted: Clone, Debug, Deserialize, Eq, PartialEq, Serialize
+derive clerkenwell_session::transport::ProjectionUnsubscribeAccepted: Clone, Debug, Deserialize, Eq, JsonSchema, PartialEq, Serialize
 field clerkenwell_session::transport::ProjectionUnsubscribeAccepted::removed: bool
 struct clerkenwell_session::transport::ProjectionUnsubscribeCommand
-derive clerkenwell_session::transport::ProjectionUnsubscribeCommand: Clone, Debug, Deserialize, Eq, PartialEq, Serialize
+derive clerkenwell_session::transport::ProjectionUnsubscribeCommand: Clone, Debug, Deserialize, Eq, JsonSchema, PartialEq, Serialize
 field clerkenwell_session::transport::ProjectionUnsubscribeCommand::subscription_id: u64

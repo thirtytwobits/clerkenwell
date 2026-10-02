@@ -53,6 +53,9 @@ the lockfiles together.
 - Generated files are never edited by hand; `clerkenwell-codegen --check` gates them.
 - A crate exports only what its `public-api.txt` records. `clerkenwell-public-api` writes the
   records, and its tests refuse any difference, any Loro type and any name after Loro.
+- The session protocol's wire form is what `wire-protocol.json` records in `clerkenwell-session`
+  and `clerkenwell-axum`. Their tests refuse any difference and rewrite the record when
+  `CLERKENWELL_WRITE_RECORDS` is set.
 - A TypeScript package exports only what its entry files name. Its `public-api.json` records
   those names, and a test refuses any difference, any Loro type and any name after Loro.
 

@@ -24,8 +24,9 @@ use clerkenwell_session::{
     ProjectionHost, ProjectionRefusal, ProjectionSubscriptions,
 };
 use futures_util::{SinkExt, StreamExt};
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{Map, Value};
 use tokio::sync::broadcast;
 use tokio::sync::broadcast::error::RecvError;
 
@@ -51,21 +52,23 @@ impl RpcFailure {
 
     /// The JSON-RPC error object: its code, its message, and the refusal's
     /// details with its protocol code and envelope.
-    fn error_object(&self) -> Value {
-        let mut data = match &self.refusal.details {
+    fn error_object(&self) -> ErrorObject {
+        let mut details = match &self.refusal.details {
             Some(Value::Object(details)) => details.clone(),
-            Some(other) => serde_json::Map::from_iter([("payload".to_owned(), other.clone())]),
-            None => serde_json::Map::new(),
+            Some(other) => Map::from_iter([("payload".to_owned(), other.clone())]),
+            None => Map::new(),
         };
-        data.insert("code".to_owned(), json!(self.refusal.code));
-        if let Some(envelope) = &self.envelope {
-            data.insert("projection_error".to_owned(), json!(envelope));
+        details.remove("code");
+        details.remove("projection_error");
+        ErrorObject {
+            code: rpc_code(self.refusal.code),
+            message: self.refusal.message.clone(),
+            data: Some(ErrorData {
+                code: self.refusal.code,
+                projection_error: self.envelope.as_deref().cloned(),
+                details,
+            }),
         }
-        json!({
-            "code": rpc_code(self.refusal.code),
-            "message": self.refusal.message,
-            "data": data,
-        })
     }
 }
 
@@ -104,7 +107,14 @@ fn rpc_code(code: ProjectionErrorCode) -> i64 {
     }
 }
 
-#[derive(Debug, Deserialize)]
+/// The JSON-RPC version every frame names.
+#[derive(Debug, Clone, Copy, Serialize, JsonSchema)]
+enum Version {
+    #[serde(rename = "2.0")]
+    V2,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
 struct Request {
     jsonrpc: String,
     #[serde(default)]
@@ -114,9 +124,54 @@ struct Request {
     params: Option<Value>,
 }
 
-#[derive(Debug, Serialize)]
+/// The answer to a request that has an id.
+#[derive(Debug, Serialize, JsonSchema)]
+struct Response<R> {
+    jsonrpc: Version,
+    id: Value,
+    #[serde(flatten)]
+    outcome: Outcome<R>,
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+enum Outcome<R> {
+    Result(R),
+    Error(ErrorObject),
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+struct ErrorObject {
+    code: i64,
+    message: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    data: Option<ErrorData>,
+}
+
+impl ErrorObject {
+    /// An error the protocol layer raises before any command is served.
+    fn framing(code: i64, message: impl Into<String>) -> Self {
+        Self {
+            code,
+            message: message.into(),
+            data: None,
+        }
+    }
+}
+
+/// A refusal's details, with its protocol code and envelope.
+#[derive(Debug, Serialize, JsonSchema)]
+struct ErrorData {
+    code: ProjectionErrorCode,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    projection_error: Option<ProjectionErrorEnvelope>,
+    #[serde(flatten)]
+    details: Map<String, Value>,
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
 struct Notification<'a, T> {
-    jsonrpc: &'static str,
+    jsonrpc: Version,
     method: &'static str,
     params: &'a T,
 }
@@ -253,17 +308,20 @@ where
         let request = match serde_json::from_str::<Request>(text) {
             Ok(request) => request,
             Err(error) => {
-                return vec![error_frame(
+                return vec![frame(
                     Value::Null,
-                    json!({ "code": PARSE_ERROR, "message": error.to_string() }),
+                    Err::<Value, _>(ErrorObject::framing(PARSE_ERROR, error.to_string())),
                 )]
             }
         };
         let id = request.id.clone();
         if request.jsonrpc != "2.0" {
-            return vec![error_frame(
+            return vec![frame(
                 id.unwrap_or(Value::Null),
-                json!({ "code": INVALID_REQUEST, "message": "Only JSON-RPC 2.0 requests are served." }),
+                Err::<Value, _>(ErrorObject::framing(
+                    INVALID_REQUEST,
+                    "Only JSON-RPC 2.0 requests are served.",
+                )),
             )];
         }
         let served = serve_request(
@@ -275,10 +333,10 @@ where
         .await;
         let (response, events) = match served {
             None => (
-                Err(json!({
-                    "code": METHOD_NOT_FOUND,
-                    "message": format!("Unknown method \"{}\".", request.method),
-                })),
+                Err(ErrorObject::framing(
+                    METHOD_NOT_FOUND,
+                    format!("Unknown method \"{}\".", request.method),
+                )),
                 Vec::new(),
             ),
             Some(Err(failure)) => (Err(failure.error_object()), Vec::new()),
@@ -294,18 +352,25 @@ where
         };
         let mut frames = Vec::new();
         if let Some(id) = id {
-            frames.push(match response {
-                Ok(result) => json!({ "jsonrpc": "2.0", "id": id, "result": result }).to_string(),
-                Err(error) => error_frame(id, error),
-            });
+            frames.push(frame(id, response));
         }
         frames.extend(events.iter().filter_map(notification));
         frames
     }
 }
 
-fn error_frame(id: Value, error: Value) -> String {
-    json!({ "jsonrpc": "2.0", "id": id, "error": error }).to_string()
+/// The response frame that answers the request `id`.
+fn frame<R: Serialize>(id: Value, outcome: Result<R, ErrorObject>) -> String {
+    let outcome = match outcome {
+        Ok(result) => Outcome::Result(result),
+        Err(error) => Outcome::Error(error),
+    };
+    serde_json::to_string(&Response {
+        jsonrpc: Version::V2,
+        id,
+        outcome,
+    })
+    .expect("a response frame serialises")
 }
 
 /// An update as the notification that sends it. An update that cannot be
@@ -315,9 +380,61 @@ fn notification<S: Serialize, P: Serialize>(
     event: &ProjectionTransportEvent<S, P>,
 ) -> Option<String> {
     serde_json::to_string(&Notification {
-        jsonrpc: "2.0",
+        jsonrpc: Version::V2,
         method: PROJECTION_UPDATE_NOTIFICATION,
         params: event,
     })
     .ok()
+}
+
+/// The JSON-RPC framing, as `wire-protocol.json` records it.
+#[cfg(feature = "testing")]
+pub mod testing {
+    use schemars::generate::{SchemaGenerator, SchemaSettings};
+    use schemars::JsonSchema;
+    use serde_json::{json, Map, Value};
+
+    use clerkenwell_session::testing::strip_annotations;
+    use clerkenwell_session::transport::ProjectionErrorCode;
+
+    use super::{
+        rpc_code, Notification, Request, Response, INVALID_REQUEST, METHOD_NOT_FOUND, PARSE_ERROR,
+    };
+
+    pub use clerkenwell_session::testing::WIRE_PROTOCOL_RECORD;
+
+    /// The JSON Schema of the frames that carry the session protocol, and the
+    /// JSON-RPC error code each failure answers with. The session protocol's
+    /// own record holds the parameters and results the frames carry.
+    pub fn wire_protocol() -> Value {
+        let mut generator = SchemaSettings::draft2020_12().into_generator();
+        let request = schema::<Request>(&mut generator);
+        let response = schema::<Response<Value>>(&mut generator);
+        let notification = schema::<Notification<'static, Value>>(&mut generator);
+        let refusals: Map<String, Value> = ProjectionErrorCode::ALL
+            .into_iter()
+            .map(|code| (code.as_str().to_owned(), json!(rpc_code(code))))
+            .collect();
+        let mut definitions = generator.take_definitions(true);
+        definitions.values_mut().for_each(strip_annotations);
+        json!({
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "request": request,
+            "response": response,
+            "notification": notification,
+            "error_codes": {
+                "parse_error": PARSE_ERROR,
+                "invalid_request": INVALID_REQUEST,
+                "method_not_found": METHOD_NOT_FOUND,
+                "refusals": refusals,
+            },
+            "$defs": definitions,
+        })
+    }
+
+    fn schema<T: JsonSchema>(generator: &mut SchemaGenerator) -> Value {
+        let mut schema = generator.subschema_for::<T>().to_value();
+        strip_annotations(&mut schema);
+        schema
+    }
 }

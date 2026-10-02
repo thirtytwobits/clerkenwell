@@ -99,6 +99,13 @@ impl ProjectionHost for Counters {
     }
 
     async fn mutate(&self, _mutation: &str, params: Value) -> Result<Value, RpcFailure> {
+        if let Some(details) = params.get("refuse") {
+            return Err(RpcFailure::new(
+                ProjectionErrorCode::Conflict,
+                "Refused.",
+                Some(details.clone()),
+            ));
+        }
         let id = counter_id(&params)?;
         let mut values = self.values.lock().expect("values");
         let value = values.entry(id.clone()).or_default();
@@ -349,6 +356,38 @@ async fn a_refused_command_answers_with_its_error_and_envelope() {
     assert_eq!(data["projection_error"]["code"], "unknown_mutation");
     assert_eq!(data["projection_error"]["operation"], "mutate");
     assert_eq!(data["projection_error"]["name"], "counter.explode");
+}
+
+#[tokio::test]
+async fn a_refusal_s_details_join_its_error_data_beneath_its_protocol_code() {
+    let (url, _) = start(8).await;
+    let mut socket = connect(&url).await;
+
+    for (id, details) in [
+        (1, json!({ "reason": "taken", "code": "spoofed" })),
+        (2, json!(7)),
+    ] {
+        request(
+            &mut socket,
+            id,
+            "projection.mutate",
+            json!({ "mutation": "counter.increment", "params": { "refuse": details } }),
+        )
+        .await;
+    }
+
+    let object = next(&mut socket).await;
+    let data = &object["error"]["data"];
+    assert_eq!(object["id"], json!(1));
+    assert_eq!(data["reason"], "taken");
+    assert_eq!(data["code"], "conflict");
+    assert_eq!(data["projection_error"]["code"], "conflict");
+
+    let other = next(&mut socket).await;
+    let data = &other["error"]["data"];
+    assert_eq!(other["id"], json!(2));
+    assert_eq!(data["payload"], json!(7));
+    assert_eq!(data["code"], "conflict");
 }
 
 #[tokio::test]

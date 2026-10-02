@@ -1,0 +1,217 @@
+{
+  "$defs": {
+    "ErrorData": {
+      "additionalProperties": true,
+      "properties": {
+        "code": {
+          "$ref": "#/$defs/ProjectionErrorCode"
+        },
+        "projection_error": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProjectionErrorEnvelope"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "code"
+      ],
+      "type": "object"
+    },
+    "ErrorObject": {
+      "properties": {
+        "code": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "data": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ErrorData"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "message": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "code",
+        "message"
+      ],
+      "type": "object"
+    },
+    "Notification": {
+      "properties": {
+        "jsonrpc": {
+          "$ref": "#/$defs/Version"
+        },
+        "method": {
+          "type": "string"
+        },
+        "params": true
+      },
+      "required": [
+        "jsonrpc",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    "ProjectionErrorCode": {
+      "enum": [
+        "unknown_mutation",
+        "unsupported_mutation",
+        "unknown_projection",
+        "unsupported_projection",
+        "invalid_params",
+        "not_found",
+        "conflict",
+        "validation_failed",
+        "base_revision_in_future",
+        "stale_write",
+        "rate_limit",
+        "internal_error"
+      ],
+      "type": "string"
+    },
+    "ProjectionErrorEnvelope": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "$ref": "#/$defs/ProjectionErrorCode"
+        },
+        "details": true,
+        "message": {
+          "type": "string"
+        },
+        "name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "operation": {
+          "$ref": "#/$defs/ProjectionOperation"
+        },
+        "retryable": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "code",
+        "message",
+        "operation",
+        "retryable"
+      ],
+      "type": "object"
+    },
+    "ProjectionOperation": {
+      "enum": [
+        "subscribe",
+        "resync",
+        "unsubscribe",
+        "mutate"
+      ],
+      "type": "string"
+    },
+    "Request": {
+      "properties": {
+        "id": {
+          "default": null
+        },
+        "jsonrpc": {
+          "type": "string"
+        },
+        "method": {
+          "type": "string"
+        },
+        "params": {
+          "default": null
+        }
+      },
+      "required": [
+        "jsonrpc",
+        "method"
+      ],
+      "type": "object"
+    },
+    "Response": {
+      "oneOf": [
+        {
+          "properties": {
+            "result": true
+          },
+          "required": [
+            "result"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "error": {
+              "$ref": "#/$defs/ErrorObject"
+            }
+          },
+          "required": [
+            "error"
+          ],
+          "type": "object"
+        }
+      ],
+      "properties": {
+        "id": true,
+        "jsonrpc": {
+          "$ref": "#/$defs/Version"
+        }
+      },
+      "required": [
+        "jsonrpc",
+        "id"
+      ],
+      "type": "object"
+    },
+    "Version": {
+      "enum": [
+        "2.0"
+      ],
+      "type": "string"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "error_codes": {
+    "invalid_request": -32600,
+    "method_not_found": -32601,
+    "parse_error": -32700,
+    "refusals": {
+      "base_revision_in_future": -32009,
+      "conflict": -32009,
+      "internal_error": -32000,
+      "invalid_params": -32602,
+      "not_found": -32004,
+      "rate_limit": -32000,
+      "stale_write": -32009,
+      "unknown_mutation": -32602,
+      "unknown_projection": -32602,
+      "unsupported_mutation": -32602,
+      "unsupported_projection": -32602,
+      "validation_failed": -32602
+    }
+  },
+  "notification": {
+    "$ref": "#/$defs/Notification"
+  },
+  "request": {
+    "$ref": "#/$defs/Request"
+  },
+  "response": {
+    "$ref": "#/$defs/Response"
+  }
+}

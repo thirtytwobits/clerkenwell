@@ -1,0 +1,401 @@
+{
+  "$defs": {
+    "AuthoringHeld": {
+      "properties": {
+        "etag": {
+          "type": "string"
+        },
+        "frontier": {
+          "type": "string"
+        },
+        "schema_version": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "schema_version",
+        "frontier",
+        "etag"
+      ],
+      "type": "object"
+    },
+    "AuthoringState": {
+      "properties": {
+        "accepted_frontier_base64": {
+          "type": "string"
+        },
+        "etag": {
+          "type": "string"
+        },
+        "exchange_modes": {
+          "items": {
+            "$ref": "#/$defs/CollaborationExchangeMode"
+          },
+          "type": "array"
+        },
+        "schema_version": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "update_base64": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "accepted_frontier_base64",
+        "update_base64",
+        "etag",
+        "exchange_modes"
+      ],
+      "type": "object"
+    },
+    "CollaborationExchangeMode": {
+      "enum": [
+        "incremental",
+        "bootstrap"
+      ],
+      "type": "string"
+    },
+    "ProjectionErrorCode": {
+      "enum": [
+        "unknown_mutation",
+        "unsupported_mutation",
+        "unknown_projection",
+        "unsupported_projection",
+        "invalid_params",
+        "not_found",
+        "conflict",
+        "validation_failed",
+        "base_revision_in_future",
+        "stale_write",
+        "rate_limit",
+        "internal_error"
+      ],
+      "type": "string"
+    },
+    "ProjectionErrorEnvelope": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "$ref": "#/$defs/ProjectionErrorCode"
+        },
+        "details": true,
+        "message": {
+          "type": "string"
+        },
+        "name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "operation": {
+          "$ref": "#/$defs/ProjectionOperation"
+        },
+        "retryable": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "code",
+        "message",
+        "operation",
+        "retryable"
+      ],
+      "type": "object"
+    },
+    "ProjectionMutationAccepted": {
+      "additionalProperties": false,
+      "properties": {
+        "base_revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "operation_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "result": true,
+        "revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "revision",
+        "result"
+      ],
+      "type": "object"
+    },
+    "ProjectionMutationCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "base_revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "mutation": {
+          "type": "string"
+        },
+        "operation_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "params": true
+      },
+      "required": [
+        "mutation",
+        "params"
+      ],
+      "type": "object"
+    },
+    "ProjectionOperation": {
+      "enum": [
+        "subscribe",
+        "resync",
+        "unsubscribe",
+        "mutate"
+      ],
+      "type": "string"
+    },
+    "ProjectionResyncAccepted": {
+      "additionalProperties": false,
+      "properties": {
+        "from_revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "subscription_id": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "subscription_id",
+        "from_revision",
+        "revision"
+      ],
+      "type": "object"
+    },
+    "ProjectionResyncCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "subscription_id": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "subscription_id"
+      ],
+      "type": "object"
+    },
+    "ProjectionSubscribeAccepted": {
+      "additionalProperties": false,
+      "properties": {
+        "revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "subscription_id": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "up_to_date": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "subscription_id",
+        "revision"
+      ],
+      "type": "object"
+    },
+    "ProjectionSubscribeCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "held": {},
+        "params": true,
+        "projection": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "projection"
+      ],
+      "type": "object"
+    },
+    "ProjectionTransportEvent": {
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "held": {},
+            "kind": {
+              "const": "snapshot",
+              "type": "string"
+            },
+            "revision": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "snapshot": true,
+            "subscription_id": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "kind",
+            "subscription_id",
+            "revision",
+            "snapshot"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "from_revision": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "held": true,
+            "kind": {
+              "const": "patch",
+              "type": "string"
+            },
+            "patch": true,
+            "subscription_id": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "to_revision": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "kind",
+            "subscription_id",
+            "from_revision",
+            "to_revision",
+            "patch"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "ProjectionUnsubscribeAccepted": {
+      "additionalProperties": false,
+      "properties": {
+        "removed": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "removed"
+      ],
+      "type": "object"
+    },
+    "ProjectionUnsubscribeCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "subscription_id": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "subscription_id"
+      ],
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "authoring": {
+    "held": {
+      "$ref": "#/$defs/AuthoringHeld"
+    },
+    "state": {
+      "$ref": "#/$defs/AuthoringState"
+    }
+  },
+  "methods": {
+    "projection.mutate": {
+      "params": {
+        "$ref": "#/$defs/ProjectionMutationCommand"
+      },
+      "result": {
+        "$ref": "#/$defs/ProjectionMutationAccepted"
+      }
+    },
+    "projection.resync": {
+      "params": {
+        "$ref": "#/$defs/ProjectionResyncCommand"
+      },
+      "result": {
+        "$ref": "#/$defs/ProjectionResyncAccepted"
+      }
+    },
+    "projection.subscribe": {
+      "params": {
+        "$ref": "#/$defs/ProjectionSubscribeCommand"
+      },
+      "result": {
+        "$ref": "#/$defs/ProjectionSubscribeAccepted"
+      }
+    },
+    "projection.unsubscribe": {
+      "params": {
+        "$ref": "#/$defs/ProjectionUnsubscribeCommand"
+      },
+      "result": {
+        "$ref": "#/$defs/ProjectionUnsubscribeAccepted"
+      }
+    }
+  },
+  "notifications": {
+    "projection.update": {
+      "params": {
+        "$ref": "#/$defs/ProjectionTransportEvent"
+      }
+    }
+  },
+  "refusal": {
+    "$ref": "#/$defs/ProjectionErrorEnvelope"
+  }
+}

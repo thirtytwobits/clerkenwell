@@ -44,7 +44,7 @@ field clerkenwell_store::CollaborationDocumentSummary::retained_count: usize
 field clerkenwell_store::CollaborationDocumentSummary::retained_sequences: Option<(u64, u64)>
 field clerkenwell_store::CollaborationDocumentSummary::schema_version: u32
 enum clerkenwell_store::CollaborationExchangeMode
-derive clerkenwell_store::CollaborationExchangeMode: Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize
+derive clerkenwell_store::CollaborationExchangeMode: Clone, Copy, Debug, Deserialize, Eq, JsonSchema, PartialEq, Serialize
 variant clerkenwell_store::CollaborationExchangeMode::Bootstrap
 variant clerkenwell_store::CollaborationExchangeMode::Incremental
 struct clerkenwell_store::CollaborationImportRequest
