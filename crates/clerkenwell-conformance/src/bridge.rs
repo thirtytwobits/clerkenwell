@@ -37,32 +37,26 @@ pub struct TypeScriptReplica<'a> {
 }
 
 impl Bridge {
-    /// Starts the bridge in `project`, an npm project with `tsx` and
-    /// `@clerkenwell/client` installed, over the TypeScript plans and fixture
+    /// Starts the bridge in `project`, an npm project in which Node resolves
+    /// `tsx` and `@clerkenwell/client`, over the TypeScript plans and fixture
     /// corpus of `bindings`. Node resolves packages under `conditions`. A
     /// client of another version than this crate's is refused.
     pub fn start(bindings: &Bindings, project: &Path, conditions: &[&str]) -> Self {
-        for package in ["tsx", "@clerkenwell/client"] {
-            assert!(
-                project.join("node_modules").join(package).is_dir(),
-                "the conformance bridge needs {package} installed in {}",
-                project.display()
-            );
-        }
-        let script = write_script(project);
+        let project = absolute(project);
+        let directory = project.join(SCRIPT_DIRECTORY);
+        std::fs::create_dir_all(&directory)
+            .unwrap_or_else(|error| panic!("cannot create {}: {error}", directory.display()));
+        require_packages(&project, &directory, conditions);
+        let script = write_script(&directory);
         let mut child = Command::new("node")
-            .args(
-                conditions
-                    .iter()
-                    .map(|condition| format!("--conditions={condition}")),
-            )
+            .args(condition_arguments(conditions))
             .args(["--import", "tsx"])
             .arg(&script)
             .arg("--plans")
-            .arg(&bindings.typescript_plans)
+            .arg(absolute(&bindings.typescript_plans))
             .arg("--fixtures")
-            .arg(&bindings.collaboration_fixtures)
-            .current_dir(project)
+            .arg(absolute(&bindings.collaboration_fixtures))
+            .current_dir(&project)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit())
@@ -175,14 +169,51 @@ impl Drop for Bridge {
     }
 }
 
-/// Writes a copy of the bridge into `project`, where Node resolves packages
-/// from that project. Each bridge has its own copy, an ES module whatever the
-/// project's module type.
-fn write_script(project: &Path) -> PathBuf {
+/// `path`, absolute against this process's working directory, since the
+/// bridge runs in another.
+fn absolute(path: &Path) -> PathBuf {
+    std::path::absolute(path)
+        .unwrap_or_else(|error| panic!("cannot make {} absolute: {error}", path.display()))
+}
+
+fn condition_arguments<'a>(conditions: &'a [&str]) -> impl Iterator<Item = String> + 'a {
+    conditions
+        .iter()
+        .map(|condition| format!("--conditions={condition}"))
+}
+
+/// Refuses `project` unless Node, resolving from `directory` where the bridge
+/// is written, finds `tsx` and `@clerkenwell/client`: in the project's own
+/// `node_modules` or one above it.
+fn require_packages(project: &Path, directory: &Path, conditions: &[&str]) {
+    const RESOLVE: &str = "for (const name of ['tsx', '@clerkenwell/client']) { \
+        try { import.meta.resolve(name); } catch { console.log(name); } }";
+    let output = Command::new("node")
+        .args(condition_arguments(conditions))
+        .args(["--input-type=module", "--eval", RESOLVE])
+        .current_dir(directory)
+        .output()
+        .unwrap_or_else(|error| panic!("node runs: {error}"));
+    assert!(
+        output.status.success(),
+        "node resolves packages: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let missing = String::from_utf8_lossy(&output.stdout);
+    let missing: Vec<&str> = missing.lines().collect();
+    assert!(
+        missing.is_empty(),
+        "the conformance bridge needs {} installed in {} or a project above it",
+        missing.join(" and "),
+        project.display()
+    );
+}
+
+/// Writes a copy of the bridge into `directory`, inside the project, where
+/// Node resolves packages from that project. Each bridge has its own copy, an
+/// ES module whatever the project's module type.
+fn write_script(directory: &Path) -> PathBuf {
     static NEXT: AtomicU64 = AtomicU64::new(0);
-    let directory = project.join(SCRIPT_DIRECTORY);
-    std::fs::create_dir_all(&directory)
-        .unwrap_or_else(|error| panic!("cannot create {}: {error}", directory.display()));
     let script = directory.join(format!(
         "bridge-{}-{}.mts",
         std::process::id(),

@@ -6,8 +6,9 @@
 //! replicas in a Node bridge, and requires every exchange to leave both
 //! languages holding the same history and materialising the same document.
 //!
-//! The bridge runs in an npm project that has `tsx` and `@clerkenwell/client`
-//! installed, at this crate's version, and drives that installed client.
+//! The bridge runs in an npm project in which Node resolves `tsx` and
+//! `@clerkenwell/client` at this crate's version, and drives that installed
+//! client.
 
 mod bridge;
 mod corpus;
@@ -97,9 +98,11 @@ impl Conformance {
         Self::launch(bindings, &workspace(), &["@clerkenwell/source"])
     }
 
-    /// Starts a bridge in `project` over `bindings`: an npm project with
-    /// `tsx` and `@clerkenwell/client` at this crate's version installed. The
-    /// bridge drives the client as the project installed it.
+    /// Starts a bridge in `project` over `bindings`: an npm project in which
+    /// Node resolves `tsx` and `@clerkenwell/client` at this crate's version,
+    /// from its own `node_modules` or a workspace's above it. The bridge
+    /// drives the client as the project installed it. Relative paths are
+    /// taken against this process's working directory.
     pub fn start_in(bindings: &Bindings, project: &Path) -> Self {
         Self::launch(bindings, project, &[])
     }

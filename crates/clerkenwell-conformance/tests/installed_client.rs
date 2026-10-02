@@ -1,7 +1,7 @@
 //! A consumer's npm project drives conformance against the
 //! `@clerkenwell/client` it installed from the packed package.
 
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::process::Command;
 use std::sync::OnceLock;
 
@@ -57,7 +57,12 @@ fn packed_client() -> &'static Path {
 /// An npm project with the packed client and `tsx` installed, and the
 /// notebook's generated TypeScript plans in it.
 fn consumer() -> tempfile::TempDir {
-    let project = tempfile::tempdir().expect("a temporary directory");
+    consumer_in(&std::env::temp_dir())
+}
+
+/// A consumer project in a new directory under `parent`.
+fn consumer_in(parent: &Path) -> tempfile::TempDir {
+    let project = tempfile::tempdir_in(parent).expect("a temporary directory");
     std::fs::write(
         project.path().join("package.json"),
         r#"{ "name": "consumer", "private": true, "type": "module" }"#,
@@ -135,8 +140,65 @@ fn a_client_of_another_version_is_refused() {
 }
 
 #[test]
+fn a_project_whose_packages_a_workspace_above_it_installed_drives_conformance() {
+    let workspace = consumer();
+    let project = workspace.path().join("app");
+    std::fs::create_dir_all(project.join("plans")).expect("a directory");
+    std::fs::rename(
+        workspace.path().join("plans/index.ts"),
+        project.join("plans/index.ts"),
+    )
+    .expect("a move");
+    assert!(!project.join("node_modules/@clerkenwell/client").exists());
+    Conformance::start_in(&bindings(&project), &project).seeding();
+}
+
+/// `path` relative to this process's working directory, through their
+/// nearest common ancestor.
+fn relative(path: &Path) -> PathBuf {
+    let here = std::env::current_dir()
+        .and_then(|here| here.canonicalize())
+        .expect("a working directory");
+    let path = path.canonicalize().expect("an existing path");
+    let shared = here
+        .components()
+        .zip(path.components())
+        .take_while(|(left, right)| left == right)
+        .count();
+    let mut relative: PathBuf = here
+        .components()
+        .skip(shared)
+        .map(|_| Component::ParentDir)
+        .collect();
+    relative.extend(path.components().skip(shared));
+    relative
+}
+
+#[test]
+fn a_project_given_by_a_relative_path_drives_conformance() {
+    // Under the build's own directory, so the path to it does not climb to
+    // the filesystem root, which every directory reaches alike.
+    let project = consumer_in(Path::new(env!("CARGO_TARGET_TMPDIR")));
+    let project = relative(project.path());
+    assert!(project.starts_with(".."), "{}", project.display());
+    let bindings = bindings(&project);
+    assert!(bindings.typescript_plans.is_relative());
+    Conformance::start_in(&bindings, &project).seeding();
+}
+
+#[test]
 #[should_panic(expected = "needs tsx installed")]
 fn a_project_without_tsx_is_refused() {
-    let project = tempfile::tempdir().expect("a temporary directory");
+    let project = consumer();
+    std::fs::remove_dir_all(project.path().join("node_modules/tsx")).expect("removable");
+    Conformance::start_in(&bindings(project.path()), project.path());
+}
+
+#[test]
+#[should_panic(expected = "needs @clerkenwell/client installed")]
+fn a_project_without_the_client_is_refused() {
+    let project = consumer();
+    std::fs::remove_dir_all(project.path().join("node_modules/@clerkenwell/client"))
+        .expect("removable");
     Conformance::start_in(&bindings(project.path()), project.path());
 }
