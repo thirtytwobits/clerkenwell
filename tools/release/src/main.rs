@@ -1,7 +1,9 @@
 use std::process::ExitCode;
 
 use clap::{Parser, Subcommand};
-use clerkenwell_release::{agreed, bump, check_release, workspace, Version, CONTRACTS};
+use clerkenwell_release::{
+    agreed, bump, check_release, release_notes, workspace, Version, CONTRACTS,
+};
 
 /// Sets and checks the one version every Clerkenwell crate and package is
 /// released at.
@@ -30,6 +32,8 @@ enum Commands {
         #[arg(long)]
         since: String,
     },
+    /// Prints VERSION's section of CHANGELOG.md, the notes of its release.
+    Notes { version: Version },
 }
 
 fn main() -> ExitCode {
@@ -40,6 +44,7 @@ fn main() -> ExitCode {
         Commands::Breaking { since } => {
             check_release(&root, &since, CONTRACTS).map(|comparison| println!("{comparison}"))
         }
+        Commands::Notes { version } => release_notes(&root, version).map(|notes| print!("{notes}")),
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,

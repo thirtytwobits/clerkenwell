@@ -6,10 +6,13 @@
 //! another. `Cargo.lock` and `package-lock.json` record each of those again.
 //! [`statements`] reads every one, [`agreed`] requires them to agree, and
 //! [`bump`] moves them all to a new version, changing nothing else in any file.
-//! [`check_release`] refuses a patch release that changes a contract.
+//! [`check_release`] refuses a patch release that changes a contract, and
+//! [`release_notes`] reads a release's section of the changelog.
 
+mod changelog;
 mod contracts;
 
+pub use changelog::{release_notes, CHANGELOG};
 pub use contracts::{check_release, resolve, Comparison, Contract, Release, CONTRACTS};
 
 use std::fmt;
@@ -137,6 +140,11 @@ pub enum Error {
         current: Version,
         changed: Vec<String>,
     },
+    #[error(
+        "{} has no notes for {version}: add a `## {version}` section",
+        CHANGELOG
+    )]
+    NoNotes { version: Version },
 }
 
 fn list(items: &[impl fmt::Display]) -> String {
