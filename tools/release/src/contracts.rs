@@ -66,6 +66,21 @@ pub struct Comparison {
     pub changed: Vec<String>,
 }
 
+/// The release on one line, then one line per changed contract.
+impl fmt::Display for Comparison {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "{} to {} is a {} release.",
+            self.previous, self.current, self.release
+        )?;
+        for place in &self.changed {
+            write!(f, "\nchanged: {place}")?;
+        }
+        Ok(())
+    }
+}
+
 /// Compares the working tree at `root` with the Git reference `since`, the
 /// previous release. Refuses a version no newer than the previous release's,
 /// and a patch release that changes any of `contracts`.

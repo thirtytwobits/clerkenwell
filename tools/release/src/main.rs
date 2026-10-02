@@ -35,24 +35,14 @@ enum Commands {
 fn main() -> ExitCode {
     let root = workspace();
     let result = match Cli::parse().command {
-        Commands::Bump { version } => bump(&root, version),
-        Commands::Check => agreed(&root),
-        Commands::Breaking { since } => check_release(&root, &since, CONTRACTS).map(|comparison| {
-            println!(
-                "{} to {} is a {} release.",
-                comparison.previous, comparison.current, comparison.release
-            );
-            for place in &comparison.changed {
-                println!("changed: {place}");
-            }
-            comparison.current
-        }),
+        Commands::Bump { version } => bump(&root, version).map(|version| println!("{version}")),
+        Commands::Check => agreed(&root).map(|version| println!("{version}")),
+        Commands::Breaking { since } => {
+            check_release(&root, &since, CONTRACTS).map(|comparison| println!("{comparison}"))
+        }
     };
     match result {
-        Ok(version) => {
-            println!("{version}");
-            ExitCode::SUCCESS
-        }
+        Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
             eprintln!("{error}");
             ExitCode::FAILURE

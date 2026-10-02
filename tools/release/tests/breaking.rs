@@ -169,6 +169,25 @@ fn a_minor_or_major_release_may_change_contracts() {
 }
 
 #[test]
+fn a_comparison_reads_as_the_release_then_each_changed_contract() {
+    let comparison = Comparison {
+        previous: version("0.3.0"),
+        current: version("0.4.0"),
+        release: Release::Minor,
+        changed: vec!["a/public-api.txt".to_owned(), "b/public-api.txt".to_owned()],
+    };
+    assert_eq!(
+        comparison.to_string(),
+        "0.3.0 to 0.4.0 is a minor release.\nchanged: a/public-api.txt\nchanged: b/public-api.txt"
+    );
+    let unchanged = Comparison {
+        changed: Vec::new(),
+        ..comparison
+    };
+    assert_eq!(unchanged.to_string(), "0.3.0 to 0.4.0 is a minor release.");
+}
+
+#[test]
 fn a_change_beside_a_constant_is_not_a_contract_change() {
     let workspace = released();
     let root = workspace.path();
