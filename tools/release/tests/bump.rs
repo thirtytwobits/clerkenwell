@@ -6,34 +6,9 @@ use std::path::{Path, PathBuf};
 
 use clerkenwell_release::{agreed, bump, statements, Error, Version};
 
-const FIXTURE_VERSION: &str = "0.3.0";
+mod support;
 
-fn version(text: &str) -> Version {
-    text.parse().expect("a version")
-}
-
-fn copy(from: &Path, to: &Path) {
-    std::fs::create_dir_all(to).expect("a directory");
-    for entry in std::fs::read_dir(from).expect("the fixture is readable") {
-        let entry = entry.expect("an entry");
-        let target = to.join(entry.file_name());
-        if entry.file_type().expect("a type").is_dir() {
-            copy(&entry.path(), &target);
-        } else {
-            std::fs::copy(entry.path(), target).expect("a copy");
-        }
-    }
-}
-
-/// A fresh copy of the fixture workspace.
-fn fixture() -> tempfile::TempDir {
-    let directory = tempfile::tempdir().expect("a temporary directory");
-    copy(
-        &Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/workspace"),
-        directory.path(),
-    );
-    directory
-}
+use support::{edit, fixture, version, FIXTURE_VERSION};
 
 /// Every file in a workspace and its text.
 fn files(root: &Path) -> BTreeMap<PathBuf, String> {
@@ -53,13 +28,6 @@ fn files(root: &Path) -> BTreeMap<PathBuf, String> {
     let mut files = BTreeMap::new();
     walk(root, root, &mut files);
     files
-}
-
-fn edit(root: &Path, file: &str, from: &str, to: &str) {
-    let path = root.join(file);
-    let text = std::fs::read_to_string(&path).expect("readable");
-    assert!(text.contains(from), "{file} contains {from}");
-    std::fs::write(&path, text.replacen(from, to, 1)).expect("writable");
 }
 
 fn disagreeing(root: &Path) -> Vec<String> {
