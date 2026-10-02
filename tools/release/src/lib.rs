@@ -6,6 +6,11 @@
 //! another. `Cargo.lock` and `package-lock.json` record each of those again.
 //! [`statements`] reads every one, [`agreed`] requires them to agree, and
 //! [`bump`] moves them all to a new version, changing nothing else in any file.
+//! [`check_release`] refuses a patch release that changes a contract.
+
+mod contracts;
+
+pub use contracts::{check_release, resolve, Comparison, Contract, Release, CONTRACTS};
 
 use std::fmt;
 use std::path::{Path, PathBuf};
@@ -120,12 +125,24 @@ pub enum Error {
         requested: Version,
         current: Version,
     },
+    #[error("{0}")]
+    Git(String),
+    #[error("a contract names nothing: {0}")]
+    Contract(String),
+    #[error("{current} is no newer than the previous release, {previous}")]
+    NotNewer { previous: Version, current: Version },
+    #[error("{previous} to {current} is a patch release, but these contracts changed; release a minor version:\n{}", list(.changed))]
+    Breaking {
+        previous: Version,
+        current: Version,
+        changed: Vec<String>,
+    },
 }
 
-fn list(statements: &[Statement]) -> String {
-    statements
+fn list(items: &[impl fmt::Display]) -> String {
+    items
         .iter()
-        .map(|statement| format!("  {statement}"))
+        .map(|item| format!("  {item}"))
         .collect::<Vec<_>>()
         .join("\n")
 }
