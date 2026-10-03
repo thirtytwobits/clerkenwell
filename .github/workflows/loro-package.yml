@@ -48,19 +48,19 @@ jobs:
 
       - name: Install the recorded build tools
         env:
-          RUSTC: ${{ steps.record.outputs.rustc }}
+          RUST_VERSION: ${{ steps.record.outputs.rustc }}
           NPM: ${{ steps.record.outputs.npm }}
           PNPM: ${{ steps.record.outputs.pnpm }}
           DENO: ${{ steps.record.outputs.deno }}
           BUN: ${{ steps.record.outputs.bun }}
           WASM_BINDGEN: ${{ steps.record.outputs.wasm-bindgen }}
         run: |
-          rustup toolchain install "$RUSTC" --profile minimal --target wasm32-unknown-unknown
+          rustup toolchain install "$RUST_VERSION" --profile minimal --target wasm32-unknown-unknown
           npm install --prefix "$RUNNER_TEMP/loro-tools" "npm@$NPM" "pnpm@$PNPM" "deno@$DENO" "bun@$BUN"
           echo "$RUNNER_TEMP/loro-tools/node_modules/.bin" >> "$GITHUB_PATH"
           # wasm-bindgen writes its --version line into each module it generates. GitHub's
           # prebuilt binaries add their commit to that line; one built from crates.io does not.
-          cargo "+$RUSTC" install wasm-bindgen-cli --version "$WASM_BINDGEN" --locked --root "$RUNNER_TEMP/loro-tools"
+          cargo "+$RUST_VERSION" install wasm-bindgen-cli --version "$WASM_BINDGEN" --locked --root "$RUNNER_TEMP/loro-tools"
           echo "$RUNNER_TEMP/loro-tools/bin" >> "$GITHUB_PATH"
 
       - name: Build and test the package
