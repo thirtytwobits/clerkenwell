@@ -107,3 +107,28 @@ fn the_typescript_client_installs_the_approved_npm_package() {
     assert_eq!(package["resolved"], npm["url"]);
     assert_eq!(package["integrity"], npm["integrity"]);
 }
+
+#[test]
+fn the_npm_package_is_released_from_the_approved_source() {
+    let release = release();
+    let (url, revision) = git_source(&release);
+    let version = release["npm"]["version"].as_str().expect("npm version");
+    let downloads = format!("{}/releases/download/", url.trim_end_matches(".git"));
+    let tag = release["npm"]["url"]
+        .as_str()
+        .expect("npm url")
+        .strip_prefix(downloads.as_str())
+        .and_then(|rest| rest.strip_suffix(format!("/loro-crdt-{version}.tgz").as_str()))
+        .expect("the npm url is a release asset on the source repository");
+    // A later build of the same revision carries its ordinal after the revision.
+    let build = tag
+        .strip_prefix(format!("loro-crdt-{version}-{}", &revision[..8]).as_str())
+        .expect("the release tag names the npm version and the source revision");
+    assert!(
+        build.is_empty()
+            || build
+                .strip_prefix('-')
+                .is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit())),
+        "{tag} ends in neither the revision nor a build ordinal"
+    );
+}
