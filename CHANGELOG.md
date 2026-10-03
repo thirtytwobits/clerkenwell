@@ -4,6 +4,13 @@ Each release's section is the notes of its GitHub release. A release that change
 lists each change under **Breaking**; `cargo run -p clerkenwell-release -- breaking --help`
 names the contracts.
 
+## 0.2.1
+
+### Fixed
+
+- `Cargo.lock` resolves `yoke-derive` 0.8.4. Crates.io yanked 0.8.3, the version 0.2.0 resolves,
+  and `cargo install --locked` warned of it on every install of the generator.
+
 ## 0.2.0
 
 ### Breaking
