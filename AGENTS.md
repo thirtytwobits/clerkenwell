@@ -48,7 +48,8 @@ source revision with the tools recorded under `npm.build`.
 `.github/workflows/loro-package.yml` runs it and refuses a tarball that does not hold the
 package at the recorded URL. The tarball is published as the release
 `loro-crdt-<version>-<first 8 characters of the revision>` on the source repository, with its
-`provenance.json`.
+`provenance.json`; a later build of the same revision appends `-<ordinal>`, as releases are
+never replaced.
 
 ## Invariants
 
