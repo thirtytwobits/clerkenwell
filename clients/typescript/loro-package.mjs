@@ -74,7 +74,11 @@ export function checkInputs(record, source, env) {
     problems.push(`${source} is at ${head ?? "no Git revision"}; the record names ${record.source.revision}`);
   }
   const status = capture("git", ["status", "--porcelain", "--untracked-files=no"], source, env);
-  if (status) problems.push(`${source} has changes to tracked files:\n${status}`);
+  if (status === undefined) {
+    problems.push(`${source}: git status failed, so its tracked files cannot be shown unchanged`);
+  } else if (status) {
+    problems.push(`${source} has changes to tracked files:\n${status}`);
+  }
   if (problems.length > 0) throw new Error(problems.join("\n"));
 }
 

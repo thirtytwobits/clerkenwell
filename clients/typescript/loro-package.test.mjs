@@ -90,6 +90,15 @@ test("a checkout with changes to tracked files is refused", () => {
   assert.throws(() => checkInputs(record, source, environment(record)), /tracked/);
 });
 
+test("a checkout whose status Git cannot report is refused", () => {
+  const record = recordAtSource();
+  const real = execFileSync("sh", ["-c", "command -v git"], { encoding: "utf8" }).trim();
+  const file = path.join(tools, "git");
+  writeFileSync(file, `#!/bin/sh\n[ "$1" = status ] && exit 128\nexec '${real}' "$@"\n`);
+  chmodSync(file, 0o755);
+  assert.throws(() => checkInputs(record, source, environment(record)), /git status failed/);
+});
+
 test("the build uses the recorded Rust toolchain and none of the variables Loro reports pull requests with", () => {
   const record = readRecord();
   const env = buildEnvironment(record, { CI: "true", GITHUB_TOKEN: "token", GITHUB_EVENT_PATH: "event", PATH: "" });
