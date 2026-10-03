@@ -367,7 +367,7 @@ checksum = "1c133bc6a41be0d194c306b5506d15e6feeea7b1d6604bd3f8310dfb2ca96486"
 
 [[package]]
 name = "clerkenwell-axum"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "axum",
  "clerkenwell-axum",
@@ -384,7 +384,7 @@ dependencies = [
 
 [[package]]
 name = "clerkenwell-codegen"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "clap",
  "clerkenwell-codegen",
@@ -401,7 +401,7 @@ dependencies = [
 
 [[package]]
 name = "clerkenwell-conformance"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "axum",
  "base64 0.23.1",
@@ -419,7 +419,7 @@ dependencies = [
 
 [[package]]
 name = "clerkenwell-doc"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "base64 0.23.1",
  "clerkenwell-notebook",
@@ -433,7 +433,7 @@ dependencies = [
 
 [[package]]
 name = "clerkenwell-events"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -441,7 +441,7 @@ dependencies = [
 
 [[package]]
 name = "clerkenwell-example-notes"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "axum",
  "clap",
@@ -462,7 +462,7 @@ dependencies = [
 
 [[package]]
 name = "clerkenwell-notebook"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "clerkenwell-schema",
  "schemars",
@@ -472,7 +472,7 @@ dependencies = [
 
 [[package]]
 name = "clerkenwell-public-api"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "clap",
  "proc-macro2",
@@ -482,7 +482,7 @@ dependencies = [
 
 [[package]]
 name = "clerkenwell-release"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "clap",
  "jsonc-parser",
@@ -494,11 +494,11 @@ dependencies = [
 
 [[package]]
 name = "clerkenwell-schema"
-version = "0.2.0"
+version = "0.2.1"
 
 [[package]]
 name = "clerkenwell-session"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "clerkenwell-doc",
  "clerkenwell-events",
@@ -514,7 +514,7 @@ dependencies = [
 
 [[package]]
 name = "clerkenwell-store"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "base64 0.23.1",
  "chrono",
@@ -3052,9 +3052,9 @@ dependencies = [
 
 [[package]]
 name = "yoke-derive"
-version = "0.8.3"
+version = "0.8.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "33811428bee40dbceb6d545e95754741d17a6aef9a4849f0fd62e2ba4f412a78"
+checksum = "ec8ebde2db3681e8c9980cc27822030e68752690ddfa9473e739aeb4dbde6d71"
 dependencies = [
  "proc-macro2",
  "quote",
