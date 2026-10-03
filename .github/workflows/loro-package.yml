@@ -1,0 +1,84 @@
+name: Loro package
+
+on:
+  pull_request:
+    paths:
+      - 'loro-release.json'
+      - 'clients/typescript/loro-package.mjs'
+      - '.github/workflows/loro-package.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    name: Build loro-crdt
+    runs-on: macos-15
+    timeout-minutes: 45
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Read the source and tools loro-release.json records
+        id: record
+        run: |
+          node -e '
+            const { source, npm } = require("./loro-release.json");
+            const repository = new URL(source.url).pathname.replace(/^\//, "").replace(/\.git$/, "");
+            console.log(`repository=${repository}`);
+            console.log(`revision=${source.revision}`);
+            for (const [tool, line] of Object.entries(npm.build.tools)) {
+              console.log(`${tool}=${line.match(/\d+\.\d+\.\d+/)[0]}`);
+            }
+          ' >> "$GITHUB_OUTPUT"
+
+      - name: Check out the recorded source
+        uses: actions/checkout@v7
+        with:
+          repository: ${{ steps.record.outputs.repository }}
+          ref: ${{ steps.record.outputs.revision }}
+          path: .loro-source
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: ${{ steps.record.outputs.node }}
+
+      - name: Install the recorded build tools
+        env:
+          RUSTC: ${{ steps.record.outputs.rustc }}
+          NPM: ${{ steps.record.outputs.npm }}
+          PNPM: ${{ steps.record.outputs.pnpm }}
+          DENO: ${{ steps.record.outputs.deno }}
+          BUN: ${{ steps.record.outputs.bun }}
+          WASM_BINDGEN: ${{ steps.record.outputs.wasm-bindgen }}
+        run: |
+          rustup toolchain install "$RUSTC" --profile minimal --target wasm32-unknown-unknown
+          npm install --prefix "$RUNNER_TEMP/loro-tools" "npm@$NPM" "pnpm@$PNPM" "deno@$DENO" "bun@$BUN"
+          echo "$RUNNER_TEMP/loro-tools/node_modules/.bin" >> "$GITHUB_PATH"
+          # wasm-bindgen writes its --version line into each module it generates. GitHub's
+          # prebuilt binaries add their commit to that line; one built from crates.io does not.
+          cargo "+$RUSTC" install wasm-bindgen-cli --version "$WASM_BINDGEN" --locked --root "$RUNNER_TEMP/loro-tools"
+          echo "$RUNNER_TEMP/loro-tools/bin" >> "$GITHUB_PATH"
+
+      - name: Build and test the package
+        run: node clients/typescript/loro-package.mjs .loro-source "$RUNNER_TEMP/loro-package"
+
+      - name: Upload the tarball and its provenance
+        uses: actions/upload-artifact@v7
+        with:
+          name: loro-crdt-${{ steps.record.outputs.revision }}
+          path: ${{ runner.temp }}/loro-package/
+          if-no-files-found: error
+
+      - name: Compare the integrity with the recorded one
+        run: |
+          node -e '
+            const built = require(process.argv[1]).integrity;
+            const recorded = require("./loro-release.json").npm.integrity;
+            const verdict = built === recorded ? "matches" : "differs from";
+            console.log(`The built tarball ${verdict} the one loro-release.json pins.\n\n- built: \`${built}\`\n- recorded: \`${recorded}\``);
+            process.exitCode = built === recorded ? 0 : 1;
+          ' "$RUNNER_TEMP/loro-package/provenance.json" >> "$GITHUB_STEP_SUMMARY"

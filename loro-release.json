@@ -27,6 +27,18 @@
   "npm": {
     "version": "1.16.1",
     "url": "https://github.com/thirtytwobits/loro/releases/download/loro-crdt-1.16.1-ef1964a3/loro-crdt-1.16.1.tgz",
-    "integrity": "sha512-psiV6OKdJYZ/GBDMM7F/vbX1QmS+JDfY1IBxj2fXGvrRNtCfnpovVzWn1no/9G34Phg83iiEu/FdbWEFKYEO/w=="
+    "integrity": "sha512-psiV6OKdJYZ/GBDMM7F/vbX1QmS+JDfY1IBxj2fXGvrRNtCfnpovVzWn1no/9G34Phg83iiEu/FdbWEFKYEO/w==",
+    "build": {
+      "tools": {
+        "rustc": "rustc 1.95.0 (59807616e 2026-04-14)",
+        "cargo": "cargo 1.95.0 (f2d3ce0bd 2026-03-21)",
+        "node": "v23.11.0",
+        "npm": "11.7.0",
+        "pnpm": "10.33.4",
+        "deno": "deno 2.9.6 (stable, release, aarch64-apple-darwin)",
+        "bun": "1.4.2",
+        "wasm-bindgen": "wasm-bindgen 0.2.100"
+      }
+    }
   }
 }

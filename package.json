@@ -13,7 +13,7 @@
   "scripts": {
     "build": "npm run build -w @clerkenwell/client && npm run build -w @clerkenwell/react",
     "typecheck": "npm run typecheck --workspaces && tsc --noEmit -p conformance",
-    "test": "npm run test --workspaces",
+    "test": "npm run test --workspaces && node --test clients/typescript/loro-package.test.mjs",
     "package:check": "node clients/typescript/package-check.mjs"
   },
   "devDependencies": {

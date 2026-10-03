@@ -1,0 +1,89 @@
+/**
+ * Copyright (c) 2026 Scott A Dixon
+ */
+import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { afterEach, beforeEach, test } from "node:test";
+
+import { buildEnvironment, checkInputs, readRecord, versionNumber } from "./loro-package.mjs";
+
+let work;
+let source;
+let tools;
+
+function git(...args) {
+  return execFileSync("git", args, { cwd: source, encoding: "utf8" }).trim();
+}
+
+/** Puts a tool on the stub path that reports `line` as its version. */
+function stub(tool, line) {
+  const file = path.join(tools, tool);
+  writeFileSync(file, `#!/bin/sh\necho '${line}'\n`);
+  chmodSync(file, 0o755);
+}
+
+/** The record with its source at the stub checkout's revision, every recorded tool stubbed to report its line. */
+function recordAtSource() {
+  const record = readRecord();
+  record.source = { ...record.source, revision: git("rev-parse", "HEAD") };
+  for (const [tool, line] of Object.entries(record.npm.build.tools)) stub(tool, line);
+  return record;
+}
+
+function environment(record) {
+  return buildEnvironment(record, { ...process.env, PATH: tools + path.delimiter + process.env.PATH });
+}
+
+beforeEach(() => {
+  work = mkdtempSync(path.join(tmpdir(), "clerkenwell-loro-package-"));
+  source = path.join(work, "source");
+  tools = path.join(work, "tools");
+  mkdirSync(source);
+  mkdirSync(tools);
+  git("init", "--quiet");
+  writeFileSync(path.join(source, "tracked"), "one\n");
+  git("add", "tracked");
+  git("-c", "user.name=test", "-c", "user.email=test@example.invalid", "commit", "--quiet", "-m", "one");
+});
+
+afterEach(() => rmSync(work, { recursive: true, force: true }));
+
+test("a clean checkout at the recorded revision with the recorded tools is accepted", () => {
+  const record = recordAtSource();
+  writeFileSync(path.join(source, "untracked"), "build output\n");
+  checkInputs(record, source, environment(record));
+});
+
+test("a tool reporting another version is refused", () => {
+  const record = recordAtSource();
+  stub("bun", "0.0.1");
+  assert.throws(() => checkInputs(record, source, environment(record)), /bun/);
+});
+
+test("a tool reporting the recorded version from another build is refused", () => {
+  const record = recordAtSource();
+  stub("wasm-bindgen", `${record.npm.build.tools["wasm-bindgen"]} (0123abcde)`);
+  assert.throws(() => checkInputs(record, source, environment(record)), /wasm-bindgen/);
+});
+
+test("a checkout at another revision is refused", () => {
+  const record = recordAtSource();
+  record.source.revision = "0".repeat(40);
+  assert.throws(() => checkInputs(record, source, environment(record)), new RegExp(record.source.revision));
+});
+
+test("a checkout with changes to tracked files is refused", () => {
+  const record = recordAtSource();
+  writeFileSync(path.join(source, "tracked"), "two\n");
+  assert.throws(() => checkInputs(record, source, environment(record)), /tracked/);
+});
+
+test("the build uses the recorded Rust toolchain and none of the variables Loro reports pull requests with", () => {
+  const record = readRecord();
+  const env = buildEnvironment(record, { CI: "true", GITHUB_TOKEN: "token", GITHUB_EVENT_PATH: "event", PATH: "" });
+  assert.equal(env.RUSTUP_TOOLCHAIN, versionNumber(record.npm.build.tools.rustc));
+  for (const key of ["CI", "GITHUB_TOKEN", "GITHUB_EVENT_PATH"]) assert.equal(env[key], undefined);
+});

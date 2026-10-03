@@ -107,3 +107,16 @@ fn the_typescript_client_installs_the_approved_npm_package() {
     assert_eq!(package["resolved"], npm["url"]);
     assert_eq!(package["integrity"], npm["integrity"]);
 }
+
+#[test]
+fn the_npm_package_is_released_from_the_approved_source() {
+    let release = release();
+    let (url, revision) = git_source(&release);
+    let version = release["npm"]["version"].as_str().expect("npm version");
+    let expected = format!(
+        "{}/releases/download/loro-crdt-{version}-{}/loro-crdt-{version}.tgz",
+        url.trim_end_matches(".git"),
+        &revision[..8]
+    );
+    assert_eq!(release["npm"]["url"], expected.as_str());
+}

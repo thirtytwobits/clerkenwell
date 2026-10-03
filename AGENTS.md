@@ -16,7 +16,7 @@ crates/clerkenwell-notebook     the example definition the tests share, and its 
 crates/clerkenwell-conformance  Rust and TypeScript replicas of one definition driven against each other
 conformance/                    the Node scripts Clerkenwell's own conformance tests run
 examples/notes                  a runnable walk-through of the framework over one note, and a server of notes
-clients/typescript/             @clerkenwell/client (React-free) and @clerkenwell/react
+clients/typescript/             @clerkenwell/client (React-free), @clerkenwell/react, and the build of the pinned loro-crdt
 tools/public-api                each crate's public API record
 tools/release                   the one version every crate and package is released at, and the contracts a patch release keeps
 ```
@@ -42,6 +42,12 @@ type, nothing public is named after Loro, and an application that uses Loro depe
 itself. Every Cargo workspace that builds these crates carries the recorded `generic-btree`
 override, because workspace patches do not propagate. Change the record, the manifests and
 the lockfiles together.
+
+`clients/typescript/loro-package.mjs` builds the pinned `loro-crdt` tarball from the recorded
+source revision with the tools recorded under `npm.build`, and `.github/workflows/loro-package.yml`
+runs it and refuses a tarball whose integrity is not the recorded one. The tarball is published
+as the release `loro-crdt-<version>-<first 8 characters of the revision>` on the source
+repository, with its `provenance.json`.
 
 ## Invariants
 
