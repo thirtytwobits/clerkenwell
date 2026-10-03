@@ -24,6 +24,9 @@ export function readRecord(file = path.join(root, "loro-release.json")) {
   return JSON.parse(readFileSync(file, "utf8"));
 }
 
+/** Cargo's home for the build, the same on every machine. */
+export const CARGO_HOME = "/tmp/clerkenwell-loro-cargo";
+
 /** The MAJOR.MINOR.PATCH in a tool's --version line. */
 export function versionNumber(line) {
   return line.match(/\d+\.\d+\.\d+/)?.[0];
@@ -36,6 +39,8 @@ export function buildEnvironment(record, base = process.env) {
     COREPACK_ENABLE_AUTO_PIN: "0",
     // Loro's checkout names the `stable` toolchain; the record names a version.
     RUSTUP_TOOLCHAIN: versionNumber(record.npm.build.tools.rustc),
+    // Panic locations in the module name each dependency's path in Cargo's home.
+    CARGO_HOME,
   };
   // Loro's build script posts a size report to a pull request when it finds these.
   for (const key of ["GITHUB_TOKEN", "GITHUB_EVENT_PATH", "CI"]) delete env[key];

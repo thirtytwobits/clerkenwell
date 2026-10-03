@@ -8,7 +8,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, test } from "node:test";
 
-import { buildEnvironment, checkInputs, readRecord, versionNumber } from "./loro-package.mjs";
+import { CARGO_HOME, buildEnvironment, checkInputs, readRecord, versionNumber } from "./loro-package.mjs";
 
 let work;
 let source;
@@ -86,4 +86,14 @@ test("the build uses the recorded Rust toolchain and none of the variables Loro 
   const env = buildEnvironment(record, { CI: "true", GITHUB_TOKEN: "token", GITHUB_EVENT_PATH: "event", PATH: "" });
   assert.equal(env.RUSTUP_TOOLCHAIN, versionNumber(record.npm.build.tools.rustc));
   for (const key of ["CI", "GITHUB_TOKEN", "GITHUB_EVENT_PATH"]) assert.equal(env[key], undefined);
+});
+
+test("the build's Cargo home is the same whatever the builder's home is", () => {
+  const record = readRecord();
+  const homes = [
+    { HOME: "/Users/one", PATH: "" },
+    { HOME: "/home/two", CARGO_HOME: "/opt/cargo", PATH: "" },
+  ].map((base) => buildEnvironment(record, base).CARGO_HOME);
+  assert.deepEqual(homes, [CARGO_HOME, CARGO_HOME]);
+  assert.ok(path.isAbsolute(CARGO_HOME));
 });
