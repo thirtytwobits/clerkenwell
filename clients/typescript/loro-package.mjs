@@ -3,22 +3,27 @@
  *
  * Builds the loro-crdt package loro-release.json pins: from the source revision
  * it records, with the tools recorded under npm.build. Writes the tarball and
- * its provenance.json, which carries the tarball's integrity.
+ * its provenance.json, which carries the tarball's integrity. Checks a built
+ * tarball holds the package the record pins.
  */
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { gunzipSync } from "node:zlib";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 
-const USAGE = `Usage: node clients/typescript/loro-package.mjs SOURCE_CHECKOUT OUTPUT_DIRECTORY
+const USAGE = `Usage: node clients/typescript/loro-package.mjs build SOURCE_CHECKOUT OUTPUT_DIRECTORY
+       node clients/typescript/loro-package.mjs check TARBALL
 
-Builds the loro-crdt package loro-release.json pins. SOURCE_CHECKOUT is a clean
-checkout of the recorded source revision; the first line every tool under
-npm.build.tools prints for --version must be its recorded one. Writes the tarball and provenance.json to
-OUTPUT_DIRECTORY.`;
+build  Builds the loro-crdt package loro-release.json pins. SOURCE_CHECKOUT is a
+       clean checkout of the recorded source revision; the first line every
+       tool under npm.build.tools prints for --version must be its recorded
+       one. Writes the tarball and provenance.json to OUTPUT_DIRECTORY.
+check  Exits non-zero unless TARBALL holds the package at the recorded URL,
+       whose integrity must be the recorded one.`;
 
 export function readRecord(file = path.join(root, "loro-release.json")) {
   return JSON.parse(readFileSync(file, "utf8"));
@@ -122,27 +127,57 @@ export function build(record, source, output) {
   });
   if (packed.status !== 0) throw new Error(`npm pack exited with ${packed.status}: ${packed.stderr}`);
   const artifact = JSON.parse(packed.stdout)[0].filename;
-  const integrity =
-    "sha512-" + createHash("sha512").update(readFileSync(path.join(output, artifact))).digest("base64");
+  const integrity = integrityOf(readFileSync(path.join(output, artifact)));
   const provenance = { source: record.source, build: record.npm.build, artifact, integrity };
   writeFileSync(path.join(output, "provenance.json"), JSON.stringify(provenance, null, 2) + "\n");
   return provenance;
 }
 
-if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  const args = process.argv.slice(2);
-  if (args.includes("--help")) {
-    console.log(USAGE);
-  } else if (args.length !== 2) {
+export function integrityOf(bytes) {
+  return "sha512-" + createHash("sha512").update(bytes).digest("base64");
+}
+
+/**
+ * Whether the built tarball holds the same package as the pinned one, which must
+ * carry the recorded integrity. gzip's output depends on the machine that
+ * compressed it, so the uncompressed archives are compared.
+ */
+export function samePackage(record, pinned, built) {
+  if (integrityOf(pinned) !== record.npm.integrity) {
+    throw new Error(`the pinned tarball's integrity is not the recorded ${record.npm.integrity}`);
+  }
+  return gunzipSync(pinned).equals(gunzipSync(built));
+}
+
+export async function check(record, tarball) {
+  const response = await fetch(record.npm.url);
+  if (!response.ok) throw new Error(`${record.npm.url} answered ${response.status}`);
+  return samePackage(record, Buffer.from(await response.arrayBuffer()), readFileSync(tarball));
+}
+
+async function main([command, ...args]) {
+  if (command === "build" && args.length === 2) {
+    const [source, output] = args.map((arg) => path.resolve(arg));
+    console.log(JSON.stringify(build(readRecord(), source, output), null, 2));
+  } else if (command === "check" && args.length === 1) {
+    const record = readRecord();
+    if (!(await check(record, path.resolve(args[0])))) {
+      throw new Error(`${args[0]} does not hold the package at ${record.npm.url}`);
+    }
+    console.log(`${args[0]} holds the package at ${record.npm.url}`);
+  } else {
     console.error(USAGE);
     process.exitCode = 2;
+  }
+}
+
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  if (process.argv.includes("--help")) {
+    console.log(USAGE);
   } else {
-    const [source, output] = args.map((arg) => path.resolve(arg));
-    try {
-      console.log(JSON.stringify(build(readRecord(), source, output), null, 2));
-    } catch (error) {
+    main(process.argv.slice(2)).catch((error) => {
       console.error(error.message);
       process.exitCode = 1;
-    }
+    });
   }
 }

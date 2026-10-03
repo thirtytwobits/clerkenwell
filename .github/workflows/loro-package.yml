@@ -64,7 +64,7 @@ jobs:
           echo "$RUNNER_TEMP/loro-tools/bin" >> "$GITHUB_PATH"
 
       - name: Build and test the package
-        run: node clients/typescript/loro-package.mjs .loro-source "$RUNNER_TEMP/loro-package"
+        run: node clients/typescript/loro-package.mjs build .loro-source "$RUNNER_TEMP/loro-package"
 
       - name: Upload the tarball and its provenance
         uses: actions/upload-artifact@v7
@@ -73,12 +73,5 @@ jobs:
           path: ${{ runner.temp }}/loro-package/
           if-no-files-found: error
 
-      - name: Compare the integrity with the recorded one
-        run: |
-          node -e '
-            const built = require(process.argv[1]).integrity;
-            const recorded = require("./loro-release.json").npm.integrity;
-            const verdict = built === recorded ? "matches" : "differs from";
-            console.log(`The built tarball ${verdict} the one loro-release.json pins.\n\n- built: \`${built}\`\n- recorded: \`${recorded}\``);
-            process.exitCode = built === recorded ? 0 : 1;
-          ' "$RUNNER_TEMP/loro-package/provenance.json" >> "$GITHUB_STEP_SUMMARY"
+      - name: Check the tarball holds the pinned package
+        run: node clients/typescript/loro-package.mjs check "$RUNNER_TEMP"/loro-package/*.tgz

@@ -5,10 +5,19 @@ import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
+import { gzipSync } from "node:zlib";
 import path from "node:path";
 import { afterEach, beforeEach, test } from "node:test";
 
-import { CARGO_HOME, buildEnvironment, checkInputs, readRecord, versionNumber } from "./loro-package.mjs";
+import {
+  CARGO_HOME,
+  buildEnvironment,
+  checkInputs,
+  integrityOf,
+  readRecord,
+  samePackage,
+  versionNumber,
+} from "./loro-package.mjs";
 
 let work;
 let source;
@@ -96,4 +105,18 @@ test("the build's Cargo home is the same whatever the builder's home is", () => 
   ].map((base) => buildEnvironment(record, base).CARGO_HOME);
   assert.deepEqual(homes, [CARGO_HOME, CARGO_HOME]);
   assert.ok(path.isAbsolute(CARGO_HOME));
+});
+
+test("a tarball holding the pinned package is the same package however it was compressed", () => {
+  const archive = Buffer.from("package/package.json\n{}\n".repeat(64));
+  const pinned = gzipSync(archive, { level: 9 });
+  const record = { npm: { integrity: integrityOf(pinned) } };
+  assert.equal(samePackage(record, pinned, gzipSync(archive, { level: 1 })), true);
+  assert.equal(samePackage(record, pinned, gzipSync(Buffer.concat([archive, Buffer.from("x")]))), false);
+});
+
+test("a pinned tarball without the recorded integrity is refused", () => {
+  const pinned = gzipSync(Buffer.from("package"));
+  const record = { npm: { integrity: integrityOf(Buffer.from("another")) } };
+  assert.throws(() => samePackage(record, pinned, pinned), /integrity/);
 });

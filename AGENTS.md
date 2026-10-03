@@ -44,10 +44,11 @@ override, because workspace patches do not propagate. Change the record, the man
 the lockfiles together.
 
 `clients/typescript/loro-package.mjs` builds the pinned `loro-crdt` tarball from the recorded
-source revision with the tools recorded under `npm.build`, and `.github/workflows/loro-package.yml`
-runs it and refuses a tarball whose integrity is not the recorded one. The tarball is published
-as the release `loro-crdt-<version>-<first 8 characters of the revision>` on the source
-repository, with its `provenance.json`.
+source revision with the tools recorded under `npm.build`.
+`.github/workflows/loro-package.yml` runs it and refuses a tarball that does not hold the
+package at the recorded URL. The tarball is published as the release
+`loro-crdt-<version>-<first 8 characters of the revision>` on the source repository, with its
+`provenance.json`.
 
 ## Invariants
 
