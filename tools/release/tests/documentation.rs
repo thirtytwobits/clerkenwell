@@ -69,6 +69,7 @@ fn a_document_the_readme_links_is_rendered_and_linked() {
     let guide = read(doc.path(), "docs/guide.html");
     assert!(guide.contains("Back to"));
     assert!(guide.contains("href=\"../index.html#fixture\""));
+    assert!(read(doc.path(), "index.html").contains("id=\"fixture\""));
     assert!(guide.contains(FIXTURE_VERSION));
 }
 
@@ -157,7 +158,7 @@ fn an_item_named_after_loro_is_refused() {
     let error = index_documentation(root.path(), doc.path()).expect_err("an item named after Loro");
 
     assert!(
-        matches!(&error, Error::NamesLoro(paths) if paths.iter().any(|path| path.contains("LoroReplica")))
+        matches!(&error, Error::ForbiddenNames(paths) if paths.iter().any(|path| path.contains("LoroReplica")))
     );
 }
 
@@ -174,7 +175,7 @@ fn a_signature_naming_a_loro_type_is_refused() {
     let error = index_documentation(root.path(), doc.path()).expect_err("a Loro type");
 
     assert!(
-        matches!(&error, Error::NamesLoro(paths) if paths.iter().any(|path| path.contains("struct.Replica.html")))
+        matches!(&error, Error::ForbiddenNames(paths) if paths.iter().any(|path| path.contains("struct.Replica.html")))
     );
 }
 
@@ -185,4 +186,93 @@ fn source_pages_are_not_documentation() {
     page(doc.path(), "src/alpha/lib.rs.html", "use loro::LoroDoc;");
 
     index_documentation(root.path(), doc.path()).expect("an index");
+}
+
+#[test]
+fn a_document_naming_a_loro_path_is_refused_and_nothing_is_written() {
+    let root = fixture();
+    let doc = documented();
+    page(
+        root.path(),
+        "README.md",
+        "# Fixture\n\nBuilt on `loro::LoroDoc`.\n",
+    );
+
+    let error = index_documentation(root.path(), doc.path()).expect_err("a Loro path");
+
+    assert!(
+        matches!(&error, Error::ForbiddenNames(pages) if pages.iter().any(|page| page == "index.html"))
+    );
+    assert!(!doc.path().join("index.html").exists());
+}
+
+#[test]
+fn an_item_documented_inside_its_parent_page_and_named_after_loro_is_refused() {
+    let root = fixture();
+    let doc = documented();
+    page(
+        doc.path(),
+        "alpha/struct.Replica.html",
+        "<section id=\"method.loro_replica\"><h4>fn loro_replica</h4></section>",
+    );
+
+    let error = index_documentation(root.path(), doc.path()).expect_err("a Loro-named method");
+
+    assert!(
+        matches!(&error, Error::ForbiddenNames(paths) if paths.iter().any(|path| path.contains("struct.Replica.html")))
+    );
+}
+
+#[test]
+fn each_heading_has_an_anchor_and_a_repeated_heading_a_numbered_one() {
+    let root = fixture();
+    let doc = documented();
+    page(
+        root.path(),
+        "README.md",
+        "# Fixture\n\nSee [the second use](docs/guide.md#usage-1).\n",
+    );
+    page(
+        root.path(),
+        "docs/guide.md",
+        "# Guide\n\n## Usage\n\nFirst.\n\n## Usage\n\nSecond.\n",
+    );
+
+    index_documentation(root.path(), doc.path()).expect("a site");
+
+    let guide = read(doc.path(), "docs/guide.html");
+    assert!(guide.contains("id=\"usage\""));
+    assert!(guide.contains("id=\"usage-1\""));
+    assert!(read(doc.path(), "index.html").contains("href=\"docs/guide.html#usage-1\""));
+}
+
+#[test]
+fn a_fragment_naming_no_heading_in_another_document_is_refused() {
+    let root = fixture();
+    let doc = documented();
+    page(
+        root.path(),
+        "README.md",
+        "# Fixture\n\nSee [the guide](docs/guide.md#absent).\n",
+    );
+    page(root.path(), "docs/guide.md", "# Guide\n");
+
+    let error = index_documentation(root.path(), doc.path()).expect_err("a missing heading");
+
+    assert!(matches!(error, Error::BrokenLink { link, .. } if link == "docs/guide.md#absent"));
+}
+
+#[test]
+fn a_fragment_naming_no_heading_in_its_own_document_is_refused() {
+    let root = fixture();
+    let doc = documented();
+    page(
+        root.path(),
+        "README.md",
+        "# Fixture\n\nSee [below](#absent).\n",
+    );
+
+    let error = index_documentation(root.path(), doc.path()).expect_err("a missing heading");
+
+    assert!(matches!(error, Error::BrokenLink { link, .. } if link == "#absent"));
 }

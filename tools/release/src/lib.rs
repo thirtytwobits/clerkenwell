@@ -154,8 +154,10 @@ pub enum Error {
     #[error("{doc} holds no documentation for:\n{}\nbuild it with `{}`", list(.crates), DOCUMENTATION_COMMAND)]
     Undocumented { doc: PathBuf, crates: Vec<String> },
     #[error("the documentation names Loro:\n{}", list(.0))]
-    NamesLoro(Vec<String>),
-    #[error("{page} links {link:?}, which names no file in the workspace")]
+    ForbiddenNames(Vec<String>),
+    #[error(
+        "{page} links {link:?}, which names no file in the workspace or no heading in its document"
+    )]
     BrokenLink { page: String, link: String },
 }
 

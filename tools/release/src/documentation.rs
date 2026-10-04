@@ -7,7 +7,7 @@
 //! README as the front page, followed by the libraries, and each Markdown
 //! document the README reaches by its links. Every page states the version.
 
-use std::collections::{BTreeSet, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::path::Path;
 
 use pulldown_cmark::{Event, HeadingLevel, Options, Parser, Tag, TagEnd};
@@ -25,7 +25,21 @@ pub const FRONT_PAGE: &str = "README.md";
 const UNDOCUMENTED: &[&str] = &["src", "static.files"];
 
 /// The text rustdoc renders wherever documentation names a Loro path.
-const LORO_PATH: &[u8] = b"loro::";
+const LORO_PATH: &str = "loro::";
+
+/// The prefixes of the anchors rustdoc gives the items it documents inside
+/// their parent's page: methods, fields, variants and associated items.
+const ITEM_ANCHORS: &[&str] = &[
+    "method.",
+    "tymethod.",
+    "structfield.",
+    "variant.",
+    "associatedtype.",
+    "associatedconstant.",
+];
+
+/// The anchor of the front page's list of libraries.
+const CRATES_ANCHOR: &str = "crates";
 
 /// The Markdown extensions the documents use.
 const MARKDOWN: Options = Options::ENABLE_TABLES.union(Options::ENABLE_STRIKETHROUGH);
@@ -50,8 +64,9 @@ pub struct Site {
 /// Writes the site's pages into `doc`, the API documentation of the
 /// workspace under `root`: [`FRONT_PAGE`] as `index.html`, linking each
 /// library, and each Markdown document it reaches by its links. Refuses a
-/// tree that lacks a library's documentation or names Loro, and a document
-/// that links a file the workspace lacks.
+/// tree that lacks a library's documentation, a page that names Loro, and a
+/// document that links a file the workspace lacks or a heading its target
+/// lacks. Nothing is written unless every page is accepted.
 pub fn index_documentation(root: &Path, doc: &Path) -> Result<Site, Error> {
     let version = agreed(root)?;
     let mut naming = Vec::new();
@@ -63,7 +78,7 @@ pub fn index_documentation(root: &Path, doc: &Path) -> Result<Site, Error> {
     }
     if !naming.is_empty() {
         naming.sort();
-        return Err(Error::NamesLoro(naming));
+        return Err(Error::ForbiddenNames(naming));
     }
     let crates = libraries(root)?;
     let undocumented: Vec<String> = crates
@@ -138,7 +153,7 @@ fn entries(directory: &Path) -> Result<Vec<std::fs::DirEntry>, Error> {
 }
 
 /// Adds to `naming` each path under `path` that is named after Loro or whose
-/// content names a Loro path, relative to `doc`.
+/// content [`names_loro`], relative to `doc`.
 fn find_loro(doc: &Path, path: &Path, naming: &mut Vec<String>) -> Result<(), Error> {
     let relative = path
         .strip_prefix(doc)
@@ -161,14 +176,21 @@ fn find_loro(doc: &Path, path: &Path, naming: &mut Vec<String>) -> Result<(), Er
         path: path.to_owned(),
         source,
     })?;
-    if named
-        || content
-            .windows(LORO_PATH.len())
-            .any(|window| window == LORO_PATH)
-    {
+    if named || names_loro(&String::from_utf8_lossy(&content)) {
         naming.push(relative);
     }
     Ok(())
+}
+
+/// Whether `page` names a Loro path, or documents an item named after Loro
+/// inside its parent's page.
+fn names_loro(page: &str) -> bool {
+    page.contains(LORO_PATH)
+        || page.split("id=\"").skip(1).any(|rest| {
+            let anchor = rest.split('"').next().unwrap_or_default();
+            ITEM_ANCHORS.iter().any(|prefix| anchor.starts_with(prefix))
+                && anchor.to_lowercase().contains("loro")
+        })
 }
 
 /// The repository the workspace's `[workspace.package]` names, which a
@@ -192,21 +214,50 @@ struct Documents<'a> {
     repository: String,
 }
 
+/// One Markdown document, parsed, with an id on each heading.
+struct Document {
+    /// Its path, relative to the workspace.
+    source: String,
+    title: String,
+    events: Vec<Event<'static>>,
+    /// The fragments a link into its page may name.
+    anchors: BTreeSet<String>,
+}
+
+/// Where a link in a document points.
+enum Target {
+    /// A URL, kept as written.
+    Url,
+    /// A heading in the same document.
+    Anchor(String),
+    /// Another Markdown document, and a heading in it.
+    Document {
+        path: String,
+        fragment: Option<String>,
+    },
+    /// Any other file in the workspace, and a place in it.
+    File {
+        path: String,
+        fragment: Option<String>,
+    },
+}
+
 impl Documents<'_> {
     /// Each page of the site and its HTML: [`FRONT_PAGE`] followed by
-    /// `crates`, then every document it reaches by its links.
+    /// `crates`, then every document it reaches by its links. Refuses a
+    /// broken link, and a page that names Loro.
     fn render(&self, crates: &[DocumentedCrate]) -> Result<Vec<(String, String)>, Error> {
-        let mut seen = BTreeSet::from([FRONT_PAGE.to_owned()]);
-        let mut queue = VecDeque::from([FRONT_PAGE.to_owned()]);
-        let mut pages = Vec::new();
-        while let Some(source) = queue.pop_front() {
-            let text = read(&self.root.join(&source))?;
-            let mut linked = Vec::new();
-            let mut title = String::new();
-            let mut in_title = false;
-            let mut events = Vec::new();
-            for event in Parser::new_ext(&text, MARKDOWN) {
-                let event = match event {
+        let documents = self.load()?;
+        let anchors: BTreeMap<&str, &BTreeSet<String>> = documents
+            .iter()
+            .map(|document| (document.source.as_str(), &document.anchors))
+            .collect();
+        let mut pages = Vec::with_capacity(documents.len());
+        let mut naming = Vec::new();
+        for document in &documents {
+            let mut events = Vec::with_capacity(document.events.len());
+            for event in document.events.iter().cloned() {
+                events.push(match event {
                     Event::Start(Tag::Link {
                         link_type,
                         dest_url,
@@ -214,7 +265,7 @@ impl Documents<'_> {
                         id,
                     }) => Event::Start(Tag::Link {
                         link_type,
-                        dest_url: self.link(&source, &dest_url, &mut linked)?.into(),
+                        dest_url: self.href(document, &dest_url, &anchors)?.into(),
                         title,
                         id,
                     }),
@@ -225,79 +276,140 @@ impl Documents<'_> {
                         id,
                     }) => Event::Start(Tag::Image {
                         link_type,
-                        dest_url: self.link(&source, &dest_url, &mut linked)?.into(),
+                        dest_url: self.href(document, &dest_url, &anchors)?.into(),
                         title,
                         id,
                     }),
                     event => event,
-                };
-                match &event {
-                    Event::Start(Tag::Heading {
-                        level: HeadingLevel::H1,
-                        ..
-                    }) if title.is_empty() => in_title = true,
-                    Event::End(TagEnd::Heading(HeadingLevel::H1)) => in_title = false,
-                    Event::Text(text) | Event::Code(text) if in_title => title.push_str(text),
-                    _ => {}
-                }
-                events.push(event);
+                });
             }
             let mut body = String::new();
             pulldown_cmark::html::push_html(&mut body, events.into_iter());
-            if source == FRONT_PAGE {
+            if document.source == FRONT_PAGE {
                 body.push_str(&crate_list(crates));
             }
-            let page = page_of(&source);
-            if title.is_empty() {
-                title = source.clone();
+            let page = page_of(&document.source);
+            let html = self.layout(&document.title, &page, &body);
+            if names_loro(&html) {
+                naming.push(page.clone());
             }
-            pages.push((page.clone(), self.layout(&title, &page, &body)));
-            for target in linked {
-                if seen.insert(target.clone()) {
-                    queue.push_back(target);
-                }
-            }
+            pages.push((page, html));
+        }
+        if !naming.is_empty() {
+            return Err(Error::ForbiddenNames(naming));
         }
         Ok(pages)
     }
 
-    /// Where `destination`, linked from the document `source`, points in the
-    /// site: the page of a Markdown document, which joins `linked`, or the
-    /// file at the release's tag in the repository. A URL or a fragment is
-    /// kept as written.
-    fn link(
-        &self,
-        source: &str,
-        destination: &str,
-        linked: &mut Vec<String>,
-    ) -> Result<String, Error> {
-        if destination.starts_with('#')
-            || destination.contains("://")
-            || destination.starts_with("mailto:")
-        {
-            return Ok(destination.to_owned());
+    /// [`FRONT_PAGE`] and every document it reaches by its links, in the
+    /// order they are reached.
+    fn load(&self) -> Result<Vec<Document>, Error> {
+        let mut seen = BTreeSet::from([FRONT_PAGE.to_owned()]);
+        let mut queue = VecDeque::from([FRONT_PAGE.to_owned()]);
+        let mut documents = Vec::new();
+        while let Some(source) = queue.pop_front() {
+            let text = read(&self.root.join(&source))?;
+            let mut events: Vec<Event<'static>> = Parser::new_ext(&text, MARKDOWN)
+                .map(Event::into_static)
+                .collect();
+            let mut anchors = BTreeSet::new();
+            if source == FRONT_PAGE {
+                anchors.insert(CRATES_ANCHOR.to_owned());
+            }
+            let title = name_headings(&mut events, &mut anchors);
+            for event in &events {
+                if let Event::Start(Tag::Link { dest_url, .. } | Tag::Image { dest_url, .. }) =
+                    event
+                {
+                    if let Target::Document { path, .. } = self.target(&source, dest_url)? {
+                        if seen.insert(path.clone()) {
+                            queue.push_back(path);
+                        }
+                    }
+                }
+            }
+            documents.push(Document {
+                title: if title.is_empty() {
+                    source.clone()
+                } else {
+                    title
+                },
+                source,
+                events,
+                anchors,
+            });
+        }
+        Ok(documents)
+    }
+
+    /// What `destination`, linked from the document `source`, points at.
+    /// Refuses a path the workspace lacks or that leaves it.
+    fn target(&self, source: &str, destination: &str) -> Result<Target, Error> {
+        if destination.contains("://") || destination.starts_with("mailto:") {
+            return Ok(Target::Url);
         }
         let (path, fragment) = match destination.split_once('#') {
-            Some((path, fragment)) => (path, format!("#{fragment}")),
-            None => (destination, String::new()),
+            Some((path, fragment)) => (path, Some(fragment.to_owned())),
+            None => (destination, None),
         };
-        let broken = || Error::BrokenLink {
-            page: source.to_owned(),
-            link: destination.to_owned(),
-        };
-        let target = resolve(source, path).ok_or_else(broken)?;
-        if target.is_empty() || !self.root.join(&target).exists() {
+        if path.is_empty() {
+            return Ok(Target::Anchor(fragment.unwrap_or_default()));
+        }
+        let broken = || broken_link(source, destination);
+        let path = resolve(source, path).ok_or_else(broken)?;
+        if path.is_empty() || !self.root.join(&path).exists() {
             return Err(broken());
         }
-        if target.ends_with(".md") {
-            let href = relative(&page_of(source), &page_of(&target));
-            linked.push(target);
-            return Ok(format!("{href}{fragment}"));
-        }
-        Ok(format!(
-            "{}/blob/v{}/{target}{fragment}",
-            self.repository, self.version
-        ))
+        Ok(if path.ends_with(".md") {
+            Target::Document { path, fragment }
+        } else {
+            Target::File { path, fragment }
+        })
+    }
+
+    /// Where `destination`, linked from `document`, points in the site: the
+    /// page of a Markdown document, or the file at the release's tag in the
+    /// repository. A URL is kept as written. Refuses a fragment naming a
+    /// heading its document lacks; `anchors` holds each document's.
+    fn href(
+        &self,
+        document: &Document,
+        destination: &str,
+        anchors: &BTreeMap<&str, &BTreeSet<String>>,
+    ) -> Result<String, Error> {
+        let broken = || broken_link(&document.source, destination);
+        Ok(match self.target(&document.source, destination)? {
+            Target::Url => destination.to_owned(),
+            Target::Anchor(fragment) => {
+                if !document.anchors.contains(&fragment) {
+                    return Err(broken());
+                }
+                format!("#{fragment}")
+            }
+            Target::Document { path, fragment } => {
+                let href = relative(&page_of(&document.source), &page_of(&path));
+                match fragment {
+                    Some(fragment) => {
+                        if !anchors
+                            .get(path.as_str())
+                            .is_some_and(|anchors| anchors.contains(&fragment))
+                        {
+                            return Err(broken());
+                        }
+                        format!("{href}#{fragment}")
+                    }
+                    None => href,
+                }
+            }
+            Target::File { path, fragment } => format!(
+                "{}/blob/v{}/{path}{}",
+                self.repository,
+                self.version,
+                fragment
+                    .map(|fragment| format!("#{fragment}"))
+                    .unwrap_or_default()
+            ),
+        })
     }
 
     /// `body` as the page `page` titled `title`.
@@ -328,7 +440,7 @@ dd {{ margin-left: 0; }}
 </style>
 </head>
 <body>
-<nav><a href=\"{home}\">Clerkenwell {version}</a> | <a href=\"{home}#crates\">Crates</a></nav>
+<nav><a href=\"{home}\">Clerkenwell {version}</a> | <a href=\"{home}#{CRATES_ANCHOR}\">Crates</a></nav>
 <main>
 {body}</main>
 </body>
@@ -352,7 +464,69 @@ fn crate_list(crates: &[DocumentedCrate]) -> String {
             format!("<dt><a href=\"{name}/index.html\">{name}</a></dt>{description}\n")
         })
         .collect();
-    format!("<h2 id=\"crates\">Crates</h2>\n<dl>\n{items}</dl>\n")
+    format!("<h2 id=\"{CRATES_ANCHOR}\">Crates</h2>\n<dl>\n{items}</dl>\n")
+}
+
+/// Gives each heading in `events` an id, as GitHub does, adding each to
+/// `anchors`, and returns the text of the first top-level heading.
+fn name_headings(events: &mut [Event<'static>], anchors: &mut BTreeSet<String>) -> String {
+    let mut title = String::new();
+    for index in 0..events.len() {
+        let Event::Start(Tag::Heading { level, .. }) = &events[index] else {
+            continue;
+        };
+        let level = *level;
+        let mut text = String::new();
+        for event in &events[index + 1..] {
+            match event {
+                Event::End(TagEnd::Heading(_)) => break,
+                Event::Text(part) | Event::Code(part) => text.push_str(part),
+                _ => {}
+            }
+        }
+        if level == HeadingLevel::H1 && title.is_empty() {
+            title = text.clone();
+        }
+        let anchor = unique(slug(&text), anchors);
+        if let Event::Start(Tag::Heading { id, .. }) = &mut events[index] {
+            *id = Some(anchor.into());
+        }
+    }
+    title
+}
+
+/// `text` as a GitHub heading anchor: lower case, each space a hyphen, and
+/// every character but a letter, a digit, a hyphen or an underscore removed.
+fn slug(text: &str) -> String {
+    text.trim()
+        .to_lowercase()
+        .chars()
+        .filter_map(|character| match character {
+            ' ' => Some('-'),
+            '-' | '_' => Some(character),
+            character if character.is_alphanumeric() => Some(character),
+            _ => None,
+        })
+        .collect()
+}
+
+/// `anchor`, or the first of `anchor-1`, `anchor-2` and so on that `anchors`
+/// lacks, added to `anchors`.
+fn unique(anchor: String, anchors: &mut BTreeSet<String>) -> String {
+    let mut candidate = anchor.clone();
+    let mut count = 0;
+    while !anchors.insert(candidate.clone()) {
+        count += 1;
+        candidate = format!("{anchor}-{count}");
+    }
+    candidate
+}
+
+fn broken_link(page: &str, link: &str) -> Error {
+    Error::BrokenLink {
+        page: page.to_owned(),
+        link: link.to_owned(),
+    }
 }
 
 /// The page the document `source` is rendered to: `index.html` for
