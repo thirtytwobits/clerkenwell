@@ -15,6 +15,7 @@ crates/clerkenwell-codegen      the definition language, its validation, and the
 crates/clerkenwell-notebook     the example definition the tests share, and its generated bindings
 crates/clerkenwell-conformance  Rust and TypeScript replicas of one definition driven against each other
 conformance/                    the Node scripts Clerkenwell's own conformance tests run
+docs/                           the architecture reference and how to depend on a release
 examples/notes                  a runnable walk-through of the framework over one note, and a server of notes
 clients/typescript/             @clerkenwell/client (React-free), @clerkenwell/react, and the build of the pinned loro-crdt
 tools/public-api                each crate's public API record

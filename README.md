@@ -1,61 +1,69 @@
 # Clerkenwell
 
-Schema-driven collaborative documents over [Loro](https://github.com/loro-dev/loro): a
-declarative document language, plans generated from it for Rust and TypeScript, replicas that
-execute those plans, and a durable single-authority store with fenced commits, retained
-operations and forensic recovery.
+Clerkenwell is a library for applications in which a person and an AI agent edit the same
+documents at the same time.
 
-## Crates
+Say you keep notes in a small editor and ask an agent to rewrite the second paragraph of one.
+If the agent writes the file while you are typing, one of you loses work. A collaborative
+editor of the kind behind Google Docs solves that with user accounts, logins and a sync service
+to deploy and run. Clerkenwell gives a CLI or a GUI live collaboration with one server process.
 
-| Crate | Owns |
+The server holds the accepted copy of each document. Your editor and the agent's tools each
+keep their own copy, send their edits to the server, and receive each other's edits as the
+server accepts them. [Loro](https://github.com/loro-dev/loro) merges the edits; Clerkenwell
+decides what the server accepts and carries edits between the server and its clients.
+
+Clerkenwell has no accounts or logins: anyone who can reach the server can edit. The example
+server listens only on the local machine.
+
+## Examples
+
+**The agent rewrites a paragraph while you keep typing.** The agent reads the note, rewrites
+the second paragraph and sends the result through a CLI command or MCP tool your application
+provides. Meanwhile you add a sentence to the first paragraph. The server records only the
+characters the agent changed, so the note keeps both edits.
+
+**The agent changes something you have already decided.** You set a note's status to
+published. The agent, working from the copy it read earlier, sets it to review. The server
+refuses the agent's change, names the field and returns the note as it stands, so the agent
+decides again from what you wrote. Each field has its own rule for concurrent changes: keep
+both, keep the later one, refuse the second, or refuse any change once the document exists.
+
+**The agent retries a tool call.** A tool call times out and the agent sends the same edit
+again. The server recognises the edit by the id its client gave it and records it once.
+
+## Building an application
+
+1. Describe your documents in a JSON definition that names each field and its rule for
+   concurrent changes. [`examples/notes/notes.projections.json`](examples/notes/notes.projections.json)
+   describes a note.
+2. Generate Rust and TypeScript bindings from the definition with `clerkenwell-codegen`.
+3. Serve the documents. [`examples/notes/src/server.rs`](examples/notes/src/server.rs) serves
+   notes over WebSocket.
+4. Connect a GUI through `@clerkenwell/react`, or a CLI or MCP server through
+   `@clerkenwell/client` under Node.
+
+Run the walk-through, which edits one note from two writers and prints each refusal:
+
+```bash
+cargo run -p clerkenwell-example-notes
+```
+
+Serve notes to WebSocket clients:
+
+```bash
+cargo run -p clerkenwell-example-notes --bin notes-server
+```
+
+## Documentation
+
+| Document | Covers |
 |---|---|
-| `clerkenwell-schema` | the plan types generated bindings instantiate |
-| `clerkenwell-doc` | plan-driven Loro replicas: whole-document edits written as operations, text edits at a captured frontier, forks, and field conflict policy |
-| `clerkenwell-session` | the projection session protocol: wire contracts, registry, per-connection subscriptions and what each update left its client holding, resuming a subscription from that, and serving each command against an application's host; it answers every collaborative entity's authoring state from the store keeping the document, and delivers each change a store announces to the subscriptions following it |
-| `clerkenwell-axum` | a reference transport: the session protocol as JSON-RPC 2.0 over axum WebSocket connections, each mutation published to every connection's subscriptions and each store change to its authoring-state subscriptions |
-| `clerkenwell-events` | the change-event envelope, a CloudEvents 1.0 event naming a document, its generation and the frontiers a change took it between, and the in-process feed that carries it; it depends on nothing collaborative |
-| `clerkenwell-store` | durable single-authority storage: a set of named stores over whatever storage ports the application registers, accepted documents held in memory and written through, envelopes, a replaceable storage port, fenced compare-and-swap commits, quarantine, repair and an audit log; each commit, repair and deletion is announced on the store's change feed |
-| `clerkenwell-codegen` | the definition language, the authoring-state projection it declares for each collaborative entity, its validation, and the Rust, TypeScript and fixture generator |
-| `clerkenwell-conformance` | cross-language conformance: Rust and TypeScript replicas of one definition's entities exchange the generated fixture operations, concurrent edits and text consumption, and must converge; TypeScript clients sync a note through the Rust notes server. An application runs it in its npm project, against the `@clerkenwell/client` installed there |
-
-`loro-release.json` records the approved Rust and npm Loro release pair. No public API
-names a Loro type or is named after Loro; an application that uses Loro depends on it itself.
-
-## Example
-
-`examples/notes` walks through a store, two writers editing one note concurrently, fenced
-commits, a conflict on an explicit field resolved by rebasing, and the recovery audit:
-`cargo run -p clerkenwell-example-notes`. Its `notes-server` binary serves the same notes to
-WebSocket clients: `cargo run -p clerkenwell-example-notes --bin notes-server`.
-
-## TypeScript packages
-
-An npm workspace under `clients/typescript/`. Each package publishes ES modules and their
-declarations, built into `dist/` under `NodeNext` resolution, so relative imports name their
-`.js` file. Clerkenwell's own typecheck, tests and conformance bridge resolve the packages to
-their TypeScript source through the `@clerkenwell/source` export condition; a consumer never
-sets it. `npm run typecheck`, `npm test` and `npm run package:check` run from the repository
-root.
-
-| Package | Owns |
-|---|---|
-| `@clerkenwell/client` | plan types, projection materialisation and subscriptions, the projection protocol over a JSON-RPC WebSocket with reconnection, the authoring runtime and its persisted form, text bindings, field conflict policy |
-| `@clerkenwell/client/replica` | plan-driven Loro replicas, read and written as an application's drafts; the package's only importer of `loro-crdt` |
-| `@clerkenwell/react` | React stores, edit overlays, text-binding hooks, autosync and the authoring runtime provider |
-
-## Using a release
-
-Each release is a `vX.Y.Z` tag and a GitHub release; `CHANGELOG.md` describes each one.
-
-| Need | How |
-|---|---|
-| A crate | `clerkenwell-store = { git = "https://github.com/thirtytwobits/clerkenwell", tag = "vX.Y.Z" }`, and in the workspace's root `Cargo.toml` the `[patch.crates-io]` override for `generic-btree` that this repository's `Cargo.toml` carries |
-| An npm package | the tarball attached to the release: `npm install https://github.com/thirtytwobits/clerkenwell/releases/download/vX.Y.Z/clerkenwell-client-X.Y.Z.tgz`; for the React binding, `clerkenwell-react-X.Y.Z.tgz` in the same install |
-| The generator | `cargo install clerkenwell-codegen --git https://github.com/thirtytwobits/clerkenwell --tag vX.Y.Z --locked` |
-| Conformance | `clerkenwell-conformance` as a crate, with `tsx` and the client installed in the npm project it runs in |
-| A checkout instead of a release | a Cargo `[patch]` with a path, and `npm link` to a package built with `npm run build` |
-
-`@clerkenwell/client` installs `loro-crdt` from a GitHub release tarball.
+| [`examples/notes/README.md`](examples/notes/README.md) | the walk-through step by step, and the notes server |
+| [`docs/architecture.md`](docs/architecture.md) | terms, crates and TypeScript packages |
+| [`docs/using-a-release.md`](docs/using-a-release.md) | depending on a released crate, package or generator |
+| [`CHANGELOG.md`](CHANGELOG.md) | what each release changed |
+| [`RELEASING.md`](RELEASING.md) | cutting a release |
 
 ## Licence
 
