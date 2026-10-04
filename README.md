@@ -1,69 +1,70 @@
 # Clerkenwell
 
-Clerkenwell is a library for applications in which a person and an AI agent edit the same
-documents at the same time.
+Clerkenwell is a Rust and TypeScript library for applications in which people and AI agents
+edit the same documents. An agent is a second writer on every document: it is fast, often
+works from a stale read, retries on failure, and must not decide some things. Clerkenwell
+exists to refuse that writer safely.
 
-Say you keep notes in a small editor and ask an agent to rewrite the second paragraph of one.
-If the agent writes the file while you are typing, one of you loses work. A collaborative
-editor of the kind behind Google Docs solves that with user accounts, logins and a sync service
-to deploy and run. Clerkenwell gives a CLI or a GUI live collaboration with one server process.
+A server holds the authoritative copy of each document. Human and agent clients edit replicas
+of it and send their edits to the server. [Loro](https://github.com/loro-dev/loro) merges the
+edits. Clerkenwell is the rest: the schema that declares each document, the store that keeps
+it, the rules for what the server accepts, and the protocol clients sync over.
 
-The server holds the accepted copy of each document. Your editor and the agent's tools each
-keep their own copy, send their edits to the server, and receive each other's edits as the
-server accepts them. [Loro](https://github.com/loro-dev/loro) merges the edits; Clerkenwell
-decides what the server accepts and carries edits between the server and its clients.
+| The agent | Clerkenwell |
+|---|---|
+| writes from a stale read | the etag fence refuses the write and returns the accepted document |
+| races a human on a decision | a field with `explicit` conflict policy refuses the concurrent change and names the field |
+| appends prose a human is also editing | a field with `merge` policy keeps both edits |
+| retries a tool call | the client-minted operation id makes the replay a recorded duplicate |
+| writes a shape the application does not understand | the store runs the application's validation on every document it accepts and refuses one that fails |
 
-Clerkenwell has no accounts or logins: anyone who can reach the server can edit. The example
-server listens only on the local machine.
+`examples/notes` sets a note's status from two writers at once. The status has `explicit`
+conflict policy, so the second writer is refused:
 
-## Examples
+```text
+5. Ada set the status first; Grace's concurrent status was refused:
+Conflict: Concurrent Note edits require explicit resolution for: status.
+```
 
-**The agent rewrites a paragraph while you keep typing.** The agent reads the note, rewrites
-the second paragraph and sends the result through a CLI command or MCP tool your application
-provides. Meanwhile you add a sentence to the first paragraph. The server records only the
-characters the agent changed, so the note keeps both edits.
+## Terms
 
-**The agent changes something you have already decided.** You set a note's status to
-published. The agent, working from the copy it read earlier, sets it to review. The server
-refuses the agent's change, names the field and returns the note as it stands, so the agent
-decides again from what you wrote. Each field has its own rule for concurrent changes: keep
-both, keep the later one, refuse the second, or refuse any change once the document exists.
+| Term | Meaning |
+|---|---|
+| definition | the JSON file declaring an application's entities, projections, mutations and, for each collaborative field, its storage and conflict policy |
+| plan | what the generator emits from a definition for each collaborative entity; replicas execute it to read and write fields |
+| replica | one writer's copy of a document, which records its edits as operations |
+| projection | a named view of application state that clients subscribe to |
+| authoring state | the projection each collaborative entity declares: the accepted document as operations a replica takes |
+| frontier | the version of a document a replica has seen, named by its latest operations |
+| etag | a digest of a document's accepted state |
+| fence | the etag or frontier a write was made from; the server refuses a write whose fence the accepted document has moved past |
+| conflict policy | how concurrent changes to one field are judged: `merge` keeps both, `lastWriterWins` keeps the later, `explicit` refuses the second and names the field, `immutable` refuses any change |
+| envelope | the stored record of one document: a checkpoint, the operations kept since it, and the document's generation |
+| residency | the documents a store holds in memory, served while the storage confirms the stored bytes are unchanged |
+| exchange mode | whether a write creates a document (`bootstrap`) or edits one (`incremental`) |
 
-**The agent retries a tool call.** A tool call times out and the agent sends the same edit
-again. The server recognises the edit by the id its client gave it and records it once.
+## Scope
 
-## Building an application
+Clerkenwell has no accounts, logins or permissions: anyone who can reach its server can edit.
+Run the server where only the application's people and agents can reach it.
 
-1. Describe your documents in a JSON definition that names each field and its rule for
-   concurrent changes. [`examples/notes/notes.projections.json`](examples/notes/notes.projections.json)
-   describes a note.
-2. Generate Rust and TypeScript bindings from the definition with `clerkenwell-codegen`.
-3. Serve the documents. [`examples/notes/src/server.rs`](examples/notes/src/server.rs) serves
-   notes over WebSocket.
-4. Connect a GUI through `@clerkenwell/react`, or a CLI or MCP server through
-   `@clerkenwell/client` under Node.
-
-Run the walk-through, which edits one note from two writers and prints each refusal:
+## Trying it
 
 ```bash
 cargo run -p clerkenwell-example-notes
-```
-
-Serve notes to WebSocket clients:
-
-```bash
 cargo run -p clerkenwell-example-notes --bin notes-server
 ```
+
+The first runs the walk-through above; the second serves notes to WebSocket clients.
 
 ## Documentation
 
 | Document | Covers |
 |---|---|
 | [`examples/notes/README.md`](examples/notes/README.md) | the walk-through step by step, and the notes server |
-| [`docs/architecture.md`](docs/architecture.md) | terms, crates and TypeScript packages |
+| [`docs/architecture.md`](docs/architecture.md) | crates, packages and directories |
 | [`docs/using-a-release.md`](docs/using-a-release.md) | depending on a released crate, package or generator |
 | [`CHANGELOG.md`](CHANGELOG.md) | what each release changed |
-| [`RELEASING.md`](RELEASING.md) | cutting a release |
 
 ## Licence
 

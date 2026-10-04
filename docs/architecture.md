@@ -1,22 +1,5 @@
 # Architecture
 
-## Terms
-
-| Term | Meaning |
-|---|---|
-| definition | the JSON file declaring an application's entities, projections, mutations and, for each collaborative field, its storage and conflict policy |
-| plan | what the generator emits from a definition for each collaborative entity; replicas execute it to read and write fields |
-| replica | one writer's copy of a document, which records its edits as operations |
-| projection | a named view of application state that clients subscribe to |
-| mutation | a named command a client sends the server |
-| authoring state | the projection each collaborative entity declares: the accepted document as operations a replica takes |
-| frontier | the version of a document a replica has seen, named by its latest operations |
-| etag | a digest of a document's accepted state |
-| fence | the etag or frontier a commit was made from; the store refuses a commit its fence does not admit |
-| conflict policy | how concurrent changes to one field are judged: `merge` keeps both, `lastWriterWins` keeps the later, `explicit` refuses the second and names the field, `immutable` refuses any change |
-| envelope | the stored record of one document: a checkpoint, the operations kept since it, and the document's generation |
-| exchange mode | whether a commit creates a document (`bootstrap`) or edits one (`incremental`) |
-
 ## Crates
 
 | Crate | Owns |
@@ -28,7 +11,19 @@
 | `clerkenwell-events` | the change-event envelope, a CloudEvents 1.0 event naming a document, its generation and the frontiers a change took it between, and the in-process feed that carries it; it depends on nothing collaborative |
 | `clerkenwell-store` | durable single-authority storage: a set of named stores over whatever storage ports the application registers, accepted documents held in memory and written through, envelopes, a replaceable storage port, fenced compare-and-swap commits, quarantine, repair and an audit log; each commit, repair and deletion is announced on the store's change feed |
 | `clerkenwell-codegen` | the definition language, the authoring-state projection it declares for each collaborative entity, its validation, and the Rust, TypeScript and fixture generator |
+| `clerkenwell-notebook` | the example definition the tests share, and its generated bindings |
 | `clerkenwell-conformance` | cross-language conformance: Rust and TypeScript replicas of one definition's entities exchange the generated fixture operations, concurrent edits and text consumption, and must converge; TypeScript clients sync a note through the Rust notes server. An application runs it in its npm project, against the `@clerkenwell/client` installed there |
+
+## Other directories
+
+| Directory | Holds |
+|---|---|
+| `clients/typescript/` | the TypeScript packages below, and `loro-package.mjs`, which builds the pinned `loro-crdt` |
+| `conformance/` | the Node scripts Clerkenwell's own conformance tests run |
+| `examples/notes` | a runnable walk-through of the framework over one note, and a server of notes |
+| `tools/public-api` | each crate's public API record |
+| `tools/release` | the one version every crate and package is released at, and the contracts a patch release keeps |
+| `docs/` | this page, and [how to depend on a release](using-a-release.md) |
 
 `loro-release.json` records the approved Rust and npm Loro release pair. No public API
 names a Loro type or is named after Loro; an application that uses Loro depends on it itself.
