@@ -35,9 +35,11 @@ enum Commands {
     },
     /// Prints VERSION's section of CHANGELOG.md, the notes of its release.
     Notes { version: Version },
-    /// Writes DIRECTORY/index.html, linking each workspace library's
-    /// documentation and stating the version; exits non-zero when a library
-    /// is undocumented or the documentation names Loro.
+    /// Writes the documentation site into DIRECTORY: README.md as its front
+    /// page, linking each workspace library's documentation, and each
+    /// Markdown document README.md reaches by its links. Prints each page
+    /// written; exits non-zero when a library is undocumented, the
+    /// documentation names Loro, or a document links a missing file.
     Docs {
         /// The directory `cargo doc --workspace --no-deps` wrote.
         directory: PathBuf,
@@ -53,9 +55,9 @@ fn main() -> ExitCode {
             check_release(&root, &since, CONTRACTS).map(|comparison| println!("{comparison}"))
         }
         Commands::Notes { version } => release_notes(&root, version).map(|notes| print!("{notes}")),
-        Commands::Docs { directory } => index_documentation(&root, &directory).map(|crates| {
-            for library in crates {
-                println!("{}", library.name);
+        Commands::Docs { directory } => index_documentation(&root, &directory).map(|site| {
+            for page in site.pages {
+                println!("{page}");
             }
         }),
     };

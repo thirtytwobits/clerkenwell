@@ -8,7 +8,8 @@
 //! [`bump`] moves them all to a new version, changing nothing else in any file.
 //! [`check_release`] refuses a patch release that changes a contract, and
 //! [`release_notes`] reads a release's section of the changelog, and
-//! [`index_documentation`] writes the index page of the API documentation.
+//! [`index_documentation`] writes the documentation's site around the API
+//! documentation rustdoc builds.
 
 mod changelog;
 mod contracts;
@@ -16,7 +17,9 @@ mod documentation;
 
 pub use changelog::{release_notes, CHANGELOG};
 pub use contracts::{check_release, resolve, Comparison, Contract, Release, CONTRACTS};
-pub use documentation::{index_documentation, DocumentedCrate, DOCUMENTATION_COMMAND};
+pub use documentation::{
+    index_documentation, DocumentedCrate, Site, DOCUMENTATION_COMMAND, FRONT_PAGE,
+};
 
 use std::fmt;
 use std::path::{Path, PathBuf};
@@ -152,6 +155,8 @@ pub enum Error {
     Undocumented { doc: PathBuf, crates: Vec<String> },
     #[error("the documentation names Loro:\n{}", list(.0))]
     NamesLoro(Vec<String>),
+    #[error("{page} links {link:?}, which names no file in the workspace")]
+    BrokenLink { page: String, link: String },
 }
 
 fn list(items: &[impl fmt::Display]) -> String {

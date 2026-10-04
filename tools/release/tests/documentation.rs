@@ -1,6 +1,7 @@
-//! The documentation index links every workspace library's documentation and
-//! states the version, and refuses documentation that lacks a library or
-//! names Loro.
+//! The documentation site opens with the README, links every workspace
+//! library's documentation and each Markdown document the README reaches, and
+//! states the version. It refuses documentation that lacks a library or names
+//! Loro, and a document that links a missing file.
 
 // These tests use only the fixture from the shared support module.
 #[allow(dead_code)]
@@ -9,11 +10,14 @@ mod support;
 use std::path::Path;
 
 use clerkenwell_release::{index_documentation, Error};
+
+/// The repository the fixture workspace names.
+const REPOSITORY: &str = "https://example.com/fixture";
 use support::{fixture, FIXTURE_VERSION};
 
-/// Writes `content` to `path` under `doc`, creating its directories.
-fn page(doc: &Path, path: &str, content: &str) {
-    let path = doc.join(path);
+/// Writes `content` to `path` under `directory`, creating its directories.
+fn page(directory: &Path, path: &str, content: &str) {
+    let path = directory.join(path);
     std::fs::create_dir_all(path.parent().expect("a parent")).expect("a directory");
     std::fs::write(path, content).expect("writable");
 }
@@ -24,6 +28,95 @@ fn documented() -> tempfile::TempDir {
     page(doc.path(), "alpha/index.html", "<h1>alpha</h1>");
     page(doc.path(), "beta/index.html", "<h1>beta</h1>");
     doc
+}
+
+fn read(doc: &Path, page: &str) -> String {
+    std::fs::read_to_string(doc.join(page)).expect("a page")
+}
+
+#[test]
+fn the_front_page_is_the_readme_followed_by_each_library() {
+    let root = fixture();
+    let doc = documented();
+
+    let site = index_documentation(root.path(), doc.path()).expect("a site");
+
+    assert_eq!(site.pages, ["index.html"]);
+    let index = read(doc.path(), "index.html");
+    assert!(index.contains("A workspace of two libraries."));
+    assert!(index.contains("href=\"alpha/index.html\""));
+}
+
+#[test]
+fn a_document_the_readme_links_is_rendered_and_linked() {
+    let root = fixture();
+    let doc = documented();
+    page(
+        root.path(),
+        "README.md",
+        "# Fixture\n\nSee [the guide](docs/guide.md).\n",
+    );
+    page(
+        root.path(),
+        "docs/guide.md",
+        "# Guide\n\nBack to [the start](../README.md#fixture).\n",
+    );
+
+    let site = index_documentation(root.path(), doc.path()).expect("a site");
+
+    assert!(site.pages.iter().any(|page| page == "docs/guide.html"));
+    assert!(read(doc.path(), "index.html").contains("href=\"docs/guide.html\""));
+    let guide = read(doc.path(), "docs/guide.html");
+    assert!(guide.contains("Back to"));
+    assert!(guide.contains("href=\"../index.html#fixture\""));
+    assert!(guide.contains(FIXTURE_VERSION));
+}
+
+#[test]
+fn a_link_to_another_file_points_at_it_in_the_repository_at_the_release() {
+    let root = fixture();
+    let doc = documented();
+    page(
+        root.path(),
+        "README.md",
+        "# Fixture\n\nSee [the manifest](Cargo.toml).\n",
+    );
+
+    index_documentation(root.path(), doc.path()).expect("a site");
+
+    let link = format!("href=\"{REPOSITORY}/blob/v{FIXTURE_VERSION}/Cargo.toml\"");
+    assert!(read(doc.path(), "index.html").contains(&link));
+}
+
+#[test]
+fn a_link_to_a_missing_file_is_refused() {
+    let root = fixture();
+    let doc = documented();
+    page(
+        root.path(),
+        "README.md",
+        "# Fixture\n\nSee [nothing](missing.md).\n",
+    );
+
+    let error = index_documentation(root.path(), doc.path()).expect_err("a broken link");
+
+    assert!(matches!(error, Error::BrokenLink { link, .. } if link == "missing.md"));
+    assert!(!doc.path().join("index.html").exists());
+}
+
+#[test]
+fn a_link_leaving_the_workspace_is_refused() {
+    let root = fixture();
+    let doc = documented();
+    page(
+        root.path(),
+        "README.md",
+        "# Fixture\n\nSee [outside](../outside.md).\n",
+    );
+
+    let error = index_documentation(root.path(), doc.path()).expect_err("a link outside");
+
+    assert!(matches!(error, Error::BrokenLink { .. }));
 }
 
 #[test]
