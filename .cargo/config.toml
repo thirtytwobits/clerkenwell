@@ -3,3 +3,8 @@
 # and never removes them.
 [target.'cfg(target_os = "macos")']
 rustflags = ["-C", "split-debuginfo=packed"]
+
+# Rustdoc warnings, broken intra-doc links among them, fail the documentation
+# build here and in CI alike.
+[build]
+rustdocflags = ["-D", "warnings"]

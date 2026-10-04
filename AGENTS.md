@@ -59,6 +59,7 @@ never replaced.
 | Format | `cargo fmt --all --check` |
 | Rust tests | `npm ci`, then `cargo test --workspace` |
 | Rust tests without Node | `cargo test --workspace --exclude clerkenwell-conformance` |
+| Rust documentation | `cargo doc --workspace --no-deps`, then `cargo run -p clerkenwell-release -- docs target/doc` |
 | TypeScript clients | `npm run typecheck && npm test` |
 | The packages as a consumer receives them | `npm run package:check` |
 

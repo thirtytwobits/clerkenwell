@@ -90,6 +90,36 @@ jobs:
       - name: Clippy
         run: cargo clippy --workspace --all-targets -- -D warnings
 
+  documentation:
+    name: Documentation
+    runs-on: ubuntu-26.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Cache Rust toolchain
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.rustup/toolchains
+            ~/.rustup/update-hashes
+          key: rustup-${{ runner.os }}-${{ env.RUST_TOOLCHAIN }}-rustfmt-clippy
+
+      - name: Set up Rust
+        run: |
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --component rustfmt --component clippy
+          rustup default "$RUST_TOOLCHAIN"
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build the documentation
+        run: cargo doc --workspace --no-deps
+
+      - name: Index the documentation
+        run: cargo run --quiet -p clerkenwell-release -- docs target/doc
+
   typescript:
     name: TypeScript
     runs-on: ubuntu-26.04
