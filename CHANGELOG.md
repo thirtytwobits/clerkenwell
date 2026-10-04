@@ -12,6 +12,10 @@ names the contracts.
   envelope in any other format as corrupt. `CollaborationService::upgrade_envelope`,
   `upgrade_envelope_bytes`, `RetiredEnvelopeFields` and
   `CollaborationDocumentSummary::envelope_version` are removed.
+- `clerkenwell-store` keeps envelopes only through the `CollaborationStoragePort` the application
+  implements, and depends on no file system. `LocalFileCollaborationStorage` is removed, and
+  `CollaborationService::new` takes the port and a change source in place of a directory; it
+  replaces `CollaborationService::with_storage`.
 
 ## 0.2.1
 

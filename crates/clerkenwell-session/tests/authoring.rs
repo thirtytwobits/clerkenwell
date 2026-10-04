@@ -26,10 +26,10 @@ use clerkenwell_session::{
     ProjectionFailure, ProjectionHost, ProjectionRefusal, ProjectionRegistry,
     ProjectionSubscription, ProjectionSubscriptions,
 };
+use clerkenwell_store::testing::MemoryStorage;
 use clerkenwell_store::{
     CollaborationDocumentId, CollaborationExchangeMode, CollaborationImportRequest,
-    CollaborationService, CollaborationStores, CommitPolicy, ImportFence,
-    LocalFileCollaborationStorage, StoreResult,
+    CollaborationService, CollaborationStores, CommitPolicy, ImportFence, StoreResult,
 };
 use serde_json::{json, Value};
 
@@ -193,7 +193,6 @@ type Subscriptions = Mutex<ProjectionSubscriptions<Value, Held<()>>>;
 struct Library {
     authoring: AuthoringStates,
     changes: Arc<Mutex<Vec<ChangeEvent>>>,
-    _roots: Vec<tempfile::TempDir>,
 }
 
 impl Library {
@@ -204,15 +203,12 @@ impl Library {
         stores
             .changes()
             .listen(move |change| heard.lock().unwrap().push(change.clone()));
-        let mut roots = Vec::new();
         for name in std::iter::once(WORKSPACE.to_owned())
             .chain(sessions.iter().map(|session| format!("session/{session}")))
         {
-            let root = tempfile::tempdir().expect("a store directory");
             stores
-                .register(&name, LocalFileCollaborationStorage::new(root.path()))
+                .register(&name, MemoryStorage::default())
                 .expect("register");
-            roots.push(root);
         }
         Self {
             authoring: AuthoringStates::new(stores, PLANS, |entity, params| match entity {
@@ -220,7 +216,6 @@ impl Library {
                 _ => Some(WORKSPACE.to_owned()),
             }),
             changes,
-            _roots: roots,
         }
     }
 

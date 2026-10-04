@@ -6,6 +6,7 @@ use std::sync::{Arc, Mutex};
 
 use clerkenwell_doc::CollaborationReplica;
 use clerkenwell_events::{ChangeEvent, ChangeKind};
+use clerkenwell_store::testing::MemoryStorage;
 use clerkenwell_store::{
     CollaborationDocumentId, CollaborationExchangeMode, CollaborationImportRequest,
     CollaborationService, ImportFence, StoreError, StoreResult,
@@ -22,19 +23,14 @@ fn seed() -> Value {
 }
 
 /// A service over a fresh store, and everything it announces.
-fn heard_service() -> (
-    tempfile::TempDir,
-    CollaborationService,
-    Arc<Mutex<Vec<ChangeEvent>>>,
-) {
-    let root = tempfile::tempdir().expect("temp store");
-    let service = CollaborationService::new(root.path(), PLANS, POLICY);
+fn heard_service() -> (CollaborationService, Arc<Mutex<Vec<ChangeEvent>>>) {
+    let service = CollaborationService::new(MemoryStorage::default(), PLANS, POLICY, "notes");
     let heard = Arc::new(Mutex::new(Vec::new()));
     let log = heard.clone();
     service
         .changes()
         .listen(move |change| log.lock().unwrap().push(change.clone()));
-    (root, service, heard)
+    (service, heard)
 }
 
 fn bootstrap(service: &CollaborationService) {
@@ -82,7 +78,7 @@ fn edit(
 
 #[test]
 fn each_accepted_commit_announces_the_state_it_took_the_document_from_and_to() {
-    let (_root, service, heard) = heard_service();
+    let (service, heard) = heard_service();
     bootstrap(&service);
     let results: Vec<_> = ["first", "second"]
         .iter()
@@ -125,7 +121,7 @@ fn each_accepted_commit_announces_the_state_it_took_the_document_from_and_to() {
 
 #[test]
 fn what_does_not_change_the_accepted_state_announces_nothing() {
-    let (_root, service, heard) = heard_service();
+    let (service, heard) = heard_service();
     bootstrap(&service);
     edit(&service, "edit-once", "Once.");
     let announced = heard.lock().unwrap().len();
@@ -170,7 +166,7 @@ fn what_does_not_change_the_accepted_state_announces_nothing() {
 
 #[test]
 fn a_deletion_announces_the_state_it_removed() {
-    let (_root, service, heard) = heard_service();
+    let (service, heard) = heard_service();
     bootstrap(&service);
     service.delete(&note("note-1")).expect("delete");
 
@@ -187,7 +183,7 @@ fn a_deletion_announces_the_state_it_removed() {
 
 #[test]
 fn a_repair_announces_the_state_it_left_the_document_in() {
-    let (_root, service, heard) = heard_service();
+    let (service, heard) = heard_service();
     bootstrap(&service);
     edit(&service, "edit-once", "Once.");
     let before = heard.lock().unwrap().last().cloned().expect("the edit");

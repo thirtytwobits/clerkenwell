@@ -3,9 +3,9 @@
 
 mod support;
 
+use clerkenwell_store::testing::MemoryStorage;
 use clerkenwell_store::{
-    CollaborationDocumentId, CollaborationService, CollaborationStoragePort,
-    LocalFileCollaborationStorage, ENVELOPE_VERSION,
+    CollaborationDocumentId, CollaborationService, CollaborationStoragePort, ENVELOPE_VERSION,
 };
 use serde_json::{json, Value};
 use support::{accept, NOTE_PLAN, PLANS, POLICY};
@@ -14,10 +14,14 @@ fn note() -> CollaborationDocumentId {
     CollaborationDocumentId::new("Note", "note-1")
 }
 
-/// A fresh store holding one note, and where its envelope is.
-fn seeded() -> (tempfile::TempDir, String) {
-    let root = tempfile::tempdir().expect("temp store");
-    CollaborationService::new(root.path(), PLANS, POLICY)
+fn service(storage: &MemoryStorage) -> CollaborationService {
+    CollaborationService::new(storage.clone(), PLANS, POLICY, "notes")
+}
+
+/// A fresh store holding one note.
+fn seeded() -> MemoryStorage {
+    let storage = MemoryStorage::default();
+    service(&storage)
         .bootstrap(
             &NOTE_PLAN,
             &note(),
@@ -25,19 +29,38 @@ fn seeded() -> (tempfile::TempDir, String) {
             accept,
         )
         .expect("bootstrap");
-    let path = LocalFileCollaborationStorage::new(root.path()).source(&note());
-    (root, path)
+    storage
 }
 
-fn stored_envelope(path: &str) -> serde_json::Map<String, Value> {
-    serde_json::from_slice(&std::fs::read(path).expect("read")).expect("an envelope")
+/// The note's stored bytes.
+fn stored_bytes(storage: &MemoryStorage) -> Vec<u8> {
+    storage
+        .read(&storage.source(&note()))
+        .expect("read")
+        .expect("stored")
+        .bytes
 }
 
-/// Rewrites the envelope at `path` to declare `format`.
-fn declare_format(path: &str, format: u32) {
-    let mut envelope = stored_envelope(path);
+fn stored_envelope(storage: &MemoryStorage) -> serde_json::Map<String, Value> {
+    serde_json::from_slice(&stored_bytes(storage)).expect("an envelope")
+}
+
+/// Rewrites the note's envelope to declare `format`.
+fn declare_format(storage: &MemoryStorage, format: u32) {
+    let stored = storage
+        .read(&storage.source(&note()))
+        .expect("read")
+        .expect("stored");
+    let mut envelope = stored_envelope(storage);
     envelope.insert("envelope_version".to_string(), json!(format));
-    std::fs::write(path, serde_json::to_vec_pretty(&envelope).expect("json")).expect("write");
+    storage
+        .compare_and_swap(
+            &note(),
+            Some(&stored.version),
+            &serde_json::to_vec_pretty(&envelope).expect("json"),
+        )
+        .expect("write")
+        .expect("unchanged since read");
 }
 
 fn refusal_code(error: &clerkenwell_store::StoreError) -> Option<&str> {
@@ -46,13 +69,13 @@ fn refusal_code(error: &clerkenwell_store::StoreError) -> Option<&str> {
 
 #[test]
 fn an_envelope_the_store_writes_declares_its_format_and_reads_back() {
-    let (root, path) = seeded();
+    let storage = seeded();
 
     assert_eq!(
-        stored_envelope(&path)["envelope_version"],
+        stored_envelope(&storage)["envelope_version"],
         json!(ENVELOPE_VERSION)
     );
-    let reader = CollaborationService::new(root.path(), PLANS, POLICY);
+    let reader = service(&storage);
     assert_eq!(
         reader
             .detail(&NOTE_PLAN, &note())
@@ -65,10 +88,10 @@ fn an_envelope_the_store_writes_declares_its_format_and_reads_back() {
 #[test]
 fn an_envelope_in_another_format_is_refused_as_corrupt_and_left_as_it_is() {
     for format in [ENVELOPE_VERSION - 1, ENVELOPE_VERSION + 1] {
-        let (root, path) = seeded();
-        declare_format(&path, format);
-        let kept = std::fs::read(&path).expect("read");
-        let service = CollaborationService::new(root.path(), PLANS, POLICY);
+        let storage = seeded();
+        declare_format(&storage, format);
+        let kept = stored_bytes(&storage);
+        let service = service(&storage);
 
         let refused = service
             .detail(&NOTE_PLAN, &note())
@@ -111,6 +134,6 @@ fn an_envelope_in_another_format_is_refused_as_corrupt_and_left_as_it_is() {
             "format {format}"
         );
 
-        assert_eq!(std::fs::read(&path).expect("read"), kept, "format {format}");
+        assert_eq!(stored_bytes(&storage), kept, "format {format}");
     }
 }

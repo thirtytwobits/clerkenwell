@@ -22,4 +22,4 @@ testing = []
 [dev-dependencies]
 clerkenwell-session = { path = ".", features = ["testing"] }
 clerkenwell-doc = { path = "../clerkenwell-doc" }
-tempfile.workspace = true
+clerkenwell-store = { path = "../clerkenwell-store", features = ["testing"] }

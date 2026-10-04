@@ -33,5 +33,18 @@ pub(crate) fn crate_only() {}
 #[cfg(feature = "extra")]
 pub fn behind_a_feature() {}
 
+#[cfg(feature = "extra")]
+pub mod gated {
+    mod inner {
+        pub struct GatedType;
+
+        impl GatedType {
+            pub fn gated_method(&self) {}
+        }
+    }
+
+    pub use inner::GatedType;
+}
+
 #[cfg(test)]
 pub fn only_in_tests() {}

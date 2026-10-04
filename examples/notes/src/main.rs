@@ -1,4 +1,4 @@
-//! Runs the walk-through against a store in a temporary directory.
+//! Runs the walk-through against a store in memory.
 
 use clerkenwell_example_notes::{
     audit_recovery, conflict_on_status, create_note, merge_concurrent_prose, rebase,
@@ -6,10 +6,7 @@ use clerkenwell_example_notes::{
 };
 
 fn main() -> Result<()> {
-    let root = tempfile::tempdir().expect("a temporary directory");
-    println!("Store: {}", root.path().display());
-
-    let notes = create_note(root.path())?;
+    let notes = create_note()?;
     println!("\n1. Created the note:\n{:#}", notes.read()?);
 
     let merged = merge_concurrent_prose(&notes)?;

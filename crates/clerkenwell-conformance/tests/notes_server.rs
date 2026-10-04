@@ -8,8 +8,7 @@ use serde_json::Value;
 /// Serves notes on a fresh server and runs the TypeScript clients against it
 /// with `arguments`, returning each line they print as JSON.
 async fn run_clients(arguments: &[&str]) -> Vec<Value> {
-    let root = tempfile::tempdir().expect("a store directory");
-    let server = ProjectionServer::new(NotesServer::new(root.path()), PUBLICATION_WINDOW);
+    let server = ProjectionServer::new(NotesServer::default(), PUBLICATION_WINDOW);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
         .await
         .expect("a listener");

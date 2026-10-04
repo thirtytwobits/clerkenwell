@@ -7,7 +7,7 @@ whose concurrent edits merge, and a status whose concurrent changes are resolved
 cargo run -p clerkenwell-example-notes
 ```
 
-The binary runs these steps against a store in a temporary directory:
+The binary runs these steps against a store in memory:
 
 1. The store creates the note from its seed document.
 2. Two writers edit the body concurrently and one retitles the note. Each commit is fenced on
@@ -29,6 +29,8 @@ cargo run -p clerkenwell-example-notes --bin notes-server
 ```
 
 `notes-server` serves the notes through `clerkenwell-axum` and prints the WebSocket address.
+It keeps the notes in memory through `src/storage.rs`, the example's implementation of the
+storage port.
 A client creates a note with `note.create`, subscribes to `notes.authoringState` for the
 accepted frontier and operations, and sends its replica's operations with
 `note.importUpdate`. When an edit is accepted, every subscriber to the note takes the
@@ -44,6 +46,7 @@ again. `src/server.rs` holds the application; `tests/server.rs` runs two clients
 | `clerkenwell-codegen.json` | the generator configuration |
 | `src/model.rs`, `generated/` | the bindings generated from the definition |
 | `src/server.rs`, `src/bin/notes-server.rs` | the notes served over the projection protocol |
+| `src/storage.rs` | the storage port the notes are kept through |
 
 `tests/generated.rs` fails when the bindings are stale. Regenerate them from the repository
 root with `cargo run -p clerkenwell-codegen -- --config examples/notes/clerkenwell-codegen.json`.

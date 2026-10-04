@@ -68,8 +68,8 @@ fn clerkenwell_codegen::generate(config: &Config, mode: Mode) -> Result<Vec<Path
 #[cfg(feature = "testing")] fn clerkenwell_codegen::testing::Json::as_str(&self) -> Option<&str>
 #[cfg(feature = "testing")] fn clerkenwell_codegen::testing::Json::get(&self, key: &str) -> Option<&Json>
 #[cfg(feature = "testing")] fn clerkenwell_codegen::testing::Json::parse(text: &str) -> Result<Json, serde_json::Error>
-#[cfg(feature = "testing")] #[cfg(feature = "testing")] fn clerkenwell_codegen::testing::Json::pointer(&self, pointer: &str) -> Option<&Json>
-#[cfg(feature = "testing")] #[cfg(feature = "testing")] fn clerkenwell_codegen::testing::Json::pointer_mut(&mut self, pointer: &str) -> Option<&mut Json>
+#[cfg(feature = "testing")] fn clerkenwell_codegen::testing::Json::pointer(&self, pointer: &str) -> Option<&Json>
+#[cfg(feature = "testing")] fn clerkenwell_codegen::testing::Json::pointer_mut(&mut self, pointer: &str) -> Option<&mut Json>
 #[cfg(feature = "testing")] fn clerkenwell_codegen::testing::Json::stringify(&self) -> String
 #[cfg(feature = "testing")] fn clerkenwell_codegen::testing::Json::stringify_pretty(&self) -> String
 #[cfg(feature = "testing")] fn clerkenwell_codegen::testing::Json::to_serde(&self) -> serde_json::Value
@@ -90,9 +90,9 @@ fn clerkenwell_codegen::generate(config: &Config, mode: Mode) -> Result<Vec<Path
 #[cfg(feature = "testing")] fn clerkenwell_codegen::testing::Object::keys(&self) -> impl Iterator<Item = &str>
 #[cfg(feature = "testing")] fn clerkenwell_codegen::testing::Object::len(&self) -> usize
 #[cfg(feature = "testing")] fn clerkenwell_codegen::testing::Object::new() -> Self
-#[cfg(feature = "testing")] #[cfg(feature = "testing")] fn clerkenwell_codegen::testing::Object::remove(&mut self, key: &str) -> Option<Json>
+#[cfg(feature = "testing")] fn clerkenwell_codegen::testing::Object::remove(&mut self, key: &str) -> Option<Json>
 #[cfg(feature = "testing")] fn clerkenwell_codegen::testing::Object::spread(&mut self, other: &Object)
-#[cfg(feature = "testing")] #[cfg(feature = "testing")] fn clerkenwell_codegen::testing::Object::values(&self) -> impl Iterator<Item = &Json>
+#[cfg(feature = "testing")] fn clerkenwell_codegen::testing::Object::values(&self) -> impl Iterator<Item = &Json>
 #[cfg(feature = "testing")] fn clerkenwell_codegen::testing::definition(document: Json) -> Result<Definition>
 #[cfg(feature = "testing")] fn clerkenwell_codegen::testing::document(definition: &Definition) -> &Object
 #[cfg(feature = "testing")] fn clerkenwell_codegen::testing::locale_compare(left: &str, right: &str) -> Ordering
