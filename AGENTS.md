@@ -4,22 +4,7 @@ Every section is a hard constraint.
 
 ## Layout
 
-```
-crates/clerkenwell-schema       plan types generated bindings instantiate
-crates/clerkenwell-doc          plan-driven Loro replicas, text at a frontier, conflict policy
-crates/clerkenwell-session      projection wire contracts, registry, subscriptions, resume from what a client holds, serving commands
-crates/clerkenwell-axum         the session protocol over axum WebSocket connections
-crates/clerkenwell-events       the change-event envelope and the in-process feed commits are announced on
-crates/clerkenwell-store        named store sets, durable envelopes, storage port, fenced commits, recovery, change announcements
-crates/clerkenwell-codegen      the definition language, its validation, and the generator
-crates/clerkenwell-notebook     the example definition the tests share, and its generated bindings
-crates/clerkenwell-conformance  Rust and TypeScript replicas of one definition driven against each other
-conformance/                    the Node scripts Clerkenwell's own conformance tests run
-examples/notes                  a runnable walk-through of the framework over one note, and a server of notes
-clients/typescript/             @clerkenwell/client (React-free), @clerkenwell/react, and the build of the pinned loro-crdt
-tools/public-api                each crate's public API record
-tools/release                   the one version every crate and package is released at, and the contracts a patch release keeps
-```
+[`docs/architecture.md`](docs/architecture.md) describes each crate, package and directory.
 
 ## The framework knows no application
 
@@ -74,6 +59,7 @@ never replaced.
 | Format | `cargo fmt --all --check` |
 | Rust tests | `npm ci`, then `cargo test --workspace` |
 | Rust tests without Node | `cargo test --workspace --exclude clerkenwell-conformance` |
+| Rust documentation | `cargo doc --workspace --no-deps`, then `cargo run -p clerkenwell-release -- docs target/doc` |
 | TypeScript clients | `npm run typecheck && npm test` |
 | The packages as a consumer receives them | `npm run package:check` |
 

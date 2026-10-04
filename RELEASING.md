@@ -23,4 +23,6 @@ runs the check daily and on every change to a manifest or the lockfile.
 Pushing the tag runs `.github/workflows/release.yml`: the CI gate, the dependency check, a
 check that the tag names the version every manifest states, the comparison with the previous
 release, and `npm run package:check`. It then publishes the GitHub release with the version's changelog
-section as its notes and both npm tarballs attached.
+section as its notes and both npm tarballs attached, and publishes the documentation site to
+GitHub Pages in place of the previous release's: the README and the documents it links, and
+each crate's API documentation.
