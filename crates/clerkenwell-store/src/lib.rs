@@ -1417,24 +1417,28 @@ impl CollaborationService {
         source: &str,
         bytes: &[u8],
     ) -> CollaborationDocumentInspection {
-        let Ok(envelope) = parse_envelope(None, source, bytes) else {
-            return CollaborationDocumentInspection {
-                entity: entity.to_string(),
-                resource_id: requested_resource_id
-                    .map(str::to_string)
-                    .unwrap_or_else(|| format!("storage:{}", &sha256_hex(source.as_bytes())[..16])),
-                schema_version: 0,
-                generation: 0,
-                checkpoint_sequence: 0,
-                compacted_through_sequence: 0,
-                retained_operation_count: 0,
-                checkpoint_bytes: bytes.len(),
-                retained_operation_bytes: 0,
-                migration_required: false,
-                valid: false,
-                failure_code: Some("invalid_envelope_json".to_string()),
+        let envelope =
+            match decode_envelope(bytes) {
+                Ok(envelope) => envelope,
+                Err(fault) => {
+                    return CollaborationDocumentInspection {
+                        entity: entity.to_string(),
+                        resource_id: requested_resource_id.map(str::to_string).unwrap_or_else(
+                            || format!("storage:{}", &sha256_hex(source.as_bytes())[..16]),
+                        ),
+                        schema_version: 0,
+                        generation: 0,
+                        checkpoint_sequence: 0,
+                        compacted_through_sequence: 0,
+                        retained_operation_count: 0,
+                        checkpoint_bytes: bytes.len(),
+                        retained_operation_bytes: 0,
+                        migration_required: false,
+                        valid: false,
+                        failure_code: Some(fault.inspection_code().to_string()),
+                    }
+                }
             };
-        };
         let document =
             CollaborationDocumentId::new(envelope.entity.clone(), envelope.resource_id.clone());
         let failure_code = validate_envelope(&document, &envelope)
@@ -2261,6 +2265,45 @@ struct DeclaredEnvelopeVersion {
     envelope_version: u32,
 }
 
+/// Why stored bytes are not an envelope this store reads.
+enum EnvelopeFault {
+    InvalidJson(serde_json::Error),
+    /// Valid JSON declaring a format other than [`ENVELOPE_VERSION`].
+    UnsupportedFormat(u32),
+}
+
+impl EnvelopeFault {
+    /// The failure code an inspection reports for the fault.
+    fn inspection_code(&self) -> &'static str {
+        match self {
+            EnvelopeFault::InvalidJson(_) => "invalid_envelope_json",
+            EnvelopeFault::UnsupportedFormat(_) => "collaboration_state_corrupt",
+        }
+    }
+
+    fn describe(&self, source: &str) -> String {
+        match self {
+            EnvelopeFault::InvalidJson(error) => {
+                format!("envelope {source} is invalid JSON: {error}")
+            }
+            EnvelopeFault::UnsupportedFormat(declared) => {
+                format!("envelope {source} is in unsupported format {declared}")
+            }
+        }
+    }
+}
+
+/// `bytes` as an envelope in format [`ENVELOPE_VERSION`].
+fn decode_envelope(bytes: &[u8]) -> Result<DurableCollaborationEnvelope, EnvelopeFault> {
+    let declared = serde_json::from_slice::<DeclaredEnvelopeVersion>(bytes)
+        .map_err(EnvelopeFault::InvalidJson)?
+        .envelope_version;
+    if declared != ENVELOPE_VERSION {
+        return Err(EnvelopeFault::UnsupportedFormat(declared));
+    }
+    serde_json::from_slice(bytes).map_err(EnvelopeFault::InvalidJson)
+}
+
 /// `bytes` as the envelope kept at `source`, which `document` names when it
 /// is known. An envelope in any format but [`ENVELOPE_VERSION`] is corrupt.
 fn parse_envelope(
@@ -2268,22 +2311,13 @@ fn parse_envelope(
     source: &str,
     bytes: &[u8],
 ) -> StoreResult<DurableCollaborationEnvelope> {
-    let unreadable = |message: String| match document {
-        Some(document) => corrupt_state(document, message),
-        None => StoreError::internal(format!("Collaboration {message}")),
-    };
-    let invalid = |error: serde_json::Error| {
-        unreadable(format!("envelope {source} is invalid JSON: {error}"))
-    };
-    let declared = serde_json::from_slice::<DeclaredEnvelopeVersion>(bytes)
-        .map_err(invalid)?
-        .envelope_version;
-    if declared != ENVELOPE_VERSION {
-        return Err(unreadable(format!(
-            "envelope {source} is in unsupported format {declared}"
-        )));
-    }
-    serde_json::from_slice(bytes).map_err(invalid)
+    decode_envelope(bytes).map_err(|fault| {
+        let message = fault.describe(source);
+        match document {
+            Some(document) => corrupt_state(document, message),
+            None => StoreError::internal(format!("Collaboration {message}")),
+        }
+    })
 }
 
 fn validate_envelope(

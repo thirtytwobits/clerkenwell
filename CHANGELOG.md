@@ -4,6 +4,15 @@ Each release's section is the notes of its GitHub release. A release that change
 lists each change under **Breaking**; `cargo run -p clerkenwell-release -- breaking --help`
 names the contracts.
 
+## 0.3.0
+
+### Breaking
+
+- `clerkenwell-store` reads and writes envelope format `ENVELOPE_VERSION` alone and refuses an
+  envelope in any other format as corrupt. `CollaborationService::upgrade_envelope`,
+  `upgrade_envelope_bytes`, `RetiredEnvelopeFields` and
+  `CollaborationDocumentSummary::envelope_version` are removed.
+
 ## 0.2.1
 
 ### Fixed

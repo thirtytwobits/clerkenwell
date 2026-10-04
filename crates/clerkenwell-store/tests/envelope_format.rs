@@ -88,7 +88,20 @@ fn an_envelope_in_another_format_is_refused_as_corrupt_and_left_as_it_is() {
             service.summaries("Note").is_err(),
             "format {format} is summarised"
         );
-        assert!(!service.verify(&note()).valid, "format {format} verifies");
+        let verified = service.verify(&note());
+        assert!(!verified.valid, "format {format} verifies");
+        assert_eq!(
+            verified.failure_code.as_deref(),
+            Some("collaboration_state_corrupt"),
+            "format {format}"
+        );
+        let (inspected, _) = service.inspect(Some("Note"), None, None).expect("inspect");
+        assert!(
+            inspected.iter().all(|inspection| !inspection.valid
+                && inspection.failure_code.as_deref() == Some("collaboration_state_corrupt")),
+            "format {format}"
+        );
+        assert_eq!(inspected.len(), 1, "format {format}");
         let refused = service
             .repair(&note(), "another format")
             .expect_err("another format");
