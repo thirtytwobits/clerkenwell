@@ -7,13 +7,19 @@
 //! [`statements`] reads every one, [`agreed`] requires them to agree, and
 //! [`bump`] moves them all to a new version, changing nothing else in any file.
 //! [`check_release`] refuses a patch release that changes a contract, and
-//! [`release_notes`] reads a release's section of the changelog.
+//! [`release_notes`] reads a release's section of the changelog, and
+//! [`index_documentation`] writes the documentation's site around the API
+//! documentation rustdoc builds.
 
 mod changelog;
 mod contracts;
+mod documentation;
 
 pub use changelog::{release_notes, CHANGELOG};
 pub use contracts::{check_release, resolve, Comparison, Contract, Release, CONTRACTS};
+pub use documentation::{
+    index_documentation, DocumentedCrate, Site, DOCUMENTATION_COMMAND, FRONT_PAGE,
+};
 
 use std::fmt;
 use std::path::{Path, PathBuf};
@@ -145,6 +151,14 @@ pub enum Error {
         CHANGELOG
     )]
     NoNotes { version: Version },
+    #[error("{doc} holds no documentation for:\n{}\nbuild it with `{}`", list(.crates), DOCUMENTATION_COMMAND)]
+    Undocumented { doc: PathBuf, crates: Vec<String> },
+    #[error("the documentation names Loro:\n{}", list(.0))]
+    ForbiddenNames(Vec<String>),
+    #[error(
+        "{page} links {link:?}, which names no file in the workspace or no heading in its document"
+    )]
+    BrokenLink { page: String, link: String },
 }
 
 fn list(items: &[impl fmt::Display]) -> String {
@@ -318,6 +332,34 @@ struct Member {
 }
 
 fn cargo_members(root: &Path) -> Result<Vec<Member>, Error> {
+    let metadata = cargo_metadata(root)?;
+    let field = |package: &serde_json::Value, name: &str| {
+        package[name]
+            .as_str()
+            .map(str::to_owned)
+            .ok_or_else(|| Error::Metadata(format!("a package without a {name}")))
+    };
+    cargo_packages(&metadata)?
+        .iter()
+        .map(|package| {
+            Ok(Member {
+                name: field(package, "name")?,
+                version: field(package, "version")?,
+                manifest: PathBuf::from(field(package, "manifest_path")?),
+            })
+        })
+        .collect()
+}
+
+/// The workspace members `metadata` describes.
+fn cargo_packages(metadata: &serde_json::Value) -> Result<&Vec<serde_json::Value>, Error> {
+    metadata["packages"]
+        .as_array()
+        .ok_or_else(|| Error::Metadata("no packages".to_owned()))
+}
+
+/// `cargo metadata` for the workspace under `root`, without its dependencies.
+fn cargo_metadata(root: &Path) -> Result<serde_json::Value, Error> {
     let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
     let output = Command::new(cargo)
         .args([
@@ -334,26 +376,7 @@ fn cargo_members(root: &Path) -> Result<Vec<Member>, Error> {
         let stderr = String::from_utf8_lossy(&output.stderr);
         return Err(Error::Metadata(stderr.trim().to_owned()));
     }
-    let metadata: serde_json::Value = serde_json::from_slice(&output.stdout)
-        .map_err(|error| Error::Metadata(error.to_string()))?;
-    let field = |package: &serde_json::Value, name: &str| {
-        package[name]
-            .as_str()
-            .map(str::to_owned)
-            .ok_or_else(|| Error::Metadata(format!("a package without a {name}")))
-    };
-    metadata["packages"]
-        .as_array()
-        .ok_or_else(|| Error::Metadata("no packages".to_owned()))?
-        .iter()
-        .map(|package| {
-            Ok(Member {
-                name: field(package, "name")?,
-                version: field(package, "version")?,
-                manifest: PathBuf::from(field(package, "manifest_path")?),
-            })
-        })
-        .collect()
+    serde_json::from_slice(&output.stdout).map_err(|error| Error::Metadata(error.to_string()))
 }
 
 /// A member's version as Cargo resolves it. A member that states its own

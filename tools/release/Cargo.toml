@@ -10,6 +10,7 @@ publish = false
 [dependencies]
 clap.workspace = true
 jsonc-parser = { version = "0.34.0", features = ["cst"] }
+pulldown-cmark = { version = "0.13.4", default-features = false, features = ["html"] }
 serde_json.workspace = true
 thiserror.workspace = true
 toml_edit = "0.25.15"

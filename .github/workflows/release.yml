@@ -95,3 +95,55 @@ jobs:
         run: |
           gh release create "$GITHUB_REF_NAME" --verify-tag --title "$GITHUB_REF_NAME" \
             --notes-file "$RUNNER_TEMP/notes.md" "$RUNNER_TEMP"/packages/*.tgz
+
+  documentation:
+    name: Documentation
+    needs: [release]
+    runs-on: ubuntu-26.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Cache Rust toolchain
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.rustup/toolchains
+            ~/.rustup/update-hashes
+          key: rustup-${{ runner.os }}-${{ env.RUST_TOOLCHAIN }}-rustfmt-clippy
+
+      - name: Set up Rust
+        run: |
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --component rustfmt --component clippy
+          rustup default "$RUST_TOOLCHAIN"
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build the documentation
+        run: cargo doc --workspace --no-deps
+
+      - name: Index the documentation
+        run: cargo run --quiet -p clerkenwell-release -- docs target/doc
+
+      - name: Upload the site
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: target/doc
+
+  pages:
+    name: Pages
+    needs: [documentation]
+    runs-on: ubuntu-26.04
+    timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Publish the site
+        id: deployment
+        uses: actions/deploy-pages@v5
