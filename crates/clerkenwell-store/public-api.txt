@@ -37,7 +37,6 @@ field clerkenwell_store::CollaborationDocumentSummary::checkpoint_sequence: u64
 field clerkenwell_store::CollaborationDocumentSummary::checkpoint_sha256: String
 field clerkenwell_store::CollaborationDocumentSummary::compacted_through_sequence: u64
 field clerkenwell_store::CollaborationDocumentSummary::document: CollaborationDocumentId
-field clerkenwell_store::CollaborationDocumentSummary::envelope_version: u32
 field clerkenwell_store::CollaborationDocumentSummary::etag: String
 field clerkenwell_store::CollaborationDocumentSummary::generation: u64
 field clerkenwell_store::CollaborationDocumentSummary::retained_count: usize
@@ -117,7 +116,6 @@ fn clerkenwell_store::CollaborationService::reset(&self, document: &Collaboratio
 fn clerkenwell_store::CollaborationService::storage(&self) -> &dyn CollaborationStoragePort
 fn clerkenwell_store::CollaborationService::summaries(&self, entity: &str) -> StoreResult<Vec<CollaborationDocumentSummary>>
 fn clerkenwell_store::CollaborationService::summary(&self, document: &CollaborationDocumentId) -> StoreResult<Option<CollaborationDocumentSummary>>
-fn clerkenwell_store::CollaborationService::upgrade_envelope(&self, document: &CollaborationDocumentId) -> StoreResult<Option<RetiredEnvelopeFields>>
 fn clerkenwell_store::CollaborationService::verify(&self, document: &CollaborationDocumentId) -> CollaborationDocumentInspection
 fn clerkenwell_store::CollaborationService::with_storage(storage: impl CollaborationStoragePort + 'static, plans: &'static [GeneratedCollaborationEntitySpec], policy: CommitPolicy, source: impl Into<String>) -> Self
 trait clerkenwell_store::CollaborationStoragePort: std::fmt::Debug + Send + Sync
@@ -154,7 +152,6 @@ struct clerkenwell_store::LocalFileCollaborationStorage { .. }
 derive clerkenwell_store::LocalFileCollaborationStorage: Clone, Debug
 impl CollaborationStoragePort for clerkenwell_store::LocalFileCollaborationStorage
 fn clerkenwell_store::LocalFileCollaborationStorage::new(root: &Path) -> Self
-type clerkenwell_store::RetiredEnvelopeFields = serde_json::Map<String, Value>
 struct clerkenwell_store::StoreError
 derive clerkenwell_store::StoreError: Clone, Debug
 impl std::error::Error for clerkenwell_store::StoreError
@@ -204,4 +201,3 @@ field clerkenwell_store::StoredEnvelope::version: String
 #[cfg(feature = "testing")] field clerkenwell_store::testing::DurableCollaborationEnvelope::retained_operations: Vec<CollaborationOperation>
 #[cfg(feature = "testing")] field clerkenwell_store::testing::DurableCollaborationEnvelope::schema_version: u32
 #[cfg(feature = "testing")] fn clerkenwell_store::testing::load(service: &CollaborationService, document: &CollaborationDocumentId) -> StoreResult<Option<DurableCollaborationEnvelope>>
-fn clerkenwell_store::upgrade_envelope_bytes(bytes: &[u8]) -> StoreResult<Option<(Vec<u8>, RetiredEnvelopeFields)>>

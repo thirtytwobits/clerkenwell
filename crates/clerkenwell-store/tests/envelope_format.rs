@@ -1,11 +1,11 @@
-//! An envelope kept in an earlier format is refused until an explicit
-//! upgrade rewrites it, and the upgrade changes nothing else.
+//! The store reads and writes envelopes in one format, and refuses an envelope
+//! in any other as corrupt without changing it.
 
 mod support;
 
 use clerkenwell_store::{
-    upgrade_envelope_bytes, CollaborationDocumentId, CollaborationService,
-    CollaborationStoragePort, LocalFileCollaborationStorage, ENVELOPE_VERSION,
+    CollaborationDocumentId, CollaborationService, CollaborationStoragePort,
+    LocalFileCollaborationStorage, ENVELOPE_VERSION,
 };
 use serde_json::{json, Value};
 use support::{accept, NOTE_PLAN, PLANS, POLICY};
@@ -14,11 +14,10 @@ fn note() -> CollaborationDocumentId {
     CollaborationDocumentId::new("Note", "note-1")
 }
 
-/// A service over a fresh store holding one note, and where its envelope is.
-fn seeded() -> (tempfile::TempDir, CollaborationService, String) {
+/// A fresh store holding one note, and where its envelope is.
+fn seeded() -> (tempfile::TempDir, String) {
     let root = tempfile::tempdir().expect("temp store");
-    let service = CollaborationService::new(root.path(), PLANS, POLICY);
-    service
+    CollaborationService::new(root.path(), PLANS, POLICY)
         .bootstrap(
             &NOTE_PLAN,
             &note(),
@@ -27,23 +26,18 @@ fn seeded() -> (tempfile::TempDir, CollaborationService, String) {
         )
         .expect("bootstrap");
     let path = LocalFileCollaborationStorage::new(root.path()).source(&note());
-    (root, service, path)
+    (root, path)
 }
 
-/// Rewrites the envelope at `path` in format 1, which also kept where the
-/// application rendered the document and whether it had published it.
-fn keep_in_format_1(path: &str, earlier: &Value) {
-    let mut envelope: serde_json::Map<String, Value> =
-        serde_json::from_slice(&std::fs::read(path).expect("read")).expect("an envelope");
-    envelope.insert("envelope_version".to_string(), json!(1));
-    for (field, value) in earlier.as_object().expect("fields") {
-        envelope.insert(field.clone(), value.clone());
-    }
+fn stored_envelope(path: &str) -> serde_json::Map<String, Value> {
+    serde_json::from_slice(&std::fs::read(path).expect("read")).expect("an envelope")
+}
+
+/// Rewrites the envelope at `path` to declare `format`.
+fn declare_format(path: &str, format: u32) {
+    let mut envelope = stored_envelope(path);
+    envelope.insert("envelope_version".to_string(), json!(format));
     std::fs::write(path, serde_json::to_vec_pretty(&envelope).expect("json")).expect("write");
-}
-
-fn format_1_fields() -> Value {
-    json!({ "relative_path": "notes/note-1.yaml", "publication_pending": true })
 }
 
 fn refusal_code(error: &clerkenwell_store::StoreError) -> Option<&str> {
@@ -51,59 +45,16 @@ fn refusal_code(error: &clerkenwell_store::StoreError) -> Option<&str> {
 }
 
 #[test]
-fn an_envelope_in_an_earlier_format_is_described_but_its_content_refused() {
-    let (_root, service, path) = seeded();
-    keep_in_format_1(&path, &format_1_fields());
-    let kept = std::fs::read(&path).expect("read");
+fn an_envelope_the_store_writes_declares_its_format_and_reads_back() {
+    let (root, path) = seeded();
 
-    let refused = service
-        .detail(&NOTE_PLAN, &note())
-        .expect_err("an earlier format");
     assert_eq!(
-        refusal_code(&refused),
-        Some("collaboration_envelope_upgrade_required")
+        stored_envelope(&path)["envelope_version"],
+        json!(ENVELOPE_VERSION)
     );
-    let inspection = service.verify(&note());
-    assert!(!inspection.valid);
+    let reader = CollaborationService::new(root.path(), PLANS, POLICY);
     assert_eq!(
-        inspection.failure_code.as_deref(),
-        Some("collaboration_envelope_upgrade_required")
-    );
-    let described = service
-        .summary(&note())
-        .expect("summary")
-        .expect("a document");
-    assert!(described.envelope_version < ENVELOPE_VERSION);
-    assert_eq!(service.summaries("Note").expect("summaries"), [described]);
-
-    assert_eq!(std::fs::read(&path).expect("read"), kept);
-}
-
-#[test]
-fn an_upgrade_returns_what_the_earlier_format_kept_and_leaves_the_document_as_it_was() {
-    let (_root, service, path) = seeded();
-    let before = service
-        .summary(&note())
-        .expect("summary")
-        .expect("a document");
-    let earlier = format_1_fields();
-    keep_in_format_1(&path, &earlier);
-
-    let removed = service
-        .upgrade_envelope(&note())
-        .expect("upgrade")
-        .expect("an earlier format");
-
-    assert_eq!(Value::Object(removed), earlier);
-    let after = service
-        .summary(&note())
-        .expect("summary")
-        .expect("a document");
-    assert_eq!(after.envelope_version, ENVELOPE_VERSION);
-    assert_eq!(after.generation, before.generation);
-    assert_eq!(after.etag, before.etag);
-    assert_eq!(
-        service
+        reader
             .detail(&NOTE_PLAN, &note())
             .expect("detail")
             .expect("a note")["body"],
@@ -112,97 +63,41 @@ fn an_upgrade_returns_what_the_earlier_format_kept_and_leaves_the_document_as_it
 }
 
 #[test]
-fn a_format_2_envelope_upgrades_and_returns_where_it_recorded_a_move_from() {
-    let (_root, service, path) = seeded();
-    let before = service
-        .summary(&note())
-        .expect("summary")
-        .expect("a document");
-    let mut envelope: serde_json::Map<String, Value> =
-        serde_json::from_slice(&std::fs::read(&path).expect("read")).expect("an envelope");
-    envelope.insert("envelope_version".to_string(), json!(2));
-    envelope.insert("pending_rename_from".to_string(), json!("note-0"));
-    std::fs::write(&path, serde_json::to_vec_pretty(&envelope).expect("json")).expect("write");
-    assert!(
-        service.detail(&NOTE_PLAN, &note()).is_err(),
-        "an earlier format"
-    );
+fn an_envelope_in_another_format_is_refused_as_corrupt_and_left_as_it_is() {
+    for format in [ENVELOPE_VERSION - 1, ENVELOPE_VERSION + 1] {
+        let (root, path) = seeded();
+        declare_format(&path, format);
+        let kept = std::fs::read(&path).expect("read");
+        let service = CollaborationService::new(root.path(), PLANS, POLICY);
 
-    let removed = service
-        .upgrade_envelope(&note())
-        .expect("upgrade")
-        .expect("an earlier format");
+        let refused = service
+            .detail(&NOTE_PLAN, &note())
+            .expect_err("another format");
+        assert_eq!(
+            refusal_code(&refused),
+            Some("collaboration_state_corrupt"),
+            "format {format}"
+        );
+        let refused = service.summary(&note()).expect_err("another format");
+        assert_eq!(
+            refusal_code(&refused),
+            Some("collaboration_state_corrupt"),
+            "format {format}"
+        );
+        assert!(
+            service.summaries("Note").is_err(),
+            "format {format} is summarised"
+        );
+        assert!(!service.verify(&note()).valid, "format {format} verifies");
+        let refused = service
+            .repair(&note(), "another format")
+            .expect_err("another format");
+        assert_eq!(
+            refusal_code(&refused),
+            Some("collaboration_state_corrupt"),
+            "format {format}"
+        );
 
-    assert_eq!(
-        Value::Object(removed),
-        json!({ "pending_rename_from": "note-0" })
-    );
-    let after = service
-        .summary(&note())
-        .expect("summary")
-        .expect("a document");
-    assert_eq!(after.envelope_version, ENVELOPE_VERSION);
-    assert_eq!(after.etag, before.etag);
-}
-
-#[test]
-fn upgrading_an_envelope_already_in_the_current_format_changes_nothing() {
-    let (_root, service, path) = seeded();
-    let kept = std::fs::read(&path).expect("read");
-
-    assert!(service
-        .upgrade_envelope(&note())
-        .expect("upgrade")
-        .is_none());
-
-    assert_eq!(std::fs::read(&path).expect("read"), kept);
-}
-
-#[test]
-fn envelope_bytes_no_service_reads_upgrade_to_what_a_service_reads() {
-    let (root, service, path) = seeded();
-    let before = service
-        .summary(&note())
-        .expect("summary")
-        .expect("a document");
-    let earlier = format_1_fields();
-    keep_in_format_1(&path, &earlier);
-    drop(service);
-
-    let (upgraded, removed) = upgrade_envelope_bytes(&std::fs::read(&path).expect("read"))
-        .expect("upgrade")
-        .expect("an earlier format");
-    std::fs::write(&path, upgraded).expect("write");
-
-    assert_eq!(Value::Object(removed), earlier);
-    let reader = CollaborationService::new(root.path(), PLANS, POLICY);
-    let after = reader
-        .summary(&note())
-        .expect("summary")
-        .expect("a document");
-    assert_eq!(after.envelope_version, ENVELOPE_VERSION);
-    assert_eq!(after.generation, before.generation);
-    assert_eq!(after.etag, before.etag);
-}
-
-#[test]
-fn envelope_bytes_already_in_the_current_format_are_left_as_they_are() {
-    let (_root, _service, path) = seeded();
-
-    assert!(upgrade_envelope_bytes(&std::fs::read(&path).expect("read"))
-        .expect("upgrade")
-        .is_none());
-}
-
-#[test]
-fn envelope_bytes_in_a_format_this_store_does_not_know_are_refused() {
-    let (_root, _service, path) = seeded();
-    let mut envelope: serde_json::Map<String, Value> =
-        serde_json::from_slice(&std::fs::read(&path).expect("read")).expect("an envelope");
-    envelope.insert("envelope_version".to_string(), json!(ENVELOPE_VERSION + 1));
-
-    let refused = upgrade_envelope_bytes(&serde_json::to_vec(&envelope).expect("json"))
-        .expect_err("an unknown format");
-
-    assert_eq!(refusal_code(&refused), Some("collaboration_state_corrupt"));
+        assert_eq!(std::fs::read(&path).expect("read"), kept, "format {format}");
+    }
 }

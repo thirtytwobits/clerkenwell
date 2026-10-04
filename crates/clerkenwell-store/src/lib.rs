@@ -48,30 +48,9 @@ use uuid::Uuid;
 use envelope::{CollaborationOperation, DurableCollaborationEnvelope};
 use residency::{Residency, Resident};
 
-/// The envelope format this store reads and writes. An envelope in an
-/// earlier format is refused until [`CollaborationService::upgrade_envelope`]
-/// rewrites it.
+/// The envelope format this store reads and writes. An envelope in any other
+/// format is corrupt.
 pub const ENVELOPE_VERSION: u32 = 3;
-
-/// The fields an earlier format kept that the current one does not. Format 1
-/// recorded where the application rendered the document and whether it had
-/// published it; formats 1 and 2 recorded where an unfinished move took it
-/// from.
-fn retired_fields(envelope_version: u64) -> Option<&'static [&'static str]> {
-    match envelope_version {
-        1 => Some(&[
-            "relative_path",
-            "publication_pending",
-            "pending_rename_from",
-        ]),
-        2 => Some(&["pending_rename_from"]),
-        _ => None,
-    }
-}
-
-/// The fields an earlier envelope format kept that the current one does not,
-/// as an upgrade removed them.
-pub type RetiredEnvelopeFields = serde_json::Map<String, Value>;
 
 #[cfg(test)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -132,11 +111,6 @@ impl CollaborationDocumentId {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CollaborationDocumentSummary {
     pub document: CollaborationDocumentId,
-    /// The format its envelope is kept in. A document in a format earlier
-    /// than [`ENVELOPE_VERSION`] is described, but its content is neither
-    /// read nor written until [`CollaborationService::upgrade_envelope`]
-    /// rewrites it.
-    pub envelope_version: u32,
     pub schema_version: u32,
     pub generation: u64,
     pub etag: String,
@@ -158,7 +132,6 @@ impl CollaborationDocumentSummary {
                 envelope.entity.clone(),
                 envelope.resource_id.clone(),
             ),
-            envelope_version: envelope.envelope_version,
             schema_version: envelope.schema_version,
             generation: envelope.generation,
             etag: envelope.etag(),
@@ -680,7 +653,7 @@ impl CollaborationService {
         document: &CollaborationDocumentId,
     ) -> StoreResult<Option<DurableCollaborationEnvelope>> {
         Ok(self
-            .read_current(document)?
+            .read_envelope(document)?
             .map(|read| read.envelope.clone()))
     }
 
@@ -713,7 +686,7 @@ impl CollaborationService {
         plan: &'static GeneratedCollaborationEntitySpec,
         document: &CollaborationDocumentId,
     ) -> StoreResult<Option<CollaborationDocumentRead>> {
-        let Some(resident) = self.read_current(document)? else {
+        let Some(resident) = self.read_envelope(document)? else {
             return Ok(None);
         };
         Ok(Some(CollaborationDocumentRead {
@@ -750,19 +723,6 @@ impl CollaborationService {
                 return Ok(envelope);
             }
         }
-    }
-
-    /// `document` as held, refusing one whose envelope is in an earlier
-    /// format: its content is read and written only once it is upgraded.
-    fn read_current(
-        &self,
-        document: &CollaborationDocumentId,
-    ) -> StoreResult<Option<Arc<Resident>>> {
-        let read = self.read_envelope(document)?;
-        if let Some(read) = &read {
-            require_current(document, &read.envelope)?;
-        }
-        Ok(read)
     }
 
     fn read_envelope(
@@ -979,7 +939,7 @@ impl CollaborationService {
         plan: &'static GeneratedCollaborationEntitySpec,
         document: &CollaborationDocumentId,
     ) -> StoreResult<Option<Value>> {
-        let Some(resident) = self.read_current(document)? else {
+        let Some(resident) = self.read_envelope(document)? else {
             return Ok(None);
         };
         Ok(Some(
@@ -995,7 +955,7 @@ impl CollaborationService {
         document: &CollaborationDocumentId,
         held_frontier_base64: Option<&str>,
     ) -> StoreResult<CollaborationAuthoringState> {
-        let resident = self.read_current(document)?.ok_or_else(|| {
+        let resident = self.read_envelope(document)?.ok_or_else(|| {
             StoreError::not_found(format!(
                 "No collaborative {} document exists for \"{}\".",
                 document.entity, document.resource_id
@@ -1090,7 +1050,7 @@ impl CollaborationService {
             if attempt > 0 {
                 self.pause_before_attempt(attempt);
             }
-            let read = self.read_current(&request.document)?;
+            let read = self.read_envelope(&request.document)?;
             let current = match read.as_ref().map(|read| &read.envelope) {
                 Some(_) if request.exchange_mode == CollaborationExchangeMode::Bootstrap => {
                     return Err(StoreError::conflict(format!(
@@ -1365,30 +1325,6 @@ impl CollaborationService {
         std::thread::sleep(bound.mul_f64(random as f64 / u64::MAX as f64));
     }
 
-    /// Rewrites `document`'s envelope in the current format when it is kept
-    /// in an earlier one, and returns the fields the earlier format kept that
-    /// the current one does not; `None` when it is already current. The
-    /// document, its generation and its history are unchanged.
-    pub fn upgrade_envelope(
-        &self,
-        document: &CollaborationDocumentId,
-    ) -> StoreResult<Option<RetiredEnvelopeFields>> {
-        loop {
-            let stored = self.stored(document)?;
-            let Some((envelope, removed)) =
-                upgraded_envelope(document, &self.storage.source(document), &stored.bytes)?
-            else {
-                return Ok(None);
-            };
-            if self
-                .swap(document, Some(&stored.version), &envelope)?
-                .is_some()
-            {
-                return Ok(Some(removed));
-            }
-        }
-    }
-
     /// Removes `document`'s envelope, whatever it holds.
     pub fn delete(&self, document: &CollaborationDocumentId) -> StoreResult<()> {
         let source = self.storage.source(document);
@@ -1501,13 +1437,9 @@ impl CollaborationService {
         };
         let document =
             CollaborationDocumentId::new(envelope.entity.clone(), envelope.resource_id.clone());
-        let failure_code = match validate_envelope(&document, &envelope) {
-            Err(_) => Some("collaboration_state_corrupt"),
-            Ok(()) if envelope.envelope_version < ENVELOPE_VERSION => {
-                Some("collaboration_envelope_upgrade_required")
-            }
-            Ok(()) => None,
-        };
+        let failure_code = validate_envelope(&document, &envelope)
+            .err()
+            .map(|_| "collaboration_state_corrupt");
         inspection_from_envelope(
             self.plans,
             envelope,
@@ -1595,7 +1527,6 @@ impl CollaborationService {
                 "the envelope JSON cannot be repaired automatically",
             )
         })?;
-        require_current(document, &envelope)?;
         let _ = envelope.checkpoint_update(document)?;
         let evidence = self
             .storage
@@ -1778,7 +1709,7 @@ impl CollaborationService {
 
         loop {
             let read = self
-                .read_current(document)?
+                .read_envelope(document)?
                 .ok_or_else(|| missing_state(document))?;
             let current = &read.envelope;
             if current.schema_version == plan.schema_version {
@@ -2331,73 +2262,34 @@ struct DeclaredEnvelopeVersion {
 }
 
 /// `bytes` as the envelope kept at `source`, which `document` names when it
-/// is known. An envelope in an earlier format is reported as needing its
-/// upgrade rather than as unreadable.
+/// is known. An envelope in any format but [`ENVELOPE_VERSION`] is corrupt.
 fn parse_envelope(
     document: Option<&CollaborationDocumentId>,
     source: &str,
     bytes: &[u8],
 ) -> StoreResult<DurableCollaborationEnvelope> {
-    let unreadable = |error: serde_json::Error| match document {
-        Some(document) => corrupt_state(
-            document,
-            format!("envelope {source} is invalid JSON: {error}"),
-        ),
-        None => StoreError::internal(format!(
-            "Collaboration envelope {source} is invalid JSON: {error}"
-        )),
+    let unreadable = |message: String| match document {
+        Some(document) => corrupt_state(document, message),
+        None => StoreError::internal(format!("Collaboration {message}")),
+    };
+    let invalid = |error: serde_json::Error| {
+        unreadable(format!("envelope {source} is invalid JSON: {error}"))
     };
     let declared = serde_json::from_slice::<DeclaredEnvelopeVersion>(bytes)
-        .map_err(&unreadable)?
+        .map_err(invalid)?
         .envelope_version;
-    let Some(retired) = retired_fields(u64::from(declared)) else {
-        return serde_json::from_slice(bytes).map_err(unreadable);
-    };
-    // What an earlier format kept beyond the current one is left out; its
-    // version says the envelope still needs its upgrade.
-    let mut fields: serde_json::Map<String, Value> =
-        serde_json::from_slice(bytes).map_err(&unreadable)?;
-    for field in retired {
-        fields.remove(*field);
+    if declared != ENVELOPE_VERSION {
+        return Err(unreadable(format!(
+            "envelope {source} is in unsupported format {declared}"
+        )));
     }
-    serde_json::from_value(Value::Object(fields)).map_err(unreadable)
-}
-
-/// Refuses to read or write the content of an envelope kept in an earlier
-/// format.
-fn require_current(
-    document: &CollaborationDocumentId,
-    envelope: &DurableCollaborationEnvelope,
-) -> StoreResult<()> {
-    if envelope.envelope_version >= ENVELOPE_VERSION {
-        return Ok(());
-    }
-    Err(StoreError::invalid_request(format!(
-        "Collaboration document {}/{} is kept in envelope format {}; upgrade it to format {ENVELOPE_VERSION} first.",
-        document.entity, document.resource_id, envelope.envelope_version
-    ))
-    .with_data(serde_json::json!({
-        "code": "collaboration_envelope_upgrade_required",
-        "entity": document.entity,
-        "resource_id": document.resource_id,
-        "actual": envelope.envelope_version,
-        "expected": ENVELOPE_VERSION,
-    })))
+    serde_json::from_slice(bytes).map_err(invalid)
 }
 
 fn validate_envelope(
     document: &CollaborationDocumentId,
     envelope: &DurableCollaborationEnvelope,
 ) -> StoreResult<()> {
-    if !(1..=ENVELOPE_VERSION).contains(&envelope.envelope_version) {
-        return Err(corrupt_state(
-            document,
-            format!(
-                "unsupported durable envelope version {}",
-                envelope.envelope_version
-            ),
-        ));
-    }
     if envelope.entity != document.entity || envelope.resource_id != document.resource_id {
         return Err(corrupt_state(
             document,
@@ -2441,81 +2333,6 @@ fn validate_envelope(
         ));
     }
     Ok(())
-}
-
-/// Stored envelope `bytes` rewritten in the current format, and the fields the
-/// earlier format kept that the current one does not; `None` when they are
-/// already current. For envelopes no service reads, such as a staged copy of
-/// a store; [`CollaborationService::upgrade_envelope`] upgrades one a service
-/// keeps.
-pub fn upgrade_envelope_bytes(
-    bytes: &[u8],
-) -> StoreResult<Option<(Vec<u8>, RetiredEnvelopeFields)>> {
-    let named = |field: &str| {
-        serde_json::from_slice::<Value>(bytes)
-            .ok()
-            .and_then(|value| value.get(field)?.as_str().map(str::to_string))
-            .unwrap_or_default()
-    };
-    let document = CollaborationDocumentId::new(named("entity"), named("resource_id"));
-    let Some((envelope, removed)) = upgraded_envelope(&document, "the stored envelope", bytes)?
-    else {
-        return Ok(None);
-    };
-    validate_envelope(&document, &envelope)?;
-    let bytes = serde_json::to_vec_pretty(&envelope)
-        .map_err(|error| StoreError::internal(error.to_string()))?;
-    Ok(Some((bytes, removed)))
-}
-
-/// An envelope rewritten in the current format, and the fields its earlier
-/// format kept that the current one does not.
-type UpgradedEnvelope = (DurableCollaborationEnvelope, RetiredEnvelopeFields);
-
-/// `bytes`, kept at `source`, read as an envelope in the current format,
-/// with the fields an earlier format kept that it does not; `None` when they
-/// are already current.
-fn upgraded_envelope(
-    document: &CollaborationDocumentId,
-    source: &str,
-    bytes: &[u8],
-) -> StoreResult<Option<UpgradedEnvelope>> {
-    let unreadable = |error: serde_json::Error| {
-        corrupt_state(
-            document,
-            format!("envelope {source} is invalid JSON: {error}"),
-        )
-    };
-    let mut fields: serde_json::Map<String, Value> =
-        serde_json::from_slice(bytes).map_err(unreadable)?;
-    let version = fields
-        .get("envelope_version")
-        .and_then(Value::as_u64)
-        .ok_or_else(|| corrupt_state(document, "the envelope names no format version"))?;
-    if version == u64::from(ENVELOPE_VERSION) {
-        return Ok(None);
-    }
-    let Some(retired) = retired_fields(version) else {
-        return Err(corrupt_state(
-            document,
-            format!("unsupported durable envelope version {version}"),
-        ));
-    };
-    let removed: RetiredEnvelopeFields = retired
-        .iter()
-        .filter_map(|field| {
-            fields
-                .remove(*field)
-                .map(|value| (field.to_string(), value))
-        })
-        .collect();
-    fields.insert(
-        "envelope_version".to_string(),
-        Value::from(ENVELOPE_VERSION),
-    );
-    let envelope: DurableCollaborationEnvelope =
-        serde_json::from_value(Value::Object(fields)).map_err(unreadable)?;
-    Ok(Some((envelope, removed)))
 }
 
 fn corrupt_state(document: &CollaborationDocumentId, message: impl Into<String>) -> StoreError {
