@@ -8,9 +8,9 @@
 
 pub mod model;
 pub mod server;
+pub mod storage;
 
 use std::num::NonZeroU32;
-use std::path::Path;
 use std::time::Duration;
 
 use clerkenwell_doc::{CollaborationReplica, CollaborationReplicaError};
@@ -21,6 +21,7 @@ use clerkenwell_store::{
 };
 use model::{GeneratedCollaborationEntitySpec, NoteDocumentStatus};
 use serde_json::{json, Value};
+use storage::MemoryStorage;
 
 /// The note's collaboration plan.
 pub const NOTE: &GeneratedCollaborationEntitySpec = &model::NOTE_COLLABORATION_SPEC;
@@ -205,10 +206,14 @@ impl Notes {
     }
 }
 
-/// Step 1: a store under `root` holding the note.
-pub fn create_note(root: &Path) -> Result<Notes> {
-    let service =
-        CollaborationService::new(root, model::GENERATED_COLLABORATION_SPECS, COMMIT_POLICY);
+/// Step 1: a store holding the note.
+pub fn create_note() -> Result<Notes> {
+    let service = CollaborationService::new(
+        MemoryStorage::default(),
+        model::GENERATED_COLLABORATION_SPECS,
+        COMMIT_POLICY,
+        "notes",
+    );
     let note = CollaborationDocumentId::new(NOTE.name, NOTE_ID);
     service.bootstrap(NOTE, &note, &seed(), validate)?;
     Ok(Notes { service, note })

@@ -9,9 +9,8 @@
 //!
 //! The service builds and judges every envelope. A storage port keeps each
 //! document's envelope as bytes and replaces or removes them only from the
-//! version a writer read; the local file port does so under a per-document
-//! lock with an atomic durable write. A store set can hold stores over any
-//! mix of ports.
+//! version a writer read. The application implements the port over its own
+//! storage. A store set can hold stores over any mix of ports.
 //!
 //! A service holds each document it reads, with the replica and materialised
 //! document built from it, and writes every change through to the port. It
@@ -28,16 +27,12 @@ use clerkenwell_doc::{CollaborationReplica, CollaborationReplicaError};
 use clerkenwell_events::{ChangeData, ChangeEvent, ChangeFeed, ChangeKind};
 use clerkenwell_schema::GeneratedCollaborationEntitySpec;
 pub use error::{StoreError, StoreErrorKind, StoreResult};
-use fs2::FileExt;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
-use std::fs::{File, OpenOptions};
-use std::io::Write;
 use std::num::NonZeroU32;
-use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 #[cfg(test)]
 use std::sync::Mutex;
@@ -58,14 +53,11 @@ pub(crate) enum CollaborationFaultPoint {
     CandidateImported,
     Materialised,
     Validated,
-    BeforeTemporaryWrite,
-    AfterTemporarySync,
-    AfterRenameBeforeDirectorySync,
     AfterDurableCommit,
 }
 
-/// One pending injected fault, shared by a service and its local storage so a
-/// test can interrupt a commit at any boundary, whichever of them owns it.
+/// One pending injected fault, so a test can interrupt a commit at any of the
+/// service's boundaries.
 #[cfg(test)]
 #[derive(Debug, Clone, Default)]
 pub(crate) struct CollaborationFaults(Arc<Mutex<Option<CollaborationFaultPoint>>>);
@@ -535,26 +527,9 @@ impl CollaborationStores {
 }
 
 impl CollaborationService {
-    /// A service for documents of `plans` whose envelopes live in files under
-    /// `root`.
+    /// A service for documents of `plans` committing through `storage`, whose
+    /// changes name `source` as their source.
     pub fn new(
-        root: &Path,
-        plans: &'static [GeneratedCollaborationEntitySpec],
-        policy: CommitPolicy,
-    ) -> Self {
-        let storage = LocalFileCollaborationStorage::new(root);
-        #[cfg(test)]
-        let faults = storage.faults.clone();
-        let service = Self::with_storage(storage, plans, policy, root.display().to_string());
-        #[cfg(test)]
-        let service = Self { faults, ..service };
-        service
-    }
-
-    /// A service for documents of `plans` committing through any
-    /// implementation of the storage port, whose changes name `source` as
-    /// their source.
-    pub fn with_storage(
         storage: impl CollaborationStoragePort + 'static,
         plans: &'static [GeneratedCollaborationEntitySpec],
         policy: CommitPolicy,
@@ -1878,356 +1853,6 @@ fn replica_error(
     }
 }
 
-/// Envelopes kept as files under one root, one per document, each replaced
-/// atomically and durably under a per-document advisory lock that every
-/// process sharing the root honours.
-#[derive(Debug, Clone)]
-pub struct LocalFileCollaborationStorage {
-    root: PathBuf,
-    #[cfg(test)]
-    faults: CollaborationFaults,
-}
-
-impl LocalFileCollaborationStorage {
-    /// Envelopes stored under `root`.
-    pub fn new(root: &Path) -> Self {
-        Self {
-            root: root.to_path_buf(),
-            #[cfg(test)]
-            faults: CollaborationFaults::default(),
-        }
-    }
-
-    #[cfg(test)]
-    fn fail_if(&self, point: CollaborationFaultPoint) -> StoreResult<()> {
-        self.faults.fail_if(point)
-    }
-
-    fn entity_dir(&self, entity: &str) -> PathBuf {
-        self.root.join(safe_entity_name(entity))
-    }
-
-    fn envelope_path(&self, document: &CollaborationDocumentId) -> PathBuf {
-        self.entity_dir(&document.entity).join(format!(
-            "{}.json",
-            sha256_hex(document.resource_id.as_bytes())
-        ))
-    }
-
-    fn lock_path(&self, document: &CollaborationDocumentId) -> PathBuf {
-        self.entity_dir(&document.entity).join(format!(
-            "{}.lock",
-            sha256_hex(document.resource_id.as_bytes())
-        ))
-    }
-
-    fn audit_path(&self) -> PathBuf {
-        self.root.join("recovery-audit.ndjson")
-    }
-
-    fn audit_lock_path(&self) -> PathBuf {
-        self.root.join("recovery-audit.lock")
-    }
-
-    fn with_document_lock<T>(
-        &self,
-        document: &CollaborationDocumentId,
-        operation: impl FnOnce() -> StoreResult<T>,
-    ) -> StoreResult<T> {
-        let lock_path = self.lock_path(document);
-        if let Some(parent) = lock_path.parent() {
-            std::fs::create_dir_all(parent).map_err(|error| {
-                StoreError::internal(format!(
-                    "Could not create collaboration storage directory {}: {error}",
-                    parent.display()
-                ))
-            })?;
-        }
-        let lock = OpenOptions::new()
-            .create(true)
-            .truncate(false)
-            .read(true)
-            .write(true)
-            .open(&lock_path)
-            .map_err(|error| {
-                StoreError::internal(format!(
-                    "Could not open collaboration lock {}: {error}",
-                    lock_path.display()
-                ))
-            })?;
-        lock.lock_exclusive().map_err(|error| {
-            StoreError::internal(format!(
-                "Could not lock collaboration document {}/{}: {error}",
-                document.entity, document.resource_id
-            ))
-        })?;
-        let result = operation();
-        let unlock_result = FileExt::unlock(&lock).map_err(|error| {
-            StoreError::internal(format!(
-                "Could not unlock collaboration document {}/{}: {error}",
-                document.entity, document.resource_id
-            ))
-        });
-        match (result, unlock_result) {
-            (Err(error), _) => Err(error),
-            (Ok(_), Err(error)) => Err(error),
-            (Ok(value), Ok(())) => Ok(value),
-        }
-    }
-
-    fn write_envelope(&self, path: &Path, bytes: &[u8]) -> StoreResult<()> {
-        #[cfg(test)]
-        {
-            write_atomic_durable_with_hooks(
-                path,
-                bytes,
-                || self.fail_if(CollaborationFaultPoint::BeforeTemporaryWrite),
-                || self.fail_if(CollaborationFaultPoint::AfterTemporarySync),
-                || self.fail_if(CollaborationFaultPoint::AfterRenameBeforeDirectorySync),
-            )
-        }
-        #[cfg(not(test))]
-        write_atomic_durable(path, bytes)
-    }
-}
-
-/// How long a file must have gone unchanged before its metadata alone shows
-/// any later change: a file timestamp can lag the clock by a timer tick, or by
-/// a second on a coarse file system, so a rewrite within that lag can leave
-/// the timestamp where it was.
-pub(crate) const SETTLED_METADATA_AGE: Duration = Duration::from_secs(2);
-
-/// When a file last changed, and a stamp of its metadata. The stamp differs
-/// from every earlier stamp of the file once its bytes change, provided the
-/// earlier one was taken at least [`SETTLED_METADATA_AGE`] after the file last
-/// changed.
-#[cfg(unix)]
-pub(crate) fn metadata_stamp(metadata: &std::fs::Metadata) -> Option<(SystemTime, String)> {
-    use std::os::unix::fs::MetadataExt;
-    let changed = UNIX_EPOCH.checked_add(Duration::new(
-        u64::try_from(metadata.ctime()).ok()?,
-        u32::try_from(metadata.ctime_nsec()).ok()?,
-    ))?;
-    let stamp = format!(
-        "{}:{}:{}:{}.{}:{}.{}",
-        metadata.dev(),
-        metadata.ino(),
-        metadata.len(),
-        metadata.mtime(),
-        metadata.mtime_nsec(),
-        metadata.ctime(),
-        metadata.ctime_nsec(),
-    );
-    Some((changed, stamp))
-}
-
-/// When a file last changed, and a stamp of its metadata. The stamp differs
-/// from every earlier stamp of the file once its bytes change, provided the
-/// earlier one was taken at least [`SETTLED_METADATA_AGE`] after the file last
-/// changed.
-#[cfg(not(unix))]
-pub(crate) fn metadata_stamp(metadata: &std::fs::Metadata) -> Option<(SystemTime, String)> {
-    let modified = metadata.modified().ok()?;
-    let since_epoch = modified.duration_since(UNIX_EPOCH).ok()?;
-    Some((
-        modified,
-        format!("{}:{}", metadata.len(), since_epoch.as_nanos()),
-    ))
-}
-
-/// The bytes at `path`, or `None` when there is no file.
-fn read_optional(path: &Path) -> StoreResult<Option<Vec<u8>>> {
-    match std::fs::read(path) {
-        Ok(bytes) => Ok(Some(bytes)),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
-        Err(error) => Err(StoreError::internal(format!(
-            "Could not read collaboration state {}: {error}",
-            path.display()
-        ))),
-    }
-}
-
-impl CollaborationStoragePort for LocalFileCollaborationStorage {
-    fn source(&self, document: &CollaborationDocumentId) -> String {
-        self.envelope_path(document).display().to_string()
-    }
-
-    fn sources(&self, entity: &str) -> StoreResult<Vec<String>> {
-        let directory = self.entity_dir(entity);
-        let entries = match std::fs::read_dir(&directory) {
-            Ok(entries) => entries,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
-            Err(error) => {
-                return Err(StoreError::internal(format!(
-                    "Could not list collaboration state {}: {error}",
-                    directory.display()
-                )))
-            }
-        };
-        let mut sources = Vec::new();
-        for entry in entries {
-            let path = entry
-                .map_err(|error| {
-                    StoreError::internal(format!(
-                        "Could not list collaboration state {}: {error}",
-                        directory.display()
-                    ))
-                })?
-                .path();
-            if path.extension().and_then(|value| value.to_str()) == Some("json") {
-                sources.push(path.display().to_string());
-            }
-        }
-        sources.sort();
-        Ok(sources)
-    }
-
-    fn read(&self, source: &str) -> StoreResult<Option<StoredEnvelope>> {
-        Ok(
-            read_optional(Path::new(source))?.map(|bytes| StoredEnvelope {
-                version: sha256_hex(&bytes),
-                bytes,
-            }),
-        )
-    }
-
-    fn stamp(&self, source: &str) -> StoreResult<Option<String>> {
-        let metadata = match std::fs::metadata(source) {
-            Ok(metadata) => metadata,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-            Err(error) => {
-                return Err(StoreError::internal(format!(
-                    "Could not inspect collaboration state {source}: {error}"
-                )))
-            }
-        };
-        Ok(metadata_stamp(&metadata).and_then(|(changed, stamp)| {
-            SystemTime::now()
-                .duration_since(changed)
-                .is_ok_and(|age| age >= SETTLED_METADATA_AGE)
-                .then_some(stamp)
-        }))
-    }
-
-    fn compare_and_swap(
-        &self,
-        document: &CollaborationDocumentId,
-        expected: Option<&str>,
-        bytes: &[u8],
-    ) -> StoreResult<Option<String>> {
-        let path = self.envelope_path(document);
-        self.with_document_lock(document, || {
-            let current = read_optional(&path)?;
-            if current.as_deref().map(sha256_hex).as_deref() != expected {
-                return Ok(None);
-            }
-            self.write_envelope(&path, bytes)?;
-            Ok(Some(sha256_hex(bytes)))
-        })
-    }
-
-    fn compare_and_remove(
-        &self,
-        document: &CollaborationDocumentId,
-        expected: &str,
-    ) -> StoreResult<bool> {
-        let path = self.envelope_path(document);
-        self.with_document_lock(document, || {
-            let current = read_optional(&path)?;
-            if current.as_deref().map(sha256_hex).as_deref() != Some(expected) {
-                return Ok(false);
-            }
-            remove_file_if_exists(&path)?;
-            Ok(true)
-        })
-    }
-
-    fn preserve(
-        &self,
-        document: &CollaborationDocumentId,
-        label: &str,
-        bytes: &[u8],
-    ) -> StoreResult<String> {
-        let destination = self.root.join("quarantine").join(format!(
-            "{}-{}-{}-{}.json",
-            safe_entity_name(&document.entity),
-            sha256_hex(document.resource_id.as_bytes()),
-            chrono::Utc::now().format("%Y%m%dT%H%M%S%.3fZ"),
-            label
-        ));
-        write_atomic_durable(&destination, bytes)?;
-        Ok(destination.display().to_string())
-    }
-
-    fn append_recovery_audit(&self, record: &CollaborationRecoveryAuditRecord) -> StoreResult<()> {
-        std::fs::create_dir_all(&self.root).map_err(|error| {
-            StoreError::internal(format!(
-                "Could not create collaboration audit directory {}: {error}",
-                self.root.display()
-            ))
-        })?;
-        let lock = OpenOptions::new()
-            .create(true)
-            .truncate(false)
-            .read(true)
-            .write(true)
-            .open(self.audit_lock_path())
-            .map_err(|error| {
-                StoreError::internal(format!(
-                    "Could not open collaboration recovery audit lock: {error}"
-                ))
-            })?;
-        lock.lock_exclusive().map_err(|error| {
-            StoreError::internal(format!(
-                "Could not lock collaboration recovery audit: {error}"
-            ))
-        })?;
-        let result = (|| {
-            let mut line = serde_json::to_vec(record)
-                .map_err(|error| StoreError::internal(error.to_string()))?;
-            line.push(b'\n');
-            let mut audit = OpenOptions::new()
-                .create(true)
-                .append(true)
-                .open(self.audit_path())
-                .map_err(|error| {
-                    StoreError::internal(format!(
-                        "Could not open collaboration recovery audit: {error}"
-                    ))
-                })?;
-            audit.write_all(&line).map_err(|error| {
-                StoreError::internal(format!(
-                    "Could not append collaboration recovery audit: {error}"
-                ))
-            })?;
-            audit.sync_all().map_err(|error| {
-                StoreError::internal(format!(
-                    "Could not sync collaboration recovery audit: {error}"
-                ))
-            })
-        })();
-        let _ = FileExt::unlock(&lock);
-        result
-    }
-
-    fn recovery_audit(&self) -> StoreResult<Vec<CollaborationRecoveryAuditRecord>> {
-        match std::fs::read_to_string(self.audit_path()) {
-            Ok(contents) => contents
-                .lines()
-                .filter(|line| !line.trim().is_empty())
-                .map(|line| {
-                    serde_json::from_str(line)
-                        .map_err(|error| StoreError::internal(error.to_string()))
-                })
-                .collect(),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(Vec::new()),
-            Err(error) => Err(StoreError::internal(format!(
-                "Could not read collaboration recovery audit: {error}"
-            ))),
-        }
-    }
-}
-
 fn inspection_from_envelope(
     plans: &[GeneratedCollaborationEntitySpec],
     envelope: DurableCollaborationEnvelope,
@@ -2384,96 +2009,6 @@ fn corrupt_state(document: &CollaborationDocumentId, message: impl Into<String>)
     }))
 }
 
-pub(crate) fn write_atomic_durable(path: &Path, bytes: &[u8]) -> StoreResult<()> {
-    write_atomic_durable_with_hooks(path, bytes, || Ok(()), || Ok(()), || Ok(()))
-}
-
-fn write_atomic_durable_with_hooks(
-    path: &Path,
-    bytes: &[u8],
-    before_temporary_write: impl FnOnce() -> StoreResult<()>,
-    after_temporary_sync: impl FnOnce() -> StoreResult<()>,
-    after_rename: impl FnOnce() -> StoreResult<()>,
-) -> StoreResult<()> {
-    let Some(parent) = path.parent() else {
-        return Err(StoreError::internal(format!(
-            "Collaboration state path {} has no parent.",
-            path.display()
-        )));
-    };
-    std::fs::create_dir_all(parent).map_err(|error| {
-        StoreError::internal(format!(
-            "Could not create collaboration storage {}: {error}",
-            parent.display()
-        ))
-    })?;
-    let temporary = parent.join(format!(
-        ".{}.{}.tmp",
-        path.file_name()
-            .and_then(|value| value.to_str())
-            .unwrap_or("collaboration"),
-        Uuid::new_v4()
-    ));
-    before_temporary_write()?;
-    let mut file = File::create(&temporary).map_err(|error| {
-        StoreError::internal(format!(
-            "Could not create collaboration transaction {}: {error}",
-            temporary.display()
-        ))
-    })?;
-    if let Err(error) = file.write_all(bytes).and_then(|()| file.sync_all()) {
-        let _ = std::fs::remove_file(&temporary);
-        return Err(StoreError::internal(format!(
-            "Could not durably write collaboration transaction {}: {error}",
-            temporary.display()
-        )));
-    }
-    if let Err(error) = after_temporary_sync() {
-        let _ = std::fs::remove_file(&temporary);
-        return Err(error);
-    }
-    if let Err(error) = std::fs::rename(&temporary, path) {
-        let _ = std::fs::remove_file(&temporary);
-        return Err(StoreError::internal(format!(
-            "Could not atomically publish collaboration state {}: {error}",
-            path.display()
-        )));
-    }
-    after_rename()?;
-    File::open(parent)
-        .and_then(|directory| directory.sync_all())
-        .map_err(|error| {
-            StoreError::internal(format!(
-                "Could not durably publish collaboration directory {}: {error}",
-                parent.display()
-            ))
-        })
-}
-
-fn remove_file_if_exists(path: &Path) -> StoreResult<()> {
-    match std::fs::remove_file(path) {
-        Ok(()) => Ok(()),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
-        Err(error) => Err(StoreError::internal(format!(
-            "Could not remove collaboration state {}: {error}",
-            path.display()
-        ))),
-    }
-}
-
-fn safe_entity_name(entity: &str) -> String {
-    entity
-        .chars()
-        .map(|character| {
-            if character.is_ascii_alphanumeric() || character == '-' || character == '_' {
-                character.to_ascii_lowercase()
-            } else {
-                '-'
-            }
-        })
-        .collect()
-}
-
 pub(crate) fn sha256_hex(bytes: &[u8]) -> String {
     let digest = Sha256::digest(bytes);
     let mut output = String::with_capacity(digest.len() * 2);
@@ -2487,8 +2022,11 @@ pub(crate) fn sha256_hex(bytes: &[u8]) -> String {
 /// The stored envelope format, for Clerkenwell's own tests.
 #[cfg(feature = "testing")]
 pub mod testing {
+    mod memory;
+
     pub use crate::envelope::{CollaborationOperation, DurableCollaborationEnvelope};
     use crate::{CollaborationDocumentId, CollaborationService, StoreResult};
+    pub use memory::MemoryStorage;
 
     /// `document`'s validated envelope, or `None` when it has none.
     pub fn load(

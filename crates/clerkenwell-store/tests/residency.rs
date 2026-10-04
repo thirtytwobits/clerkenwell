@@ -3,159 +3,21 @@
 
 mod support;
 
-use std::collections::BTreeMap;
-use std::sync::{Arc, Mutex};
-
 use clerkenwell_doc::CollaborationReplica;
-use clerkenwell_store::testing;
+use clerkenwell_store::testing::{self, MemoryStorage};
 use clerkenwell_store::{
     CollaborationDocumentId, CollaborationExchangeMode, CollaborationImportRequest,
-    CollaborationRecoveryAuditRecord, CollaborationService, CollaborationStoragePort,
-    CollaborationStores, ImportFence, LocalFileCollaborationStorage, StoreError, StoreResult,
-    StoredEnvelope,
+    CollaborationService, CollaborationStores, ImportFence, StoreError, StoreResult,
 };
 use serde_json::{json, Value};
 use support::{accept, NOTE_PLAN, PLANS, POLICY};
-
-#[derive(Debug, Default)]
-struct MemoryState {
-    next_version: u64,
-    envelopes: BTreeMap<String, (String, Vec<u8>)>,
-    /// How many reads of an envelope's bytes the port answered.
-    reads: usize,
-    /// Whether the port vouches for its stamps.
-    stamps: bool,
-}
-
-/// A port keeping bytes in memory under counter versions, whose stamp is the
-/// version when it vouches for stamps at all.
-#[derive(Debug, Clone, Default)]
-struct MemoryPort(Arc<Mutex<MemoryState>>);
-
-impl MemoryPort {
-    fn vouching() -> Self {
-        let port = Self::default();
-        port.state().stamps = true;
-        port
-    }
-
-    fn state(&self) -> std::sync::MutexGuard<'_, MemoryState> {
-        self.0.lock().expect("memory port")
-    }
-
-    fn reads(&self) -> usize {
-        self.state().reads
-    }
-}
-
-impl CollaborationStoragePort for MemoryPort {
-    fn source(&self, document: &CollaborationDocumentId) -> String {
-        format!("{}/{}", document.entity, document.resource_id)
-    }
-
-    fn sources(&self, entity: &str) -> StoreResult<Vec<String>> {
-        let prefix = format!("{entity}/");
-        Ok(self
-            .state()
-            .envelopes
-            .keys()
-            .filter(|source| source.starts_with(&prefix))
-            .cloned()
-            .collect())
-    }
-
-    fn read(&self, source: &str) -> StoreResult<Option<StoredEnvelope>> {
-        let mut state = self.state();
-        state.reads += 1;
-        Ok(state
-            .envelopes
-            .get(source)
-            .map(|(version, bytes)| StoredEnvelope {
-                version: version.clone(),
-                bytes: bytes.clone(),
-            }))
-    }
-
-    fn stamp(&self, source: &str) -> StoreResult<Option<String>> {
-        let state = self.state();
-        Ok(state
-            .stamps
-            .then(|| {
-                state
-                    .envelopes
-                    .get(source)
-                    .map(|(version, _)| version.clone())
-            })
-            .flatten())
-    }
-
-    fn compare_and_swap(
-        &self,
-        document: &CollaborationDocumentId,
-        expected: Option<&str>,
-        bytes: &[u8],
-    ) -> StoreResult<Option<String>> {
-        let source = self.source(document);
-        let mut state = self.state();
-        if state
-            .envelopes
-            .get(&source)
-            .map(|(version, _)| version.as_str())
-            != expected
-        {
-            return Ok(None);
-        }
-        state.next_version += 1;
-        let version = state.next_version.to_string();
-        state
-            .envelopes
-            .insert(source, (version.clone(), bytes.to_vec()));
-        Ok(Some(version))
-    }
-
-    fn compare_and_remove(
-        &self,
-        document: &CollaborationDocumentId,
-        expected: &str,
-    ) -> StoreResult<bool> {
-        let source = self.source(document);
-        let mut state = self.state();
-        if state
-            .envelopes
-            .get(&source)
-            .map(|(version, _)| version.as_str())
-            != Some(expected)
-        {
-            return Ok(false);
-        }
-        state.envelopes.remove(&source);
-        Ok(true)
-    }
-
-    fn preserve(
-        &self,
-        _document: &CollaborationDocumentId,
-        label: &str,
-        _bytes: &[u8],
-    ) -> StoreResult<String> {
-        Ok(label.to_string())
-    }
-
-    fn append_recovery_audit(&self, _record: &CollaborationRecoveryAuditRecord) -> StoreResult<()> {
-        Ok(())
-    }
-
-    fn recovery_audit(&self) -> StoreResult<Vec<CollaborationRecoveryAuditRecord>> {
-        Ok(Vec::new())
-    }
-}
 
 fn note(resource_id: &str) -> CollaborationDocumentId {
     CollaborationDocumentId::new("Note", resource_id)
 }
 
-fn service(port: &MemoryPort) -> CollaborationService {
-    CollaborationService::with_storage(port.clone(), PLANS, POLICY, "notes")
+fn service(port: &MemoryStorage) -> CollaborationService {
+    CollaborationService::new(port.clone(), PLANS, POLICY, "notes")
 }
 
 fn bootstrap(service: &CollaborationService, resource_id: &str) {
@@ -217,7 +79,7 @@ fn body(service: &CollaborationService) -> Value {
 
 #[test]
 fn a_document_read_again_is_served_without_reading_its_bytes() {
-    let port = MemoryPort::vouching();
+    let port = MemoryStorage::default();
     let service = service(&port);
     bootstrap(&service, "note-1");
     let first = service
@@ -236,7 +98,7 @@ fn a_document_read_again_is_served_without_reading_its_bytes() {
 
 #[test]
 fn a_commit_is_served_to_the_next_read_as_it_was_accepted() {
-    let port = MemoryPort::vouching();
+    let port = MemoryStorage::default();
     let service = service(&port);
     bootstrap(&service, "note-1");
     let before = service
@@ -262,7 +124,7 @@ fn a_commit_is_served_to_the_next_read_as_it_was_accepted() {
 
 #[test]
 fn a_write_that_bypasses_the_service_is_seen_by_its_next_read() {
-    for port in [MemoryPort::vouching(), MemoryPort::default()] {
+    for port in [MemoryStorage::default(), MemoryStorage::without_stamps()] {
         let reader = service(&port);
         let writer = service(&port);
         bootstrap(&writer, "note-1");
@@ -283,7 +145,7 @@ fn a_write_that_bypasses_the_service_is_seen_by_its_next_read() {
 
 #[test]
 fn without_a_stamp_the_service_reads_the_bytes_and_keeps_what_they_match() {
-    let port = MemoryPort::default();
+    let port = MemoryStorage::without_stamps();
     let service = service(&port);
     bootstrap(&service, "note-1");
     let first = service
@@ -301,7 +163,7 @@ fn without_a_stamp_the_service_reads_the_bytes_and_keeps_what_they_match() {
 
 #[test]
 fn a_refused_import_leaves_what_readers_are_served_unchanged() {
-    let port = MemoryPort::vouching();
+    let port = MemoryStorage::default();
     let service = service(&port);
     bootstrap(&service, "note-1");
     let before = service
@@ -324,7 +186,7 @@ fn a_refused_import_leaves_what_readers_are_served_unchanged() {
 
 #[test]
 fn a_deleted_document_is_no_longer_served() {
-    let port = MemoryPort::vouching();
+    let port = MemoryStorage::default();
     let service = service(&port);
     bootstrap(&service, "note-1");
     body(&service);
@@ -339,10 +201,9 @@ fn a_deleted_document_is_no_longer_served() {
 
 #[test]
 fn the_counters_report_what_the_stores_hold_until_they_let_it_go() {
-    let root = tempfile::tempdir().expect("temp store");
     let stores = CollaborationStores::new(PLANS, POLICY);
     let store = stores
-        .register("notes", LocalFileCollaborationStorage::new(root.path()))
+        .register("notes", MemoryStorage::default())
         .expect("register");
     for resource_id in ["note-1", "note-2"] {
         bootstrap(&store, resource_id);
@@ -369,7 +230,7 @@ fn the_counters_report_what_the_stores_hold_until_they_let_it_go() {
 
 #[test]
 fn a_summary_describes_a_stored_document_as_its_envelope_does() {
-    let port = MemoryPort::vouching();
+    let port = MemoryStorage::default();
     let service = service(&port);
     bootstrap(&service, "note-1");
     edit(&service, "Edited once.", accept).expect("import");
@@ -399,7 +260,7 @@ fn a_summary_describes_a_stored_document_as_its_envelope_does() {
 
 #[test]
 fn summaries_list_every_stored_document_in_resource_order() {
-    let port = MemoryPort::vouching();
+    let port = MemoryStorage::default();
     let service = service(&port);
     for resource_id in ["note-3", "note-1", "note-2"] {
         bootstrap(&service, resource_id);
@@ -417,7 +278,7 @@ fn summaries_list_every_stored_document_in_resource_order() {
 
 #[test]
 fn a_read_document_and_its_summary_are_of_one_version() {
-    let port = MemoryPort::vouching();
+    let port = MemoryStorage::default();
     let service = service(&port);
     bootstrap(&service, "note-1");
 

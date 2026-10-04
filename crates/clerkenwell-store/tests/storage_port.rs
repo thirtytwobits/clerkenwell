@@ -1,158 +1,18 @@
-//! The collaboration service commits through a storage port implemented
-//! outside this crate that keeps nothing but bytes and versions.
+//! The collaboration service commits through any storage port that keeps
+//! nothing but bytes and versions.
 
 mod support;
 
 use clerkenwell_doc::CollaborationReplica;
-use clerkenwell_store::testing::{self, DurableCollaborationEnvelope};
+use clerkenwell_store::testing::{self, DurableCollaborationEnvelope, MemoryStorage};
 use clerkenwell_store::{
     CollaborationDocumentId, CollaborationExchangeMode, CollaborationImportRequest,
-    CollaborationRecoveryAction, CollaborationRecoveryAuditRecord, CollaborationService,
-    CollaborationStoragePort, CommitPolicy, ImportFence, LocalFileCollaborationStorage,
-    StoreResult, StoredEnvelope,
+    CollaborationRecoveryAction, CollaborationService, CollaborationStoragePort, CommitPolicy,
+    ImportFence,
 };
 use serde_json::{json, Value};
-use std::collections::BTreeMap;
 use std::num::NonZeroU32;
-use std::sync::{Arc, Mutex};
-use support::{accept, NOTE_PLAN, PLANS, POLICY};
-
-#[derive(Default)]
-struct MemoryState {
-    next_version: u64,
-    envelopes: BTreeMap<String, (String, Vec<u8>)>,
-    evidence: Vec<Vec<u8>>,
-    audit: Vec<CollaborationRecoveryAuditRecord>,
-    /// Whether every compare-and-swap reports that another writer won.
-    lose_swaps: bool,
-    /// How many compare-and-swaps were asked for.
-    swaps: usize,
-}
-
-impl std::fmt::Debug for MemoryState {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter
-            .debug_struct("MemoryState")
-            .field("envelopes", &self.envelopes.keys())
-            .finish()
-    }
-}
-
-/// A port that keeps each document's bytes in memory under a counter
-/// version, with no knowledge of what the bytes hold.
-#[derive(Debug, Clone, Default)]
-struct MemoryPort(Arc<Mutex<MemoryState>>);
-
-impl MemoryPort {
-    fn state(&self) -> std::sync::MutexGuard<'_, MemoryState> {
-        self.0.lock().expect("memory port")
-    }
-}
-
-impl CollaborationStoragePort for MemoryPort {
-    fn source(&self, document: &CollaborationDocumentId) -> String {
-        format!("{}/{}", document.entity, document.resource_id)
-    }
-
-    fn sources(&self, entity: &str) -> StoreResult<Vec<String>> {
-        let prefix = format!("{entity}/");
-        Ok(self
-            .state()
-            .envelopes
-            .keys()
-            .filter(|source| source.starts_with(&prefix))
-            .cloned()
-            .collect())
-    }
-
-    fn read(&self, source: &str) -> StoreResult<Option<StoredEnvelope>> {
-        let state = self.state();
-        Ok(state
-            .envelopes
-            .get(source)
-            .map(|(version, bytes)| StoredEnvelope {
-                version: version.clone(),
-                bytes: bytes.clone(),
-            }))
-    }
-
-    fn stamp(&self, source: &str) -> StoreResult<Option<String>> {
-        Ok(self
-            .state()
-            .envelopes
-            .get(source)
-            .map(|(version, _)| version.clone()))
-    }
-
-    fn compare_and_swap(
-        &self,
-        document: &CollaborationDocumentId,
-        expected: Option<&str>,
-        bytes: &[u8],
-    ) -> StoreResult<Option<String>> {
-        let source = self.source(document);
-        let version = {
-            let mut state = self.state();
-            state.swaps += 1;
-            if state.lose_swaps {
-                return Ok(None);
-            }
-            let current = state
-                .envelopes
-                .get(&source)
-                .map(|(version, _)| version.as_str());
-            if current != expected {
-                return Ok(None);
-            }
-            state.next_version += 1;
-            let version = state.next_version.to_string();
-            state
-                .envelopes
-                .insert(source, (version.clone(), bytes.to_vec()));
-            version
-        };
-        Ok(Some(version))
-    }
-
-    fn compare_and_remove(
-        &self,
-        document: &CollaborationDocumentId,
-        expected: &str,
-    ) -> StoreResult<bool> {
-        let source = self.source(document);
-        let mut state = self.state();
-        if state
-            .envelopes
-            .get(&source)
-            .map(|(version, _)| version.as_str())
-            != Some(expected)
-        {
-            return Ok(false);
-        }
-        state.envelopes.remove(&source);
-        Ok(true)
-    }
-
-    fn preserve(
-        &self,
-        _document: &CollaborationDocumentId,
-        label: &str,
-        bytes: &[u8],
-    ) -> StoreResult<String> {
-        let mut state = self.state();
-        state.evidence.push(bytes.to_vec());
-        Ok(format!("evidence/{}-{label}", state.evidence.len()))
-    }
-
-    fn append_recovery_audit(&self, record: &CollaborationRecoveryAuditRecord) -> StoreResult<()> {
-        self.state().audit.push(record.clone());
-        Ok(())
-    }
-
-    fn recovery_audit(&self) -> StoreResult<Vec<CollaborationRecoveryAuditRecord>> {
-        Ok(self.state().audit.clone())
-    }
-}
+use support::{accept, Renamed, NOTE_PLAN, PLANS, POLICY};
 
 fn note() -> CollaborationDocumentId {
     CollaborationDocumentId::new("Note", "note-1")
@@ -271,24 +131,18 @@ fn drive(service: &CollaborationService, edits: &Edits) -> Value {
 }
 
 #[test]
-fn a_port_that_keeps_only_bytes_carries_the_protocol_as_the_file_store_does() {
+fn ports_naming_sources_and_versions_differently_carry_the_protocol_alike() {
     let edits = edits(12);
-    let root = tempfile::tempdir().expect("temp store");
-    let on_files = drive(
-        &CollaborationService::with_storage(
-            LocalFileCollaborationStorage::new(root.path()),
-            PLANS,
-            POLICY,
-            "file-port",
-        ),
+    let renamed = drive(
+        &CollaborationService::new(Renamed::default(), PLANS, POLICY, "renamed"),
         &edits,
     );
     let in_memory = drive(
-        &CollaborationService::with_storage(MemoryPort::default(), PLANS, POLICY, "memory-port"),
+        &CollaborationService::new(MemoryStorage::default(), PLANS, POLICY, "memory"),
         &edits,
     );
 
-    assert_eq!(in_memory, on_files);
+    assert_eq!(in_memory, renamed);
     let audit = in_memory
         .as_array()
         .and_then(|observed| observed.last())
@@ -306,8 +160,8 @@ fn a_port_that_keeps_only_bytes_carries_the_protocol_as_the_file_store_does() {
 
 #[test]
 fn quarantine_preserves_the_stored_bytes_through_the_port() {
-    let port = MemoryPort::default();
-    let service = CollaborationService::with_storage(port.clone(), PLANS, POLICY, "memory-port");
+    let port = MemoryStorage::default();
+    let service = CollaborationService::new(port.clone(), PLANS, POLICY, "memory");
     let document = note();
     service
         .bootstrap(&NOTE_PLAN, &document, &seed_document(), accept)
@@ -321,14 +175,14 @@ fn quarantine_preserves_the_stored_bytes_through_the_port() {
         .read(&port.source(&document))
         .expect("read")
         .expect("stored");
-    assert_eq!(port.state().evidence, vec![stored.bytes]);
+    assert_eq!(port.evidence(), vec![stored.bytes]);
 }
 
 #[test]
 fn commits_racing_through_one_port_both_land() {
-    let port = MemoryPort::default();
-    let first = CollaborationService::with_storage(port.clone(), PLANS, POLICY, "memory-port");
-    let second = CollaborationService::with_storage(port, PLANS, POLICY, "memory-port");
+    let port = MemoryStorage::default();
+    let first = CollaborationService::new(port.clone(), PLANS, POLICY, "memory");
+    let second = CollaborationService::new(port, PLANS, POLICY, "memory");
     let document = note();
     first
         .bootstrap(&NOTE_PLAN, &document, &seed_document(), accept)
@@ -369,12 +223,12 @@ fn commits_racing_through_one_port_both_land() {
 #[test]
 fn an_import_that_keeps_losing_its_commit_is_refused_after_the_attempts_its_policy_allows() {
     let edits = edits(1);
-    let port = MemoryPort::default();
+    let port = MemoryStorage::default();
     let policy = CommitPolicy {
         attempts: NonZeroU32::new(3).expect("attempts"),
         ..POLICY
     };
-    let service = CollaborationService::with_storage(port.clone(), PLANS, policy, "memory-port");
+    let service = CollaborationService::new(port.clone(), PLANS, policy, "memory");
     service
         .bootstrap_update(
             &NOTE_PLAN,
@@ -384,11 +238,8 @@ fn an_import_that_keeps_losing_its_commit_is_refused_after_the_attempts_its_poli
             accept,
         )
         .expect("seed");
-    {
-        let mut state = port.state();
-        state.lose_swaps = true;
-        state.swaps = 0;
-    }
+    port.lose_swaps(true);
+    let writes = port.writes();
 
     let (operation_id, base, update) = &edits.edits[0];
     let refused = service
@@ -399,7 +250,7 @@ fn an_import_that_keeps_losing_its_commit_is_refused_after_the_attempts_its_poli
         refused.data.as_ref().and_then(|data| data["code"].as_str()),
         Some("collaboration_commit_contended")
     );
-    assert_eq!(port.state().swaps, policy.attempts.get() as usize);
+    assert_eq!(port.writes() - writes, policy.attempts.get() as usize);
 }
 
 #[test]
@@ -409,8 +260,7 @@ fn an_envelope_keeps_the_latest_operations_its_policy_retains() {
         retained_operations: 3,
         ..POLICY
     };
-    let service =
-        CollaborationService::with_storage(MemoryPort::default(), PLANS, policy, "memory-port");
+    let service = CollaborationService::new(MemoryStorage::default(), PLANS, policy, "memory");
     service
         .bootstrap_update(
             &NOTE_PLAN,

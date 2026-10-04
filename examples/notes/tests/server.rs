@@ -137,16 +137,15 @@ impl Client {
     }
 }
 
-async fn start() -> (String, tempfile::TempDir) {
-    let root = tempfile::tempdir().expect("a store directory");
-    let server = ProjectionServer::new(NotesServer::new(root.path()), PUBLICATION_WINDOW);
+async fn start() -> String {
+    let server = ProjectionServer::new(NotesServer::default(), PUBLICATION_WINDOW);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
         .await
         .expect("a listener");
     let address = listener.local_addr().expect("an address");
     let router = server.router("/projections");
     tokio::spawn(async move { axum::serve(listener, router).await.expect("serve") });
-    (format!("ws://{address}/projections"), root)
+    format!("ws://{address}/projections")
 }
 
 /// A replica of the note an authoring state delivers.
@@ -216,7 +215,7 @@ async fn create(client: &mut Client, title: &str) -> String {
 
 #[tokio::test]
 async fn an_edit_one_client_sends_reaches_another_clients_subscription() {
-    let (url, _root) = start().await;
+    let url = start().await;
     let mut ada = Client::connect(&url).await;
     let mut grace = Client::connect(&url).await;
     let note_id = create(&mut ada, "Launch plan").await;
@@ -235,7 +234,7 @@ async fn an_edit_one_client_sends_reaches_another_clients_subscription() {
 
 #[tokio::test]
 async fn a_refused_status_carries_what_its_writer_lacks_to_rebase() {
-    let (url, _root) = start().await;
+    let url = start().await;
     let mut ada = Client::connect(&url).await;
     let mut grace = Client::connect(&url).await;
     let note_id = create(&mut ada, "Launch plan").await;

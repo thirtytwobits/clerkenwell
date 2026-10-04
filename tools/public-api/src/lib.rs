@@ -931,9 +931,13 @@ impl<'ast> Visit<'ast> for TypeNames<'_> {
     fn visit_block(&mut self, _: &'ast syn::Block) {}
 }
 
+/// The attributes that gate an item on every condition in `conditions`,
+/// each written once.
 fn tag(conditions: &[String]) -> String {
+    let mut written = BTreeSet::new();
     conditions
         .iter()
+        .filter(|condition| written.insert(condition.as_str()))
         .map(|condition| format!("#[{condition}] "))
         .collect()
 }

@@ -6,7 +6,6 @@
 //! new authoring state when any client's operations are accepted.
 
 use std::num::NonZeroUsize;
-use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use clerkenwell_axum::RpcFailure;
@@ -17,8 +16,7 @@ use clerkenwell_session::{
 };
 use clerkenwell_store::{
     CollaborationDocumentId, CollaborationExchangeMode, CollaborationImportRequest,
-    CollaborationService, CollaborationStores, ImportFence, LocalFileCollaborationStorage,
-    StoreError,
+    CollaborationService, CollaborationStores, ImportFence, StoreError,
 };
 use serde::de::DeserializeOwned;
 use serde_json::{json, Value};
@@ -30,6 +28,7 @@ use crate::model::{
     GENERATED_ENTITY_AUTHORING_SPECS, GENERATED_MUTATION_SPECS, GENERATED_PROJECTION_SPECS,
     NOTE_CREATE_MUTATION, NOTE_IMPORT_UPDATE_MUTATION,
 };
+use crate::storage::MemoryStorage;
 use crate::{validate, COMMIT_POLICY, NOTE};
 
 /// Mutations, or changes to notes, a connection of the example's server may
@@ -55,12 +54,12 @@ pub struct NotesServer {
     created: AtomicU64,
 }
 
-impl NotesServer {
-    /// Notes kept in a store under `root`.
-    pub fn new(root: &Path) -> Self {
+impl Default for NotesServer {
+    /// Notes kept in a new store.
+    fn default() -> Self {
         let stores = CollaborationStores::new(GENERATED_COLLABORATION_SPECS, COMMIT_POLICY);
         let service = stores
-            .register(NOTES_STORE, LocalFileCollaborationStorage::new(root))
+            .register(NOTES_STORE, MemoryStorage::default())
             .expect("a new set holds no other store");
         Self {
             service,
@@ -70,7 +69,9 @@ impl NotesServer {
             created: AtomicU64::new(1),
         }
     }
+}
 
+impl NotesServer {
     fn create(&self, params: NoteCreateParams) -> Result<NoteMutationResult, RpcFailure> {
         let note_id = format!("note-{}", self.created.fetch_add(1, Ordering::Relaxed));
         let seed = json!({ "title": params.title, "body": "", "status": "draft" });

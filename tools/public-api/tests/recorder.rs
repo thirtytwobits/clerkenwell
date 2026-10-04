@@ -54,6 +54,19 @@ fn an_item_behind_a_cfg_carries_its_condition() {
 }
 
 #[test]
+fn a_method_reached_through_a_gated_module_carries_the_condition_once() {
+    let record = sample();
+    let line = record
+        .lines
+        .iter()
+        .find(|line| line.contains("gated_method"))
+        .expect("the gated method");
+
+    assert!(line.starts_with("#[cfg(feature = \"extra\")] "), "{line}");
+    assert_eq!(line.matches("#[cfg(").count(), 1, "{line}");
+}
+
+#[test]
 fn a_public_type_is_recorded_with_its_public_fields_methods_and_trait_implementations() {
     let record = sample();
 

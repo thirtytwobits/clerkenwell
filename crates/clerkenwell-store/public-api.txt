@@ -106,7 +106,7 @@ fn clerkenwell_store::CollaborationService::export_for_recovery(&self, document:
 fn clerkenwell_store::CollaborationService::import<E: From<StoreError>>(&self, plan: &'static GeneratedCollaborationEntitySpec, request: CollaborationImportRequest, validate: impl Fn(&Value) -> Result<(), E>) -> Result<CollaborationImportResult, E>
 fn clerkenwell_store::CollaborationService::inspect(&self, entity: Option<&str>, resource_id: Option<&str>, limit: Option<usize>) -> StoreResult<(Vec<CollaborationDocumentInspection>, bool)>
 fn clerkenwell_store::CollaborationService::migrate<E: From<StoreError>>(&self, plan: &'static GeneratedCollaborationEntitySpec, document: &CollaborationDocumentId, from_schema_version: u32, migrated_update_base64: &str, validate: impl Fn(&Value) -> Result<(), E>) -> Result<CollaborationDocumentSummary, E>
-fn clerkenwell_store::CollaborationService::new(root: &Path, plans: &'static [GeneratedCollaborationEntitySpec], policy: CommitPolicy) -> Self
+fn clerkenwell_store::CollaborationService::new(storage: impl CollaborationStoragePort + 'static, plans: &'static [GeneratedCollaborationEntitySpec], policy: CommitPolicy, source: impl Into<String>) -> Self
 fn clerkenwell_store::CollaborationService::quarantine(&self, document: &CollaborationDocumentId, reason: &str) -> StoreResult<String>
 fn clerkenwell_store::CollaborationService::read_document(&self, plan: &'static GeneratedCollaborationEntitySpec, document: &CollaborationDocumentId) -> StoreResult<Option<CollaborationDocumentRead>>
 fn clerkenwell_store::CollaborationService::recovery_audit(&self) -> StoreResult<Vec<CollaborationRecoveryAuditRecord>>
@@ -117,7 +117,6 @@ fn clerkenwell_store::CollaborationService::storage(&self) -> &dyn Collaboration
 fn clerkenwell_store::CollaborationService::summaries(&self, entity: &str) -> StoreResult<Vec<CollaborationDocumentSummary>>
 fn clerkenwell_store::CollaborationService::summary(&self, document: &CollaborationDocumentId) -> StoreResult<Option<CollaborationDocumentSummary>>
 fn clerkenwell_store::CollaborationService::verify(&self, document: &CollaborationDocumentId) -> CollaborationDocumentInspection
-fn clerkenwell_store::CollaborationService::with_storage(storage: impl CollaborationStoragePort + 'static, plans: &'static [GeneratedCollaborationEntitySpec], policy: CommitPolicy, source: impl Into<String>) -> Self
 trait clerkenwell_store::CollaborationStoragePort: std::fmt::Debug + Send + Sync
 fn clerkenwell_store::CollaborationStoragePort::append_recovery_audit(&self, record: &CollaborationRecoveryAuditRecord) -> StoreResult<()>
 fn clerkenwell_store::CollaborationStoragePort::compare_and_remove(&self, document: &CollaborationDocumentId, expected: &str) -> StoreResult<bool>
@@ -148,10 +147,6 @@ enum clerkenwell_store::ImportFence
 derive clerkenwell_store::ImportFence: Clone, Debug, Eq, PartialEq
 variant clerkenwell_store::ImportFence::Etag(String)
 variant clerkenwell_store::ImportFence::Frontier
-struct clerkenwell_store::LocalFileCollaborationStorage { .. }
-derive clerkenwell_store::LocalFileCollaborationStorage: Clone, Debug
-impl CollaborationStoragePort for clerkenwell_store::LocalFileCollaborationStorage
-fn clerkenwell_store::LocalFileCollaborationStorage::new(root: &Path) -> Self
 struct clerkenwell_store::StoreError
 derive clerkenwell_store::StoreError: Clone, Debug
 impl std::error::Error for clerkenwell_store::StoreError
@@ -200,4 +195,14 @@ field clerkenwell_store::StoredEnvelope::version: String
 #[cfg(feature = "testing")] field clerkenwell_store::testing::DurableCollaborationEnvelope::resource_id: String
 #[cfg(feature = "testing")] field clerkenwell_store::testing::DurableCollaborationEnvelope::retained_operations: Vec<CollaborationOperation>
 #[cfg(feature = "testing")] field clerkenwell_store::testing::DurableCollaborationEnvelope::schema_version: u32
+#[cfg(feature = "testing")] struct clerkenwell_store::testing::MemoryStorage { .. }
+#[cfg(feature = "testing")] derive clerkenwell_store::testing::MemoryStorage: Clone, Debug, Default
+#[cfg(feature = "testing")] impl CollaborationStoragePort for clerkenwell_store::testing::MemoryStorage
+#[cfg(feature = "testing")] fn clerkenwell_store::testing::MemoryStorage::envelopes(&self) -> BTreeMap<String, StoredEnvelope>
+#[cfg(feature = "testing")] fn clerkenwell_store::testing::MemoryStorage::evidence(&self) -> Vec<Vec<u8>>
+#[cfg(feature = "testing")] fn clerkenwell_store::testing::MemoryStorage::fail_swaps(&self, fail: bool)
+#[cfg(feature = "testing")] fn clerkenwell_store::testing::MemoryStorage::lose_swaps(&self, lose: bool)
+#[cfg(feature = "testing")] fn clerkenwell_store::testing::MemoryStorage::reads(&self) -> usize
+#[cfg(feature = "testing")] fn clerkenwell_store::testing::MemoryStorage::without_stamps() -> Self
+#[cfg(feature = "testing")] fn clerkenwell_store::testing::MemoryStorage::writes(&self) -> usize
 #[cfg(feature = "testing")] fn clerkenwell_store::testing::load(service: &CollaborationService, document: &CollaborationDocumentId) -> StoreResult<Option<DurableCollaborationEnvelope>>

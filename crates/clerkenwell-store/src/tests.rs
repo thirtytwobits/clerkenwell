@@ -1,11 +1,11 @@
 use super::*;
+use crate::testing::MemoryStorage;
 use clerkenwell_schema::{
     GeneratedCollaborationConflict, GeneratedCollaborationFieldSpec,
     GeneratedCollaborationStorageKind, GeneratedCollaborationValueCodec,
 };
 use serde_json::json;
-use std::collections::{BTreeMap, HashMap};
-use tempfile::TempDir;
+use std::collections::HashMap;
 
 const fn field(
     path: &'static str,
@@ -117,19 +117,19 @@ fn note_seed() -> Value {
     })
 }
 
-fn open_service(root: &Path) -> CollaborationService {
-    CollaborationService::new(root, PLANS, POLICY)
+fn open_service(storage: &MemoryStorage) -> CollaborationService {
+    CollaborationService::new(storage.clone(), PLANS, POLICY, "notes")
 }
 
 fn initialise(
-    root: &Path,
+    storage: &MemoryStorage,
 ) -> (
     CollaborationService,
     CollaborationDocumentId,
     Value,
     CollaborationAuthoringState,
 ) {
-    let service = open_service(root);
+    let service = open_service(storage);
     let seed = note_seed();
     let resource_id = seed["note_id"].as_str().expect("note ID").to_string();
     let document = CollaborationDocumentId::new("Note", resource_id);
@@ -143,9 +143,9 @@ fn initialise(
 }
 
 #[test]
-fn reading_missing_collaboration_documents_does_not_create_storage_or_lock_files() {
-    let temp = tempfile::tempdir().unwrap();
-    let service = open_service(temp.path());
+fn reading_missing_collaboration_documents_writes_nothing() {
+    let storage = MemoryStorage::default();
+    let service = open_service(&storage);
     let id = CollaborationDocumentId::new("Note", "missing");
     for _ in 0..3 {
         assert!(service.load(&id).unwrap().is_none());
@@ -153,13 +153,13 @@ fn reading_missing_collaboration_documents_does_not_create_storage_or_lock_files
         assert!(service.inspect(None, None, None).unwrap().0.is_empty());
         assert!(service.summaries("Note").unwrap().is_empty());
     }
-    assert_eq!(std::fs::read_dir(temp.path()).unwrap().count(), 0);
+    assert_eq!(storage.writes(), 0);
 }
 
 #[test]
 fn concurrent_explicit_scalar_edits_block_until_rebased_resolution() {
-    let root = TempDir::new().expect("temp workspace");
-    let (service, document, seed, state) = initialise(root.path());
+    let storage = MemoryStorage::default();
+    let (service, document, seed, state) = initialise(&storage);
     let first = edit_request(
         &document,
         &seed,
@@ -232,8 +232,8 @@ fn concurrent_explicit_scalar_edits_block_until_rebased_resolution() {
 
 #[test]
 fn an_edit_refused_under_conflict_policy_is_accepted_once_rebased_on_what_the_refusal_carries() {
-    let root = TempDir::new().expect("temp workspace");
-    let (service, document, seed, state) = initialise(root.path());
+    let storage = MemoryStorage::default();
+    let (service, document, seed, state) = initialise(&storage);
     let first = edit_request(
         &document,
         &seed,
@@ -313,8 +313,8 @@ fn an_edit_refused_under_conflict_policy_is_accepted_once_rebased_on_what_the_re
 
 #[test]
 fn a_policy_refusal_no_concurrent_edit_caused_names_the_refused_edit_base_as_accepted() {
-    let root = TempDir::new().expect("temp workspace");
-    let (service, document, seed, state) = initialise(root.path());
+    let storage = MemoryStorage::default();
+    let (service, document, seed, state) = initialise(&storage);
     let immutable = edit_request(
         &document,
         &seed,
@@ -338,8 +338,8 @@ fn a_policy_refusal_no_concurrent_edit_caused_names_the_refused_edit_base_as_acc
 
 #[test]
 fn an_envelope_names_the_accepted_state_it_holds_by_the_etag_readers_are_given() {
-    let root = TempDir::new().expect("temp workspace");
-    let (service, document, seed, state) = initialise(root.path());
+    let storage = MemoryStorage::default();
+    let (service, document, seed, state) = initialise(&storage);
     let edit = edit_request(
         &document,
         &seed,
@@ -411,8 +411,8 @@ fn import(
 
 #[test]
 fn a_peer_holding_an_accepted_frontier_receives_only_the_operations_after_it() {
-    let root = TempDir::new().unwrap();
-    let (service, document, seed, held) = initialise(root.path());
+    let storage = MemoryStorage::default();
+    let (service, document, seed, held) = initialise(&storage);
     let later = edit_request(
         &document,
         &seed,
@@ -461,10 +461,9 @@ fn a_peer_holding_an_accepted_frontier_receives_only_the_operations_after_it() {
 
 #[test]
 fn a_peer_holding_a_frontier_from_another_history_receives_every_operation() {
-    let root = TempDir::new().unwrap();
-    let (service, document, _seed, _) = initialise(root.path());
-    let elsewhere = TempDir::new().unwrap();
-    let (_, _, _, foreign) = initialise(elsewhere.path());
+    let storage = MemoryStorage::default();
+    let (service, document, _seed, _) = initialise(&storage);
+    let (_, _, _, foreign) = initialise(&MemoryStorage::default());
     let accepted = service
         .authoring_state(&NOTE_PLAN, &document, None)
         .unwrap();
@@ -489,8 +488,8 @@ fn a_peer_holding_a_frontier_from_another_history_receives_every_operation() {
 
 #[test]
 fn captured_text_consumption_preserves_later_edits_across_restart_and_retry() {
-    let root = TempDir::new().unwrap();
-    let (service, document, seed, state) = initialise(root.path());
+    let storage = MemoryStorage::default();
+    let (service, document, seed, state) = initialise(&storage);
     let captured = CollaborationReplica::from_versioned_update_base64(
         &NOTE_PLAN,
         state.schema_version,
@@ -563,7 +562,7 @@ fn captured_text_consumption_preserves_later_edits_across_restart_and_retry() {
     );
     import(&service, request.clone(), &seed).unwrap();
     drop(service);
-    let restarted = open_service(root.path());
+    let restarted = open_service(&storage);
     let retry = import(&restarted, request, &seed).unwrap();
     assert!(retry.duplicate);
     let actual = restarted.detail(&NOTE_PLAN, &document).unwrap().unwrap();
@@ -580,11 +579,9 @@ fn pre_commit_faults_leave_the_previous_generation_atomically_visible() {
         CollaborationFaultPoint::CandidateImported,
         CollaborationFaultPoint::Materialised,
         CollaborationFaultPoint::Validated,
-        CollaborationFaultPoint::BeforeTemporaryWrite,
-        CollaborationFaultPoint::AfterTemporarySync,
     ] {
-        let root = TempDir::new().expect("temp workspace");
-        let (service, document, seed, state) = initialise(root.path());
+        let storage = MemoryStorage::default();
+        let (service, document, seed, state) = initialise(&storage);
         let before = service
             .load(&document)
             .expect("read baseline")
@@ -614,87 +611,74 @@ fn pre_commit_faults_leave_the_previous_generation_atomically_visible() {
 }
 
 #[test]
-fn post_commit_faults_leave_the_new_generation_durably_accepted() {
-    for point in [
-        CollaborationFaultPoint::AfterRenameBeforeDirectorySync,
-        CollaborationFaultPoint::AfterDurableCommit,
-    ] {
-        let root = TempDir::new().expect("temp workspace");
-        let (service, document, seed, state) = initialise(root.path());
-        let before = service
-            .load(&document)
-            .expect("read baseline")
-            .expect("baseline envelope");
-        let replacement = json!("durably accepted edit");
-        let request = edit_request(
-            &document,
-            &seed,
-            &state,
-            "post-commit-fault",
-            &["body"],
-            replacement.clone(),
-        );
-        service.faults.inject(point);
+fn a_failed_port_write_leaves_the_previous_generation_visible() {
+    let storage = MemoryStorage::default();
+    let (service, document, seed, state) = initialise(&storage);
+    let before = service
+        .load(&document)
+        .expect("read baseline")
+        .expect("baseline envelope");
+    let request = edit_request(
+        &document,
+        &seed,
+        &state,
+        "failed-write",
+        &["body"],
+        json!("retained local edit"),
+    );
+    storage.fail_swaps(true);
 
-        import(&service, request, &seed).expect_err("fault reports the interrupted commit");
-        let after = open_service(root.path())
+    import(&service, request, &seed).expect_err("the failed write interrupts the import");
+    storage.fail_swaps(false);
+    for reader in [&service, &open_service(&storage)] {
+        let after = reader
             .load(&document)
-            .expect("restart reads committed generation")
-            .expect("committed envelope");
-        assert!(after.generation > before.generation);
-        let materialized = service
-            .detail(&NOTE_PLAN, &document)
-            .expect("materialize accepted generation")
-            .expect("accepted detail");
-        assert_eq!(materialized["body"], replacement);
+            .expect("read after the failed write")
+            .expect("baseline remains");
+        assert_eq!(after.generation, before.generation);
+        assert_eq!(after.checkpoint_sha256, before.checkpoint_sha256);
     }
 }
 
-#[cfg(unix)]
 #[test]
-fn a_read_observes_a_same_length_rewrite_that_keeps_the_modification_time() {
-    let root = TempDir::new().expect("temp workspace");
-    let (service, document, _seed, _state) = initialise(root.path());
-    let path = LocalFileCollaborationStorage::new(root.path()).envelope_path(&document);
-    let mut envelope: Value = serde_json::from_slice(&std::fs::read(&path).expect("read envelope"))
-        .expect("parse envelope");
-    let original = serde_json::to_vec(&envelope).expect("serialise envelope");
-    std::fs::write(&path, &original).expect("write envelope");
-    std::thread::sleep(SETTLED_METADATA_AGE + Duration::from_millis(100));
-    // Read twice: once to hold the document, once to hold it under a settled stamp.
-    for _ in 0..2 {
-        service.load(&document).expect("settled read");
-    }
-
-    let modified = std::fs::metadata(&path)
-        .and_then(|metadata| metadata.modified())
-        .expect("modification time");
-    let generation = envelope["generation"].as_u64().expect("generation") ^ 1;
-    envelope["generation"] = json!(generation);
-    let rewritten = serde_json::to_vec(&envelope).expect("serialise rewrite");
-    assert_eq!(rewritten.len(), original.len());
-    let mut file = OpenOptions::new()
-        .write(true)
-        .truncate(true)
-        .open(&path)
-        .expect("open envelope in place");
-    file.write_all(&rewritten).expect("rewrite envelope");
-    file.set_modified(modified)
-        .expect("keep the modification time");
-    drop(file);
-
-    let read = service
+fn a_fault_after_the_commit_leaves_the_new_generation_accepted() {
+    let storage = MemoryStorage::default();
+    let (service, document, seed, state) = initialise(&storage);
+    let before = service
         .load(&document)
-        .expect("read")
-        .expect("the rewritten document");
-    assert_eq!(read.generation, generation);
+        .expect("read baseline")
+        .expect("baseline envelope");
+    let replacement = json!("durably accepted edit");
+    let request = edit_request(
+        &document,
+        &seed,
+        &state,
+        "post-commit-fault",
+        &["body"],
+        replacement.clone(),
+    );
+    service
+        .faults
+        .inject(CollaborationFaultPoint::AfterDurableCommit);
+
+    import(&service, request, &seed).expect_err("fault reports the interrupted commit");
+    let after = open_service(&storage)
+        .load(&document)
+        .expect("restart reads committed generation")
+        .expect("committed envelope");
+    assert!(after.generation > before.generation);
+    let materialized = service
+        .detail(&NOTE_PLAN, &document)
+        .expect("materialize accepted generation")
+        .expect("accepted detail");
+    assert_eq!(materialized["body"], replacement);
 }
 
 #[test]
 fn two_services_over_one_store_serialise_concurrent_commits_and_converge() {
-    let root = TempDir::new().expect("temp workspace");
-    let (writer_a, document, seed, state) = initialise(root.path());
-    let writer_b = open_service(root.path());
+    let storage = MemoryStorage::default();
+    let (writer_a, document, seed, state) = initialise(&storage);
+    let writer_b = open_service(&storage);
     let request_a = edit_request(
         &document,
         &seed,
@@ -721,7 +705,7 @@ fn two_services_over_one_store_serialise_concurrent_commits_and_converge() {
     let accepted_b = thread_b.join().expect("writer B thread").expect("writer B");
 
     assert_ne!(accepted_a.generation, accepted_b.generation);
-    let converged_a = open_service(root.path())
+    let converged_a = open_service(&storage)
         .detail(&NOTE_PLAN, &document)
         .expect("writer A projection")
         .expect("writer A detail");
@@ -744,26 +728,28 @@ fn two_services_over_one_store_serialise_concurrent_commits_and_converge() {
 
 #[test]
 fn corruption_is_reported_and_checkpoint_repair_preserves_evidence() {
-    let root = TempDir::new().expect("temp workspace");
-    let (service, document, _seed, _) = initialise(root.path());
-    let path = LocalFileCollaborationStorage::new(root.path()).envelope_path(&document);
-    let original = std::fs::read(&path).expect("original envelope");
+    let storage = MemoryStorage::default();
+    let (service, document, _seed, _) = initialise(&storage);
+    let original = storage
+        .read(&storage.source(&document))
+        .expect("read envelope")
+        .expect("original envelope");
     let mut envelope: DurableCollaborationEnvelope =
-        serde_json::from_slice(&original).expect("parse envelope");
+        serde_json::from_slice(&original.bytes).expect("parse envelope");
     envelope.retained_operations[0].update_sha256 = "corrupt".to_string();
     let corrupt_bytes = serde_json::to_vec_pretty(&envelope).expect("encode corrupt envelope");
-    std::fs::write(&path, &corrupt_bytes).expect("install corruption");
+    storage
+        .compare_and_swap(&document, Some(&original.version), &corrupt_bytes)
+        .expect("install corruption")
+        .expect("the envelope is unchanged");
 
     let inspection = service.verify(&document);
     assert!(!inspection.valid);
     assert!(service.detail(&NOTE_PLAN, &document).is_err());
-    let evidence = service
+    service
         .repair(&document, "checksum verification failed")
         .expect("repair from valid checkpoint");
-    assert_eq!(
-        std::fs::read(&evidence).expect("evidence bytes"),
-        corrupt_bytes
-    );
+    assert_eq!(storage.evidence(), vec![corrupt_bytes]);
     assert!(service.verify(&document).valid);
     assert!(service
         .detail(&NOTE_PLAN, &document)
@@ -773,8 +759,8 @@ fn corruption_is_reported_and_checkpoint_repair_preserves_evidence() {
 
 #[test]
 fn operator_recovery_requests_are_durably_audited_without_reason_text() {
-    let root = TempDir::new().expect("temp workspace");
-    let (service, document, _, _) = initialise(root.path());
+    let storage = MemoryStorage::default();
+    let (service, document, _, _) = initialise(&storage);
     let private_reason = "operator supplied private incident context";
 
     service
@@ -803,11 +789,9 @@ fn operator_recovery_requests_are_durably_audited_without_reason_text() {
     assert!(records
         .iter()
         .all(|record| { record.reason_sha256.as_deref() != Some(private_reason) }));
-    assert!(
-        !std::fs::read_to_string(LocalFileCollaborationStorage::new(root.path()).audit_path())
-            .expect("audit text")
-            .contains(private_reason)
-    );
+    assert!(!serde_json::to_string(&records)
+        .expect("audit JSON")
+        .contains(private_reason));
 }
 
 /// A structurally valid envelope whose checkpoint is not a Loro document:
@@ -833,36 +817,10 @@ fn opaque_envelope(
     }
 }
 
-fn files_under(root: &Path) -> BTreeMap<PathBuf, Vec<u8>> {
-    let mut files = BTreeMap::new();
-    for entry in std::fs::read_dir(root).expect("read directory") {
-        let path = entry.expect("directory entry").path();
-        if path.is_dir() {
-            files.extend(files_under(&path));
-        } else {
-            files.insert(path.clone(), std::fs::read(&path).expect("read file"));
-        }
-    }
-    files
-}
-
-/// Every file under `root` with its bytes and modification time.
-fn file_states(root: &Path) -> BTreeMap<PathBuf, (Vec<u8>, std::time::SystemTime)> {
-    files_under(root)
-        .into_iter()
-        .map(|(path, bytes)| {
-            let modified = std::fs::metadata(&path)
-                .and_then(|metadata| metadata.modified())
-                .expect("file modification time");
-            (path, (bytes, modified))
-        })
-        .collect()
-}
-
 #[test]
-fn reads_leave_every_stored_byte_and_timestamp_unchanged() {
-    let root = TempDir::new().expect("temp workspace");
-    let (service, document, seed, state) = initialise(root.path());
+fn reads_leave_every_stored_byte_unchanged() {
+    let storage = MemoryStorage::default();
+    let (service, document, seed, state) = initialise(&storage);
     let request = edit_request(
         &document,
         &seed,
@@ -872,7 +830,7 @@ fn reads_leave_every_stored_byte_and_timestamp_unchanged() {
         json!("an accepted edit"),
     );
     import(&service, request, &seed).expect("accepted edit");
-    let before = file_states(root.path());
+    let before = (storage.envelopes(), storage.writes());
 
     for _ in 0..2 {
         service.detail(&NOTE_PLAN, &document).expect("detail");
@@ -891,13 +849,13 @@ fn reads_leave_every_stored_byte_and_timestamp_unchanged() {
         service.counters();
     }
 
-    assert_eq!(file_states(root.path()), before);
+    assert_eq!((storage.envelopes(), storage.writes()), before);
 }
 
 #[test]
 fn reindex_reads_every_document_and_changes_nothing_but_the_audit() {
-    let root = TempDir::new().expect("temp workspace");
-    let service = open_service(root.path());
+    let storage = MemoryStorage::default();
+    let service = open_service(&storage);
     let count = 250;
     for index in 0..count {
         service
@@ -908,7 +866,8 @@ fn reindex_reads_every_document_and_changes_nothing_but_the_audit() {
             ))
             .expect("install envelope");
     }
-    let before = files_under(root.path());
+    let before = storage.envelopes();
+    let audited = storage.recovery_audit().expect("audit").len();
 
     let (documents, revision) = service.reindex().expect("reindex");
     let (again, same_revision) = service.reindex().expect("reindex again");
@@ -919,19 +878,8 @@ fn reindex_reads_every_document_and_changes_nothing_but_the_audit() {
         revision, same_revision,
         "an unchanged catalogue keeps its fingerprint"
     );
-    let after = files_under(root.path());
-    let audit = LocalFileCollaborationStorage::new(root.path()).audit_path();
-    let changed = after
-        .iter()
-        .filter(|(path, bytes)| before.get(*path) != Some(bytes))
-        .map(|(path, _)| path.clone())
-        .collect::<Vec<_>>();
-    assert!(
-        changed.iter().all(|path| path == &audit
-            || path == &LocalFileCollaborationStorage::new(root.path()).audit_lock_path()),
-        "reindex wrote more than its audit record: {changed:?}"
-    );
-    assert!(before.keys().all(|path| after.contains_key(path)));
+    assert_eq!(storage.envelopes(), before);
+    assert_eq!(storage.recovery_audit().expect("audit").len(), audited + 2);
 }
 
 #[test]
@@ -955,8 +903,8 @@ fn inspection_reports_a_required_migration_for_every_generated_plan() {
 
 #[test]
 fn diagnostic_inspection_is_bounded_and_contains_no_document_payload() {
-    let root = TempDir::new().expect("temp workspace");
-    let (service, document, _, _) = initialise(root.path());
+    let storage = MemoryStorage::default();
+    let (service, document, _, _) = initialise(&storage);
     let (inspections, truncated) = service
         .inspect(Some("Note"), Some(&document.resource_id), Some(1))
         .expect("targeted inspection");
@@ -978,8 +926,8 @@ fn on_read(
 
 #[test]
 fn an_etag_fenced_import_of_the_current_read_commits() {
-    let root = TempDir::new().expect("temp workspace");
-    let (service, document, seed, state) = initialise(root.path());
+    let storage = MemoryStorage::default();
+    let (service, document, seed, state) = initialise(&storage);
     let replacement = json!("committed on the read it was made from");
     let request = on_read(
         edit_request(
@@ -1003,8 +951,8 @@ fn an_etag_fenced_import_of_the_current_read_commits() {
 
 #[test]
 fn an_etag_fenced_import_of_a_superseded_read_is_refused_and_changes_nothing() {
-    let root = TempDir::new().expect("temp workspace");
-    let (service, document, seed, state) = initialise(root.path());
+    let storage = MemoryStorage::default();
+    let (service, document, seed, state) = initialise(&storage);
     let first = edit_request(
         &document,
         &seed,
@@ -1039,8 +987,8 @@ fn an_etag_fenced_import_of_a_superseded_read_is_refused_and_changes_nothing() {
 
 #[test]
 fn a_retried_etag_fenced_import_is_a_duplicate_not_a_stale_read() {
-    let root = TempDir::new().expect("temp workspace");
-    let (service, document, seed, state) = initialise(root.path());
+    let storage = MemoryStorage::default();
+    let (service, document, seed, state) = initialise(&storage);
     let request = on_read(
         edit_request(
             &document,
@@ -1062,9 +1010,9 @@ fn a_retried_etag_fenced_import_is_a_duplicate_not_a_stale_read() {
 
 #[test]
 fn etag_fenced_imports_racing_from_one_read_through_two_services_commit_exactly_once() {
-    let root = TempDir::new().expect("temp workspace");
-    let (writer_a, document, seed, state) = initialise(root.path());
-    let writer_b = open_service(root.path());
+    let storage = MemoryStorage::default();
+    let (writer_a, document, seed, state) = initialise(&storage);
+    let writer_b = open_service(&storage);
     let request_a = on_read(
         edit_request(
             &document,
@@ -1151,8 +1099,8 @@ fn update_metadata(update_base64: &str) -> loro::ImportBlobMetadata {
 
 #[test]
 fn an_import_reply_carries_only_the_operations_the_importer_lacks() {
-    let root = TempDir::new().unwrap();
-    let (service, document, seed, state) = initialise(root.path());
+    let storage = MemoryStorage::default();
+    let (service, document, seed, state) = initialise(&storage);
     let (_, first_request) = writer_edit(
         &document,
         &seed,

@@ -6,12 +6,9 @@ use clerkenwell_example_notes::{
 };
 use clerkenwell_store::{CollaborationRecoveryAction, StoreErrorKind};
 use serde_json::{json, Value};
-use tempfile::TempDir;
 
-fn store() -> (TempDir, Notes) {
-    let root = tempfile::tempdir().expect("a temporary directory");
-    let notes = create_note(root.path()).expect("create the note");
-    (root, notes)
+fn store() -> Notes {
+    create_note().expect("create the note")
 }
 
 /// The note without its revision, which changes with every commit.
@@ -31,13 +28,13 @@ fn etag(notes: &Notes) -> Value {
 
 #[test]
 fn a_created_note_reads_back_as_seeded() {
-    let (_root, notes) = store();
+    let notes = store();
     assert_eq!(content(&notes.read().expect("read")), seed());
 }
 
 #[test]
 fn concurrent_body_edits_merge_and_the_later_title_is_kept() {
-    let (_root, notes) = store();
+    let notes = store();
     let merged = merge_concurrent_prose(&notes).expect("both commits are accepted");
     assert_eq!(
         merged["body"],
@@ -49,7 +46,7 @@ fn concurrent_body_edits_merge_and_the_later_title_is_kept() {
 
 #[test]
 fn an_import_based_on_a_frontier_the_store_never_accepted_is_refused_and_changes_nothing() {
-    let (_root, notes) = store();
+    let notes = store();
     let before = notes.read().expect("read");
     let resyncs = notes.service().counters().resync_requirements;
 
@@ -73,7 +70,7 @@ fn an_import_based_on_a_frontier_the_store_never_accepted_is_refused_and_changes
 
 #[test]
 fn an_edit_fenced_on_a_superseded_read_is_refused_with_the_accepted_note() {
-    let (_root, notes) = store();
+    let notes = store();
 
     let refusal = refuse_a_superseded_read(&notes).expect("the step runs");
 
@@ -89,7 +86,7 @@ fn an_edit_fenced_on_a_superseded_read_is_refused_with_the_accepted_note() {
 
 #[test]
 fn a_concurrent_explicit_status_is_refused_naming_the_status_and_changes_nothing() {
-    let (_root, notes) = store();
+    let notes = store();
     let (_, refusal) = conflict_on_status(&notes).expect("the step runs");
 
     assert_eq!(refusal.kind, StoreErrorKind::Conflict);
@@ -105,7 +102,7 @@ fn a_concurrent_explicit_status_is_refused_naming_the_status_and_changes_nothing
 
 #[test]
 fn a_rebased_status_is_accepted_over_the_one_it_conflicted_with() {
-    let (_root, notes) = store();
+    let notes = store();
     let (grace, refusal) = conflict_on_status(&notes).expect("the conflict");
     let before = etag(&notes);
 
@@ -120,7 +117,7 @@ fn a_rebased_status_is_accepted_over_the_one_it_conflicted_with() {
 
 #[test]
 fn recovery_requests_are_audited_in_order_without_changing_the_note() {
-    let (_root, notes) = store();
+    let notes = store();
     let before = notes.read().expect("read");
 
     let audit = audit_recovery(&notes).expect("the step runs");
