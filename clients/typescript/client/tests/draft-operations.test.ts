@@ -190,26 +190,67 @@ test("pending work a runtime starts on reaches the server once", async () => {
   assert.equal(copiesOf(notes, " From the other runtime."), 1, notes);
 });
 
+/** Attaches a replica of `update` whose controller takes no documents. */
+function attachWithoutDocuments(runtime: AuthoringRuntime, update: string): AuthoringSessionHandle<BoardDocument, BoardTextFieldPath> {
+  return runtime.ensureController(resource, () => {
+    const { replaceDraft: _takesDocuments, ...controller } = BOARD_DRAFTS.fromUpdate(update).controller();
+    return controller;
+  });
+}
+
 test("a replica that takes no documents restores a blocked session's pending work as its operations", async () => {
   const server = new FakeBoardServer(boardDocument());
   const beforeRestart = new AuthoringRuntime();
   await append(openBoardSession(beforeRestart, server, resource), " Held.");
   beforeRestart.block(resource, "recoveryRequired");
-  const attachWithoutDocuments = (runtime: AuthoringRuntime) => runtime.ensureController(resource, () => {
-    const { replaceDraft: _takesDocuments, ...controller } = BOARD_DRAFTS
-      .fromUpdate(server.snapshot().update_base64)
-      .controller();
-    return controller;
-  });
 
   const afterRestart = new AuthoringRuntime(persisted(beforeRestart));
-  const restored = attachWithoutDocuments(afterRestart);
+  const restored = attachWithoutDocuments(afterRestart, server.snapshot().update_base64);
   assert.equal(copiesOf(notesOf(restored.currentDraft()), " Held."), 1);
   assert.equal(afterRestart.session(resource)?.status, "recoveryRequired");
 
   // What it restored stays recorded, so a further restart restores it again.
-  const again = attachWithoutDocuments(new AuthoringRuntime(persisted(afterRestart)));
+  const again = attachWithoutDocuments(new AuthoringRuntime(persisted(afterRestart)), server.snapshot().update_base64);
   assert.equal(copiesOf(notesOf(again.currentDraft()), " Held."), 1);
+});
+
+test("a replica that takes no documents holds pending work whose history it lacks", async () => {
+  const server = new FakeBoardServer(boardDocument());
+  const beforeRestart = new AuthoringRuntime();
+  await append(openBoardSession(beforeRestart, server, resource), " Pending.");
+  const pending = beforeRestart.session<BoardDocument>(resource)?.draft;
+  assert.ok(pending);
+  const otherHistory = BOARD_DRAFTS.fromDocument(boardDocument()).exportUpdateBase64();
+
+  const afterRestart = new AuthoringRuntime(persisted(beforeRestart));
+  attachWithoutDocuments(afterRestart, otherHistory);
+  const held = afterRestart.session<BoardDocument>(resource);
+  assert.equal(held?.status, "recoveryRequired");
+  assert.deepEqual(held?.draft, pending);
+
+  // What it holds stays recorded, so a replica with that history restores it.
+  const restored = attachWithoutDocuments(new AuthoringRuntime(persisted(afterRestart)), server.snapshot().update_base64);
+  assert.equal(copiesOf(notesOf(restored.currentDraft()), " Pending."), 1);
+});
+
+test("discarding pending work a replica could not hold leaves the replica's document, and records what follows", async () => {
+  const server = new FakeBoardServer(boardDocument());
+  const beforeRestart = new AuthoringRuntime();
+  await append(openBoardSession(beforeRestart, server, resource), " Pending.");
+  const replicaDocument = withNotes(boardDocument(), "Elsewhere.");
+  const replicaHistory = BOARD_DRAFTS.fromDocument(replicaDocument).exportUpdateBase64();
+
+  const afterRestart = new AuthoringRuntime(persisted(beforeRestart));
+  const session = attachWithoutDocuments(afterRestart, replicaHistory);
+  afterRestart.discard(resource);
+  assert.equal(afterRestart.session(resource)?.draftOperations, undefined);
+  assert.deepEqual(session.currentDraft(), replicaDocument);
+
+  await append(session, " After.");
+  const restored = attachWithoutDocuments(new AuthoringRuntime(persisted(afterRestart)), replicaHistory);
+  const notes = notesOf(restored.currentDraft());
+  assert.equal(copiesOf(notes, " After."), 1, notes);
+  assert.equal(copiesOf(notes, " Pending."), 0, notes);
 });
 
 test("a replica holding other history takes the draft as a document", async () => {

@@ -5,7 +5,7 @@
  * and their offline operations, and the controllers it hands out.
  */
 
-import type { AuthoringResourceIdentity, AuthoringRuntimeListener, AuthoringRuntimeState, AuthoringSession, AuthoringSessionController, AuthoringTextStageConfirmation, AuthoringTextStageController, QueuedAuthoringOperation, RedactedAuthoringRuntimeDiagnostic, RedactedAuthoringSessionDiagnostic } from "./authoring-session.js";
+import type { AuthoringDraftOperations, AuthoringResourceIdentity, AuthoringRuntimeListener, AuthoringRuntimeState, AuthoringSession, AuthoringSessionController, AuthoringTextStageConfirmation, AuthoringTextStageController, QueuedAuthoringOperation, RedactedAuthoringRuntimeDiagnostic, RedactedAuthoringSessionDiagnostic } from "./authoring-session.js";
 import { acknowledgeAuthoringOperation, adoptAuthoringBaseline, authoringSessionAcceptsDraft, authoringSessionId, authoringSessionRequiresDurableRestoration, beginAuthoringReplay, blockAuthoringSession, bootstrapAuthoringSession, discardAuthoringChanges, disconnectAuthoringSession, documentsEqual, modifyAuthoringSession, queueAuthoringOperation, reconnectAuthoringSession, rejectAuthoringOperation, startAuthoringSession, supersedeBlockedAuthoringOperations } from "./authoring-state-machine.js";
 import type { TextBinding } from "./text-binding.js";
 
@@ -50,6 +50,11 @@ interface OwnedAuthoringController {
    * each accepted frontier it takes through the session handle.
    */
   acceptedBaseFrontierBase64?: string;
+  /**
+   * Recorded operations the replica could not take, because it lacks the
+   * history they extend. They stay recorded while the session carries them.
+   */
+  untakenDraftOperations?: AuthoringDraftOperations;
 }
 
 /**
@@ -546,7 +551,9 @@ export class AuthoringRuntime {
     // already holds are not authored again. A replica without their base holds
     // other history, and a blocked session's draft stays as it is: both take
     // the draft as a document. A replica that takes no documents holds a
-    // blocked draft only as its operations.
+    // blocked draft only as its operations, and cannot hold pending work
+    // without them: that session is held for recovery with its draft and
+    // operations as they are.
     const operations = session.draftOperations;
     if (
       recording
@@ -555,8 +562,13 @@ export class AuthoringRuntime {
       && controller.coversFrontierBase64(operations.baseFrontierBase64)
     ) {
       controller.importUpdateBase64(operations.updateBase64);
-    } else {
-      controller.replaceDraft?.(session.draft);
+    } else if (controller.replaceDraft !== undefined) {
+      controller.replaceDraft(session.draft);
+    } else if (authoringSessionRequiresDurableRestoration(session)) {
+      owned.untakenDraftOperations = operations;
+      if (authoringSessionAcceptsDraft(session)) {
+        this.#setSession(blockAuthoringSession(session, "recoveryRequired"), false);
+      }
     }
     owned.handle = new AuthoringSessionHandle<unknown, string>(this, owned);
     this.#controllers.set(id, owned);
@@ -965,12 +977,22 @@ function recordDraftOperations<TDocument>(
   if (!authoringSessionRequiresDurableRestoration(session)) {
     return withoutDraftOperations(session);
   }
-  const updateBase64 = controller.exportIncrementalUpdateBase64(base);
   const recorded = session.draftOperations;
+  if (recorded !== undefined && sameDraftOperations(recorded, owned.untakenDraftOperations)) {
+    return session;
+  }
+  const updateBase64 = controller.exportIncrementalUpdateBase64(base);
   if (recorded?.baseFrontierBase64 === base && recorded.updateBase64 === updateBase64) {
     return session;
   }
   return { ...session, draftOperations: { baseFrontierBase64: base, updateBase64 } };
+}
+
+function sameDraftOperations(
+  left: AuthoringDraftOperations,
+  right: AuthoringDraftOperations | undefined
+): boolean {
+  return left.baseFrontierBase64 === right?.baseFrontierBase64 && left.updateBase64 === right.updateBase64;
 }
 
 /** Whether a controller's replica already holds every operation up to a frontier. */
