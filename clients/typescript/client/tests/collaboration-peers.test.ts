@@ -72,6 +72,38 @@ test("forks of a replica that adopted a new block write under the new block", ()
   assert.deepEqual([...replica.peerNonces()].sort(), [first.nonce, second.nonce].sort());
 });
 
+test("a block adopted again goes on from the peers it has given", () => {
+  const first = peerBlock();
+  const second = peerBlock();
+  const replica = noteReplica(first);
+  const base = replica.acceptedFrontierBase64();
+  const writers: CollaborationReplica<NoteDocument>[] = [];
+
+  replica.adoptPeerBlock(first);
+  writers.push(replica.fork());
+  replica.adoptPeerBlock(second);
+  writers.push(replica.fork());
+  replica.adoptPeerBlock(first);
+  writers.push(replica.fork());
+
+  const peers = writers.map((writer) => {
+    writer.replaceDocument({ ...writer.currentDocument(), title: "Forked" });
+    return peersIn(writer.exportIncrementalUpdateBase64(base));
+  });
+  assert.deepEqual(peers, [[peer(first, 1)], [peer(second, 0)], [peer(first, 2)]]);
+});
+
+test("a view the block has no peer left for is not attached", () => {
+  const block: CollaborationPeerBlock = { ...peerBlock(), index_bits: 0 };
+  const replica = noteReplica(block);
+  let sent = 0;
+
+  assert.throws(() => replica.attachView(() => { sent += 1; }), /adopt a new block/);
+  replica.replaceDocument({ ...replica.currentDocument(), title: "Renamed" });
+
+  assert.equal(sent, 0);
+});
+
 test("a replica refuses to write under more peers than its block holds", () => {
   const block: CollaborationPeerBlock = { ...peerBlock(), index_bits: 1 };
   const replica = noteReplica(block);

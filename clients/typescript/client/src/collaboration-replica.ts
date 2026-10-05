@@ -57,12 +57,13 @@ export interface CollaborationPeerBlock {
 
 /**
  * The peers a replica and everything forked from it write under: each takes
- * the next peer of the newest block the replica holds, so no two write under
- * one peer.
+ * the next untaken peer of the newest block the replica adopted, so no two
+ * write under one peer, however often a block is adopted.
  */
 class PeerAllocator {
   #block: CollaborationPeerBlock;
-  #next = 0n;
+  /** The next untaken index of each block adopted, by nonce. */
+  readonly #next = new Map<string, bigint>();
   readonly #nonces = new Set<string>();
 
   constructor(block: CollaborationPeerBlock) {
@@ -71,17 +72,17 @@ class PeerAllocator {
 
   adopt(block: CollaborationPeerBlock): void {
     this.#block = block;
-    this.#next = 0n;
   }
 
   take(): bigint {
-    if (this.#next >= 1n << BigInt(this.#block.index_bits)) {
+    const block = this.#block;
+    const next = this.#next.get(block.nonce) ?? 0n;
+    if (next >= 1n << BigInt(block.index_bits)) {
       throw new Error("Every peer of the replica's block is taken; adopt a new block.");
     }
-    const peer = BigInt(this.#block.base) + this.#next;
-    this.#next += 1n;
-    this.#nonces.add(this.#block.nonce);
-    return peer;
+    this.#next.set(block.nonce, next + 1n);
+    this.#nonces.add(block.nonce);
+    return BigInt(block.base) + next;
   }
 
   include(nonces: readonly string[]): void {
@@ -364,11 +365,12 @@ export class CollaborationReplica<TDocument extends ClientDocument> {
    */
   attachView(send: (update: Uint8Array) => void): CollaborationReplicaView {
     this.flushTextBindings();
+    const peer = this.peers.take().toString() as `${number}`;
     const view: AttachedView = { send };
     this.views.add(view);
     return {
       snapshot: this.doc.export({ mode: "snapshot" }),
-      peer: this.peers.take().toString() as `${number}`,
+      peer,
       receive: (update) => {
         this.flushTextBindings();
         const before = this.doc.version();

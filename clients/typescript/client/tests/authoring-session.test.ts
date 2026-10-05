@@ -654,7 +654,9 @@ test("an accepted update a replica already holds is not imported, and pending wo
     acceptedFrontierBase64: () => "before",
     coversFrontierBase64: (frontier) => held.has(frontier),
     exportIncrementalUpdateBase64: (base) => `operations after ${base}`,
-    importUpdateBase64: (update) => { imports.push(update); }
+    importUpdateBase64: (update) => { imports.push(update); },
+    peerNonces: () => ["block"],
+    includePeerNonces: () => undefined
   }));
 
   held.add("accepted");
@@ -665,6 +667,33 @@ test("an accepted update a replica already holds is not imported, and pending wo
 
   session.importUpdateBase64("newer operations", "newer");
   assert.deepEqual(imports, ["newer operations"]);
+});
+
+test("a replica that cannot name the peer blocks of its operations records none", () => {
+  const runtime = new AuthoringRuntime();
+  runtime.open({
+    resource,
+    policy: "collaborative",
+    schemaVersion: 1,
+    acceptedRevision: "before",
+    supportedExchangeModes: ["incremental"],
+    baseline: { prose: "before" },
+    draft: { prose: "before" }
+  });
+  let prose = "before";
+  const session = runtime.ensureController<{ prose: string }, "prose">(resource, () => ({
+    currentDraft: () => ({ prose }),
+    acceptedFrontierBase64: () => "before",
+    coversFrontierBase64: (frontier) => frontier === "before",
+    exportIncrementalUpdateBase64: (base) => `operations after ${base}`,
+    importUpdateBase64: () => undefined
+  }));
+
+  prose = "typed";
+  session.importUpdateBase64("newer operations", "newer");
+
+  assert.deepEqual(runtime.session(resource)?.draft, { prose: "typed" }, "the session has pending work");
+  assert.equal(runtime.session(resource)?.draftOperations, undefined);
 });
 
 test("a replica attached to a blocked session leaves its held draft in place", () => {

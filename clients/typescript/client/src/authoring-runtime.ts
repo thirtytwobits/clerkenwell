@@ -11,7 +11,8 @@ import type { TextBinding } from "./text-binding.js";
 
 /**
  * A controller whose replica records a session's draft as operations and
- * takes them back: {@link AuthoringSession.draftOperations}.
+ * takes them back, naming the peer blocks they are written under:
+ * {@link AuthoringSession.draftOperations}.
  */
 type OperationRecordingController = AuthoringSessionController<unknown, string>
   & Required<Pick<
@@ -20,6 +21,8 @@ type OperationRecordingController = AuthoringSessionController<unknown, string>
     | "coversFrontierBase64"
     | "exportIncrementalUpdateBase64"
     | "importUpdateBase64"
+    | "peerNonces"
+    | "includePeerNonces"
   >>;
 
 function recordsOperations(
@@ -28,7 +31,9 @@ function recordsOperations(
   return controller.acceptedFrontierBase64 !== undefined
     && controller.coversFrontierBase64 !== undefined
     && controller.exportIncrementalUpdateBase64 !== undefined
-    && controller.importUpdateBase64 !== undefined;
+    && controller.importUpdateBase64 !== undefined
+    && controller.peerNonces !== undefined
+    && controller.includePeerNonces !== undefined;
 }
 
 interface OwnedAuthoringTextStage {
@@ -563,7 +568,7 @@ export class AuthoringRuntime {
       && (authoringSessionAcceptsDraft(session) || controller.replaceDraft === undefined)
       && controller.coversFrontierBase64(operations.baseFrontierBase64)
     ) {
-      controller.includePeerNonces?.(operations.peerNonces);
+      controller.includePeerNonces(operations.peerNonces);
       controller.importUpdateBase64(operations.updateBase64);
     } else if (controller.replaceDraft !== undefined) {
       controller.replaceDraft(session.draft);
@@ -990,7 +995,7 @@ function recordDraftOperations<TDocument>(
     return session;
   }
   const updateBase64 = controller.exportIncrementalUpdateBase64(base);
-  const peerNonces = controller.peerNonces?.() ?? [];
+  const peerNonces = controller.peerNonces();
   const recorded = session.draftOperations;
   if (
     recorded?.baseFrontierBase64 === base
