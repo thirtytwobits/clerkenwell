@@ -8,17 +8,21 @@ fn clerkenwell_doc::CollaborationReplica::adopt_versioned_update_base64(&mut sel
 fn clerkenwell_doc::CollaborationReplica::debug(&self) -> CollaborationReplicaDebug
 fn clerkenwell_doc::CollaborationReplica::export_incremental_update_base64(&self, accepted_frontier_base64: &str) -> Result<String, CollaborationReplicaError>
 fn clerkenwell_doc::CollaborationReplica::export_update_base64(&self) -> Result<String, CollaborationReplicaError>
-fn clerkenwell_doc::CollaborationReplica::from_document(plan: &'static GeneratedCollaborationEntitySpec, document: &Value) -> Result<Self, CollaborationReplicaError>
+fn clerkenwell_doc::CollaborationReplica::from_document(plan: &'static GeneratedCollaborationEntitySpec, document: &Value, peer: u64) -> Result<Self, CollaborationReplicaError>
 fn clerkenwell_doc::CollaborationReplica::from_versioned_update_base64(plan: &'static GeneratedCollaborationEntitySpec, schema_version: u32, update_base64: &str) -> Result<Self, CollaborationReplicaError>
 fn clerkenwell_doc::CollaborationReplica::frontier_includes(&self, capture_base64: &str, required_base64: &str) -> Result<bool, CollaborationReplicaError>
 fn clerkenwell_doc::CollaborationReplica::materialized_document(&self, revision: &str) -> Result<Value, CollaborationReplicaError>
 fn clerkenwell_doc::CollaborationReplica::materialized_documents_for_incremental_update(&self, accepted_frontier_base64: &str, schema_version: u32, update_base64: &str, revision: &str) -> Result<(Value, Value), CollaborationReplicaError>
 fn clerkenwell_doc::CollaborationReplica::missing_update_base64(&self, base_frontier_base64: Option<&str>, update_base64: &str) -> Result<String, CollaborationReplicaError>
-fn clerkenwell_doc::CollaborationReplica::policy_conflicts_for_incremental_update(&self, base_frontier_base64: &str, schema_version: u32, update_base64: &str) -> Result<Vec<String>, CollaborationReplicaError>
-fn clerkenwell_doc::CollaborationReplica::prepare_text_prefix_at_frontier(&self, field_path: &str, identities: &HashMap<String, String>, frontier_base64: &str, expected_text: &str, prefix: &str) -> Result<String, CollaborationReplicaError>
-fn clerkenwell_doc::CollaborationReplica::prepare_text_replacement_at_frontier(&self, field_path: &str, identities: &HashMap<String, String>, frontier_base64: &str, expected_text: &str, replacement: &str) -> Result<String, CollaborationReplicaError>
+fn clerkenwell_doc::CollaborationReplica::peers_in_update(update_base64: &str) -> Result<Vec<u64>, CollaborationReplicaError>
+fn clerkenwell_doc::CollaborationReplica::peers_with_new_operations(&self, update_base64: &str) -> Result<Vec<u64>, CollaborationReplicaError>
+fn clerkenwell_doc::CollaborationReplica::policy_conflicts_for_creation(&self, kind: ActorKind) -> Result<Vec<String>, CollaborationReplicaError>
+fn clerkenwell_doc::CollaborationReplica::policy_conflicts_for_incremental_update(&self, base_frontier_base64: &str, schema_version: u32, update_base64: &str, kind: ActorKind) -> Result<Vec<String>, CollaborationReplicaError>
+fn clerkenwell_doc::CollaborationReplica::prepare_text_prefix_at_frontier(&self, field_path: &str, identities: &HashMap<String, String>, frontier_base64: &str, expected_text: &str, prefix: &str, peer: u64) -> Result<String, CollaborationReplicaError>
+fn clerkenwell_doc::CollaborationReplica::prepare_text_replacement_at_frontier(&self, field_path: &str, identities: &HashMap<String, String>, frontier_base64: &str, expected_text: &str, replacement: &str, peer: u64) -> Result<String, CollaborationReplicaError>
 fn clerkenwell_doc::CollaborationReplica::replace_document(&mut self, document: &Value) -> Result<(), CollaborationReplicaError>
 fn clerkenwell_doc::CollaborationReplica::require_frontier_base64(&self, accepted_frontier_base64: &str) -> Result<(), CollaborationReplicaError>
+fn clerkenwell_doc::CollaborationReplica::set_peer(&self, peer: u64) -> Result<(), CollaborationReplicaError>
 fn clerkenwell_doc::CollaborationReplica::text_at_frontier(&self, field_path: &str, identities: &HashMap<String, String>, frontier_base64: &str) -> Result<String, CollaborationReplicaError>
 struct clerkenwell_doc::CollaborationReplicaDebug
 derive clerkenwell_doc::CollaborationReplicaDebug: Clone, Debug, Eq, PartialEq
@@ -35,4 +39,5 @@ variant clerkenwell_doc::CollaborationReplicaError::TextCaptureMismatch
 variant clerkenwell_doc::CollaborationReplicaError::UnknownFrontier
 variant clerkenwell_doc::CollaborationReplicaError::UnsupportedSchemaVersion { entity: &'static str, actual: u32, expected: u32 }
 variant clerkenwell_doc::CollaborationReplicaError::Update(String)
-fn clerkenwell_doc::conflicting_field_paths(plan: &GeneratedCollaborationEntitySpec, base: &Value, client: &Value, current: &Value) -> Vec<String>
+fn clerkenwell_doc::conflicting_field_paths(plan: &GeneratedCollaborationEntitySpec, base: &Value, client: &Value, current: &Value, kind: ActorKind) -> Vec<String>
+fn clerkenwell_doc::creation_conflicting_field_paths(plan: &GeneratedCollaborationEntitySpec, created: &Value, kind: ActorKind) -> Vec<String>

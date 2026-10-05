@@ -8,7 +8,9 @@
 use std::num::NonZeroUsize;
 use std::sync::atomic::{AtomicU64, Ordering};
 
+use axum::http::request::Parts;
 use clerkenwell_axum::RpcFailure;
+use clerkenwell_events::{ActorKind, Principal};
 use clerkenwell_session::transport::ProjectionErrorCode;
 use clerkenwell_session::{
     AuthoringStates, Held, ProjectionFailure, ProjectionHost, ProjectionRefusal,
@@ -29,7 +31,7 @@ use crate::model::{
     NOTE_CREATE_MUTATION, NOTE_IMPORT_UPDATE_MUTATION,
 };
 use crate::storage::MemoryStorage;
-use crate::{validate, COMMIT_POLICY, NOTE};
+use crate::{peer_key, validate, COMMIT_POLICY, NOTE};
 
 /// Mutations, or changes to notes, a connection of the example's server may
 /// fall behind before it resynchronises.
@@ -57,7 +59,8 @@ pub struct NotesServer {
 impl Default for NotesServer {
     /// Notes kept in a new store.
     fn default() -> Self {
-        let stores = CollaborationStores::new(GENERATED_COLLABORATION_SPECS, COMMIT_POLICY);
+        let stores =
+            CollaborationStores::new(GENERATED_COLLABORATION_SPECS, COMMIT_POLICY, peer_key());
         let service = stores
             .register(NOTES_STORE, MemoryStorage::default())
             .expect("a new set holds no other store");
@@ -86,62 +89,52 @@ impl NotesServer {
         Ok(NoteMutationResult { note_id, etag })
     }
 
-    fn import(&self, params: ReplicaUpdateParams) -> Result<ReplicaUpdateResult, RpcFailure> {
-        let document = note(&params.note_id);
-        match params.exchange_mode {
+    /// Commits `principal`'s operations: a new note, or edits to one.
+    fn import(
+        &self,
+        principal: &Principal,
+        params: ReplicaUpdateParams,
+    ) -> Result<ReplicaUpdateResult, RpcFailure> {
+        let (exchange_mode, base_frontier_base64) = match params.exchange_mode {
             ReplicaUpdateParamsExchangeMode::Bootstrap => {
-                self.service
-                    .bootstrap_update(
-                        NOTE,
-                        &document,
-                        NOTE.schema_version,
-                        &params.update_base64,
-                        validate,
-                    )
-                    .map_err(refused)?;
-                let state = self
-                    .service
-                    .authoring_state(NOTE, &document, None)
-                    .map_err(refused)?;
-                Ok(ReplicaUpdateResult {
-                    note_id: params.note_id,
-                    etag: state.etag,
-                    accepted_frontier_base64: state.accepted_frontier_base64,
-                    missing_update_base64: state.update_base64,
-                })
+                (CollaborationExchangeMode::Bootstrap, String::new())
             }
-            ReplicaUpdateParamsExchangeMode::Incremental => {
-                let base_frontier_base64 = params.base_frontier_base64.ok_or_else(|| {
+            ReplicaUpdateParamsExchangeMode::Incremental => (
+                CollaborationExchangeMode::Incremental,
+                params.base_frontier_base64.ok_or_else(|| {
                     RpcFailure::new(
                         ProjectionErrorCode::InvalidParams,
                         "An incremental update names the frontier it extends.",
                         None,
                     )
-                })?;
-                let imported = self
-                    .service
-                    .import(
-                        NOTE,
-                        CollaborationImportRequest {
-                            document,
-                            schema_version: NOTE.schema_version,
-                            operation_id: params.operation_id,
-                            exchange_mode: CollaborationExchangeMode::Incremental,
-                            base_frontier_base64,
-                            update_base64: params.update_base64,
-                            fence: ImportFence::Frontier,
-                        },
-                        validate,
-                    )
-                    .map_err(refused)?;
-                Ok(ReplicaUpdateResult {
-                    note_id: params.note_id,
-                    etag: imported.etag,
-                    accepted_frontier_base64: imported.accepted_frontier_base64,
-                    missing_update_base64: imported.missing_update_base64,
-                })
-            }
-        }
+                })?,
+            ),
+        };
+        let imported = self
+            .service
+            .import(
+                NOTE,
+                CollaborationImportRequest {
+                    document: note(&params.note_id),
+                    schema_version: NOTE.schema_version,
+                    operation_id: params.operation_id,
+                    exchange_mode,
+                    base_frontier_base64,
+                    update_base64: params.update_base64,
+                    fence: ImportFence::Frontier,
+                    actor: principal.clone(),
+                    peer_nonces: params.peer_nonces,
+                    intent: params.intent,
+                },
+                validate,
+            )
+            .map_err(refused)?;
+        Ok(ReplicaUpdateResult {
+            note_id: params.note_id,
+            etag: imported.etag,
+            accepted_frontier_base64: imported.accepted_frontier_base64,
+            missing_update_base64: imported.missing_update_base64,
+        })
     }
 }
 
@@ -184,6 +177,7 @@ impl ProjectionHost for NotesServer {
 
     async fn mutate(
         &self,
+        principal: &Principal,
         mutation: &str,
         params: Value,
     ) -> Result<ProjectionTransportMutationResult, RpcFailure> {
@@ -192,7 +186,7 @@ impl ProjectionHost for NotesServer {
                 .create(decode(params)?)
                 .map(ProjectionTransportMutationResult::NoteCreate),
             NOTE_IMPORT_UPDATE_MUTATION => self
-                .import(decode(params)?)
+                .import(principal, decode(params)?)
                 .map(ProjectionTransportMutationResult::NoteImportUpdate),
             other => Err(RpcFailure::new(
                 ProjectionErrorCode::UnsupportedMutation,
@@ -210,6 +204,19 @@ impl ProjectionHost for NotesServer {
     ) -> Option<ProjectionTransportPatch> {
         None
     }
+}
+
+/// The principal an upgrade request to the example's server names in its
+/// `writer` query parameter, as a person. The example trusts the name a
+/// client gives; an application authenticates its connections.
+pub fn writer_named_in(parts: &Parts) -> Option<Principal> {
+    parts
+        .uri
+        .query()?
+        .split('&')
+        .find_map(|pair| pair.strip_prefix("writer="))
+        .filter(|writer| !writer.is_empty())
+        .map(|writer| Principal::new(writer, ActorKind::Human))
 }
 
 fn note(note_id: &str) -> CollaborationDocumentId {

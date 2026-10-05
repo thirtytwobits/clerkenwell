@@ -8,6 +8,7 @@
  */
 import assert from "node:assert/strict";
 import test from "node:test";
+import { peerBlock } from "./support/peers.js";
 
 import type { CollaborationEntityPlan, CollaborationFieldPlan } from "@clerkenwell/client";
 import { CollaborationReplica } from "@clerkenwell/client/replica";
@@ -94,7 +95,7 @@ function replicaOf<TDocument extends object>(
   { name, plan }: Case<TDocument>,
   document: TDocument
 ): CollaborationReplica<TDocument> {
-  return CollaborationReplica.from<TDocument>(name, plan, { kind: "document", document });
+  return CollaborationReplica.from<TDocument>(name, plan, { kind: "document", document }, peerBlock());
 }
 
 function reread<TDocument extends object>(
@@ -104,7 +105,7 @@ function reread<TDocument extends object>(
   return CollaborationReplica.from<TDocument>(entry.name, entry.plan, {
     kind: "update",
     updateBase64: replica.exportUpdateBase64()
-  }).currentDocument();
+  }, peerBlock()).currentDocument();
 }
 
 /** The candidate is refused everywhere a document is written, and the replica is left as it was. */
@@ -222,7 +223,7 @@ test("removing an optional field that is already absent writes nothing", () => {
       const peer = CollaborationReplica.from<object>(entry.name, entry.plan, {
         kind: "update",
         updateBase64: replica.exportUpdateBase64()
-      });
+      }, peerBlock());
 
       replica.replaceDocument(withValueAt(absent, field.path, null));
 

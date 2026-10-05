@@ -43,6 +43,56 @@ export type CollaborationReplicaSource<TDocument extends ClientDocument> =
   /** A view's snapshot of a replica held elsewhere: see {@link CollaborationReplica.attachView}. */
   | { kind: "snapshot"; snapshot: Uint8Array };
 
+/**
+ * A block of peers the server allocated a writer, as an authoring state
+ * delivers it: every peer whose bits above the low `index_bits` are `base`'s.
+ * An import names the block by its nonce.
+ */
+export interface CollaborationPeerBlock {
+  readonly nonce: string;
+  /** The block's first peer, in decimal. */
+  readonly base: string;
+  readonly index_bits: number;
+}
+
+/**
+ * The peers a replica and everything forked from it write under: each takes
+ * the next peer of the newest block the replica holds, so no two write under
+ * one peer.
+ */
+class PeerAllocator {
+  #block: CollaborationPeerBlock;
+  #next = 0n;
+  readonly #nonces = new Set<string>();
+
+  constructor(block: CollaborationPeerBlock) {
+    this.#block = block;
+  }
+
+  adopt(block: CollaborationPeerBlock): void {
+    this.#block = block;
+    this.#next = 0n;
+  }
+
+  take(): bigint {
+    if (this.#next >= 1n << BigInt(this.#block.index_bits)) {
+      throw new Error("Every peer of the replica's block is taken; adopt a new block.");
+    }
+    const peer = BigInt(this.#block.base) + this.#next;
+    this.#next += 1n;
+    this.#nonces.add(this.#block.nonce);
+    return peer;
+  }
+
+  include(nonces: readonly string[]): void {
+    for (const nonce of nonces) this.#nonces.add(nonce);
+  }
+
+  nonces(): readonly string[] {
+    return [...this.#nonces];
+  }
+}
+
 /** An accepted update seeds the replica; otherwise the caller's initial content must. */
 export function collaborationReplicaSource<TDocument extends ClientDocument>(
   entityName: string,
@@ -127,6 +177,8 @@ function resolveTextTarget(
 export interface CollaborationReplicaView {
   /** Every operation the replica held when the view attached. */
   readonly snapshot: Uint8Array;
+  /** The peer the view writes under. */
+  readonly peer: `${number}`;
   /** Takes operations the view authored. Returns whether the replica lacked any of them. */
   receive(update: Uint8Array): boolean;
   detach(): void;
@@ -154,22 +206,28 @@ export class CollaborationReplica<TDocument extends ClientDocument> {
     private readonly entityName: string,
     private readonly plan: CollaborationEntityPlan,
     private readonly doc: LoroDoc,
-    private document: TDocument
+    private document: TDocument,
+    private readonly peers: PeerAllocator
   ) {}
 
-  /** A replica of an `entityName` document laid out by `plan`, seeded from `source`. */
+  /**
+   * A replica of an `entityName` document laid out by `plan`, seeded from
+   * `source`, writing under peers of `peers`.
+   */
   static from<TDocument extends ClientDocument>(
     entityName: string,
     plan: CollaborationEntityPlan,
-    source: CollaborationReplicaSource<TDocument>
+    source: CollaborationReplicaSource<TDocument>,
+    peers: CollaborationPeerBlock
   ): CollaborationReplica<TDocument> {
+    const allocator = new PeerAllocator(peers);
+    const doc = new LoroDoc();
+    doc.setPeerId(allocator.take());
     if (source.kind === "document") {
       const document = validatedCollaborationDocument(plan, source.document);
-      const doc = new LoroDoc();
       writeCollaborationDocumentChangesToLoroDoc(doc, plan, {}, document);
-      return new CollaborationReplica(entityName, plan, doc, document);
+      return new CollaborationReplica(entityName, plan, doc, document, allocator);
     }
-    const doc = new LoroDoc();
     requireImportedDependencies(entityName, doc.import(
       source.kind === "update" ? base64ToBytes(source.updateBase64) : source.snapshot
     ));
@@ -177,8 +235,27 @@ export class CollaborationReplica<TDocument extends ClientDocument> {
       entityName,
       plan,
       doc,
-      materializeCollaborationDocumentFromLoroDoc<TDocument>(doc, plan, null)
+      materializeCollaborationDocumentFromLoroDoc<TDocument>(doc, plan, null),
+      allocator
     );
+  }
+
+  /** Later forks, bindings and views write under peers of `block`. */
+  adoptPeerBlock(block: CollaborationPeerBlock): void {
+    this.peers.adopt(block);
+  }
+
+  /**
+   * Records that this replica holds operations written under the blocks
+   * `nonces` name, such as a restored draft's.
+   */
+  includePeerNonces(nonces: readonly string[]): void {
+    this.peers.include(nonces);
+  }
+
+  /** The nonce of every block this replica's operations may be written under. */
+  peerNonces(): readonly string[] {
+    return this.peers.nonces();
   }
 
   currentDocument(): TDocument {
@@ -211,6 +288,7 @@ export class CollaborationReplica<TDocument extends ClientDocument> {
     // A field owns its editing/history replica. Composition can hold this view
     // at its base without delaying the resource or another field.
     const fieldDoc = this.doc.fork();
+    fieldDoc.setPeerId(this.peers.take());
     const binding = new LoroFieldTextBinding(fieldDoc, fieldDoc.getText(container), {
       origin,
       available: () => target.available(fieldDoc),
@@ -279,9 +357,10 @@ export class CollaborationReplica<TDocument extends ClientDocument> {
 
   /**
    * Attach a view held elsewhere, such as a {@link CollaborationTextView} on
-   * another thread. The view starts from the snapshot and edits under its own
-   * peer. `send` carries every operation this replica takes from anywhere but
-   * the view: its bindings, its other views, and imports.
+   * another thread. The view starts from the snapshot and edits under the
+   * peer this replica gives it. `send` carries every operation this replica
+   * takes from anywhere but the view: its bindings, its other views, and
+   * imports.
    */
   attachView(send: (update: Uint8Array) => void): CollaborationReplicaView {
     this.flushTextBindings();
@@ -289,6 +368,7 @@ export class CollaborationReplica<TDocument extends ClientDocument> {
     this.views.add(view);
     return {
       snapshot: this.doc.export({ mode: "snapshot" }),
+      peer: this.peers.take().toString() as `${number}`,
       receive: (update) => {
         this.flushTextBindings();
         const before = this.doc.version();
@@ -328,16 +408,19 @@ export class CollaborationReplica<TDocument extends ClientDocument> {
 
   /**
    * An independent replica holding the same ops and document. The fork edits
-   * under its own peer, so nothing written to it reaches this replica until
-   * the update is imported.
+   * under the next peer of this replica's block, so nothing written to it
+   * reaches this replica until the update is imported.
    */
   fork(): CollaborationReplica<TDocument> {
     this.refreshDocument();
+    const doc = this.doc.fork();
+    doc.setPeerId(this.peers.take());
     return new CollaborationReplica<TDocument>(
       this.entityName,
       this.plan,
-      this.doc.fork(),
-      this.document
+      doc,
+      this.document,
+      this.peers
     );
   }
 
@@ -519,9 +602,24 @@ export class CollaborationDraftReplica<
     return this.replica.attachView(send);
   }
 
-  /** An independent replica with the same operations, editing under its own peer. */
+  /** An independent replica with the same operations, editing under the next peer of this one's block. */
   fork(): CollaborationDraftReplica<TDocument, TDraft, TTextFieldPath> {
     return new CollaborationDraftReplica(this.replica.fork(), this.mapping);
+  }
+
+  /** Later forks, bindings and views write under peers of `block`. */
+  adoptPeerBlock(block: CollaborationPeerBlock): void {
+    this.replica.adoptPeerBlock(block);
+  }
+
+  /** Records that this replica holds operations written under the blocks `nonces` name. */
+  includePeerNonces(nonces: readonly string[]): void {
+    this.replica.includePeerNonces(nonces);
+  }
+
+  /** The nonce of every block this replica's operations may be written under. */
+  peerNonces(): readonly string[] {
+    return this.replica.peerNonces();
   }
 
   /** Imports an update; returns whether it carried operations this replica lacked. */
@@ -578,6 +676,8 @@ export class CollaborationDraftReplica<
       acceptedFrontierBase64: () => this.acceptedFrontierBase64(),
       coversFrontierBase64: (frontierBase64) => this.coversFrontierBase64(frontierBase64),
       draftAt: (frontierBase64) => this.draftAt(frontierBase64),
+      peerNonces: () => this.peerNonces(),
+      includePeerNonces: (nonces) => this.includePeerNonces(nonces),
       dispose: () => this.dispose()
     };
   }
@@ -612,43 +712,47 @@ export class CollaborationDrafts<
     });
   }
 
-  /** A new replica holding `document`. */
+  /** A new replica holding `document`, written under peers of `peers`. */
   fromDocument(
-    document: TDocument
+    document: TDocument,
+    peers: CollaborationPeerBlock
   ): CollaborationDraftReplica<TDocument, TDraft, CollaborationPlanTextFieldPath<TPlan>> {
-    return this.replica({ kind: "document", document });
+    return this.replica({ kind: "document", document }, peers);
   }
 
-  /** A replica holding what a view's snapshot of another replica holds. */
+  /** A replica holding what a view's snapshot of another replica holds, writing under peers of `peers`. */
   fromSnapshot(
-    snapshot: Uint8Array
+    snapshot: Uint8Array,
+    peers: CollaborationPeerBlock
   ): CollaborationDraftReplica<TDocument, TDraft, CollaborationPlanTextFieldPath<TPlan>> {
-    return this.replica({ kind: "snapshot", snapshot });
+    return this.replica({ kind: "snapshot", snapshot }, peers);
   }
 
-  /** A replica holding the history an update carries. */
+  /** A replica holding the history an update carries, writing under peers of `peers`. */
   fromUpdate(
-    updateBase64: string
+    updateBase64: string,
+    peers: CollaborationPeerBlock
   ): CollaborationDraftReplica<TDocument, TDraft, CollaborationPlanTextFieldPath<TPlan>> {
-    return this.replica({ kind: "update", updateBase64 });
+    return this.replica({ kind: "update", updateBase64 }, peers);
   }
 
   private replica(
-    source: CollaborationReplicaSource<TDocument>
+    source: CollaborationReplicaSource<TDocument>,
+    peers: CollaborationPeerBlock
   ): CollaborationDraftReplica<TDocument, TDraft, CollaborationPlanTextFieldPath<TPlan>> {
     return new CollaborationDraftReplica(
-      CollaborationReplica.from<TDocument>(this.entity, this.plan, source),
+      CollaborationReplica.from<TDocument>(this.entity, this.plan, source, peers),
       this.mapping
     );
   }
 }
 
 /**
- * One text field of a replica held elsewhere, edited here under its own peer
- * and with its own undo. It starts from the snapshot of a view attached with
- * {@link CollaborationReplica.attachView}: `publish` carries this
- * view's edits to that view's `receive`, and {@link receive} takes the
- * operations its `send` delivers.
+ * One text field of a replica held elsewhere, edited here under the peer that
+ * replica gave the view, and with its own undo. It starts from the snapshot
+ * of a view attached with {@link CollaborationReplica.attachView}: `publish`
+ * carries this view's edits to that view's `receive`, and {@link receive}
+ * takes the operations its `send` delivers.
  */
 export class CollaborationTextView {
   readonly binding: TextBinding;
@@ -661,10 +765,13 @@ export class CollaborationTextView {
     fieldPath: string;
     identities?: Readonly<Record<string, string>>;
     snapshot: Uint8Array;
+    /** The peer the attached view writes under. */
+    peer: `${number}`;
     publish: (update: Uint8Array) => void;
   }) {
     const target = resolveTextTarget(input.entityName, input.plan, input.fieldPath, input.identities ?? {});
     this.doc = new LoroDoc();
+    this.doc.setPeerId(input.peer);
     requireImportedDependencies(input.entityName, this.doc.import(input.snapshot));
     if (!target.available(this.doc)) {
       throw new Error(`Text field ${input.fieldPath} belongs to a missing record.`);

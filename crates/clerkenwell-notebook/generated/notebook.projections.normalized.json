@@ -546,6 +546,9 @@
             },
             "value": {
               "codec": "string"
+            },
+            "writers": {
+              "agent": "immutable"
             }
           },
           {
@@ -786,6 +789,29 @@
     },
     {
       "additionalProperties": false,
+      "description": "A block of peers allocated to the subscriber: every peer whose bits above the low index_bits are base's. An import names the block by its nonce.",
+      "name": "AuthoringPeerBlock",
+      "properties": {
+        "base": {
+          "description": "The block's first peer, in decimal.",
+          "type": "string"
+        },
+        "index_bits": {
+          "type": "integer"
+        },
+        "nonce": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "nonce",
+        "base",
+        "index_bits"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
       "name": "AuthoringState",
       "properties": {
         "accepted_frontier_base64": {
@@ -807,6 +833,9 @@
           },
           "type": "array"
         },
+        "peer_block": {
+          "$ref": "#/$defs/AuthoringPeerBlock"
+        },
         "schema_version": {
           "description": "The layout version the document's operations are written in.",
           "type": "integer"
@@ -821,7 +850,8 @@
         "accepted_frontier_base64",
         "update_base64",
         "etag",
-        "exchange_modes"
+        "exchange_modes",
+        "peer_block"
       ],
       "type": "object"
     },

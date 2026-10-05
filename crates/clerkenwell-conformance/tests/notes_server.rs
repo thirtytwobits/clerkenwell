@@ -2,7 +2,7 @@
 
 use clerkenwell_axum::ProjectionServer;
 use clerkenwell_conformance::workspace;
-use clerkenwell_example_notes::server::{NotesServer, PUBLICATION_WINDOW};
+use clerkenwell_example_notes::server::{writer_named_in, NotesServer, PUBLICATION_WINDOW};
 use serde_json::Value;
 
 /// Serves notes on a fresh server and runs the TypeScript clients against it
@@ -16,7 +16,7 @@ async fn run_clients(arguments: &[&str]) -> Vec<Value> {
         "ws://{}/projections",
         listener.local_addr().expect("an address")
     );
-    let router = server.router("/projections");
+    let router = server.router("/projections", writer_named_in);
     tokio::spawn(async move { axum::serve(listener, router).await.expect("serve") });
     let workspace = workspace();
     assert!(

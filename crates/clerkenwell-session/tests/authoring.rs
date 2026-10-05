@@ -9,7 +9,7 @@ use std::task::{Context, Poll, Waker};
 use std::time::Duration;
 
 use clerkenwell_doc::CollaborationReplica;
-use clerkenwell_events::ChangeEvent;
+use clerkenwell_events::{ActorKind, ChangeEvent, Principal};
 use clerkenwell_schema::{
     GeneratedCollaborationConflict, GeneratedCollaborationEntitySpec,
     GeneratedCollaborationFieldSpec, GeneratedCollaborationStorageKind,
@@ -29,7 +29,7 @@ use clerkenwell_session::{
 use clerkenwell_store::testing::MemoryStorage;
 use clerkenwell_store::{
     CollaborationDocumentId, CollaborationExchangeMode, CollaborationImportRequest,
-    CollaborationService, CollaborationStores, CommitPolicy, ImportFence, StoreResult,
+    CollaborationService, CollaborationStores, CommitPolicy, ImportFence, PeerKey, StoreResult,
 };
 use serde_json::{json, Value};
 
@@ -58,6 +58,7 @@ const fn field(
         required: true,
         required_in_parent: true,
         conflict,
+        writers: &[],
     }
 }
 
@@ -188,6 +189,15 @@ impl ProjectionFailure for Failure {
 
 type Subscriptions = Mutex<ProjectionSubscriptions<Value, Held<()>>>;
 
+/// The principal the tests' clients connect as.
+fn client() -> Principal {
+    Principal::new("client", ActorKind::Human)
+}
+
+fn subscriptions_of_a_client() -> Subscriptions {
+    Mutex::new(ProjectionSubscriptions::new(client()))
+}
+
 /// An application whose only projections are authoring states: notes and the
 /// catalogue in its workspace store, and drafts in a store per session.
 struct Library {
@@ -197,7 +207,11 @@ struct Library {
 
 impl Library {
     fn new(sessions: &[&str]) -> Self {
-        let stores = CollaborationStores::new(PLANS, POLICY);
+        let stores = CollaborationStores::new(
+            PLANS,
+            POLICY,
+            PeerKey::new([7; 32]).expect("a key of 32 bytes"),
+        );
         let changes = Arc::new(Mutex::new(Vec::new()));
         let heard = changes.clone();
         stores
@@ -255,6 +269,8 @@ impl Library {
             &state.update_base64,
         )
         .expect("a replica");
+        let block = service.allocate_peers(&client(), &document);
+        replica.set_peer(block.base).expect("an allocated peer");
         let mut edited = replica.materialized_document("writer").expect("a document");
         edited["body"] = json!(body);
         replica.replace_document(&edited).expect("an edit");
@@ -271,6 +287,9 @@ impl Library {
                         .export_incremental_update_base64(&state.accepted_frontier_base64)
                         .expect("an update"),
                     fence: ImportFence::Frontier,
+                    actor: client(),
+                    peer_nonces: vec![block.nonce],
+                    intent: None,
                 },
                 accept,
             )
@@ -320,7 +339,12 @@ impl ProjectionHost for Library {
         None
     }
 
-    async fn mutate(&self, _mutation: &str, _params: Value) -> Result<Value, Failure> {
+    async fn mutate(
+        &self,
+        _principal: &Principal,
+        _mutation: &str,
+        _params: Value,
+    ) -> Result<Value, Failure> {
         Ok(json!({}))
     }
 
@@ -407,6 +431,59 @@ fn replica(
     .expect("a replica")
 }
 
+#[test]
+fn an_authoring_state_allocates_its_subscriber_a_block_of_peers_to_write_under() {
+    let library = Library::new(&[]);
+    library.create(WORKSPACE, NOTE, "note-1");
+    let connection = subscriptions_of_a_client();
+    let (_, events) = subscribe(
+        &library,
+        &connection,
+        "notes.authoringState",
+        note("note-1"),
+        None,
+    )
+    .expect("subscribe");
+    let (state, _) = snapshot_state(&events[0]);
+    let block = &state.peer_block;
+    let base: u64 = block.base.parse().expect("a decimal peer");
+    assert_eq!(base % (1 << block.index_bits), 0, "the block's first peer");
+
+    let mut writer = replica(NOTE, &state);
+    writer
+        .set_peer(base | 3)
+        .expect("a peer of the allocated block");
+    let mut edited = writer.materialized_document("writer").expect("a document");
+    edited["body"] = json!("Written under the allocated block.");
+    writer.replace_document(&edited).expect("an edit");
+    let document = CollaborationDocumentId::new("Note", "note-1");
+    let import = |actor: Principal| {
+        library.store(WORKSPACE).import(
+            NOTE,
+            CollaborationImportRequest {
+                document: document.clone(),
+                schema_version: NOTE.schema_version,
+                operation_id: "allocated".to_owned(),
+                exchange_mode: CollaborationExchangeMode::Incremental,
+                base_frontier_base64: state.accepted_frontier_base64.clone(),
+                update_base64: writer
+                    .export_incremental_update_base64(&state.accepted_frontier_base64)
+                    .expect("an update"),
+                fence: ImportFence::Frontier,
+                actor,
+                peer_nonces: vec![block.nonce.clone()],
+                intent: None,
+            },
+            accept,
+        )
+    };
+
+    import(Principal::new("someone else", ActorKind::Human))
+        .expect_err("the block is the subscriber's");
+    import(client()).expect("the subscriber writes under its block");
+    assert_eq!(library.last_change().actorid, client().id);
+}
+
 fn body(replica: &CollaborationReplica) -> Value {
     replica.materialized_document("reader").expect("a document")["body"].clone()
 }
@@ -419,7 +496,7 @@ fn note(id: &str) -> Value {
 fn a_subscription_takes_the_accepted_state_of_the_document_it_names() {
     let library = Library::new(&[]);
     library.create(WORKSPACE, NOTE, "note-1");
-    let connection = Subscriptions::default();
+    let connection = subscriptions_of_a_client();
 
     let (_, events) = subscribe(
         &library,
@@ -453,7 +530,7 @@ fn a_client_that_holds_the_accepted_state_is_sent_nothing_when_it_subscribes_aga
     library.create(WORKSPACE, NOTE, "note-1");
     let (_, first) = subscribe(
         &library,
-        &Subscriptions::default(),
+        &subscriptions_of_a_client(),
         "notes.authoringState",
         note("note-1"),
         None,
@@ -463,7 +540,7 @@ fn a_client_that_holds_the_accepted_state_is_sent_nothing_when_it_subscribes_aga
 
     let (accepted, events) = subscribe(
         &library,
-        &Subscriptions::default(),
+        &subscriptions_of_a_client(),
         "notes.authoringState",
         note("note-1"),
         Some(held),
@@ -479,7 +556,7 @@ fn a_commit_sends_each_subscription_following_the_document_the_operations_its_cl
     let library = Library::new(&[]);
     library.create(WORKSPACE, NOTE, "note-1");
     library.create(WORKSPACE, NOTE, "note-2");
-    let connection = Subscriptions::default();
+    let connection = subscriptions_of_a_client();
     let (first, events) = subscribe(
         &library,
         &connection,
@@ -530,7 +607,7 @@ fn a_commit_sends_each_subscription_following_the_document_the_operations_its_cl
 fn a_change_a_subscription_already_holds_is_not_sent_again() {
     let library = Library::new(&[]);
     library.create(WORKSPACE, NOTE, "note-1");
-    let connection = Subscriptions::default();
+    let connection = subscriptions_of_a_client();
     subscribe(
         &library,
         &connection,
@@ -554,7 +631,7 @@ fn a_change_a_subscription_already_holds_is_not_sent_again() {
 fn a_deleted_document_is_removed_from_every_subscription_following_it() {
     let library = Library::new(&[]);
     library.create(WORKSPACE, NOTE, "note-1");
-    let connection = Subscriptions::default();
+    let connection = subscriptions_of_a_client();
     let (accepted, _) = subscribe(
         &library,
         &connection,
@@ -566,7 +643,7 @@ fn a_deleted_document_is_removed_from_every_subscription_following_it() {
 
     library
         .store(WORKSPACE)
-        .delete(&CollaborationDocumentId::new("Note", "note-1"))
+        .delete(&client(), &CollaborationDocumentId::new("Note", "note-1"))
         .expect("delete");
     let events = block_on(deliver_change(
         &library,
@@ -596,7 +673,7 @@ fn a_change_reaches_only_subscriptions_to_the_store_that_announced_it() {
     let library = Library::new(&["one", "two"]);
     library.create("session/one", DRAFT, "draft-1");
     library.create("session/two", DRAFT, "draft-1");
-    let connection = Subscriptions::default();
+    let connection = subscriptions_of_a_client();
     let (one, _) = subscribe(
         &library,
         &connection,
@@ -631,7 +708,7 @@ fn a_change_reaches_only_subscriptions_to_the_store_that_announced_it() {
 fn an_entity_with_one_document_is_followed_without_naming_it() {
     let library = Library::new(&[]);
     library.create(WORKSPACE, CATALOGUE, "catalogue");
-    let connection = Subscriptions::default();
+    let connection = subscriptions_of_a_client();
     subscribe(
         &library,
         &connection,
@@ -655,7 +732,7 @@ fn a_subscription_missing_a_parameter_that_chooses_the_store_is_refused() {
 
     let refused = subscribe(
         &library,
-        &Subscriptions::default(),
+        &subscriptions_of_a_client(),
         "drafts.authoringState",
         json!({ "draft_id": "draft-1" }),
         None,
@@ -671,7 +748,7 @@ fn a_document_no_store_keeps_is_not_found() {
 
     let refused = subscribe(
         &library,
-        &Subscriptions::default(),
+        &subscriptions_of_a_client(),
         "drafts.authoringState",
         json!({ "draft_id": "draft-1", "session_id": "gone" }),
         None,
@@ -685,7 +762,7 @@ fn a_document_no_store_keeps_is_not_found() {
 fn a_mutation_sends_authoring_state_subscriptions_nothing() {
     let library = Library::new(&[]);
     library.create(WORKSPACE, NOTE, "note-1");
-    let connection = Subscriptions::default();
+    let connection = subscriptions_of_a_client();
     subscribe(
         &library,
         &connection,
@@ -714,7 +791,7 @@ fn a_mutation_sends_authoring_state_subscriptions_nothing() {
 fn a_resynchronised_subscription_takes_the_whole_accepted_state() {
     let library = Library::new(&[]);
     library.create(WORKSPACE, NOTE, "note-1");
-    let connection = Subscriptions::default();
+    let connection = subscriptions_of_a_client();
     let (accepted, _) = subscribe(
         &library,
         &connection,

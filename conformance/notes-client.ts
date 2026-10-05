@@ -23,6 +23,7 @@ import { CollaborationReplica } from "@clerkenwell/client/replica";
 import {
   COLLABORATION_PLANS,
   PROJECTION_COMPOSITION_PLANS,
+  type AuthoringState,
   type GeneratedProjectionModel
 } from "../examples/notes/generated/typescript/index.js";
 
@@ -37,19 +38,25 @@ if (values.url === undefined || values.body === undefined) {
 }
 const { url, body } = values as { url: string; body: string };
 
-function client(): ProjectionClient<Model> {
-  return new ProjectionClient<Model>(new RpcSocket({ url, reconnectOnClose: false }));
+/** A client connected as the writer `writer`, whom the notes server takes the name of. */
+function client(writer: string): ProjectionClient<Model> {
+  return new ProjectionClient<Model>(
+    new RpcSocket({ url: `${url}?writer=${writer}`, reconnectOnClose: false })
+  );
 }
 
-function replica(updateBase64: string): CollaborationReplica<Note> {
-  return CollaborationReplica.from<Note>("Note", COLLABORATION_PLANS.Note, {
-    kind: "update",
-    updateBase64
-  });
+/** A replica of what an authoring state delivers, writing under the block it allocated. */
+function replica(state: AuthoringState): CollaborationReplica<Note> {
+  return CollaborationReplica.from<Note>(
+    "Note",
+    COLLABORATION_PLANS.Note,
+    { kind: "update", updateBase64: state.update_base64 },
+    state.peer_block
+  );
 }
 
-const ada = client();
-const grace = client();
+const ada = client("ada");
+const grace = client("grace");
 await Promise.all([ada.socket.connect(), grace.socket.connect()]);
 const { note_id } = await ada.projectionMutate("note.create", { title: "Launch plan" });
 
@@ -64,7 +71,7 @@ const watch = await watchProjection<Model, "notes.authoringState">({
   params: { note_id },
   // The first delivery carries every accepted operation; each later one, those Ada lacked.
   onValue: (state) => {
-    if (held === undefined) held = replica(state.update_base64);
+    if (held === undefined) held = replica(state);
     else held.importUpdateBase64(state.update_base64);
     const note = held.currentDocument();
     if (note.body === body) delivered(note);
@@ -97,14 +104,15 @@ const read = await subscribeProjection<Model, "notes.authoringState">({
   projection: "notes.authoringState",
   params: { note_id }
 });
-const edited = replica(read.snapshot.update_base64);
+const edited = replica(read.snapshot);
 edited.replaceDocument({ ...edited.currentDocument(), body });
 await grace.projectionMutate("note.importUpdate", {
   note_id,
   operation_id: "grace-body",
   exchange_mode: "incremental",
   base_frontier_base64: read.snapshot.accepted_frontier_base64,
-  update_base64: edited.exportIncrementalUpdateBase64(read.snapshot.accepted_frontier_base64)
+  update_base64: edited.exportIncrementalUpdateBase64(read.snapshot.accepted_frontier_base64),
+  peer_nonces: [...edited.peerNonces()]
 });
 
 console.log(JSON.stringify(await written));

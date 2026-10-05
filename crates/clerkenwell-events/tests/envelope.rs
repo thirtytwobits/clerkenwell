@@ -1,7 +1,8 @@
 use std::sync::{Arc, Mutex};
 
 use clerkenwell_events::{
-    ChangeData, ChangeEvent, ChangeFeed, ChangeKind, DATA_CONTENT_TYPE, SPEC_VERSION,
+    ActorKind, ChangeData, ChangeEvent, ChangeFeed, ChangeKind, Principal, DATA_CONTENT_TYPE,
+    SPEC_VERSION,
 };
 use serde_json::Value;
 
@@ -12,6 +13,7 @@ fn event(resource_id: &str, generation: u64) -> ChangeEvent {
         ChangeKind::Committed,
         "2026-09-29T12:00:00.000Z",
         Some(generation),
+        &Principal::new("reviewer", ActorKind::Agent),
         ChangeData {
             entity: "Task".to_string(),
             resource_id: resource_id.to_string(),
@@ -64,20 +66,16 @@ fn a_change_event_is_a_cloud_events_event() {
 }
 
 #[test]
-fn a_change_event_names_its_document_and_leaves_out_what_the_commit_did_not_say() {
+fn a_change_event_names_its_document_and_its_actor_and_leaves_out_what_the_commit_did_not_say() {
     let change = event("task-1", 3);
     assert_eq!(
         change.subject,
         format!("{}/{}", change.data.entity, change.data.resource_id)
     );
     let encoded = serde_json::to_value(&change).expect("encode");
-    for absent in [
-        "actorid",
-        "actorkind",
-        "intent",
-        "proposalstate",
-        "traceparent",
-    ] {
+    assert_eq!(encoded["actorid"], "reviewer");
+    assert_eq!(encoded["actorkind"], "agent");
+    for absent in ["intent", "proposalstate", "traceparent"] {
         assert!(encoded.get(absent).is_none(), "{absent} is left out");
     }
     let decoded: ChangeEvent = serde_json::from_value(encoded).expect("decode");

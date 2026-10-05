@@ -19,19 +19,21 @@ import { parseArgs } from "node:util";
 import {
   conflictingFieldPaths,
   type CollaborationEntityPlan,
+  type CollaborationWriterKind,
   type TextBinding
 } from "@clerkenwell/client";
 import {
   CollaborationReplica,
-  requireCollaborationSchemaVersion
+  requireCollaborationSchemaVersion,
+  type CollaborationPeerBlock
 } from "@clerkenwell/client/replica";
 
 type Identities = Readonly<Record<string, string>>;
 
 type Request =
   | { readonly op: "clientVersion" }
-  | { readonly op: "seedFixture"; readonly replica: string; readonly entity: string }
-  | { readonly op: "hydrate"; readonly replica: string; readonly entity: string; readonly schemaVersion: number; readonly updateBase64: string }
+  | { readonly op: "seedFixture"; readonly replica: string; readonly entity: string; readonly peerBlock: CollaborationPeerBlock }
+  | { readonly op: "hydrate"; readonly replica: string; readonly entity: string; readonly schemaVersion: number; readonly updateBase64: string; readonly peerBlock: CollaborationPeerBlock }
   | { readonly op: "replace"; readonly replica: string; readonly document: object }
   | { readonly op: "import"; readonly replica: string; readonly schemaVersion: number; readonly updateBase64: string }
   | { readonly op: "export"; readonly replica: string }
@@ -41,7 +43,7 @@ type Request =
   | { readonly op: "captureText"; readonly replica: string; readonly field: string; readonly identities: Identities }
   | { readonly op: "readText"; readonly replica: string; readonly field: string; readonly identities: Identities }
   | { readonly op: "insertText"; readonly replica: string; readonly field: string; readonly identities: Identities; readonly offset: number; readonly text: string }
-  | { readonly op: "policyConflicts"; readonly entity: string; readonly base: object; readonly client: object; readonly current: object };
+  | { readonly op: "policyConflicts"; readonly entity: string; readonly base: object; readonly client: object; readonly current: object; readonly kind: CollaborationWriterKind };
 
 interface CollaborationFixtures {
   readonly entities: readonly { readonly entity: string; readonly clientDocument: object }[];
@@ -125,7 +127,8 @@ function handle(request: Request): unknown {
       return create(request.replica, CollaborationReplica.from(
         request.entity,
         plan(request.entity),
-        { kind: "document", document: fixture.clientDocument }
+        { kind: "document", document: fixture.clientDocument },
+        request.peerBlock
       ));
     }
     case "hydrate": {
@@ -134,7 +137,8 @@ function handle(request: Request): unknown {
       return create(request.replica, CollaborationReplica.from(
         request.entity,
         entityPlan,
-        { kind: "update", updateBase64: request.updateBase64 }
+        { kind: "update", updateBase64: request.updateBase64 },
+        request.peerBlock
       ));
     }
     case "replace":
@@ -171,7 +175,13 @@ function handle(request: Request): unknown {
       return null;
     }
     case "policyConflicts":
-      return conflictingFieldPaths(plan(request.entity), request.base, request.client, request.current);
+      return conflictingFieldPaths(
+        plan(request.entity),
+        request.base,
+        request.client,
+        request.current,
+        request.kind
+      );
     default:
       throw new Error(`Unknown bridge operation ${(request as { readonly op: string }).op}.`);
   }

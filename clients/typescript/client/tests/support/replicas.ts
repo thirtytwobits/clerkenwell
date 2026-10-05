@@ -9,6 +9,7 @@ import {
   CollaborationReplica,
   documentDraftMapping
 } from "@clerkenwell/client/replica";
+import { peerBlock } from "./peers.js";
 
 import {
   BOARD_PLAN,
@@ -31,25 +32,25 @@ export const BOARD_DRAFTS = new CollaborationDrafts(
 );
 
 export function noteReplica(document: NoteDocument): NoteReplica {
-  return CollaborationReplica.from("Note", NOTE_PLAN, { kind: "document", document });
+  return CollaborationReplica.from("Note", NOTE_PLAN, { kind: "document", document }, peerBlock());
 }
 
 export function noteReplicaFromUpdate(updateBase64: string): NoteReplica {
   return CollaborationReplica.from<NoteDocument>("Note", NOTE_PLAN, {
     kind: "update",
     updateBase64
-  });
+  }, peerBlock());
 }
 
 export function boardReplica(document: BoardDocument): BoardReplica {
-  return CollaborationReplica.from("Board", BOARD_PLAN, { kind: "document", document });
+  return CollaborationReplica.from("Board", BOARD_PLAN, { kind: "document", document }, peerBlock());
 }
 
 export function boardReplicaFromUpdate(updateBase64: string): BoardReplica {
   return CollaborationReplica.from<BoardDocument>("Board", BOARD_PLAN, {
     kind: "update",
     updateBase64
-  });
+  }, peerBlock());
 }
 
 /** What a document reads as once it has been written to a replica and read back from its update. */

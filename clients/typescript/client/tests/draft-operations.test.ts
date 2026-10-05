@@ -6,6 +6,7 @@
  */
 import assert from "node:assert/strict";
 import test from "node:test";
+import { peerBlock } from "./support/peers.js";
 
 import {
   AuthoringRuntime,
@@ -102,7 +103,7 @@ function attachAccepted(runtime: AuthoringRuntime, server: FakeBoardServer): {
   const state = server.snapshot();
   return {
     session: runtime.ensureController(resource, () =>
-      BOARD_DRAFTS.fromUpdate(state.update_base64).controller()),
+      BOARD_DRAFTS.fromUpdate(state.update_base64, peerBlock()).controller()),
     accepted: state.accepted_frontier_base64
   };
 }
@@ -133,7 +134,7 @@ test("a save answered with only missing operations records later pending work fr
   await append(session, " pending");
   const operations = runtime.session(resource)?.draftOperations;
   assert.equal(operations?.baseFrontierBase64, server.snapshot().accepted_frontier_base64);
-  const restored = BOARD_DRAFTS.fromUpdate(server.snapshot().update_base64);
+  const restored = BOARD_DRAFTS.fromUpdate(server.snapshot().update_base64, peerBlock());
   restored.importUpdateBase64(operations!.updateBase64);
   const notes = notesOf(restored.currentDraft());
   assert.equal(copiesOf(notes, " saved"), 1);
@@ -193,7 +194,7 @@ test("pending work a runtime starts on reaches the server once", async () => {
 
 /** A controller of a replica of `update` that takes no documents. */
 function controllerWithoutDocuments(update: string): AuthoringSessionController<BoardDocument, BoardTextFieldPath> {
-  const { replaceDraft: _takesDocuments, ...controller } = BOARD_DRAFTS.fromUpdate(update).controller();
+  const { replaceDraft: _takesDocuments, ...controller } = BOARD_DRAFTS.fromUpdate(update, peerBlock()).controller();
   return controller;
 }
 
@@ -224,7 +225,7 @@ test("a replica that takes no documents holds pending work whose history it lack
   await append(openBoardSession(beforeRestart, server, resource), " Pending.");
   const pending = beforeRestart.session<BoardDocument>(resource)?.draft;
   assert.ok(pending);
-  const otherHistory = BOARD_DRAFTS.fromDocument(boardDocument()).exportUpdateBase64();
+  const otherHistory = BOARD_DRAFTS.fromDocument(boardDocument(), peerBlock()).exportUpdateBase64();
 
   const afterRestart = new AuthoringRuntime(persisted(beforeRestart));
   attachWithoutDocuments(afterRestart, otherHistory);
@@ -237,11 +238,34 @@ test("a replica that takes no documents holds pending work whose history it lack
   assert.equal(copiesOf(notesOf(restored.currentDraft()), " Pending."), 1);
 });
 
+test("held pending work keeps the peer blocks it was written under until a replica restores it", async () => {
+  const server = new FakeBoardServer(boardDocument());
+  const beforeRestart = new AuthoringRuntime();
+  await append(openBoardSession(beforeRestart, server, resource), " Pending.");
+  const written = beforeRestart.session(resource)?.draftOperations?.peerNonces ?? [];
+  assert.ok(written.length > 0, "the draft records the blocks it was written under");
+  const otherHistory = BOARD_DRAFTS.fromDocument(boardDocument(), peerBlock()).exportUpdateBase64();
+
+  const afterRestart = new AuthoringRuntime(persisted(beforeRestart));
+  attachWithoutDocuments(afterRestart, otherHistory);
+  assert.equal(afterRestart.session(resource)?.status, "recoveryRequired");
+  assert.deepEqual(afterRestart.session(resource)?.draftOperations?.peerNonces, written);
+
+  const restoring = new AuthoringRuntime(persisted(afterRestart));
+  attachWithoutDocuments(restoring, server.snapshot().update_base64);
+  const held = restoring
+    .controller<{ peerNonces(): readonly string[] }>(resource)
+    ?.peerNonces() ?? [];
+  for (const nonce of written) {
+    assert.ok(held.includes(nonce), `the restoring replica names ${nonce}`);
+  }
+});
+
 test("held pending work stays held and persisted across a disconnect and a reconnect", async () => {
   const server = new FakeBoardServer(boardDocument());
   const beforeRestart = new AuthoringRuntime();
   await append(openBoardSession(beforeRestart, server, resource), " Pending.");
-  const otherHistory = BOARD_DRAFTS.fromDocument(boardDocument()).exportUpdateBase64();
+  const otherHistory = BOARD_DRAFTS.fromDocument(boardDocument(), peerBlock()).exportUpdateBase64();
 
   const runtime = new AuthoringRuntime(persisted(beforeRestart));
   attachWithoutDocuments(runtime, otherHistory);
@@ -261,7 +285,7 @@ test("a subscriber that attaches while pending work is held gets the one control
   const server = new FakeBoardServer(boardDocument());
   const beforeRestart = new AuthoringRuntime();
   await append(openBoardSession(beforeRestart, server, resource), " Pending.");
-  const otherHistory = BOARD_DRAFTS.fromDocument(boardDocument()).exportUpdateBase64();
+  const otherHistory = BOARD_DRAFTS.fromDocument(boardDocument(), peerBlock()).exportUpdateBase64();
 
   const runtime = new AuthoringRuntime(persisted(beforeRestart));
   let created = 0;
@@ -318,7 +342,7 @@ test("discarding pending work a replica could not hold leaves the replica's docu
   const beforeRestart = new AuthoringRuntime();
   await append(openBoardSession(beforeRestart, server, resource), " Pending.");
   const replicaDocument = withNotes(boardDocument(), "Elsewhere.");
-  const replicaHistory = BOARD_DRAFTS.fromDocument(replicaDocument).exportUpdateBase64();
+  const replicaHistory = BOARD_DRAFTS.fromDocument(replicaDocument, peerBlock()).exportUpdateBase64();
 
   const afterRestart = new AuthoringRuntime(persisted(beforeRestart));
   const session = attachWithoutDocuments(afterRestart, replicaHistory);
@@ -343,7 +367,7 @@ test("a replica holding other history takes the draft as a document", async () =
 
   const afterRestart = new AuthoringRuntime(snapshot);
   const session = afterRestart.ensureController(resource, () =>
-    BOARD_DRAFTS.fromDocument(boardDocument()).controller());
+    BOARD_DRAFTS.fromDocument(boardDocument(), peerBlock()).controller());
 
   assert.deepEqual(session.currentDraft(), draft);
 });
@@ -434,7 +458,7 @@ test("another runtime's pending work is carried, so a replica behind it never wr
     });
   }
   const watched = watching.ensureController(resource, () =>
-    BOARD_DRAFTS.fromUpdate(older.update_base64).controller());
+    BOARD_DRAFTS.fromUpdate(older.update_base64, peerBlock()).controller());
   sync(server, typed, typed.state().acceptedRevision);
   sync(server, watched, older.accepted_frontier_base64);
 
@@ -442,4 +466,24 @@ test("another runtime's pending work is carried, so a replica behind it never wr
   assert.equal(copiesOf(notes, " First."), 1, notes);
   assert.equal(copiesOf(notes, " Pending."), 1, notes);
   assert.deepEqual(toPersistedRuntime(watching.persistedState()), pending);
+});
+
+test("a restored draft keeps the peer blocks its operations were written under", async () => {
+  const server = new FakeBoardServer(boardDocument());
+  const runtime = new AuthoringRuntime();
+  const session = openBoardSession(runtime, server, resource);
+  await append(session, " Pending.");
+  const written = runtime.session(resource)?.draftOperations?.peerNonces ?? [];
+  assert.ok(written.length > 0, "the draft records the blocks it was written under");
+
+  const restored = new AuthoringRuntime(persisted(runtime));
+  assert.deepEqual(restored.session(resource)?.draftOperations?.peerNonces, written);
+  attachAccepted(restored, server);
+
+  const held = restored
+    .controller<{ peerNonces(): readonly string[] }>(resource)
+    ?.peerNonces() ?? [];
+  for (const nonce of written) {
+    assert.ok(held.includes(nonce), `the restored replica names ${nonce}`);
+  }
 });

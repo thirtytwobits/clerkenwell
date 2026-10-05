@@ -1,7 +1,9 @@
 //! A reference transport for the projection session protocol: JSON-RPC 2.0
 //! over an axum WebSocket.
 //!
-//! Each connection keeps its own subscriptions. A mutation one connection
+//! The application authenticates each connection as a principal; every
+//! command on it is made as that principal. Each connection keeps its own
+//! subscriptions. A mutation one connection
 //! makes reaches the subscriptions of every other connection, and each change
 //! a store announces reaches every connection's authoring-state
 //! subscriptions. A connection that falls behind takes a snapshot for each of
@@ -12,9 +14,12 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
+use axum::http::request::Parts;
+use axum::http::StatusCode;
+use axum::response::IntoResponse;
 use axum::routing::get;
 use axum::Router;
-use clerkenwell_events::ChangeEvent;
+use clerkenwell_events::{ChangeEvent, Principal};
 use clerkenwell_session::transport::{
     ProjectionErrorCode, ProjectionErrorEnvelope, ProjectionTransportEvent,
     PROJECTION_UPDATE_NOTIFICATION,
@@ -228,23 +233,37 @@ where
     }
 
     /// A router that serves the protocol to WebSocket connections at `path`.
+    /// `authenticate` names the principal a connection's upgrade request
+    /// authenticates as, from the request's parts: its headers, its URI, and
+    /// the extensions the application's middleware set. A request it names
+    /// none for is refused as unauthorised.
     ///
     /// The route captures the server instead of taking it as axum `State`,
     /// which code scanning reads as request input and follows into the
-    /// store's paths. The handler's only parameter is the client's upgrade.
-    pub fn router(self: Arc<Self>, path: &str) -> Router {
+    /// store's paths. The handler's parameters are the request's parts,
+    /// which only `authenticate` reads, and the client's upgrade.
+    pub fn router(
+        self: Arc<Self>,
+        path: &str,
+        authenticate: impl Fn(&Parts) -> Option<Principal> + Clone + Send + Sync + 'static,
+    ) -> Router {
         Router::new().route(
             path,
-            get(move |upgrade: WebSocketUpgrade| async move {
-                upgrade.on_upgrade(move |socket| self.serve_socket(socket))
+            get(move |parts: Parts, upgrade: WebSocketUpgrade| async move {
+                match authenticate(&parts) {
+                    Some(principal) => upgrade
+                        .on_upgrade(move |socket| self.serve_socket(socket, principal))
+                        .into_response(),
+                    None => StatusCode::UNAUTHORIZED.into_response(),
+                }
             }),
         )
     }
 
-    /// Serves one WebSocket until it closes.
-    pub async fn serve_socket(self: Arc<Self>, socket: WebSocket) {
+    /// Serves one WebSocket, authenticated as `principal`, until it closes.
+    pub async fn serve_socket(self: Arc<Self>, socket: WebSocket, principal: Principal) {
         let origin = self.connections.fetch_add(1, Ordering::Relaxed);
-        let subscriptions: Subscriptions<A> = Mutex::new(ProjectionSubscriptions::default());
+        let subscriptions: Subscriptions<A> = Mutex::new(ProjectionSubscriptions::new(principal));
         let mut published = self.published.subscribe();
         let mut changes = self.changes.subscribe();
         let (mut sink, mut stream) = socket.split();

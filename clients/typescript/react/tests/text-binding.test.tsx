@@ -30,8 +30,12 @@ const PLAN = {
 } as const satisfies CollaborationEntityPlan;
 
 function binding(text: string): TextBinding {
-  return CollaborationReplica.from("Memo", PLAN, { kind: "document", document: { text } })
-    .bindText("text");
+  return CollaborationReplica.from(
+    "Memo",
+    PLAN,
+    { kind: "document", document: { text } },
+    { nonce: "memo", base: "65536", index_bits: 16 }
+  ).bindText("text");
 }
 
 function Reader({ source }: { source: TextBinding | null }): React.ReactElement {

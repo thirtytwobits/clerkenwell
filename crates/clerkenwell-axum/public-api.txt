@@ -1,11 +1,11 @@
 # The public API of clerkenwell_axum. Written by `cargo run -p clerkenwell-public-api`.
-# Types named from: axum, clerkenwell_session, serde_json
+# Types named from: axum, clerkenwell_events, clerkenwell_session, serde_json
 
 struct clerkenwell_axum::ProjectionServer<A: ProjectionHost> { .. }
 impl<A> fn clerkenwell_axum::ProjectionServer::application(&self) -> &A where A: ProjectionHost<Failure = RpcFailure> + Send + 'static, A::Snapshot: 'static, A::Patch: Sync + 'static, A::Delivery: Sync + 'static, A::MutationResult: 'static,
 impl<A> fn clerkenwell_axum::ProjectionServer::new(application: A, publication_window: NonZeroUsize) -> Arc<Self> where A: ProjectionHost<Failure = RpcFailure> + Send + 'static, A::Snapshot: 'static, A::Patch: Sync + 'static, A::Delivery: Sync + 'static, A::MutationResult: 'static,
-impl<A> fn clerkenwell_axum::ProjectionServer::router(self: Arc<Self>, path: &str) -> Router where A: ProjectionHost<Failure = RpcFailure> + Send + 'static, A::Snapshot: 'static, A::Patch: Sync + 'static, A::Delivery: Sync + 'static, A::MutationResult: 'static,
-impl<A> async fn clerkenwell_axum::ProjectionServer::serve_socket(self: Arc<Self>, socket: WebSocket) where A: ProjectionHost<Failure = RpcFailure> + Send + 'static, A::Snapshot: 'static, A::Patch: Sync + 'static, A::Delivery: Sync + 'static, A::MutationResult: 'static,
+impl<A> fn clerkenwell_axum::ProjectionServer::router(self: Arc<Self>, path: &str, authenticate: impl Fn(&Parts) -> Option<Principal> + Clone + Send + Sync + 'static) -> Router where A: ProjectionHost<Failure = RpcFailure> + Send + 'static, A::Snapshot: 'static, A::Patch: Sync + 'static, A::Delivery: Sync + 'static, A::MutationResult: 'static,
+impl<A> async fn clerkenwell_axum::ProjectionServer::serve_socket(self: Arc<Self>, socket: WebSocket, principal: Principal) where A: ProjectionHost<Failure = RpcFailure> + Send + 'static, A::Snapshot: 'static, A::Patch: Sync + 'static, A::Delivery: Sync + 'static, A::MutationResult: 'static,
 struct clerkenwell_axum::RpcFailure { .. }
 derive clerkenwell_axum::RpcFailure: Clone, Debug, PartialEq
 impl ProjectionFailure for clerkenwell_axum::RpcFailure

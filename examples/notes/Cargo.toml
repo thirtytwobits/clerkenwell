@@ -13,6 +13,7 @@ axum = { version = "0.8.8", default-features = false, features = ["tokio", "http
 clap.workspace = true
 clerkenwell-axum = { path = "../../crates/clerkenwell-axum" }
 clerkenwell-doc = { path = "../../crates/clerkenwell-doc" }
+clerkenwell-events = { path = "../../crates/clerkenwell-events" }
 clerkenwell-schema = { path = "../../crates/clerkenwell-schema" }
 clerkenwell-session = { path = "../../crates/clerkenwell-session" }
 clerkenwell-store = { path = "../../crates/clerkenwell-store" }

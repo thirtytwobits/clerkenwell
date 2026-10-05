@@ -28,13 +28,30 @@ pub enum ChangeKind {
 }
 
 /// The kind of principal that made a change.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ActorKind {
     Human,
     Agent,
     Service,
     System,
+}
+
+/// Who makes a change: an identity the host authenticated, and its kind.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Principal {
+    pub id: String,
+    pub kind: ActorKind,
+}
+
+impl Principal {
+    pub fn new(id: impl Into<String>, kind: ActorKind) -> Self {
+        Self {
+            id: id.into(),
+            kind,
+        }
+    }
 }
 
 /// One change to one document, as a CloudEvents 1.0 event.
@@ -56,11 +73,9 @@ pub struct ChangeEvent {
     /// generation deleted, when the store could read it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub generation: Option<u64>,
-    /// The principal that made the change, when the commit named one.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub actorid: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub actorkind: Option<ActorKind>,
+    /// The principal that made the change.
+    pub actorid: String,
+    pub actorkind: ActorKind,
     /// Why the change was made, when the commit said.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub intent: Option<String>,
@@ -74,13 +89,14 @@ pub struct ChangeEvent {
 }
 
 impl ChangeEvent {
-    /// A change to the document `data` names, made by no named principal.
+    /// A change `actor` made to the document `data` names.
     pub fn new(
         id: impl Into<String>,
         source: impl Into<String>,
         kind: ChangeKind,
         time: impl Into<String>,
         generation: Option<u64>,
+        actor: &Principal,
         data: ChangeData,
     ) -> Self {
         Self {
@@ -92,8 +108,8 @@ impl ChangeEvent {
             time: time.into(),
             datacontenttype: DATA_CONTENT_TYPE.to_string(),
             generation,
-            actorid: None,
-            actorkind: None,
+            actorid: actor.id.clone(),
+            actorkind: actor.kind,
             intent: None,
             proposalstate: None,
             traceparent: None,

@@ -11,11 +11,17 @@ impl From<&AuthoringState> for clerkenwell_session::AuthoringHeld
 field clerkenwell_session::AuthoringHeld::etag: String
 field clerkenwell_session::AuthoringHeld::frontier: String
 field clerkenwell_session::AuthoringHeld::schema_version: u32
+struct clerkenwell_session::AuthoringPeerBlock
+derive clerkenwell_session::AuthoringPeerBlock: Clone, Debug, Deserialize, Eq, JsonSchema, PartialEq, Serialize
+field clerkenwell_session::AuthoringPeerBlock::base: String
+field clerkenwell_session::AuthoringPeerBlock::index_bits: u32
+field clerkenwell_session::AuthoringPeerBlock::nonce: String
 struct clerkenwell_session::AuthoringState
 derive clerkenwell_session::AuthoringState: Clone, Debug, Deserialize, Eq, JsonSchema, PartialEq, Serialize
 field clerkenwell_session::AuthoringState::accepted_frontier_base64: String
 field clerkenwell_session::AuthoringState::etag: String
 field clerkenwell_session::AuthoringState::exchange_modes: Vec<CollaborationExchangeMode>
+field clerkenwell_session::AuthoringState::peer_block: AuthoringPeerBlock
 field clerkenwell_session::AuthoringState::schema_version: u32
 field clerkenwell_session::AuthoringState::update_base64: String
 struct clerkenwell_session::AuthoringStates { .. }
@@ -57,7 +63,7 @@ type clerkenwell_session::ProjectionHost::Snapshot: Serialize + DeserializeOwned
 fn clerkenwell_session::ProjectionHost::authoring_states(&self) -> Option<&AuthoringStates> { .. }
 fn clerkenwell_session::ProjectionHost::delivered(&self, snapshot: &Self::Snapshot) -> Option<Self::Delivery>
 fn clerkenwell_session::ProjectionHost::delivered_by_patch(&self, patch: &Self::Patch) -> Option<Self::Delivery>
-fn clerkenwell_session::ProjectionHost::mutate(&self, mutation: &str, params: Value) -> impl Future<Output = Result<Self::MutationResult, Self::Failure>> + Send
+fn clerkenwell_session::ProjectionHost::mutate(&self, principal: &Principal, mutation: &str, params: Value) -> impl Future<Output = Result<Self::MutationResult, Self::Failure>> + Send
 fn clerkenwell_session::ProjectionHost::mutation_patch(&self, mutation: &str, result: &Self::MutationResult, subscription: &ProjectionSubscription<Held<Self::Delivery>>) -> impl Future<Output = Option<Self::Patch>> + Send
 fn clerkenwell_session::ProjectionHost::registry(&self) -> &ProjectionRegistry
 fn clerkenwell_session::ProjectionHost::snapshot(&self, projection: &str, params: &Value, held: Option<&Self::Delivery>) -> impl Future<Output = Result<Self::Snapshot, Self::Failure>> + Send
@@ -111,7 +117,6 @@ field clerkenwell_session::ProjectionSubscriptionDiagnostics::params_sha256: Str
 field clerkenwell_session::ProjectionSubscriptionDiagnostics::projection: String
 struct clerkenwell_session::ProjectionSubscriptions<P, D> { .. }
 derive clerkenwell_session::ProjectionSubscriptions: Debug
-impl<P, D> impl Default for clerkenwell_session::ProjectionSubscriptions<P, D>
 impl<P, D: PartialEq + Serialize> fn clerkenwell_session::ProjectionSubscriptions::accept_subscription<S>(&mut self, projection: String, params: Value, held: Option<D>, snapshot: S, delivered: Option<D>) -> (ProjectionSubscribeAccepted, Vec<ProjectionTransportEvent<S, P>>,)
 impl<P, D> fn clerkenwell_session::ProjectionSubscriptions::all(&self) -> &HashMap<u64, ProjectionSubscription<D>>
 impl<P, D> fn clerkenwell_session::ProjectionSubscriptions::current_revision(&self) -> u64
@@ -121,6 +126,8 @@ impl<P, D> fn clerkenwell_session::ProjectionSubscriptions::diagnostics(&self) -
 impl<P, D> fn clerkenwell_session::ProjectionSubscriptions::get(&self, subscription_id: u64) -> Option<&ProjectionSubscription<D>>
 impl<P, D> fn clerkenwell_session::ProjectionSubscriptions::insert(&mut self, projection: String, params: Value, revision: u64) -> u64
 impl<P, D> fn clerkenwell_session::ProjectionSubscriptions::mutation_revision(&self, publishes: bool) -> u64
+impl<P, D> fn clerkenwell_session::ProjectionSubscriptions::new(principal: Principal) -> Self
+impl<P, D> fn clerkenwell_session::ProjectionSubscriptions::principal(&self) -> &Principal
 impl<P, D> fn clerkenwell_session::ProjectionSubscriptions::record_delivery(&mut self, subscription_id: u64, revision: u64, delivered: Option<D>)
 impl<P, D> fn clerkenwell_session::ProjectionSubscriptions::record_dropped_updates(&mut self, count: u64)
 impl<P, D> fn clerkenwell_session::ProjectionSubscriptions::record_mutation(&mut self, latency: Duration, rejection: Option<&str>)
@@ -157,7 +164,7 @@ type clerkenwell_session::server::ProjectionHost::Snapshot: Serialize + Deserial
 fn clerkenwell_session::server::ProjectionHost::authoring_states(&self) -> Option<&AuthoringStates> { .. }
 fn clerkenwell_session::server::ProjectionHost::delivered(&self, snapshot: &Self::Snapshot) -> Option<Self::Delivery>
 fn clerkenwell_session::server::ProjectionHost::delivered_by_patch(&self, patch: &Self::Patch) -> Option<Self::Delivery>
-fn clerkenwell_session::server::ProjectionHost::mutate(&self, mutation: &str, params: Value) -> impl Future<Output = Result<Self::MutationResult, Self::Failure>> + Send
+fn clerkenwell_session::server::ProjectionHost::mutate(&self, principal: &Principal, mutation: &str, params: Value) -> impl Future<Output = Result<Self::MutationResult, Self::Failure>> + Send
 fn clerkenwell_session::server::ProjectionHost::mutation_patch(&self, mutation: &str, result: &Self::MutationResult, subscription: &ProjectionSubscription<Held<Self::Delivery>>) -> impl Future<Output = Option<Self::Patch>> + Send
 fn clerkenwell_session::server::ProjectionHost::registry(&self) -> &ProjectionRegistry
 fn clerkenwell_session::server::ProjectionHost::snapshot(&self, projection: &str, params: &Value, held: Option<&Self::Delivery>) -> impl Future<Output = Result<Self::Snapshot, Self::Failure>> + Send

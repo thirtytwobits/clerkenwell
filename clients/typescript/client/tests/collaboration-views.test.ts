@@ -6,6 +6,7 @@
  */
 import assert from "node:assert/strict";
 import test from "node:test";
+import { peerBlock } from "./support/peers.js";
 
 import type { TextBindingChange } from "@clerkenwell/client";
 import { CollaborationTextView } from "@clerkenwell/client/replica";
@@ -33,6 +34,7 @@ function link(replica: NoteReplica, fieldPath: "body" | "summary" = "body"): Lin
     plan: NOTE_PLAN,
     fieldPath,
     snapshot: attached.snapshot,
+    peer: attached.peer,
     publish: (update) => toReplica.push(update)
   });
   return {
@@ -234,11 +236,11 @@ test("a replica takes nothing from a view that sends only what it holds", async 
 });
 
 test("a replica built from another's snapshot and linked both ways keeps in step with it", async () => {
-  const origin = BOARD_DRAFTS.fromDocument(boardDocument());
+  const origin = BOARD_DRAFTS.fromDocument(boardDocument(), peerBlock());
   const toMirror: Uint8Array[] = [];
   const toOrigin: Uint8Array[] = [];
   const fromOrigin = origin.attachView((update) => toMirror.push(update));
-  const mirror = BOARD_DRAFTS.fromSnapshot(fromOrigin.snapshot);
+  const mirror = BOARD_DRAFTS.fromSnapshot(fromOrigin.snapshot, peerBlock());
   const fromMirror = mirror.attachView((update) => toOrigin.push(update));
   const pump = async () => {
     await Promise.resolve();

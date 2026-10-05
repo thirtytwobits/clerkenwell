@@ -33,6 +33,7 @@ export interface PersistedQueuedAuthoringOperation {
 export interface PersistedAuthoringDraftOperations {
   base_frontier_base64: string;
   update_base64: string;
+  peer_nonces: string[];
 }
 
 export interface PersistedAuthoringSessionState {
@@ -160,7 +161,8 @@ function toPersistedSession(
       : {
           draft_operations: {
             base_frontier_base64: session.draftOperations.baseFrontierBase64,
-            update_base64: session.draftOperations.updateBase64
+            update_base64: session.draftOperations.updateBase64,
+            peer_nonces: [...session.draftOperations.peerNonces]
           }
         }),
     ...(session.lastRejection === undefined
@@ -211,7 +213,8 @@ function fromPersistedSession(
       : {
           draftOperations: {
             baseFrontierBase64: session.draft_operations.base_frontier_base64,
-            updateBase64: session.draft_operations.update_base64
+            updateBase64: session.draft_operations.update_base64,
+            peerNonces: [...session.draft_operations.peer_nonces]
           }
         }),
     ...(isAuthoringRejection(session.last_rejection)

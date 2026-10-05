@@ -67,11 +67,17 @@ pub fn at_revision(
     expected
 }
 
+/// A peer no other replica of this test binary writes under.
+pub fn peer() -> u64 {
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+    NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+}
+
 pub fn seed(
     plan: &'static GeneratedCollaborationEntitySpec,
     document: &Value,
 ) -> CollaborationReplica {
-    CollaborationReplica::from_document(plan, document).expect("seed replica")
+    CollaborationReplica::from_document(plan, document, peer()).expect("seed replica")
 }
 
 pub fn hydrate(

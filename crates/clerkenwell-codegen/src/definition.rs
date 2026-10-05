@@ -446,6 +446,28 @@ impl<'a> CollaborationField<'a> {
         self.raw.str_field("conflict")
     }
 
+    /// Each kind of writer judged by another policy than the field's own,
+    /// and that policy, in declaration order.
+    pub fn writers(&self) -> Vec<(&'a str, &'a str)> {
+        self.raw
+            .get("writers")
+            .and_then(Json::as_object)
+            .map(|writers| {
+                writers
+                    .iter()
+                    .map(|(kind, conflict)| {
+                        (
+                            kind,
+                            conflict
+                                .as_str()
+                                .expect("the meta-schema requires a string policy"),
+                        )
+                    })
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
     /// Whether the field is written by the document's owner rather than its author.
     pub fn is_derived(&self) -> bool {
         matches!(self.storage_kind(), "derivedIdentity" | "derivedRevision")

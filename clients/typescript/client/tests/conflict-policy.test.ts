@@ -7,7 +7,11 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
-import { conflictingFieldPaths } from "@clerkenwell/client";
+import {
+  conflictingFieldPaths,
+  creationConflictingFieldPaths,
+  type CollaborationWriterKind
+} from "@clerkenwell/client";
 
 import { COLLABORATION_PLANS } from "../../../../crates/clerkenwell-notebook/generated/typescript/index.js";
 
@@ -30,8 +34,13 @@ function sample(entity: Entity): ClientRecord {
   return structuredClone(fixture.clientDocument);
 }
 
-function judge(entity: Entity, client: ClientRecord, current: ClientRecord): string[] {
-  return conflictingFieldPaths(COLLABORATION_PLANS[entity], sample(entity), client, current);
+function judge(
+  entity: Entity,
+  client: ClientRecord,
+  current: ClientRecord,
+  kind: CollaborationWriterKind = "human"
+): string[] {
+  return conflictingFieldPaths(COLLABORATION_PLANS[entity], sample(entity), client, current, kind);
 }
 
 function withNote(changes: ClientRecord): ClientRecord {
@@ -90,6 +99,18 @@ test("an explicit field of a nested group is named by its wire path", () => {
     judge("Note", withNote({ meta: { ...meta, owner: "Mine" } }), withNote({ meta: { ...meta, owner: "Theirs" } })),
     ["meta.owner"]
   );
+});
+
+test("a kind of writer a field judges as immutable may not change it unopposed", () => {
+  assert.deepEqual(judge("Note", withNote({ status: "archived" }), sample("Note"), "agent"), ["status"]);
+  assert.deepEqual(judge("Note", withNote({ status: "archived" }), sample("Note"), "human"), []);
+  assert.deepEqual(judge("Note", withNote({ title: "Mine" }), sample("Note"), "agent"), []);
+});
+
+test("creating a document sets fields only as their creator's kind may", () => {
+  const plan = COLLABORATION_PLANS.Note;
+  assert.deepEqual(creationConflictingFieldPaths(plan, sample("Note"), "agent"), ["status"]);
+  assert.deepEqual(creationConflictingFieldPaths(plan, sample("Note"), "human"), []);
 });
 
 test("a keyed item's field is judged per item and named by the item's identity", () => {

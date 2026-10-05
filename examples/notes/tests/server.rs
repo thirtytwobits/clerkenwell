@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use clerkenwell_axum::ProjectionServer;
 use clerkenwell_doc::CollaborationReplica;
-use clerkenwell_example_notes::server::{NotesServer, PUBLICATION_WINDOW};
+use clerkenwell_example_notes::server::{writer_named_in, NotesServer, PUBLICATION_WINDOW};
 use clerkenwell_example_notes::NOTE;
 use futures_util::{SinkExt, StreamExt};
 use serde_json::{json, Value};
@@ -29,9 +29,10 @@ struct Held {
 }
 
 impl Client {
-    async fn connect(url: &str) -> Self {
+    /// A client connected as the writer `writer`.
+    async fn connect(url: &str, writer: &str) -> Self {
         Self {
-            socket: tokio_tungstenite::connect_async(url)
+            socket: tokio_tungstenite::connect_async(format!("{url}?writer={writer}"))
                 .await
                 .expect("a connection")
                 .0,
@@ -143,7 +144,7 @@ async fn start() -> String {
         .await
         .expect("a listener");
     let address = listener.local_addr().expect("an address");
-    let router = server.router("/projections");
+    let router = server.router("/projections", writer_named_in);
     tokio::spawn(async move { axum::serve(listener, router).await.expect("serve") });
     format!("ws://{address}/projections")
 }
@@ -170,7 +171,8 @@ fn document(replica: &CollaborationReplica) -> Value {
     replica.materialized_document("client").expect("a note")
 }
 
-/// Edits a replica of `note_id`'s `state` and sends what it recorded.
+/// Edits a replica of `note_id`'s `state` under the first peer of the block
+/// the state allocated, and sends what it recorded.
 async fn edit(
     client: &mut Client,
     note_id: &str,
@@ -179,6 +181,15 @@ async fn edit(
     change: impl FnOnce(&mut Value),
 ) -> (CollaborationReplica, Value) {
     let mut replica = replica(state);
+    let block = &state["peer_block"];
+    replica
+        .set_peer(
+            block["base"]
+                .as_str()
+                .and_then(|base| base.parse().ok())
+                .expect("a block's first peer"),
+        )
+        .expect("an allocated peer");
     let mut note = document(&replica);
     change(&mut note);
     replica.replace_document(&note).expect("an edit");
@@ -192,6 +203,7 @@ async fn edit(
                 "exchange_mode": "incremental",
                 "base_frontier_base64": base,
                 "update_base64": replica.export_incremental_update_base64(&base).expect("an update"),
+                "peer_nonces": [block["nonce"]],
             }),
         )
         .await;
@@ -216,8 +228,8 @@ async fn create(client: &mut Client, title: &str) -> String {
 #[tokio::test]
 async fn an_edit_one_client_sends_reaches_another_clients_subscription() {
     let url = start().await;
-    let mut ada = Client::connect(&url).await;
-    let mut grace = Client::connect(&url).await;
+    let mut ada = Client::connect(&url, "ada").await;
+    let mut grace = Client::connect(&url, "grace").await;
     let note_id = create(&mut ada, "Launch plan").await;
     ada.subscribe(&note_id).await;
     let state = grace.subscribe(&note_id).await;
@@ -235,8 +247,8 @@ async fn an_edit_one_client_sends_reaches_another_clients_subscription() {
 #[tokio::test]
 async fn a_refused_status_carries_what_its_writer_lacks_to_rebase() {
     let url = start().await;
-    let mut ada = Client::connect(&url).await;
-    let mut grace = Client::connect(&url).await;
+    let mut ada = Client::connect(&url, "ada").await;
+    let mut grace = Client::connect(&url, "grace").await;
     let note_id = create(&mut ada, "Launch plan").await;
     let ada_state = ada.subscribe(&note_id).await;
     let grace_state = grace.subscribe(&note_id).await;
@@ -266,9 +278,11 @@ async fn a_refused_status_carries_what_its_writer_lacks_to_rebase() {
                 .expect("what the writer lacks"),
         )
         .expect("take what the writer lacks");
+    // The refused operations stay under the block they were written under.
     let rebased_state = json!({
         "accepted_frontier_base64": error["data"]["accepted_frontier_base64"],
         "update_base64": refused.export_update_base64().expect("the rebased replica"),
+        "peer_block": grace_state["peer_block"],
     });
     let (rebased, response) = edit(
         &mut grace,
@@ -281,4 +295,17 @@ async fn a_refused_status_carries_what_its_writer_lacks_to_rebase() {
     assert!(response.get("error").is_none(), "{response}");
     let delivered = grace.holding(&accepted(&response)).await;
     assert_eq!(delivered["status"], document(&rebased)["status"]);
+}
+
+#[tokio::test]
+async fn a_connection_naming_no_writer_is_refused() {
+    let url = start().await;
+
+    match tokio_tungstenite::connect_async(url.as_str()).await {
+        Err(tokio_tungstenite::tungstenite::Error::Http(response)) => {
+            assert_eq!(response.status(), 401)
+        }
+        Err(error) => panic!("expected an unauthorised response, got {error}"),
+        Ok(_) => panic!("a connection naming no writer was served"),
+    }
 }

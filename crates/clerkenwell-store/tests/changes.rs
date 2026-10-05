@@ -4,15 +4,14 @@ mod support;
 
 use std::sync::{Arc, Mutex};
 
-use clerkenwell_doc::CollaborationReplica;
-use clerkenwell_events::{ChangeEvent, ChangeKind};
+use clerkenwell_events::{ActorKind, ChangeEvent, ChangeKind, Principal};
 use clerkenwell_store::testing::MemoryStorage;
 use clerkenwell_store::{
-    CollaborationDocumentId, CollaborationExchangeMode, CollaborationImportRequest,
-    CollaborationService, ImportFence, StoreError, StoreResult,
+    CollaborationDocumentId, CollaborationImportRequest, CollaborationService, StoreError,
+    StoreResult,
 };
 use serde_json::{json, Value};
-use support::{accept, NOTE_PLAN, PLANS, POLICY};
+use support::{accept, client, key, operator, request, writer, NOTE_PLAN, PLANS, POLICY};
 
 fn note(resource_id: &str) -> CollaborationDocumentId {
     CollaborationDocumentId::new("Note", resource_id)
@@ -24,7 +23,8 @@ fn seed() -> Value {
 
 /// A service over a fresh store, and everything it announces.
 fn heard_service() -> (CollaborationService, Arc<Mutex<Vec<ChangeEvent>>>) {
-    let service = CollaborationService::new(MemoryStorage::default(), PLANS, POLICY, "notes");
+    let service =
+        CollaborationService::new(MemoryStorage::default(), PLANS, POLICY, key(), "notes");
     let heard = Arc::new(Mutex::new(Vec::new()));
     let log = heard.clone();
     service
@@ -39,38 +39,43 @@ fn bootstrap(service: &CollaborationService) {
         .expect("bootstrap");
 }
 
+/// An import of an edit `actor` makes setting the note's body, from what the
+/// store holds now.
+fn edit_request(
+    service: &CollaborationService,
+    actor: &Principal,
+    operation_id: &str,
+    body: &str,
+) -> CollaborationImportRequest {
+    let state = service
+        .authoring_state(&NOTE_PLAN, &note("note-1"), None)
+        .expect("authoring state");
+    let (mut client, block) = client(service, &note("note-1"), actor, &state);
+    let mut edited = client.materialized_document("edit").expect("document");
+    edited["body"] = Value::from(body);
+    client.replace_document(&edited).expect("edit");
+    request(
+        &note("note-1"),
+        actor,
+        &block,
+        operation_id,
+        &state.accepted_frontier_base64,
+        client
+            .export_incremental_update_base64(&state.accepted_frontier_base64)
+            .expect("update"),
+    )
+}
+
 /// Imports an edit that sets the note's body, from what the store holds now.
 fn edit(
     service: &CollaborationService,
     operation_id: &str,
     body: &str,
 ) -> clerkenwell_store::CollaborationImportResult {
-    let state = service
-        .authoring_state(&NOTE_PLAN, &note("note-1"), None)
-        .expect("authoring state");
-    let mut client = CollaborationReplica::from_versioned_update_base64(
-        &NOTE_PLAN,
-        state.schema_version,
-        &state.update_base64,
-    )
-    .expect("client");
-    let mut edited = client.materialized_document("edit").expect("document");
-    edited["body"] = Value::from(body);
-    client.replace_document(&edited).expect("edit");
     service
         .import(
             &NOTE_PLAN,
-            CollaborationImportRequest {
-                document: note("note-1"),
-                schema_version: NOTE_PLAN.schema_version,
-                operation_id: operation_id.to_string(),
-                exchange_mode: CollaborationExchangeMode::Incremental,
-                base_frontier_base64: state.accepted_frontier_base64.clone(),
-                update_base64: client
-                    .export_incremental_update_base64(&state.accepted_frontier_base64)
-                    .expect("update"),
-                fence: ImportFence::Frontier,
-            },
+            edit_request(service, &writer(), operation_id, body),
             accept,
         )
         .expect("import")
@@ -127,38 +132,14 @@ fn what_does_not_change_the_accepted_state_announces_nothing() {
     let announced = heard.lock().unwrap().len();
 
     bootstrap(&service);
-    let state = service
-        .authoring_state(&NOTE_PLAN, &note("note-1"), None)
-        .expect("authoring state");
     let refused = service.import(
         &NOTE_PLAN,
-        CollaborationImportRequest {
-            document: note("note-1"),
-            schema_version: NOTE_PLAN.schema_version,
-            operation_id: "edit-refused".to_string(),
-            exchange_mode: CollaborationExchangeMode::Incremental,
-            base_frontier_base64: state.accepted_frontier_base64.clone(),
-            update_base64: {
-                let mut client = CollaborationReplica::from_versioned_update_base64(
-                    &NOTE_PLAN,
-                    state.schema_version,
-                    &state.update_base64,
-                )
-                .expect("client");
-                let mut edited = client.materialized_document("edit").expect("document");
-                edited["body"] = Value::from("Refused.");
-                client.replace_document(&edited).expect("edit");
-                client
-                    .export_incremental_update_base64(&state.accepted_frontier_base64)
-                    .expect("update")
-            },
-            fence: ImportFence::Frontier,
-        },
+        edit_request(&service, &writer(), "edit-refused", "Refused."),
         |_: &Value| -> StoreResult<()> { Err(StoreError::invalid_request("Refused.")) },
     );
     assert!(refused.is_err());
     service
-        .delete(&note("note-absent"))
+        .delete(&operator(), &note("note-absent"))
         .expect("delete nothing");
 
     assert_eq!(heard.lock().unwrap().len(), announced);
@@ -168,13 +149,17 @@ fn what_does_not_change_the_accepted_state_announces_nothing() {
 fn a_deletion_announces_the_state_it_removed() {
     let (service, heard) = heard_service();
     bootstrap(&service);
-    service.delete(&note("note-1")).expect("delete");
+    service
+        .delete(&operator(), &note("note-1"))
+        .expect("delete");
 
     let heard = heard.lock().unwrap();
     let [created, deleted] = heard.as_slice() else {
         panic!("a creation and a deletion, not {heard:?}");
     };
     assert_eq!(deleted.kind, ChangeKind::Deleted);
+    assert_eq!(deleted.actorid, operator().id);
+    assert_eq!(deleted.actorkind, operator().kind);
     assert_eq!(deleted.subject, created.subject);
     assert_eq!(deleted.generation, created.generation);
     assert_eq!(deleted.data.etag_before, created.data.etag_after);
@@ -189,7 +174,7 @@ fn a_repair_announces_the_state_it_left_the_document_in() {
     let before = heard.lock().unwrap().last().cloned().expect("the edit");
 
     service
-        .repair(&note("note-1"), "a test repair")
+        .repair(&operator(), &note("note-1"), "a test repair")
         .expect("repair");
 
     let repaired = service
@@ -203,4 +188,26 @@ fn a_repair_announces_the_state_it_left_the_document_in() {
     assert_eq!(announced.data.etag_before, before.data.etag_after);
     assert_eq!(announced.data.etag_after, Some(repaired.etag.clone()));
     assert_eq!(announced.data.frontier_before, before.data.frontier_after);
+    assert_eq!(announced.actorid, operator().id);
+}
+
+#[test]
+fn each_commit_announces_the_principal_that_made_it_and_why() {
+    let (service, heard) = heard_service();
+    bootstrap(&service);
+    let reviewer = Principal::new("reviewer", ActorKind::Agent);
+    let mut edit = edit_request(&service, &reviewer, "edit-reviewed", "Reviewed.");
+    edit.intent = Some("tidy the prose".to_string());
+    service.import(&NOTE_PLAN, edit, accept).expect("import");
+
+    let heard = heard.lock().unwrap();
+    let [created, edited] = heard.as_slice() else {
+        panic!("a creation and an edit, not {heard:?}");
+    };
+    assert_eq!(created.actorkind, ActorKind::System);
+    assert_eq!(created.actorid, created.source);
+    assert_eq!(created.intent, None);
+    assert_eq!(edited.actorid, reviewer.id);
+    assert_eq!(edited.actorkind, reviewer.kind);
+    assert_eq!(edited.intent.as_deref(), Some("tidy the prose"));
 }

@@ -1,7 +1,8 @@
 # Notes example
 
 A walk-through of Clerkenwell over one collaborative note: a title writers overwrite, a body
-whose concurrent edits merge, and a status whose concurrent changes are resolved explicitly.
+whose concurrent edits merge, and a status whose concurrent changes are resolved explicitly
+and which an agent may not change.
 
 ```bash
 cargo run -p clerkenwell-example-notes
@@ -18,7 +19,13 @@ The binary runs these steps against a store in memory:
 5. Two writers set the status differently. The second commit is refused as a conflict naming
    `status`, and the refusal carries the accepted note.
 6. The refused writer rebases onto the accepted note, restates its status and commits.
-7. An export and a reindex are recorded in the recovery audit.
+7. An agent sets the status while nobody else is changing it. The definition judges an agent's
+   change to the status as `immutable`, so the commit is refused naming `status`; the agent's
+   edit to the body is accepted.
+8. An operator exports the note and reindexes the store. The audit lists every refused import
+   and both recovery requests, each with the principal that made it.
+
+Every writer is a principal and writes under a block of peers the store allocated it.
 
 Each step is a function in `src/lib.rs`; `tests/walkthrough.rs` checks each outcome.
 
@@ -31,9 +38,11 @@ cargo run -p clerkenwell-example-notes --bin notes-server
 `notes-server` serves the notes through `clerkenwell-axum` and prints the WebSocket address.
 It keeps the notes in memory through `src/storage.rs`, the example's implementation of the
 storage port.
+A client connects as the person its URL's `writer` query parameter names; the example trusts
+that name, where an application authenticates its connections.
 A client creates a note with `note.create`, subscribes to `notes.authoringState` for the
-accepted frontier and operations, and sends its replica's operations with
-`note.importUpdate`. When an edit is accepted, every subscriber to the note takes the
+accepted frontier, operations and a block of peers, and sends the operations its replica wrote
+under that block with `note.importUpdate`, naming the block by its nonce. When an edit is accepted, every subscriber to the note takes the
 operations it lacks. A refused edit
 carries the operations its writer lacks, which the writer takes before sending its edit
 again. `src/server.rs` holds the application; `tests/server.rs` runs two clients against it.

@@ -8,8 +8,8 @@ use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use clerkenwell_store::{
-    CollaborationDocumentId, CollaborationRecoveryAuditRecord, CollaborationStoragePort,
-    StoreResult, StoredEnvelope,
+    CollaborationAuditQuery, CollaborationAuditRecord, CollaborationDocumentId,
+    CollaborationStoragePort, StoreResult, StoredEnvelope,
 };
 
 #[derive(Debug, Default)]
@@ -17,7 +17,7 @@ struct Kept {
     next_version: u64,
     envelopes: BTreeMap<String, StoredEnvelope>,
     evidence: Vec<Vec<u8>>,
-    audit: Vec<CollaborationRecoveryAuditRecord>,
+    audit: Vec<CollaborationAuditRecord>,
 }
 
 /// Envelopes kept in memory, each under a version that counts the writes
@@ -114,12 +114,26 @@ impl CollaborationStoragePort for MemoryStorage {
         ))
     }
 
-    fn append_recovery_audit(&self, record: &CollaborationRecoveryAuditRecord) -> StoreResult<()> {
+    fn append_audit(&self, record: &CollaborationAuditRecord) -> StoreResult<()> {
         self.kept().audit.push(record.clone());
         Ok(())
     }
 
-    fn recovery_audit(&self) -> StoreResult<Vec<CollaborationRecoveryAuditRecord>> {
-        Ok(self.kept().audit.clone())
+    fn audit(&self, query: &CollaborationAuditQuery) -> StoreResult<Vec<CollaborationAuditRecord>> {
+        Ok(self
+            .kept()
+            .audit
+            .iter()
+            .filter(|record| query.selects(record))
+            .cloned()
+            .collect())
+    }
+
+    fn discard_audit_before(&self, unix_ms: u128) -> StoreResult<usize> {
+        let mut kept = self.kept();
+        let held = kept.audit.len();
+        kept.audit
+            .retain(|record| record.timestamp_unix_ms >= unix_ms);
+        Ok(held - kept.audit.len())
     }
 }

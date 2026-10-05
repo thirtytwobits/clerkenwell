@@ -64,7 +64,14 @@ fn consumption_removes_only_captured_characters_at_every_unicode_boundary() {
             original
         );
         let prepared = authority
-            .prepare_text_replacement_at_frontier(FIELD, &no_identities(), &frontier, original, "")
+            .prepare_text_replacement_at_frontier(
+                FIELD,
+                &no_identities(),
+                &frontier,
+                original,
+                "",
+                peer(),
+            )
             .expect("prepare consumption");
         assert_eq!(
             authority.export_update_base64().expect("export"),
@@ -112,6 +119,7 @@ fn captured_replacement_preserves_concurrent_text_and_other_fields() {
             &frontier,
             &captured,
             replacement,
+            peer(),
         )
         .expect("prepare replacement");
     accept(&mut authority, &export_all(&client));
@@ -140,7 +148,14 @@ fn a_prefix_prepared_at_a_frontier_keeps_the_captured_and_the_concurrent_text() 
         &typed(&client, "Captured.".len(), " Later."),
     );
     let prepared = authority
-        .prepare_text_prefix_at_frontier(FIELD, &no_identities(), &frontier, "Captured.", "First. ")
+        .prepare_text_prefix_at_frontier(
+            FIELD,
+            &no_identities(),
+            &frontier,
+            "Captured.",
+            "First. ",
+            peer(),
+        )
         .expect("prepare prefix");
     accept(&mut authority, &prepared);
     assert_eq!(read(&authority)["summary"], "First. Captured. Later.");
@@ -157,14 +172,22 @@ fn invalid_capture_or_target_cannot_change_the_live_document() {
             &no_identities(),
             &frontier,
             "incorrect capture",
-            ""
+            "",
+            peer(),
         ),
         Err(CollaborationReplicaError::TextCaptureMismatch)
     ));
     for target in ["missing", "title", "tags", "columns.*.cards.*.text"] {
         assert!(
             authority
-                .prepare_text_replacement_at_frontier(target, &no_identities(), &frontier, "", "")
+                .prepare_text_replacement_at_frontier(
+                    target,
+                    &no_identities(),
+                    &frontier,
+                    "",
+                    "",
+                    peer()
+                )
                 .is_err(),
             "{target}"
         );
@@ -213,7 +236,14 @@ fn keyed_text_targets_keep_their_mime_type_and_refuse_deleted_records() {
 
     let replacement = "changed 🦊";
     let prepared = authority
-        .prepare_text_replacement_at_frontier(path, &identities, &frontier, &captured, replacement)
+        .prepare_text_replacement_at_frontier(
+            path,
+            &identities,
+            &frontier,
+            &captured,
+            replacement,
+            peer(),
+        )
         .expect("prepare");
     authority
         .adopt_versioned_update_base64(BOARD.schema_version, &prepared)
@@ -259,7 +289,14 @@ fn keyed_text_targets_keep_their_mime_type_and_refuse_deleted_records() {
         .expect("delete the card");
     assert!(
         authority
-            .prepare_text_replacement_at_frontier(path, &identities, &frontier, &captured, "")
+            .prepare_text_replacement_at_frontier(
+                path,
+                &identities,
+                &frontier,
+                &captured,
+                "",
+                peer()
+            )
             .is_err(),
         "a deleted record cannot be resurrected by consumption"
     );
@@ -273,7 +310,7 @@ fn an_empty_capture_cannot_consume_later_typing() {
     let later = "Keep this 👩‍💻";
     accept(&mut authority, &typed(&client, 0, later));
     let prepared = authority
-        .prepare_text_replacement_at_frontier(FIELD, &no_identities(), &frontier, "", "")
+        .prepare_text_replacement_at_frontier(FIELD, &no_identities(), &frontier, "", "", peer())
         .expect("prepare");
     accept(&mut authority, &prepared);
     assert_eq!(read(&authority)["summary"], later);

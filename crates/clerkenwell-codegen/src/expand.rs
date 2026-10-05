@@ -14,11 +14,13 @@ use crate::json::{Json, Object};
 pub const AUTHORING_STATE: &str = "AuthoringState";
 /// The patch every authoring-state projection delivers.
 pub const AUTHORING_STATE_PATCH: &str = "AuthoringStatePatch";
+/// The block of peers every authoring state allocates its subscriber.
+pub const AUTHORING_PEER_BLOCK: &str = "AuthoringPeerBlock";
 
 const AUTHORING_STATE_SCHEMA: &str = r##"{
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_version", "accepted_frontier_base64", "update_base64", "etag", "exchange_modes"],
+  "required": ["schema_version", "accepted_frontier_base64", "update_base64", "etag", "exchange_modes", "peer_block"],
   "properties": {
     "schema_version": {
       "type": "integer",
@@ -40,7 +42,23 @@ const AUTHORING_STATE_SCHEMA: &str = r##"{
       "type": "array",
       "items": { "type": "string", "enum": ["incremental", "bootstrap"] },
       "description": "How the store accepts an import of this document."
-    }
+    },
+    "peer_block": { "$ref": "#/$defs/AuthoringPeerBlock" }
+  }
+}"##;
+
+const AUTHORING_PEER_BLOCK_SCHEMA: &str = r##"{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["nonce", "base", "index_bits"],
+  "description": "A block of peers allocated to the subscriber: every peer whose bits above the low index_bits are base's. An import names the block by its nonce.",
+  "properties": {
+    "nonce": { "type": "string" },
+    "base": {
+      "type": "string",
+      "description": "The block's first peer, in decimal."
+    },
+    "index_bits": { "type": "integer" }
   }
 }"##;
 
@@ -76,7 +94,7 @@ pub(crate) fn expand(mut document: Object) -> Result<Object> {
     }
 
     let mut defs = section(&document, "$defs");
-    for reserved in [AUTHORING_STATE, AUTHORING_STATE_PATCH] {
+    for reserved in [AUTHORING_STATE, AUTHORING_STATE_PATCH, AUTHORING_PEER_BLOCK] {
         if defs.contains_key(reserved) {
             return refuse(format!(
                 "$defs.{reserved} is the authoring state every collaborative entity shares; the generator declares it."
@@ -85,6 +103,7 @@ pub(crate) fn expand(mut document: Object) -> Result<Object> {
     }
     defs.insert(AUTHORING_STATE, parse(AUTHORING_STATE_SCHEMA));
     defs.insert(AUTHORING_STATE_PATCH, parse(AUTHORING_STATE_PATCH_SCHEMA));
+    defs.insert(AUTHORING_PEER_BLOCK, parse(AUTHORING_PEER_BLOCK_SCHEMA));
 
     let entities = section(&document, "entities");
     let mut projections = section(&document, "projections");

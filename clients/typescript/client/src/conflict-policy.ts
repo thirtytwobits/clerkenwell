@@ -5,31 +5,61 @@
  * Rust evaluator in `clerkenwell-doc` does: `immutable` fields may not change
  * at all, `explicit` fields refuse two different changes to one value, and
  * `merge` and `lastWriterWins` fields always accept. Fields inside a keyed
- * sequence are judged per item, addressed by the item's identity.
+ * sequence are judged per item, addressed by the item's identity. A field may
+ * judge one kind of writer by another policy than its own.
  */
 import { areJsonValuesEqual } from "./json-value-equality.js";
 import {
   clientSegment,
+  collaborationConflictFor,
+  type CollaborationConflictPolicy,
   type CollaborationEntityPlan,
-  type CollaborationFieldPlan
+  type CollaborationFieldPlan,
+  type CollaborationWriterKind
 } from "./plans.js";
 
 /**
- * The declared field paths an edit from `base` to `client` changes against
- * their conflict policy, given that the accepted document has meanwhile
- * become `current`. Documents are in client naming; paths are reported in
- * wire naming, a keyed item's field as `sequence[identity].field`.
+ * The declared field paths an edit `kind` made from `base` to `client`
+ * changes against their conflict policy for `kind`, given that the accepted
+ * document has meanwhile become `current`. Documents are in client naming;
+ * paths are reported in wire naming, a keyed item's field as
+ * `sequence[identity].field`.
  */
 export function conflictingFieldPaths(
   plan: CollaborationEntityPlan,
   base: unknown,
   client: unknown,
-  current: unknown
+  current: unknown,
+  kind: CollaborationWriterKind
+): string[] {
+  return judgedFieldPaths(plan, base, client, current, (field) => collaborationConflictFor(field, kind));
+}
+
+/**
+ * The declared field paths a document `kind` creates sets against the policy
+ * that replaces the field's own for `kind`. A field without such a policy is
+ * set as its creation chooses.
+ */
+export function creationConflictingFieldPaths(
+  plan: CollaborationEntityPlan,
+  created: unknown,
+  kind: CollaborationWriterKind
+): string[] {
+  return judgedFieldPaths(plan, null, created, null, (field) => field.writers?.[kind]);
+}
+
+function judgedFieldPaths(
+  plan: CollaborationEntityPlan,
+  base: unknown,
+  client: unknown,
+  current: unknown,
+  policy: (field: CollaborationFieldPlan) => CollaborationConflictPolicy | undefined
 ): string[] {
   const conflicts = new Set<string>();
   for (const field of Object.values(plan.fields)) {
+    const conflict = policy(field);
     if (
-      (field.conflict !== "explicit" && field.conflict !== "immutable")
+      (conflict !== "explicit" && conflict !== "immutable")
       || field.storage.kind === "derivedIdentity"
       || field.storage.kind === "derivedRevision"
     ) {
@@ -44,12 +74,12 @@ export function conflictingFieldPaths(
       const clientValue = clientValues.get(key) ?? null;
       const currentValue = currentValues.get(key) ?? null;
       const changed = !areJsonValuesEqual(clientValue, baseValue);
-      const conflict = field.conflict === "immutable"
+      const refused = conflict === "immutable"
         ? changed
         : changed
           && !areJsonValuesEqual(currentValue, baseValue)
           && !areJsonValuesEqual(clientValue, currentValue);
-      if (conflict) {
+      if (refused) {
         conflicts.add(key);
       }
     }

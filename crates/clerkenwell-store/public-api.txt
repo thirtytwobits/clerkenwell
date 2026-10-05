@@ -1,6 +1,34 @@
 # The public API of clerkenwell_store. Written by `cargo run -p clerkenwell-public-api`.
 # Types named from: clerkenwell_events, clerkenwell_schema, serde_json
 
+struct clerkenwell_store::AttributedOperation
+derive clerkenwell_store::AttributedOperation: Clone, Debug, Eq, PartialEq
+field clerkenwell_store::AttributedOperation::actor: Principal
+field clerkenwell_store::AttributedOperation::intent: Option<String>
+field clerkenwell_store::AttributedOperation::operation_id: String
+field clerkenwell_store::AttributedOperation::sequence: u64
+struct clerkenwell_store::CollaborationAttribution
+derive clerkenwell_store::CollaborationAttribution: Clone, Debug, Eq, PartialEq
+field clerkenwell_store::CollaborationAttribution::operations: Vec<AttributedOperation>
+field clerkenwell_store::CollaborationAttribution::peers: BTreeMap<u64, Principal>
+enum clerkenwell_store::CollaborationAuditEvent
+derive clerkenwell_store::CollaborationAuditEvent: Clone, Debug, Deserialize, Eq, PartialEq, Serialize
+variant clerkenwell_store::CollaborationAuditEvent::Recovery { action: CollaborationRecoveryAction, reason_sha256: Option<String>, destructive: bool }
+variant clerkenwell_store::CollaborationAuditEvent::Refusal { operation_id: String, code: String, base_frontier_base64: String, conflict_paths: Vec<String>, update_base64_sha256: String }
+struct clerkenwell_store::CollaborationAuditQuery
+derive clerkenwell_store::CollaborationAuditQuery: Clone, Debug, Default, Eq, PartialEq
+field clerkenwell_store::CollaborationAuditQuery::actor_id: Option<String>
+field clerkenwell_store::CollaborationAuditQuery::document: Option<CollaborationDocumentId>
+field clerkenwell_store::CollaborationAuditQuery::from_unix_ms: Option<u128>
+fn clerkenwell_store::CollaborationAuditQuery::selects(&self, record: &CollaborationAuditRecord) -> bool
+field clerkenwell_store::CollaborationAuditQuery::until_unix_ms: Option<u128>
+struct clerkenwell_store::CollaborationAuditRecord
+derive clerkenwell_store::CollaborationAuditRecord: Clone, Debug, Deserialize, Eq, PartialEq, Serialize
+field clerkenwell_store::CollaborationAuditRecord::actor: Principal
+field clerkenwell_store::CollaborationAuditRecord::entity: String
+field clerkenwell_store::CollaborationAuditRecord::event: CollaborationAuditEvent
+field clerkenwell_store::CollaborationAuditRecord::resource_id: String
+field clerkenwell_store::CollaborationAuditRecord::timestamp_unix_ms: u128
 struct clerkenwell_store::CollaborationAuthoringState
 derive clerkenwell_store::CollaborationAuthoringState: Clone, Debug, Eq, PartialEq
 field clerkenwell_store::CollaborationAuthoringState::accepted_frontier_base64: String
@@ -48,11 +76,14 @@ variant clerkenwell_store::CollaborationExchangeMode::Bootstrap
 variant clerkenwell_store::CollaborationExchangeMode::Incremental
 struct clerkenwell_store::CollaborationImportRequest
 derive clerkenwell_store::CollaborationImportRequest: Clone, Debug
+field clerkenwell_store::CollaborationImportRequest::actor: Principal
 field clerkenwell_store::CollaborationImportRequest::base_frontier_base64: String
 field clerkenwell_store::CollaborationImportRequest::document: CollaborationDocumentId
 field clerkenwell_store::CollaborationImportRequest::exchange_mode: CollaborationExchangeMode
 field clerkenwell_store::CollaborationImportRequest::fence: ImportFence
+field clerkenwell_store::CollaborationImportRequest::intent: Option<String>
 field clerkenwell_store::CollaborationImportRequest::operation_id: String
+field clerkenwell_store::CollaborationImportRequest::peer_nonces: Vec<String>
 field clerkenwell_store::CollaborationImportRequest::schema_version: u32
 field clerkenwell_store::CollaborationImportRequest::update_base64: String
 struct clerkenwell_store::CollaborationImportResult
@@ -76,14 +107,6 @@ variant clerkenwell_store::CollaborationRecoveryAction::Quarantine
 variant clerkenwell_store::CollaborationRecoveryAction::Reindex
 variant clerkenwell_store::CollaborationRecoveryAction::Repair
 variant clerkenwell_store::CollaborationRecoveryAction::Reset
-struct clerkenwell_store::CollaborationRecoveryAuditRecord
-derive clerkenwell_store::CollaborationRecoveryAuditRecord: Clone, Debug, Deserialize, Eq, PartialEq, Serialize
-field clerkenwell_store::CollaborationRecoveryAuditRecord::action: CollaborationRecoveryAction
-field clerkenwell_store::CollaborationRecoveryAuditRecord::destructive: bool
-field clerkenwell_store::CollaborationRecoveryAuditRecord::entity: String
-field clerkenwell_store::CollaborationRecoveryAuditRecord::reason_sha256: Option<String>
-field clerkenwell_store::CollaborationRecoveryAuditRecord::resource_id: String
-field clerkenwell_store::CollaborationRecoveryAuditRecord::timestamp_unix_ms: u128
 struct clerkenwell_store::CollaborationRuntimeCountersSnapshot
 derive clerkenwell_store::CollaborationRuntimeCountersSnapshot: Clone, Copy, Debug, Default, Eq, PartialEq, Serialize
 field clerkenwell_store::CollaborationRuntimeCountersSnapshot::commit_contention: u64
@@ -95,35 +118,39 @@ field clerkenwell_store::CollaborationRuntimeCountersSnapshot::resident_document
 field clerkenwell_store::CollaborationRuntimeCountersSnapshot::resync_requirements: u64
 struct clerkenwell_store::CollaborationService { .. }
 derive clerkenwell_store::CollaborationService: Clone, Debug
+fn clerkenwell_store::CollaborationService::allocate_peers(&self, principal: &Principal, document: &CollaborationDocumentId) -> PeerBlock
+fn clerkenwell_store::CollaborationService::attribution(&self, document: &CollaborationDocumentId) -> StoreResult<Option<CollaborationAttribution>>
+fn clerkenwell_store::CollaborationService::audit(&self, query: &CollaborationAuditQuery) -> StoreResult<Vec<CollaborationAuditRecord>>
 fn clerkenwell_store::CollaborationService::authoring_state(&self, plan: &'static GeneratedCollaborationEntitySpec, document: &CollaborationDocumentId, held_frontier_base64: Option<&str>) -> StoreResult<CollaborationAuthoringState>
 fn clerkenwell_store::CollaborationService::bootstrap<E: From<StoreError>>(&self, plan: &'static GeneratedCollaborationEntitySpec, document: &CollaborationDocumentId, seed: &Value, validate: impl Fn(&Value) -> Result<(), E>) -> Result<CollaborationDocumentSummary, E>
 fn clerkenwell_store::CollaborationService::bootstrap_update<E: From<StoreError>>(&self, plan: &'static GeneratedCollaborationEntitySpec, document: &CollaborationDocumentId, schema_version: u32, update_base64: &str, validate: impl Fn(&Value) -> Result<(), E>) -> Result<CollaborationDocumentSummary, E>
 fn clerkenwell_store::CollaborationService::changes(&self) -> &ChangeFeed
 fn clerkenwell_store::CollaborationService::counters(&self) -> CollaborationRuntimeCountersSnapshot
-fn clerkenwell_store::CollaborationService::delete(&self, document: &CollaborationDocumentId) -> StoreResult<()>
+fn clerkenwell_store::CollaborationService::delete(&self, actor: &Principal, document: &CollaborationDocumentId) -> StoreResult<()>
 fn clerkenwell_store::CollaborationService::detail(&self, plan: &'static GeneratedCollaborationEntitySpec, document: &CollaborationDocumentId) -> StoreResult<Option<Value>>
-fn clerkenwell_store::CollaborationService::export_for_recovery(&self, document: &CollaborationDocumentId) -> StoreResult<Vec<u8>>
+fn clerkenwell_store::CollaborationService::discard_audit_before(&self, cutoff: SystemTime) -> StoreResult<usize>
+fn clerkenwell_store::CollaborationService::export_for_recovery(&self, actor: &Principal, document: &CollaborationDocumentId) -> StoreResult<Vec<u8>>
 fn clerkenwell_store::CollaborationService::import<E: From<StoreError>>(&self, plan: &'static GeneratedCollaborationEntitySpec, request: CollaborationImportRequest, validate: impl Fn(&Value) -> Result<(), E>) -> Result<CollaborationImportResult, E>
 fn clerkenwell_store::CollaborationService::inspect(&self, entity: Option<&str>, resource_id: Option<&str>, limit: Option<usize>) -> StoreResult<(Vec<CollaborationDocumentInspection>, bool)>
 fn clerkenwell_store::CollaborationService::migrate<E: From<StoreError>>(&self, plan: &'static GeneratedCollaborationEntitySpec, document: &CollaborationDocumentId, from_schema_version: u32, migrated_update_base64: &str, validate: impl Fn(&Value) -> Result<(), E>) -> Result<CollaborationDocumentSummary, E>
-fn clerkenwell_store::CollaborationService::new(storage: impl CollaborationStoragePort + 'static, plans: &'static [GeneratedCollaborationEntitySpec], policy: CommitPolicy, source: impl Into<String>) -> Self
-fn clerkenwell_store::CollaborationService::quarantine(&self, document: &CollaborationDocumentId, reason: &str) -> StoreResult<String>
+fn clerkenwell_store::CollaborationService::new(storage: impl CollaborationStoragePort + 'static, plans: &'static [GeneratedCollaborationEntitySpec], policy: CommitPolicy, key: PeerKey, source: impl Into<String>) -> Self
+fn clerkenwell_store::CollaborationService::quarantine(&self, actor: &Principal, document: &CollaborationDocumentId, reason: &str) -> StoreResult<String>
 fn clerkenwell_store::CollaborationService::read_document(&self, plan: &'static GeneratedCollaborationEntitySpec, document: &CollaborationDocumentId) -> StoreResult<Option<CollaborationDocumentRead>>
-fn clerkenwell_store::CollaborationService::recovery_audit(&self) -> StoreResult<Vec<CollaborationRecoveryAuditRecord>>
-fn clerkenwell_store::CollaborationService::reindex(&self) -> StoreResult<(usize, String)>
-fn clerkenwell_store::CollaborationService::repair(&self, document: &CollaborationDocumentId, reason: &str) -> StoreResult<String>
-fn clerkenwell_store::CollaborationService::reset(&self, document: &CollaborationDocumentId) -> StoreResult<()>
+fn clerkenwell_store::CollaborationService::reindex(&self, actor: &Principal) -> StoreResult<(usize, String)>
+fn clerkenwell_store::CollaborationService::repair(&self, actor: &Principal, document: &CollaborationDocumentId, reason: &str) -> StoreResult<String>
+fn clerkenwell_store::CollaborationService::reset(&self, actor: &Principal, document: &CollaborationDocumentId) -> StoreResult<()>
 fn clerkenwell_store::CollaborationService::storage(&self) -> &dyn CollaborationStoragePort
 fn clerkenwell_store::CollaborationService::summaries(&self, entity: &str) -> StoreResult<Vec<CollaborationDocumentSummary>>
 fn clerkenwell_store::CollaborationService::summary(&self, document: &CollaborationDocumentId) -> StoreResult<Option<CollaborationDocumentSummary>>
 fn clerkenwell_store::CollaborationService::verify(&self, document: &CollaborationDocumentId) -> CollaborationDocumentInspection
 trait clerkenwell_store::CollaborationStoragePort: std::fmt::Debug + Send + Sync
-fn clerkenwell_store::CollaborationStoragePort::append_recovery_audit(&self, record: &CollaborationRecoveryAuditRecord) -> StoreResult<()>
+fn clerkenwell_store::CollaborationStoragePort::append_audit(&self, record: &CollaborationAuditRecord) -> StoreResult<()>
+fn clerkenwell_store::CollaborationStoragePort::audit(&self, query: &CollaborationAuditQuery) -> StoreResult<Vec<CollaborationAuditRecord>>
 fn clerkenwell_store::CollaborationStoragePort::compare_and_remove(&self, document: &CollaborationDocumentId, expected: &str) -> StoreResult<bool>
 fn clerkenwell_store::CollaborationStoragePort::compare_and_swap(&self, document: &CollaborationDocumentId, expected: Option<&str>, bytes: &[u8]) -> StoreResult<Option<String>>
+fn clerkenwell_store::CollaborationStoragePort::discard_audit_before(&self, unix_ms: u128) -> StoreResult<usize>
 fn clerkenwell_store::CollaborationStoragePort::preserve(&self, document: &CollaborationDocumentId, label: &str, bytes: &[u8]) -> StoreResult<String>
 fn clerkenwell_store::CollaborationStoragePort::read(&self, source: &str) -> StoreResult<Option<StoredEnvelope>>
-fn clerkenwell_store::CollaborationStoragePort::recovery_audit(&self) -> StoreResult<Vec<CollaborationRecoveryAuditRecord>>
 fn clerkenwell_store::CollaborationStoragePort::source(&self, document: &CollaborationDocumentId) -> String
 fn clerkenwell_store::CollaborationStoragePort::sources(&self, entity: &str) -> StoreResult<Vec<String>>
 fn clerkenwell_store::CollaborationStoragePort::stamp(&self, source: &str) -> StoreResult<Option<String>>
@@ -132,7 +159,7 @@ derive clerkenwell_store::CollaborationStores: Clone, Debug
 fn clerkenwell_store::CollaborationStores::changes(&self) -> &ChangeFeed
 fn clerkenwell_store::CollaborationStores::counters(&self) -> CollaborationRuntimeCountersSnapshot
 fn clerkenwell_store::CollaborationStores::forget(&self, name: &str) -> bool
-fn clerkenwell_store::CollaborationStores::new(plans: &'static [GeneratedCollaborationEntitySpec], policy: CommitPolicy) -> Self
+fn clerkenwell_store::CollaborationStores::new(plans: &'static [GeneratedCollaborationEntitySpec], policy: CommitPolicy, key: PeerKey) -> Self
 fn clerkenwell_store::CollaborationStores::register(&self, name: &str, storage: impl CollaborationStoragePort + 'static) -> StoreResult<CollaborationService>
 fn clerkenwell_store::CollaborationStores::store(&self, name: &str) -> Option<CollaborationService>
 fn clerkenwell_store::CollaborationStores::store_or_register<P: CollaborationStoragePort + 'static>(&self, name: &str, storage: impl FnOnce() -> P) -> CollaborationService
@@ -147,6 +174,16 @@ enum clerkenwell_store::ImportFence
 derive clerkenwell_store::ImportFence: Clone, Debug, Eq, PartialEq
 variant clerkenwell_store::ImportFence::Etag(String)
 variant clerkenwell_store::ImportFence::Frontier
+const clerkenwell_store::PEER_INDEX_BITS: u32
+const clerkenwell_store::PEER_KEY_MIN_BYTES: usize
+struct clerkenwell_store::PeerBlock
+derive clerkenwell_store::PeerBlock: Clone, Debug, Eq, PartialEq
+field clerkenwell_store::PeerBlock::base: u64
+field clerkenwell_store::PeerBlock::nonce: String
+struct clerkenwell_store::PeerKey { .. }
+derive clerkenwell_store::PeerKey: Clone
+impl fmt::Debug for clerkenwell_store::PeerKey
+fn clerkenwell_store::PeerKey::new(secret: impl AsRef<[u8]>) -> StoreResult<Self>
 struct clerkenwell_store::StoreError
 derive clerkenwell_store::StoreError: Clone, Debug
 impl std::error::Error for clerkenwell_store::StoreError
@@ -172,8 +209,10 @@ field clerkenwell_store::StoredEnvelope::bytes: Vec<u8>
 field clerkenwell_store::StoredEnvelope::version: String
 #[cfg(feature = "testing")] struct clerkenwell_store::testing::CollaborationOperation
 #[cfg(feature = "testing")] derive clerkenwell_store::testing::CollaborationOperation: Clone, Debug, Deserialize, Serialize
+#[cfg(feature = "testing")] field clerkenwell_store::testing::CollaborationOperation::actor: Principal
 #[cfg(feature = "testing")] fn clerkenwell_store::testing::CollaborationOperation::decode(&self, document: &CollaborationDocumentId) -> StoreResult<Vec<u8>>
-#[cfg(feature = "testing")] fn clerkenwell_store::testing::CollaborationOperation::from_update(operation_id: String, sequence: u64, schema_version: u32, update: &[u8]) -> Self
+#[cfg(feature = "testing")] fn clerkenwell_store::testing::CollaborationOperation::from_update(operation_id: String, sequence: u64, schema_version: u32, actor: Principal, intent: Option<String>, update: &[u8]) -> Self
+#[cfg(feature = "testing")] field clerkenwell_store::testing::CollaborationOperation::intent: Option<String>
 #[cfg(feature = "testing")] field clerkenwell_store::testing::CollaborationOperation::operation_id: String
 #[cfg(feature = "testing")] field clerkenwell_store::testing::CollaborationOperation::schema_version: u32
 #[cfg(feature = "testing")] field clerkenwell_store::testing::CollaborationOperation::sequence: u64
@@ -192,6 +231,7 @@ field clerkenwell_store::StoredEnvelope::version: String
 #[cfg(feature = "testing")] field clerkenwell_store::testing::DurableCollaborationEnvelope::envelope_version: u32
 #[cfg(feature = "testing")] fn clerkenwell_store::testing::DurableCollaborationEnvelope::etag(&self) -> String
 #[cfg(feature = "testing")] field clerkenwell_store::testing::DurableCollaborationEnvelope::generation: u64
+#[cfg(feature = "testing")] field clerkenwell_store::testing::DurableCollaborationEnvelope::peers: BTreeMap<u64, Principal>
 #[cfg(feature = "testing")] field clerkenwell_store::testing::DurableCollaborationEnvelope::resource_id: String
 #[cfg(feature = "testing")] field clerkenwell_store::testing::DurableCollaborationEnvelope::retained_operations: Vec<CollaborationOperation>
 #[cfg(feature = "testing")] field clerkenwell_store::testing::DurableCollaborationEnvelope::schema_version: u32

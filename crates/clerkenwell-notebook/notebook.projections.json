@@ -549,7 +549,10 @@
               "codec": "string"
             },
             "required": true,
-            "conflict": "explicit"
+            "conflict": "explicit",
+            "writers": {
+              "agent": "immutable"
+            }
           },
           "created_at": {
             "storage": {

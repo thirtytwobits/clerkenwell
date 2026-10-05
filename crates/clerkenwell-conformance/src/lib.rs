@@ -17,7 +17,7 @@ mod documents;
 use std::path::{Path, PathBuf};
 
 use clerkenwell_doc::{conflicting_field_paths, CollaborationReplica};
-use clerkenwell_schema::GeneratedCollaborationEntitySpec;
+use clerkenwell_schema::{ActorKind, GeneratedCollaborationEntitySpec};
 use serde_json::{json, Value};
 
 use bridge::{Bridge, TypeScriptReplica};
@@ -26,6 +26,19 @@ use documents::{client_document, text_targets};
 
 /// The revision every materialisation is read at.
 const REVISION: &str = "replica:conformance";
+
+/// The peer a Rust replica seeded from a fixture writes under.
+const RUST_PEER: u64 = 1;
+
+/// The peer Rust prepares text consumption under.
+const RUST_PREPARING_PEER: u64 = 2;
+
+const WRITER_KINDS: [ActorKind; 4] = [
+    ActorKind::Human,
+    ActorKind::Agent,
+    ActorKind::Service,
+    ActorKind::System,
+];
 
 /// One definition's generated bindings.
 #[derive(Debug, Clone)]
@@ -166,7 +179,7 @@ impl Conformance {
         plan: &'static GeneratedCollaborationEntitySpec,
         fixture: &EntityFixture,
     ) -> Pair<'_> {
-        let rust = CollaborationReplica::from_document(plan, &fixture.wire_document)
+        let rust = CollaborationReplica::from_document(plan, &fixture.wire_document, RUST_PEER)
             .unwrap_or_else(|error| panic!("{}: Rust seeds: {error}", plan.name));
         let seeded = rust.export_update_base64().expect("Rust exports");
         let typescript = self
@@ -185,9 +198,10 @@ impl Conformance {
     /// document, and both refuse the fixture's unsupported schema versions.
     pub fn seeding(&self) {
         for (plan, fixture) in self.fixtures() {
-            let expected = CollaborationReplica::from_document(plan, &fixture.wire_document)
-                .and_then(|seeded| seeded.materialized_document(REVISION))
-                .unwrap_or_else(|error| panic!("{}: Rust seeds: {error}", plan.name));
+            let expected =
+                CollaborationReplica::from_document(plan, &fixture.wire_document, RUST_PEER)
+                    .and_then(|seeded| seeded.materialized_document(REVISION))
+                    .unwrap_or_else(|error| panic!("{}: Rust seeds: {error}", plan.name));
 
             let typescript = self.bridge.seed_fixture(plan.name);
             let update = typescript.export();
@@ -435,6 +449,7 @@ impl Conformance {
                         &captured_frontier,
                         &captured,
                         "",
+                        RUST_PREPARING_PEER,
                     )
                     .unwrap_or_else(|error| panic!("{context}: Rust prepares: {error}"));
                 typescript.insert_text(target.field, &target.identities, 0, second);
@@ -493,18 +508,23 @@ impl Conformance {
             let client_base = client_document(plan, base);
             for (client_name, client) in &documents {
                 for (current_name, current) in &documents {
-                    let rust = conflicting_field_paths(plan, base, client, current);
-                    let typescript = self.bridge.policy_conflicts(
-                        &fixture.entity,
-                        &client_base,
-                        &client_document(plan, client),
-                        &client_document(plan, current),
-                    );
-                    assert_eq!(
-                        typescript, rust,
-                        "{}: {client_name} against {current_name}",
-                        plan.name
-                    );
+                    for kind in WRITER_KINDS {
+                        let rust = conflicting_field_paths(plan, base, client, current, kind);
+                        let typescript = self.bridge.policy_conflicts(
+                            &fixture.entity,
+                            &client_base,
+                            &client_document(plan, client),
+                            &client_document(plan, current),
+                            kind,
+                        );
+                        assert_eq!(
+                            typescript, rust,
+                            "{}: {client_name} against {current_name} by {kind:?}",
+                            plan.name
+                        );
+                    }
+                    let rust =
+                        conflicting_field_paths(plan, base, client, current, ActorKind::Human);
                     if Some(client_name) == scalar.as_ref() && current_name == "divergent scalar" {
                         assert!(
                             !rust.is_empty(),

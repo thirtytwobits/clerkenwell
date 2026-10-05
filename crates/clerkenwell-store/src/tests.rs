@@ -32,6 +32,7 @@ const fn field(
         required: true,
         required_in_parent: true,
         conflict,
+        writers: &[],
     }
 }
 
@@ -117,8 +118,22 @@ fn note_seed() -> Value {
     })
 }
 
+fn test_key() -> PeerKey {
+    PeerKey::new([7; 32]).expect("a key of 32 bytes")
+}
+
+/// The principal the tests write as.
+fn writer() -> Principal {
+    Principal::new("writer", ActorKind::Human)
+}
+
+/// The principal the tests recover documents as.
+fn operator() -> Principal {
+    Principal::new("operator", ActorKind::Human)
+}
+
 fn open_service(storage: &MemoryStorage) -> CollaborationService {
-    CollaborationService::new(storage.clone(), PLANS, POLICY, "notes")
+    CollaborationService::new(storage.clone(), PLANS, POLICY, test_key(), "notes")
 }
 
 fn initialise(
@@ -387,6 +402,8 @@ fn edit_request(
         &state.update_base64,
     )
     .expect("hydrate client");
+    let block = test_key().allocate(&writer(), document);
+    client.set_peer(block.base).expect("allocated peer");
     client.replace_document(&edited).expect("edit client");
     CollaborationImportRequest {
         document: document.clone(),
@@ -398,6 +415,9 @@ fn edit_request(
             .export_incremental_update_base64(&state.accepted_frontier_base64)
             .expect("incremental update"),
         fence: ImportFence::Frontier,
+        actor: writer(),
+        peer_nonces: vec![block.nonce],
+        intent: None,
     }
 }
 
@@ -500,6 +520,8 @@ fn captured_text_consumption_preserves_later_edits_across_restart_and_retry() {
     let text = captured
         .text_at_frontier(path, &HashMap::new(), &state.accepted_frontier_base64)
         .unwrap();
+    // Each preparation writes under its own peer of the writer's block.
+    let block = service.allocate_peers(&writer(), &document);
     let prepared = captured
         .prepare_text_replacement_at_frontier(
             path,
@@ -507,6 +529,7 @@ fn captured_text_consumption_preserves_later_edits_across_restart_and_retry() {
             &state.accepted_frontier_base64,
             &text,
             "",
+            block.base | 1,
         )
         .unwrap();
     // A replacement after capture deletes the old characters and inserts new ones.
@@ -519,31 +542,23 @@ fn captured_text_consumption_preserves_later_edits_across_restart_and_retry() {
             &state.accepted_frontier_base64,
             &text,
             later,
+            block.base | 2,
         )
         .unwrap();
-    import(
-        &service,
-        CollaborationImportRequest {
-            document: document.clone(),
-            schema_version: state.schema_version,
-            operation_id: "later-text".to_string(),
-            exchange_mode: CollaborationExchangeMode::Incremental,
-            base_frontier_base64: state.accepted_frontier_base64.clone(),
-            update_base64: replacement,
-            fence: ImportFence::Frontier,
-        },
-        &seed,
-    )
-    .unwrap();
-    let request = CollaborationImportRequest {
+    let prepared_request = |operation_id: &str, update_base64: String| CollaborationImportRequest {
         document: document.clone(),
         schema_version: state.schema_version,
-        operation_id: "captured-consumption".to_string(),
+        operation_id: operation_id.to_string(),
         exchange_mode: CollaborationExchangeMode::Incremental,
         base_frontier_base64: state.accepted_frontier_base64.clone(),
-        update_base64: prepared,
+        update_base64,
         fence: ImportFence::Frontier,
+        actor: writer(),
+        peer_nonces: vec![block.nonce.clone()],
+        intent: None,
     };
+    import(&service, prepared_request("later-text", replacement), &seed).unwrap();
+    let request = prepared_request("captured-consumption", prepared);
     let before = service
         .authoring_state(&NOTE_PLAN, &document, None)
         .unwrap();
@@ -747,7 +762,7 @@ fn corruption_is_reported_and_checkpoint_repair_preserves_evidence() {
     assert!(!inspection.valid);
     assert!(service.detail(&NOTE_PLAN, &document).is_err());
     service
-        .repair(&document, "checksum verification failed")
+        .repair(&operator(), &document, "checksum verification failed")
         .expect("repair from valid checkpoint");
     assert_eq!(storage.evidence(), vec![corrupt_bytes]);
     assert!(service.verify(&document).valid);
@@ -764,44 +779,114 @@ fn operator_recovery_requests_are_durably_audited_without_reason_text() {
     let private_reason = "operator supplied private incident context";
 
     service
-        .export_for_recovery(&document)
+        .export_for_recovery(&operator(), &document)
         .expect("audited export");
     service
-        .quarantine(&document, private_reason)
+        .quarantine(&operator(), &document, private_reason)
         .expect("audited quarantine");
-    service.reindex().expect("audited reindex");
-    service.reset(&document).expect("audited destructive reset");
+    service.reindex(&operator()).expect("audited reindex");
+    service
+        .reset(&operator(), &document)
+        .expect("audited destructive reset");
 
-    let records = service.recovery_audit().expect("read recovery audit");
+    let records = service
+        .audit(&CollaborationAuditQuery::default())
+        .expect("read the audit");
+    let recoveries: Vec<_> = records
+        .iter()
+        .map(|record| match &record.event {
+            CollaborationAuditEvent::Recovery {
+                action,
+                destructive,
+                ..
+            } => (*action, *destructive),
+            event => panic!("only recovery was requested, not {event:?}"),
+        })
+        .collect();
     assert_eq!(
-        records
-            .iter()
-            .map(|record| record.action)
-            .collect::<Vec<_>>(),
+        recoveries,
         vec![
-            CollaborationRecoveryAction::Export,
-            CollaborationRecoveryAction::Quarantine,
-            CollaborationRecoveryAction::Reindex,
-            CollaborationRecoveryAction::Reset,
+            (CollaborationRecoveryAction::Export, false),
+            (CollaborationRecoveryAction::Quarantine, false),
+            (CollaborationRecoveryAction::Reindex, false),
+            (CollaborationRecoveryAction::Reset, true),
         ]
     );
-    assert!(records.last().is_some_and(|record| record.destructive));
-    assert!(records
-        .iter()
-        .all(|record| { record.reason_sha256.as_deref() != Some(private_reason) }));
+    assert!(records.iter().all(|record| record.actor == operator()));
     assert!(!serde_json::to_string(&records)
         .expect("audit JSON")
         .contains(private_reason));
 }
 
-/// A structurally valid envelope whose checkpoint is not a Loro document:
+#[test]
+fn a_commit_adding_operations_under_a_peer_bound_to_another_principal_is_refused() {
+    let storage = MemoryStorage::default();
+    let (service, document, seed, state) = initialise(&storage);
+    let edit = edit_request(
+        &document,
+        &seed,
+        &state,
+        "bound",
+        &["title"],
+        json!("Bound"),
+    );
+    import(&service, edit, &seed).expect("the writer's edit");
+    let resident = service
+        .read_envelope(&document)
+        .expect("read")
+        .expect("the note");
+    let bound: Vec<u64> = resident
+        .envelope
+        .peers
+        .iter()
+        .filter(|(_, principal)| **principal == writer())
+        .map(|(peer, _)| *peer)
+        .collect();
+    assert!(!bound.is_empty());
+
+    let refused = service
+        .commit(
+            Some(&resident),
+            CollaborationCommit {
+                document: document.clone(),
+                schema_version: NOTE_PLAN.schema_version,
+                operation_id: "impostor".to_string(),
+                actor: Principal::new("impostor", ActorKind::Human),
+                intent: None,
+                peers: bound,
+                imported_update: b"impostor".to_vec(),
+                has_new_operations: true,
+                accepted_update: b"impostor".to_vec(),
+                frontier_before: None,
+                frontier_after: None,
+            },
+        )
+        .expect_err("the peers are the writer's");
+
+    assert_eq!(
+        refused.data.as_ref().and_then(|data| data["code"].as_str()),
+        Some("collaboration_peer_bound")
+    );
+    assert_eq!(
+        service
+            .load(&document)
+            .expect("read")
+            .expect("the note")
+            .generation,
+        resident.envelope.generation
+    );
+}
+
+/// A structurally valid envelope whose checkpoint holds no operations:
 /// enough for anything that reads envelopes without materialising them.
 fn opaque_envelope(
     entity: &str,
     resource_id: &str,
     schema_version: u32,
 ) -> DurableCollaborationEnvelope {
-    let checkpoint = resource_id.as_bytes();
+    let checkpoint = &loro::LoroDoc::new()
+        .export(loro::ExportMode::all_updates())
+        .expect("an empty document");
     DurableCollaborationEnvelope {
         envelope_version: ENVELOPE_VERSION,
         entity: entity.to_string(),
@@ -814,6 +899,7 @@ fn opaque_envelope(
         checkpoint_sha256: sha256_hex(checkpoint),
         checkpoint_bytes: checkpoint.len(),
         retained_operations: Vec::new(),
+        peers: BTreeMap::new(),
     }
 }
 
@@ -845,7 +931,11 @@ fn reads_leave_every_stored_byte_unchanged() {
             .expect("read document");
         service.inspect(None, None, None).expect("inspect");
         service.verify(&document);
-        service.recovery_audit().expect("recovery audit");
+        service
+            .audit(&CollaborationAuditQuery::default())
+            .expect("audit");
+        service.attribution(&document).expect("attribution");
+        service.allocate_peers(&writer(), &document);
         service.counters();
     }
 
@@ -867,10 +957,16 @@ fn reindex_reads_every_document_and_changes_nothing_but_the_audit() {
             .expect("install envelope");
     }
     let before = storage.envelopes();
-    let audited = storage.recovery_audit().expect("audit").len();
+    let audit = || {
+        storage
+            .audit(&CollaborationAuditQuery::default())
+            .expect("audit")
+            .len()
+    };
+    let audited = audit();
 
-    let (documents, revision) = service.reindex().expect("reindex");
-    let (again, same_revision) = service.reindex().expect("reindex again");
+    let (documents, revision) = service.reindex(&operator()).expect("reindex");
+    let (again, same_revision) = service.reindex(&operator()).expect("reindex again");
 
     assert_eq!(documents, count);
     assert_eq!(again, count);
@@ -879,7 +975,7 @@ fn reindex_reads_every_document_and_changes_nothing_but_the_audit() {
         "an unchanged catalogue keeps its fingerprint"
     );
     assert_eq!(storage.envelopes(), before);
-    assert_eq!(storage.recovery_audit().expect("audit").len(), audited + 2);
+    assert_eq!(audit(), audited + 2);
 }
 
 #[test]
@@ -1070,27 +1166,32 @@ fn writer_edit(
     path: &str,
     replacement: Value,
 ) -> (CollaborationReplica, CollaborationImportRequest) {
-    let mut writer = CollaborationReplica::from_versioned_update_base64(
+    let mut replica = CollaborationReplica::from_versioned_update_base64(
         &NOTE_PLAN,
         state.schema_version,
         &state.update_base64,
     )
     .expect("hydrate writer");
+    let block = test_key().allocate(&writer(), document);
+    replica.set_peer(block.base).expect("allocated peer");
     let mut edited = seed.clone();
     edited[path] = replacement;
-    writer.replace_document(&edited).expect("edit writer");
+    replica.replace_document(&edited).expect("edit writer");
     let request = CollaborationImportRequest {
         document: document.clone(),
         schema_version: state.schema_version,
         operation_id: operation_id.to_string(),
         exchange_mode: CollaborationExchangeMode::Incremental,
         base_frontier_base64: state.accepted_frontier_base64.clone(),
-        update_base64: writer
+        update_base64: replica
             .export_incremental_update_base64(&state.accepted_frontier_base64)
             .expect("incremental update"),
         fence: ImportFence::Frontier,
+        actor: writer(),
+        peer_nonces: vec![block.nonce],
+        intent: None,
     };
-    (writer, request)
+    (replica, request)
 }
 
 fn update_metadata(update_base64: &str) -> loro::ImportBlobMetadata {

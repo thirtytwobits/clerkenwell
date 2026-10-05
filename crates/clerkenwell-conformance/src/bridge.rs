@@ -9,12 +9,20 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
 
+use clerkenwell_schema::ActorKind;
 use serde_json::{json, Value};
 
 use crate::Bindings;
 
 /// The bridge's source.
 const SOURCE: &str = include_str!("bridge.ts");
+
+/// The low bits of a peer a TypeScript replica chooses within its block.
+const PEER_INDEX_BITS: u32 = 16;
+
+/// The first block a TypeScript replica writes under, above every peer the
+/// conformance's Rust replicas write under.
+const TYPESCRIPT_BLOCKS: u64 = 1 << 20;
 
 /// The `@clerkenwell/client` version this crate drives: its own.
 const CLIENT_VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -108,21 +116,31 @@ impl Bridge {
             .unwrap_or_else(|error| panic!("bridge {}: {error}", request["op"]))
     }
 
-    fn name(&self) -> String {
+    /// A new replica's name, and the block of peers it and its forks write
+    /// under: one no other replica the conformance runs writes under.
+    fn name(&self) -> (String, Value) {
         let next = self.replicas.get() + 1;
         self.replicas.set(next);
-        format!("replica-{next}")
+        let base = (TYPESCRIPT_BLOCKS + next) << PEER_INDEX_BITS;
+        let name = format!("replica-{next}");
+        let block = json!({
+            "nonce": name,
+            "base": base.to_string(),
+            "index_bits": PEER_INDEX_BITS,
+        });
+        (name, block)
     }
 
-    /// The field paths TypeScript reports an edit from `base` to `client`
-    /// conflicting on against their policy once the accepted document is
-    /// `current`. Documents are in client naming.
+    /// The field paths TypeScript reports an edit `kind` made from `base` to
+    /// `client` conflicting on against their policy once the accepted
+    /// document is `current`. Documents are in client naming.
     pub fn policy_conflicts(
         &self,
         entity: &str,
         base: &Value,
         client: &Value,
         current: &Value,
+        kind: ActorKind,
     ) -> Vec<String> {
         let paths = self.call(json!({
             "op": "policyConflicts",
@@ -130,14 +148,20 @@ impl Bridge {
             "base": base,
             "client": client,
             "current": current,
+            "kind": kind,
         }));
         serde_json::from_value(paths).expect("the bridge answers a list of paths")
     }
 
     /// A replica seeded from the fixture corpus's client document for `entity`.
     pub fn seed_fixture(&self, entity: &str) -> TypeScriptReplica<'_> {
-        let name = self.name();
-        self.call(json!({ "op": "seedFixture", "replica": name, "entity": entity }));
+        let (name, peer_block) = self.name();
+        self.call(json!({
+            "op": "seedFixture",
+            "replica": name,
+            "entity": entity,
+            "peerBlock": peer_block,
+        }));
         TypeScriptReplica { bridge: self, name }
     }
 
@@ -149,13 +173,14 @@ impl Bridge {
         schema_version: u32,
         update_base64: &str,
     ) -> Result<TypeScriptReplica<'_>, String> {
-        let name = self.name();
+        let (name, peer_block) = self.name();
         self.request(&json!({
             "op": "hydrate",
             "replica": name,
             "entity": entity,
             "schemaVersion": schema_version,
             "updateBase64": update_base64,
+            "peerBlock": peer_block,
         }))?;
         Ok(TypeScriptReplica { bridge: self, name })
     }

@@ -1,6 +1,7 @@
 # The public API of clerkenwell_schema. Written by `cargo run -p clerkenwell-public-api`.
-# Types named from: none
+# Types named from: clerkenwell_events
 
+use clerkenwell_schema::ActorKind = clerkenwell_events::ActorKind
 enum clerkenwell_schema::GeneratedAuthoringPolicyKind
 derive clerkenwell_schema::GeneratedAuthoringPolicyKind: Clone, Copy, Debug, Eq, PartialEq
 variant clerkenwell_schema::GeneratedAuthoringPolicyKind::Collaborative
@@ -28,6 +29,7 @@ struct clerkenwell_schema::GeneratedCollaborationFieldSpec
 derive clerkenwell_schema::GeneratedCollaborationFieldSpec: Clone, Copy, Debug, Eq, PartialEq
 field clerkenwell_schema::GeneratedCollaborationFieldSpec::codec: GeneratedCollaborationValueCodec
 field clerkenwell_schema::GeneratedCollaborationFieldSpec::conflict: GeneratedCollaborationConflict
+fn clerkenwell_schema::GeneratedCollaborationFieldSpec::conflict_for(&self, kind: ActorKind) -> GeneratedCollaborationConflict
 field clerkenwell_schema::GeneratedCollaborationFieldSpec::container: Option<&'static str>
 field clerkenwell_schema::GeneratedCollaborationFieldSpec::container_template: Option<&'static str>
 field clerkenwell_schema::GeneratedCollaborationFieldSpec::identity_path: Option<&'static str>
@@ -43,6 +45,8 @@ field clerkenwell_schema::GeneratedCollaborationFieldSpec::required: bool
 field clerkenwell_schema::GeneratedCollaborationFieldSpec::required_in_parent: bool
 field clerkenwell_schema::GeneratedCollaborationFieldSpec::storage_kind: GeneratedCollaborationStorageKind
 field clerkenwell_schema::GeneratedCollaborationFieldSpec::value_schema: Option<&'static str>
+fn clerkenwell_schema::GeneratedCollaborationFieldSpec::writer_conflict(&self, kind: ActorKind) -> Option<GeneratedCollaborationConflict>
+field clerkenwell_schema::GeneratedCollaborationFieldSpec::writers: &'static [GeneratedWriterConflict]
 enum clerkenwell_schema::GeneratedCollaborationStorageKind
 derive clerkenwell_schema::GeneratedCollaborationStorageKind: Clone, Copy, Debug, Eq, PartialEq
 variant clerkenwell_schema::GeneratedCollaborationStorageKind::DerivedIdentity
@@ -97,3 +101,7 @@ enum clerkenwell_schema::GeneratedSnapshotMode
 derive clerkenwell_schema::GeneratedSnapshotMode: Clone, Copy, Debug, Eq, PartialEq
 variant clerkenwell_schema::GeneratedSnapshotMode::Field(&'static str)
 variant clerkenwell_schema::GeneratedSnapshotMode::Patch
+struct clerkenwell_schema::GeneratedWriterConflict
+derive clerkenwell_schema::GeneratedWriterConflict: Clone, Copy, Debug, Eq, PartialEq
+field clerkenwell_schema::GeneratedWriterConflict::conflict: GeneratedCollaborationConflict
+field clerkenwell_schema::GeneratedWriterConflict::kind: ActorKind

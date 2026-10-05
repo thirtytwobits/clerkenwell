@@ -105,7 +105,10 @@
               "codec": "string"
             },
             "required": true,
-            "conflict": "explicit"
+            "conflict": "explicit",
+            "writers": {
+              "agent": "immutable"
+            }
           }
         }
       }
@@ -182,7 +185,8 @@
         "note_id",
         "operation_id",
         "exchange_mode",
-        "update_base64"
+        "update_base64",
+        "peer_nonces"
       ],
       "properties": {
         "note_id": {
@@ -205,6 +209,17 @@
         "update_base64": {
           "type": "string",
           "minLength": 1
+        },
+        "peer_nonces": {
+          "type": "array",
+          "description": "The nonce of every peer block the update's operations are written under.",
+          "items": {
+            "type": "string"
+          }
+        },
+        "intent": {
+          "type": "string",
+          "description": "Why the writer made the change."
         }
       }
     },

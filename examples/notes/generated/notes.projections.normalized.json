@@ -52,6 +52,9 @@
             },
             "value": {
               "codec": "string"
+            },
+            "writers": {
+              "agent": "immutable"
             }
           },
           {
@@ -78,6 +81,29 @@
   "definitions": [
     {
       "additionalProperties": false,
+      "description": "A block of peers allocated to the subscriber: every peer whose bits above the low index_bits are base's. An import names the block by its nonce.",
+      "name": "AuthoringPeerBlock",
+      "properties": {
+        "base": {
+          "description": "The block's first peer, in decimal.",
+          "type": "string"
+        },
+        "index_bits": {
+          "type": "integer"
+        },
+        "nonce": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "nonce",
+        "base",
+        "index_bits"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
       "name": "AuthoringState",
       "properties": {
         "accepted_frontier_base64": {
@@ -99,6 +125,9 @@
           },
           "type": "array"
         },
+        "peer_block": {
+          "$ref": "#/$defs/AuthoringPeerBlock"
+        },
         "schema_version": {
           "description": "The layout version the document's operations are written in.",
           "type": "integer"
@@ -113,7 +142,8 @@
         "accepted_frontier_base64",
         "update_base64",
         "etag",
-        "exchange_modes"
+        "exchange_modes",
+        "peer_block"
       ],
       "type": "object"
     },
@@ -230,12 +260,23 @@
           ],
           "type": "string"
         },
+        "intent": {
+          "description": "Why the writer made the change.",
+          "type": "string"
+        },
         "note_id": {
           "type": "string"
         },
         "operation_id": {
           "minLength": 1,
           "type": "string"
+        },
+        "peer_nonces": {
+          "description": "The nonce of every peer block the update's operations are written under.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
         },
         "update_base64": {
           "minLength": 1,
@@ -246,7 +287,8 @@
         "note_id",
         "operation_id",
         "exchange_mode",
-        "update_base64"
+        "update_base64",
+        "peer_nonces"
       ],
       "type": "object"
     },

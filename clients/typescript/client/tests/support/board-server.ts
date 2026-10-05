@@ -8,6 +8,7 @@
  */
 import type { AuthoringResourceIdentity, AuthoringRuntime } from "@clerkenwell/client";
 import type { AuthoringSessionHandle } from "../../src/authoring-runtime.js";
+import { peerBlock } from "./peers.js";
 
 import { BOARD_PLAN, type BoardDocument } from "./plans.js";
 import {
@@ -96,7 +97,7 @@ export function openBoardSession(
     draft: server.board()
   });
   return runtime.ensureController(resource, () =>
-    BOARD_DRAFTS.fromUpdate(initial.update_base64).controller());
+    BOARD_DRAFTS.fromUpdate(initial.update_base64, peerBlock()).controller());
 }
 
 export function renameTask(board: BoardDocument, taskId: string, title: string): BoardDocument {

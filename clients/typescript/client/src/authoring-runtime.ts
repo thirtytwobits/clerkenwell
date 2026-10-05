@@ -563,6 +563,7 @@ export class AuthoringRuntime {
       && (authoringSessionAcceptsDraft(session) || controller.replaceDraft === undefined)
       && controller.coversFrontierBase64(operations.baseFrontierBase64)
     ) {
+      controller.includePeerNonces?.(operations.peerNonces);
       controller.importUpdateBase64(operations.updateBase64);
     } else if (controller.replaceDraft !== undefined) {
       controller.replaceDraft(session.draft);
@@ -988,12 +989,22 @@ function recordDraftOperations<TDocument>(
   if (owned.holdsUntakenDraft) {
     return session;
   }
-  const recorded = session.draftOperations;
   const updateBase64 = controller.exportIncrementalUpdateBase64(base);
-  if (recorded?.baseFrontierBase64 === base && recorded.updateBase64 === updateBase64) {
+  const peerNonces = controller.peerNonces?.() ?? [];
+  const recorded = session.draftOperations;
+  if (
+    recorded?.baseFrontierBase64 === base
+    && recorded.updateBase64 === updateBase64
+    && sameMembers(recorded.peerNonces, peerNonces)
+  ) {
     return session;
   }
-  return { ...session, draftOperations: { baseFrontierBase64: base, updateBase64 } };
+  return { ...session, draftOperations: { baseFrontierBase64: base, updateBase64, peerNonces } };
+}
+
+function sameMembers(left: readonly string[], right: readonly string[]): boolean {
+  const members = new Set(left);
+  return left.length === right.length && right.every((member) => members.has(member));
 }
 
 /** Whether a controller's replica already holds every operation up to a frontier. */

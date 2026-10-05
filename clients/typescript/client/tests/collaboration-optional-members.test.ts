@@ -7,6 +7,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import { peerBlock } from "./support/peers.js";
 
 import { CollaborationReplica } from "@clerkenwell/client/replica";
 
@@ -33,11 +34,11 @@ function sample(entity: Entity): ClientRecord {
 
 function roundTrip(entity: Entity, document: ClientRecord): ClientRecord {
   const plan = COLLABORATION_PLANS[entity];
-  const written = CollaborationReplica.from(entity, plan, { kind: "document", document });
+  const written = CollaborationReplica.from(entity, plan, { kind: "document", document }, peerBlock());
   return CollaborationReplica.from<ClientRecord>(entity, plan, {
     kind: "update",
     updateBase64: written.exportUpdateBase64()
-  }).currentDocument();
+  }, peerBlock()).currentDocument();
 }
 
 /** A board whose one archived column holds `column`. */

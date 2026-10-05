@@ -3,30 +3,63 @@
 //! A concurrent edit is judged field by field: `immutable` fields may not
 //! change at all, `explicit` fields refuse two different changes to one value,
 //! and `merge` and `lastWriterWins` fields always accept. Fields inside a keyed
-//! sequence are judged per item, addressed by the item's identity.
+//! sequence are judged per item, addressed by the item's identity. A field
+//! may judge one kind of writer by another policy than its own.
 
 use std::collections::{BTreeMap, BTreeSet};
 
 use clerkenwell_schema::{
-    GeneratedCollaborationConflict, GeneratedCollaborationEntitySpec,
+    ActorKind, GeneratedCollaborationConflict, GeneratedCollaborationEntitySpec,
     GeneratedCollaborationFieldSpec, GeneratedCollaborationStorageKind,
 };
 use serde_json::Value;
 
-/// The declared field paths an edit from `base` to `client` changes against
-/// their conflict policy, given that the accepted document has meanwhile
-/// become `current`. Keyed item fields are reported as
+/// The declared field paths an edit `kind` made from `base` to `client`
+/// changes against their conflict policy for `kind`, given that the accepted
+/// document has meanwhile become `current`. Keyed item fields are reported as
 /// `sequence[identity].field`.
 pub fn conflicting_field_paths(
     plan: &GeneratedCollaborationEntitySpec,
     base: &Value,
     client: &Value,
     current: &Value,
+    kind: ActorKind,
+) -> Vec<String> {
+    judged_field_paths(plan, base, client, current, |field| {
+        Some(field.conflict_for(kind))
+    })
+}
+
+/// The declared field paths a document `kind` creates sets against the
+/// policy that replaces the field's own for `kind`. A field without such a
+/// policy is set as its creation chooses.
+pub fn creation_conflicting_field_paths(
+    plan: &GeneratedCollaborationEntitySpec,
+    created: &Value,
+    kind: ActorKind,
+) -> Vec<String> {
+    judged_field_paths(plan, &Value::Null, created, &Value::Null, |field| {
+        field.writer_conflict(kind)
+    })
+}
+
+/// The declared field paths an edit from `base` to `client` changes against
+/// the policy `policy` names for each field, given the accepted document
+/// `current`. A field `policy` names none for is not judged.
+fn judged_field_paths(
+    plan: &GeneratedCollaborationEntitySpec,
+    base: &Value,
+    client: &Value,
+    current: &Value,
+    policy: impl Fn(&GeneratedCollaborationFieldSpec) -> Option<GeneratedCollaborationConflict>,
 ) -> Vec<String> {
     let mut conflicts = BTreeSet::new();
     for field in plan.fields {
+        let Some(conflict) = policy(field) else {
+            continue;
+        };
         if !matches!(
-            field.conflict,
+            conflict,
             GeneratedCollaborationConflict::Explicit | GeneratedCollaborationConflict::Immutable
         ) || matches!(
             field.storage_kind,
@@ -48,7 +81,7 @@ pub fn conflicting_field_paths(
             let base_value = base_values.get(&key).unwrap_or(&Value::Null);
             let client_value = client_values.get(&key).unwrap_or(&Value::Null);
             let current_value = current_values.get(&key).unwrap_or(&Value::Null);
-            let conflict = match field.conflict {
+            let conflict = match conflict {
                 GeneratedCollaborationConflict::Immutable => client_value != base_value,
                 GeneratedCollaborationConflict::Explicit => {
                     client_value != base_value
