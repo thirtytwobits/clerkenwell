@@ -14,6 +14,7 @@ import {
   type AuthoringRuntimeState
 } from "@clerkenwell/client";
 import type { AuthoringSessionHandle } from "../src/authoring-runtime.js";
+import type { AuthoringSessionController } from "../src/authoring-session.js";
 
 import { FakeBoardServer, openBoardSession } from "./support/board-server.js";
 import { boardDocument, type BoardDocument } from "./support/plans.js";
@@ -190,26 +191,146 @@ test("pending work a runtime starts on reaches the server once", async () => {
   assert.equal(copiesOf(notes, " From the other runtime."), 1, notes);
 });
 
+/** A controller of a replica of `update` that takes no documents. */
+function controllerWithoutDocuments(update: string): AuthoringSessionController<BoardDocument, BoardTextFieldPath> {
+  const { replaceDraft: _takesDocuments, ...controller } = BOARD_DRAFTS.fromUpdate(update).controller();
+  return controller;
+}
+
+/** Attaches a replica of `update` whose controller takes no documents. */
+function attachWithoutDocuments(runtime: AuthoringRuntime, update: string): AuthoringSessionHandle<BoardDocument, BoardTextFieldPath> {
+  return runtime.ensureController(resource, () => controllerWithoutDocuments(update));
+}
+
 test("a replica that takes no documents restores a blocked session's pending work as its operations", async () => {
   const server = new FakeBoardServer(boardDocument());
   const beforeRestart = new AuthoringRuntime();
   await append(openBoardSession(beforeRestart, server, resource), " Held.");
   beforeRestart.block(resource, "recoveryRequired");
-  const attachWithoutDocuments = (runtime: AuthoringRuntime) => runtime.ensureController(resource, () => {
-    const { replaceDraft: _takesDocuments, ...controller } = BOARD_DRAFTS
-      .fromUpdate(server.snapshot().update_base64)
-      .controller();
-    return controller;
-  });
 
   const afterRestart = new AuthoringRuntime(persisted(beforeRestart));
-  const restored = attachWithoutDocuments(afterRestart);
+  const restored = attachWithoutDocuments(afterRestart, server.snapshot().update_base64);
   assert.equal(copiesOf(notesOf(restored.currentDraft()), " Held."), 1);
   assert.equal(afterRestart.session(resource)?.status, "recoveryRequired");
 
   // What it restored stays recorded, so a further restart restores it again.
-  const again = attachWithoutDocuments(new AuthoringRuntime(persisted(afterRestart)));
+  const again = attachWithoutDocuments(new AuthoringRuntime(persisted(afterRestart)), server.snapshot().update_base64);
   assert.equal(copiesOf(notesOf(again.currentDraft()), " Held."), 1);
+});
+
+test("a replica that takes no documents holds pending work whose history it lacks", async () => {
+  const server = new FakeBoardServer(boardDocument());
+  const beforeRestart = new AuthoringRuntime();
+  await append(openBoardSession(beforeRestart, server, resource), " Pending.");
+  const pending = beforeRestart.session<BoardDocument>(resource)?.draft;
+  assert.ok(pending);
+  const otherHistory = BOARD_DRAFTS.fromDocument(boardDocument()).exportUpdateBase64();
+
+  const afterRestart = new AuthoringRuntime(persisted(beforeRestart));
+  attachWithoutDocuments(afterRestart, otherHistory);
+  const held = afterRestart.session<BoardDocument>(resource);
+  assert.equal(held?.status, "recoveryRequired");
+  assert.deepEqual(held?.draft, pending);
+
+  // What it holds stays recorded, so a replica with that history restores it.
+  const restored = attachWithoutDocuments(new AuthoringRuntime(persisted(afterRestart)), server.snapshot().update_base64);
+  assert.equal(copiesOf(notesOf(restored.currentDraft()), " Pending."), 1);
+});
+
+test("held pending work stays held and persisted across a disconnect and a reconnect", async () => {
+  const server = new FakeBoardServer(boardDocument());
+  const beforeRestart = new AuthoringRuntime();
+  await append(openBoardSession(beforeRestart, server, resource), " Pending.");
+  const otherHistory = BOARD_DRAFTS.fromDocument(boardDocument()).exportUpdateBase64();
+
+  const runtime = new AuthoringRuntime(persisted(beforeRestart));
+  attachWithoutDocuments(runtime, otherHistory);
+  const held = runtime.session<BoardDocument>(resource);
+  runtime.disconnect();
+  const offline = persisted(runtime).sessions[`${resource.entity}:${resource.resourceKey}`];
+  assert.equal(offline?.status, "recoveryRequired");
+  assert.deepEqual(offline?.draft, held?.draft);
+  assert.deepEqual(offline?.draftOperations, held?.draftOperations);
+
+  runtime.reconnect();
+  assert.equal(runtime.session(resource)?.status, "recoveryRequired");
+  assert.deepEqual(runtime.session(resource)?.draft, held?.draft);
+});
+
+test("a subscriber that attaches while pending work is held gets the one controller", async () => {
+  const server = new FakeBoardServer(boardDocument());
+  const beforeRestart = new AuthoringRuntime();
+  await append(openBoardSession(beforeRestart, server, resource), " Pending.");
+  const otherHistory = BOARD_DRAFTS.fromDocument(boardDocument()).exportUpdateBase64();
+
+  const runtime = new AuthoringRuntime(persisted(beforeRestart));
+  let created = 0;
+  const create = () => {
+    created += 1;
+    return controllerWithoutDocuments(otherHistory);
+  };
+  const attachedFromSubscribers: AuthoringSessionHandle<BoardDocument, BoardTextFieldPath>[] = [];
+  runtime.subscribe(() => attachedFromSubscribers.push(runtime.ensureController(resource, create)));
+  const handle = runtime.ensureController(resource, create);
+
+  assert.equal(created, 1);
+  assert.ok(attachedFromSubscribers.every((attached) => attached === handle));
+});
+
+test("a replica that takes no documents holds a draft that has no recorded operations", async () => {
+  const server = new FakeBoardServer(boardDocument());
+  const typing = new AuthoringRuntime();
+  await append(openBoardSession(typing, server, resource), " Pending.");
+  const detached = new AuthoringRuntime(persisted(typing));
+  const replacement = withNotes(server.board(), "Rewritten.");
+  detached.modify(resource, replacement);
+  assert.equal(detached.session(resource)?.draftOperations, undefined);
+
+  attachWithoutDocuments(detached, server.snapshot().update_base64);
+  const held = detached.session<BoardDocument>(resource);
+  assert.equal(held?.status, "recoveryRequired");
+  assert.deepEqual(held?.draft, replacement);
+  assert.equal(held?.draftOperations, undefined);
+  assert.equal(persisted(detached).sessions[`${resource.entity}:${resource.resourceKey}`]?.draftOperations, undefined);
+});
+
+test("a controller holding no draft leaves a pending session editable", () => {
+  const runtime = new AuthoringRuntime();
+  runtime.open({
+    resource,
+    policy: "optimisticDocument",
+    schemaVersion: 1,
+    acceptedRevision: "accepted",
+    supportedExchangeModes: ["optimisticDocument"],
+    baseline: boardDocument(),
+    draft: boardDocument()
+  });
+  runtime.modify(resource, withNotes(boardDocument(), "Edited."));
+  runtime.ensureController(resource, () => ({ dispose: () => undefined }));
+
+  const next = withNotes(boardDocument(), "Edited again.");
+  runtime.modify(resource, next);
+  assert.deepEqual(runtime.session(resource)?.draft, next);
+});
+
+test("discarding pending work a replica could not hold leaves the replica's document, and records what follows", async () => {
+  const server = new FakeBoardServer(boardDocument());
+  const beforeRestart = new AuthoringRuntime();
+  await append(openBoardSession(beforeRestart, server, resource), " Pending.");
+  const replicaDocument = withNotes(boardDocument(), "Elsewhere.");
+  const replicaHistory = BOARD_DRAFTS.fromDocument(replicaDocument).exportUpdateBase64();
+
+  const afterRestart = new AuthoringRuntime(persisted(beforeRestart));
+  const session = attachWithoutDocuments(afterRestart, replicaHistory);
+  afterRestart.discard(resource);
+  assert.equal(afterRestart.session(resource)?.draftOperations, undefined);
+  assert.deepEqual(session.currentDraft(), replicaDocument);
+
+  await append(session, " After.");
+  const restored = attachWithoutDocuments(new AuthoringRuntime(persisted(afterRestart)), replicaHistory);
+  const notes = notesOf(restored.currentDraft());
+  assert.equal(copiesOf(notes, " After."), 1, notes);
+  assert.equal(copiesOf(notes, " Pending."), 0, notes);
 });
 
 test("a replica holding other history takes the draft as a document", async () => {

@@ -50,6 +50,12 @@ interface OwnedAuthoringController {
    * each accepted frontier it takes through the session handle.
    */
   acceptedBaseFrontierBase64?: string;
+  /**
+   * Whether the session holds pending work the replica could not take. Its
+   * draft and recorded operations, or their absence, stay as they are until
+   * the session has nothing pending.
+   */
+  holdsUntakenDraft: boolean;
 }
 
 /**
@@ -540,13 +546,16 @@ export class AuthoringRuntime {
       textStages: new Set(),
       draftSyncQueued: false,
       disposed: false,
+      holdsUntakenDraft: false,
       ...(recording ? { acceptedBaseFrontierBase64: controller.acceptedFrontierBase64() } : {})
     };
     // Recorded operations are taken as themselves, so edits the replica
     // already holds are not authored again. A replica without their base holds
     // other history, and a blocked session's draft stays as it is: both take
     // the draft as a document. A replica that takes no documents holds a
-    // blocked draft only as its operations.
+    // blocked draft only as its operations, and cannot hold pending work
+    // without them: that session is held for recovery with its draft and
+    // operations as they are.
     const operations = session.draftOperations;
     if (
       recording
@@ -555,11 +564,19 @@ export class AuthoringRuntime {
       && controller.coversFrontierBase64(operations.baseFrontierBase64)
     ) {
       controller.importUpdateBase64(operations.updateBase64);
-    } else {
-      controller.replaceDraft?.(session.draft);
+    } else if (controller.replaceDraft !== undefined) {
+      controller.replaceDraft(session.draft);
+    } else if (
+      (recording || controller.currentDraft !== undefined)
+      && authoringSessionRequiresDurableRestoration(session)
+    ) {
+      owned.holdsUntakenDraft = true;
     }
     owned.handle = new AuthoringSessionHandle<unknown, string>(this, owned);
     this.#controllers.set(id, owned);
+    if (owned.holdsUntakenDraft && authoringSessionAcceptsDraft(session)) {
+      this.#setSession(blockAuthoringSession(session, "recoveryRequired"), false);
+    }
     this.syncControllerDraft(owned);
     const synced = this.session<unknown>(resource);
     if (synced !== undefined) {
@@ -831,7 +848,7 @@ export class AuthoringRuntime {
    */
   syncControllerDraft(owned: OwnedAuthoringController): void {
     const controller = owned.controller;
-    if (controller.currentDraft === undefined) {
+    if (controller.currentDraft === undefined || owned.holdsUntakenDraft) {
       return;
     }
     const session = this.session<unknown>(owned.resource);
@@ -876,6 +893,9 @@ export class AuthoringRuntime {
   ): void {
     const id = authoringSessionId(session.resource);
     const owned = this.#controllers.get(id);
+    if (owned !== undefined && !authoringSessionRequiresDurableRestoration(session)) {
+      owned.holdsUntakenDraft = false;
+    }
     if (alignController) {
       owned?.controller.replaceDraft?.(session.draft);
     }
@@ -965,8 +985,11 @@ function recordDraftOperations<TDocument>(
   if (!authoringSessionRequiresDurableRestoration(session)) {
     return withoutDraftOperations(session);
   }
-  const updateBase64 = controller.exportIncrementalUpdateBase64(base);
+  if (owned.holdsUntakenDraft) {
+    return session;
+  }
   const recorded = session.draftOperations;
+  const updateBase64 = controller.exportIncrementalUpdateBase64(base);
   if (recorded?.baseFrontierBase64 === base && recorded.updateBase64 === updateBase64) {
     return session;
   }

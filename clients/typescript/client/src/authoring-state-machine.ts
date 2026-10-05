@@ -312,9 +312,22 @@ export function supersedeBlockedAuthoringOperations<TDocument>(
   };
 }
 
+/** The statuses {@link blockAuthoringSession} sets. */
+const BLOCKED_STATUSES = Object.keys({
+  migrationBlocked: true,
+  dependencyBlocked: true,
+  policyConflict: true,
+  resyncRequired: true,
+  recoveryRequired: true
+} satisfies Record<Parameters<typeof blockAuthoringSession>[1], true>) as AuthoringSessionStatus[];
+
+/** A blocked session stays blocked: the author or the server resolves a block, never connectivity. */
 export function disconnectAuthoringSession<TDocument>(
   session: AuthoringSession<TDocument>
 ): AuthoringSession<TDocument> {
+  if (BLOCKED_STATUSES.includes(session.status)) {
+    return session;
+  }
   return {
     ...session,
     status:

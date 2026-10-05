@@ -17,6 +17,16 @@ names the contracts.
   `CollaborationService::new` takes the port and a change source in place of a directory; it
   replaces `CollaborationService::with_storage`.
 
+### Fixed
+
+- `AuthoringRuntime.ensureController` no longer drops a session's pending work when the controller
+  it attaches holds a draft or records operations but takes no documents, and its replica cannot
+  take the work: the replica lacks the history the recorded operations extend, or there are none.
+  The session is held as `recoveryRequired` with its draft and recorded operations as they were,
+  so a replica holding that history restores them; discarding releases it.
+- `disconnectAuthoringSession` leaves a blocked session blocked. It made one readable, which
+  dropped it from persistence when nothing was queued and unblocked it on reconnect.
+
 ## 0.2.1
 
 ### Fixed

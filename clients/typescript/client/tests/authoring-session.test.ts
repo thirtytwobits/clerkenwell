@@ -312,6 +312,20 @@ test("a session blocked for migration, a dependency, a resync or recovery keeps 
   }
 });
 
+test("a disconnect leaves a blocked session blocked", () => {
+  // A block is resolved by the author or the server, never by connectivity.
+  for (const block of [
+    "migrationBlocked",
+    "dependencyBlocked",
+    "policyConflict",
+    "resyncRequired",
+    "recoveryRequired"
+  ] as const) {
+    const blocked = blockAuthoringSession(modifiedSession(), block);
+    assert.equal(disconnectAuthoringSession(blocked).status, block);
+  }
+});
+
 test("leave decisions distinguish durable restoration from irreversible loss", () => {
   const modified = modifiedSession();
   assert.deepEqual(authoringLeaveDecision(modified, true), {
