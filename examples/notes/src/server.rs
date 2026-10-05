@@ -10,6 +10,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use axum::http::request::Parts;
 use clerkenwell_axum::RpcFailure;
+use clerkenwell_doc::CollaborationReplica;
 use clerkenwell_events::{ActorKind, Principal};
 use clerkenwell_session::transport::ProjectionErrorCode;
 use clerkenwell_session::{
@@ -75,18 +76,50 @@ impl Default for NotesServer {
 }
 
 impl NotesServer {
-    fn create(&self, params: NoteCreateParams) -> Result<NoteMutationResult, RpcFailure> {
+    /// The store every note is kept in.
+    pub fn service(&self) -> &CollaborationService {
+        &self.service
+    }
+
+    /// Creates a note `principal` titles, written under a block of peers
+    /// allocated to it.
+    fn create(
+        &self,
+        principal: &Principal,
+        params: NoteCreateParams,
+    ) -> Result<NoteMutationResult, RpcFailure> {
         let note_id = format!("note-{}", self.created.fetch_add(1, Ordering::Relaxed));
+        let document = note(&note_id);
         let seed = json!({ "title": params.title, "body": "", "status": "draft" });
-        self.service
-            .bootstrap(NOTE, &note(&note_id), &seed, validate)
-            .map_err(refused)?;
-        let etag = self
+        let block = self.service.allocate_peers(principal, &document);
+        let created = CollaborationReplica::from_document(NOTE, &seed, block.base)
+            .and_then(|replica| replica.export_update_base64())
+            .map_err(|error| {
+                RpcFailure::new(ProjectionErrorCode::InvalidParams, error.to_string(), None)
+            })?;
+        let imported = self
             .service
-            .authoring_state(NOTE, &note(&note_id), None)
-            .map_err(refused)?
-            .etag;
-        Ok(NoteMutationResult { note_id, etag })
+            .import(
+                NOTE,
+                CollaborationImportRequest {
+                    document,
+                    schema_version: NOTE.schema_version,
+                    operation_id: format!("create-{note_id}"),
+                    exchange_mode: CollaborationExchangeMode::Bootstrap,
+                    base_frontier_base64: String::new(),
+                    update_base64: created,
+                    fence: ImportFence::Frontier,
+                    actor: principal.clone(),
+                    peer_nonces: vec![block.nonce],
+                    intent: None,
+                },
+                validate,
+            )
+            .map_err(refused)?;
+        Ok(NoteMutationResult {
+            note_id,
+            etag: imported.etag,
+        })
     }
 
     /// Commits `principal`'s operations: a new note, or edits to one.
@@ -183,7 +216,7 @@ impl ProjectionHost for NotesServer {
     ) -> Result<ProjectionTransportMutationResult, RpcFailure> {
         match mutation {
             NOTE_CREATE_MUTATION => self
-                .create(decode(params)?)
+                .create(principal, decode(params)?)
                 .map(ProjectionTransportMutationResult::NoteCreate),
             NOTE_IMPORT_UPDATE_MUTATION => self
                 .import(principal, decode(params)?)

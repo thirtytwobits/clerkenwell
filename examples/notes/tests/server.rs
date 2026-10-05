@@ -1,11 +1,14 @@
 //! Two clients editing one note through the notes server.
 
+use std::sync::Arc;
 use std::time::Duration;
 
 use clerkenwell_axum::ProjectionServer;
 use clerkenwell_doc::CollaborationReplica;
+use clerkenwell_events::{ActorKind, Principal};
 use clerkenwell_example_notes::server::{writer_named_in, NotesServer, PUBLICATION_WINDOW};
 use clerkenwell_example_notes::NOTE;
+use clerkenwell_store::CollaborationDocumentId;
 use futures_util::{SinkExt, StreamExt};
 use serde_json::{json, Value};
 use tokio::net::TcpStream;
@@ -138,15 +141,16 @@ impl Client {
     }
 }
 
-async fn start() -> String {
+/// The address of a new notes server, and the server.
+async fn start() -> (String, Arc<ProjectionServer<NotesServer>>) {
     let server = ProjectionServer::new(NotesServer::default(), PUBLICATION_WINDOW);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
         .await
         .expect("a listener");
     let address = listener.local_addr().expect("an address");
-    let router = server.router("/projections", writer_named_in);
+    let router = server.clone().router("/projections", writer_named_in);
     tokio::spawn(async move { axum::serve(listener, router).await.expect("serve") });
-    format!("ws://{address}/projections")
+    (format!("ws://{address}/projections"), server)
 }
 
 /// A replica of the note an authoring state delivers.
@@ -227,7 +231,7 @@ async fn create(client: &mut Client, title: &str) -> String {
 
 #[tokio::test]
 async fn an_edit_one_client_sends_reaches_another_clients_subscription() {
-    let url = start().await;
+    let (url, _) = start().await;
     let mut ada = Client::connect(&url, "ada").await;
     let mut grace = Client::connect(&url, "grace").await;
     let note_id = create(&mut ada, "Launch plan").await;
@@ -246,7 +250,7 @@ async fn an_edit_one_client_sends_reaches_another_clients_subscription() {
 
 #[tokio::test]
 async fn a_refused_status_carries_what_its_writer_lacks_to_rebase() {
-    let url = start().await;
+    let (url, _) = start().await;
     let mut ada = Client::connect(&url, "ada").await;
     let mut grace = Client::connect(&url, "grace").await;
     let note_id = create(&mut ada, "Launch plan").await;
@@ -298,8 +302,36 @@ async fn a_refused_status_carries_what_its_writer_lacks_to_rebase() {
 }
 
 #[tokio::test]
+async fn a_note_a_writer_creates_is_attributed_to_that_writer() {
+    let (url, server) = start().await;
+    let mut ada = Client::connect(&url, "ada").await;
+
+    let note_id = create(&mut ada, "Launch plan").await;
+
+    let attribution = server
+        .application()
+        .service()
+        .attribution(&CollaborationDocumentId::new(NOTE.name, &note_id))
+        .expect("attribution")
+        .expect("the note");
+    let ada = Principal::new("ada", ActorKind::Human);
+    assert!(!attribution.operations.is_empty() && !attribution.peers.is_empty());
+    assert!(
+        attribution
+            .operations
+            .iter()
+            .all(|operation| operation.actor == ada),
+        "{attribution:?}"
+    );
+    assert!(attribution
+        .peers
+        .values()
+        .all(|principal| *principal == ada));
+}
+
+#[tokio::test]
 async fn a_connection_naming_no_writer_is_refused() {
-    let url = start().await;
+    let (url, _) = start().await;
 
     match tokio_tungstenite::connect_async(url.as_str()).await {
         Err(tokio_tungstenite::tungstenite::Error::Http(response)) => {
