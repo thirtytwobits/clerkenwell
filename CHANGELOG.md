@@ -19,11 +19,13 @@ names the contracts.
 
 ### Fixed
 
-- `AuthoringRuntime.ensureController` no longer drops a collaborative session's pending work when
-  the replica it attaches lacks the history the recorded operations extend and its controller
-  takes no documents. The session is held as `recoveryRequired` with its draft and recorded
-  operations as they were, so a replica holding that history restores them; discarding releases
-  it.
+- `AuthoringRuntime.ensureController` no longer drops a session's pending work when the controller
+  it attaches holds a draft or records operations but takes no documents, and its replica cannot
+  take the work: the replica lacks the history the recorded operations extend, or there are none.
+  The session is held as `recoveryRequired` with its draft and recorded operations as they were,
+  so a replica holding that history restores them; discarding releases it.
+- `disconnectAuthoringSession` leaves a blocked session blocked. It made one readable, which
+  dropped it from persistence when nothing was queued and unblocked it on reconnect.
 
 ## 0.2.1
 
