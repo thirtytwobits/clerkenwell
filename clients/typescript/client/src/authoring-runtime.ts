@@ -637,6 +637,12 @@ export class AuthoringRuntime {
       acceptedRevision: string;
     }
   ): AuthoringSessionHandle<TDocument, TTextFieldPath> {
+    // Edits the live replica holds but has not yet given the session, such as
+    // a bound text edit of this turn, are part of what the session keeps.
+    const live = this.#controllers.get(authoringSessionId(resource));
+    if (live !== undefined) {
+      this.syncControllerDraft(live);
+    }
     const session = this.#requireSession<TDocument>(resource);
     this.detachController(resource);
     const controller = input.create();

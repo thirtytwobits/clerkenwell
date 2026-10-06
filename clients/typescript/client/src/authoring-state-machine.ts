@@ -312,9 +312,10 @@ export function rejectAuthoringOperation<TDocument>(input: {
   retryable: boolean;
 }): AuthoringSession<TDocument> {
   requireQueuedOperation(input.session, input.operationId);
-  // The store holds a history the session's replica is not of: no retry of
-  // this operation can be accepted until the replica is replaced.
-  const resync = input.category === RESYNC_REQUIRED;
+  // The store holds a history the session's replica is not of: no operation
+  // of that replica can be accepted until it is replaced, whatever a later
+  // rejection says.
+  const resync = input.category === RESYNC_REQUIRED || input.session.status === "resyncRequired";
   return {
     ...input.session,
     status: resync ? "resyncRequired" : "commitRejected",

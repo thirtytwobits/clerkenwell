@@ -168,3 +168,52 @@ test("a refusal requiring a resynchronisation blocks the session until its histo
   assert.deepEqual(runtime.session(resource)?.queuedOperations, []);
   assert.equal(replaced.currentDraft().columns[0]?.tasks[0]?.title, "Renamed");
 });
+
+test("a text edit of the same turn is kept when the history is replaced", () => {
+  const server = new FakeBoardServer(boardDocument());
+  const runtime = new AuthoringRuntime();
+  const session = openBoardSession(runtime, server, resource);
+  const notes = session.bindText("columns.*.tasks.*.notes", noted);
+  insert(notes, notes.read().length, " Typed.");
+  server.reseed(boardDocument());
+
+  const replaced = replaceWithServers(runtime, server);
+
+  assert.equal(runtime.session(resource)?.status, "modified");
+  assert.equal(copiesOf(notesOf(replaced.currentDraft()), " Typed."), 1);
+});
+
+test("a later rejection of another kind keeps a session that needs a resynchronisation blocked", () => {
+  const server = new FakeBoardServer(boardDocument());
+  const runtime = new AuthoringRuntime();
+  const session = openBoardSession(runtime, server, resource);
+  session.replaceDraft(renameTask(session.currentDraft(), "task-1", "Renamed"));
+  for (const operationId of ["first", "second"]) {
+    runtime.queue(resource, {
+      operationId,
+      schemaVersion: 1,
+      exchangeMode: "incremental",
+      baseRevision: session.state().acceptedRevision,
+      updateBase64: session.exportIncrementalUpdateBase64(session.state().acceptedRevision)
+    });
+  }
+
+  runtime.reject({
+    resource,
+    operationId: "first",
+    category: "collaboration_resync_required",
+    message: "Resynchronise.",
+    retryable: true
+  });
+  runtime.reject({
+    resource,
+    operationId: "second",
+    category: "collaboration_commit_contended",
+    message: "Try again.",
+    retryable: true
+  });
+
+  const blocked = runtime.session(resource);
+  assert.equal(blocked?.status, "resyncRequired");
+  assert.deepEqual(blocked?.queuedOperations.map(({ state }) => state), ["blocked", "blocked"]);
+});
