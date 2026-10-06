@@ -48,7 +48,6 @@ names the contracts.
   `peerNonces()` names the blocks an import carries. A `CollaborationTextView` takes its view's
   `peer`. Persisted draft operations record `peer_nonces`. `conflictingFieldPaths` takes the
   writer's kind, and `creationConflictingFieldPaths` judges a creation.
-
 - An import never adds a root to a document's history. `CollaborationReplica` refuses an update
   holding a root it lacks with `CollaborationReplicaError::UnrelatedHistory`, and the store refuses
   such an import with its resynchronisation refusal. That refusal carries `code: "conflict"` and
@@ -74,13 +73,8 @@ names the contracts.
   so a replica holding that history restores them; discarding releases it.
 - `disconnectAuthoringSession` leaves a blocked session blocked. It made one readable, which
   dropped it from persistence when nothing was queued and unblocked it on reconnect.
-
-## 0.2.1
-
-### Fixed
-
 - `Cargo.lock` resolves `yoke-derive` 0.8.4. Crates.io yanked 0.8.3, the version 0.2.0 resolves,
-  and `cargo install --locked` warned of it on every install of the generator.
+  and `cargo install --locked` warned of it on every install of the generator (#33).
 
 ## 0.2.0
 
