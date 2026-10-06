@@ -6,13 +6,16 @@ mod support;
 use clerkenwell_doc::CollaborationReplica;
 use clerkenwell_store::testing::{self, DurableCollaborationEnvelope, MemoryStorage};
 use clerkenwell_store::{
-    CollaborationDocumentId, CollaborationExchangeMode, CollaborationImportRequest,
-    CollaborationRecoveryAction, CollaborationService, CollaborationStoragePort, CommitPolicy,
-    ImportFence,
+    CollaborationAuditEvent, CollaborationAuditQuery, CollaborationDocumentId,
+    CollaborationImportRequest, CollaborationService, CollaborationStoragePort, CommitPolicy,
+    PeerBlock,
 };
 use serde_json::{json, Value};
 use std::num::NonZeroU32;
-use support::{accept, Renamed, NOTE_PLAN, PLANS, POLICY};
+use support::{accept, key, operator, writer, Renamed, NOTE_PLAN, PLANS, POLICY};
+
+/// The peer the seed is written under, outside every block the tests allocate.
+const SEED_PEER: u64 = 1;
 
 fn note() -> CollaborationDocumentId {
     CollaborationDocumentId::new("Note", "note-1")
@@ -23,16 +26,22 @@ fn seed_document() -> Value {
 }
 
 /// One client's history of a note: its seed, then each edit as an operation
-/// id, the frontier it was made on and the operations it made.
+/// id, the frontier it was made on and the operations it made under `block`.
 struct Edits {
     seed_update: String,
+    block: PeerBlock,
     edits: Vec<(String, String, String)>,
 }
 
+/// A history of `count` edits the writer makes under a block a service
+/// holding the tests' key allocated.
 fn edits(count: usize) -> Edits {
-    let mut client =
-        CollaborationReplica::from_document(&NOTE_PLAN, &seed_document()).expect("seed client");
+    let block = CollaborationService::new(MemoryStorage::default(), PLANS, POLICY, key(), "any")
+        .allocate_peers(&writer(), &note());
+    let mut client = CollaborationReplica::from_document(&NOTE_PLAN, &seed_document(), SEED_PEER)
+        .expect("seed client");
     let seed_update = client.export_update_base64().expect("seed update");
+    client.set_peer(block.base).expect("allocated peer");
     let mut edits = Vec::new();
     for index in 0..count {
         let base = client.accepted_frontier_base64();
@@ -44,19 +53,27 @@ fn edits(count: usize) -> Edits {
             .expect("incremental update");
         edits.push((format!("edit-{index}"), base, update));
     }
-    Edits { seed_update, edits }
+    Edits {
+        seed_update,
+        block,
+        edits,
+    }
 }
 
-fn request(operation_id: &str, base: &str, update: &str) -> CollaborationImportRequest {
-    CollaborationImportRequest {
-        document: note(),
-        schema_version: NOTE_PLAN.schema_version,
-        operation_id: operation_id.to_string(),
-        exchange_mode: CollaborationExchangeMode::Incremental,
-        base_frontier_base64: base.to_string(),
-        update_base64: update.to_string(),
-        fence: ImportFence::Frontier,
-    }
+fn request(
+    edits: &Edits,
+    operation_id: &str,
+    base: &str,
+    update: &str,
+) -> CollaborationImportRequest {
+    support::request(
+        &note(),
+        &writer(),
+        &edits.block,
+        operation_id,
+        base,
+        update.to_string(),
+    )
 }
 
 /// What an envelope says about a document's history, leaving out how its
@@ -92,13 +109,21 @@ fn drive(service: &CollaborationService, edits: &Edits) -> Value {
         .expect("seed");
     for (operation_id, base, update) in &edits.edits {
         let imported = service
-            .import(&NOTE_PLAN, request(operation_id, base, update), accept)
+            .import(
+                &NOTE_PLAN,
+                request(edits, operation_id, base, update),
+                accept,
+            )
             .expect("commit");
         assert!(!imported.duplicate, "{operation_id} is new");
     }
     let (operation_id, base, update) = edits.edits.last().expect("an edit");
     let retried = service
-        .import(&NOTE_PLAN, request(operation_id, base, update), accept)
+        .import(
+            &NOTE_PLAN,
+            request(edits, operation_id, base, update),
+            accept,
+        )
         .expect("retry");
     assert!(retried.duplicate, "a retried operation is a duplicate");
     observed.push(history(
@@ -108,24 +133,29 @@ fn drive(service: &CollaborationService, edits: &Edits) -> Value {
     observed.push(service.detail(&NOTE_PLAN, &document).unwrap().unwrap());
 
     service
-        .repair(&document, "drop the window")
+        .repair(&operator(), &document, "drop the window")
         .expect("repair");
     observed.push(history(
         &testing::load(service, &document).unwrap().unwrap(),
     ));
     assert!(service.verify(&document).valid);
-    let exported = service.export_for_recovery(&document).expect("export");
+    let exported = service
+        .export_for_recovery(&operator(), &document)
+        .expect("export");
     assert!(!exported.is_empty());
     service
-        .quarantine(&document, "evidence")
+        .quarantine(&operator(), &document, "evidence")
         .expect("quarantine");
-    service.reset(&document).expect("reset");
+    service.reset(&operator(), &document).expect("reset");
     assert!(service.summary(&document).unwrap().is_none());
     observed.push(json!(service
-        .recovery_audit()
+        .audit(&CollaborationAuditQuery::default())
         .unwrap()
         .iter()
-        .map(|record| record.action)
+        .map(|record| match &record.event {
+            CollaborationAuditEvent::Recovery { action, .. } => json!(action),
+            CollaborationAuditEvent::Refusal { code, .. } => json!(code),
+        })
         .collect::<Vec<_>>()));
     Value::Array(observed)
 }
@@ -134,11 +164,11 @@ fn drive(service: &CollaborationService, edits: &Edits) -> Value {
 fn ports_naming_sources_and_versions_differently_carry_the_protocol_alike() {
     let edits = edits(12);
     let renamed = drive(
-        &CollaborationService::new(Renamed::default(), PLANS, POLICY, "renamed"),
+        &CollaborationService::new(Renamed::default(), PLANS, POLICY, key(), "renamed"),
         &edits,
     );
     let in_memory = drive(
-        &CollaborationService::new(MemoryStorage::default(), PLANS, POLICY, "memory"),
+        &CollaborationService::new(MemoryStorage::default(), PLANS, POLICY, key(), "memory"),
         &edits,
     );
 
@@ -149,26 +179,21 @@ fn ports_naming_sources_and_versions_differently_carry_the_protocol_alike() {
         .cloned();
     assert_eq!(
         audit,
-        Some(json!([
-            CollaborationRecoveryAction::Repair,
-            CollaborationRecoveryAction::Export,
-            CollaborationRecoveryAction::Quarantine,
-            CollaborationRecoveryAction::Reset,
-        ]))
+        Some(json!(["repair", "export", "quarantine", "reset"]))
     );
 }
 
 #[test]
 fn quarantine_preserves_the_stored_bytes_through_the_port() {
     let port = MemoryStorage::default();
-    let service = CollaborationService::new(port.clone(), PLANS, POLICY, "memory");
+    let service = CollaborationService::new(port.clone(), PLANS, POLICY, key(), "memory");
     let document = note();
     service
         .bootstrap(&NOTE_PLAN, &document, &seed_document(), accept)
         .expect("seed");
 
     service
-        .quarantine(&document, "evidence")
+        .quarantine(&operator(), &document, "evidence")
         .expect("quarantine");
 
     let stored = port
@@ -181,8 +206,8 @@ fn quarantine_preserves_the_stored_bytes_through_the_port() {
 #[test]
 fn commits_racing_through_one_port_both_land() {
     let port = MemoryStorage::default();
-    let first = CollaborationService::new(port.clone(), PLANS, POLICY, "memory");
-    let second = CollaborationService::new(port, PLANS, POLICY, "memory");
+    let first = CollaborationService::new(port.clone(), PLANS, POLICY, key(), "memory");
+    let second = CollaborationService::new(port, PLANS, POLICY, key(), "memory");
     let document = note();
     first
         .bootstrap(&NOTE_PLAN, &document, &seed_document(), accept)
@@ -190,30 +215,26 @@ fn commits_racing_through_one_port_both_land() {
     let state = first
         .authoring_state(&NOTE_PLAN, &document, None)
         .expect("read");
-    let edit = |body: &str| {
-        let mut client = CollaborationReplica::from_versioned_update_base64(
-            &NOTE_PLAN,
-            state.schema_version,
-            &state.update_base64,
-        )
-        .expect("client");
+    let edit = |operation_id: &str, body: &str| {
+        let (mut client, block) = support::client(&first, &document, &writer(), &state);
         let mut edited = seed_document();
         edited["body"] = Value::from(body);
         client.replace_document(&edited).expect("edit");
-        client
-            .export_incremental_update_base64(&state.accepted_frontier_base64)
-            .expect("update")
+        support::request(
+            &document,
+            &writer(),
+            &block,
+            operation_id,
+            &state.accepted_frontier_base64,
+            client
+                .export_incremental_update_base64(&state.accepted_frontier_base64)
+                .expect("update"),
+        )
     };
-    let (update_a, update_b) = (edit("From A."), edit("From B."));
-    let base_a = state.accepted_frontier_base64.clone();
-    let base_b = base_a.clone();
+    let (request_a, request_b) = (edit("race-a", "From A."), edit("race-b", "From B."));
 
-    let thread_a = std::thread::spawn(move || {
-        first.import(&NOTE_PLAN, request("race-a", &base_a, &update_a), accept)
-    });
-    let thread_b = std::thread::spawn(move || {
-        second.import(&NOTE_PLAN, request("race-b", &base_b, &update_b), accept)
-    });
+    let thread_a = std::thread::spawn(move || first.import(&NOTE_PLAN, request_a, accept));
+    let thread_b = std::thread::spawn(move || second.import(&NOTE_PLAN, request_b, accept));
     let accepted_a = thread_a.join().expect("thread A").expect("A commits");
     let accepted_b = thread_b.join().expect("thread B").expect("B commits");
 
@@ -228,7 +249,7 @@ fn an_import_that_keeps_losing_its_commit_is_refused_after_the_attempts_its_poli
         attempts: NonZeroU32::new(3).expect("attempts"),
         ..POLICY
     };
-    let service = CollaborationService::new(port.clone(), PLANS, policy, "memory");
+    let service = CollaborationService::new(port.clone(), PLANS, policy, key(), "memory");
     service
         .bootstrap_update(
             &NOTE_PLAN,
@@ -243,14 +264,19 @@ fn an_import_that_keeps_losing_its_commit_is_refused_after_the_attempts_its_poli
 
     let (operation_id, base, update) = &edits.edits[0];
     let refused = service
-        .import(&NOTE_PLAN, request(operation_id, base, update), accept)
+        .import(
+            &NOTE_PLAN,
+            request(&edits, operation_id, base, update),
+            accept,
+        )
         .expect_err("every commit loses");
 
     assert_eq!(
         refused.data.as_ref().and_then(|data| data["code"].as_str()),
         Some("collaboration_commit_contended")
     );
-    assert_eq!(port.writes() - writes, policy.attempts.get() as usize);
+    // Each attempt's swap, then the refusal's audit record.
+    assert_eq!(port.writes() - writes, policy.attempts.get() as usize + 1);
 }
 
 #[test]
@@ -260,7 +286,8 @@ fn an_envelope_keeps_the_latest_operations_its_policy_retains() {
         retained_operations: 3,
         ..POLICY
     };
-    let service = CollaborationService::new(MemoryStorage::default(), PLANS, policy, "memory");
+    let service =
+        CollaborationService::new(MemoryStorage::default(), PLANS, policy, key(), "memory");
     service
         .bootstrap_update(
             &NOTE_PLAN,
@@ -272,7 +299,11 @@ fn an_envelope_keeps_the_latest_operations_its_policy_retains() {
         .expect("seed");
     for (operation_id, base, update) in &edits.edits {
         service
-            .import(&NOTE_PLAN, request(operation_id, base, update), accept)
+            .import(
+                &NOTE_PLAN,
+                request(&edits, operation_id, base, update),
+                accept,
+            )
             .expect("commit");
     }
 

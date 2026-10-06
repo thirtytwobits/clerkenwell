@@ -5,6 +5,7 @@
  */
 import assert from "node:assert/strict";
 import test from "node:test";
+import { peerBlock } from "./support/peers.js";
 
 import { AuthoringRuntime } from "@clerkenwell/client";
 import { CollaborationDrafts, documentDraftMapping } from "@clerkenwell/client/replica";
@@ -27,17 +28,17 @@ function renamed(columns: BoardColumn[], name: string): BoardColumn[] {
 test("a draft is what the mapping reads from the replica's document", () => {
   const board = boardDocument();
 
-  assert.deepEqual(COLUMN_DRAFTS.fromDocument(board).currentDraft(), board.columns);
+  assert.deepEqual(COLUMN_DRAFTS.fromDocument(board, peerBlock()).currentDraft(), board.columns);
 });
 
 test("a replaced draft is written into the document, which keeps what the draft does not hold", () => {
   const board = boardDocument();
-  const replica = COLUMN_DRAFTS.fromDocument(board);
+  const replica = COLUMN_DRAFTS.fromDocument(board, peerBlock());
   const columns = renamed(board.columns, "Backlog");
 
   replica.replaceDraft(columns);
 
-  const written = BOARDS.fromUpdate(replica.exportUpdateBase64()).currentDraft();
+  const written = BOARDS.fromUpdate(replica.exportUpdateBase64(), peerBlock()).currentDraft();
   assert.deepEqual(written.columns, columns);
   assert.equal(written.title, board.title);
   assert.equal(written.boardId, board.boardId);
@@ -49,18 +50,18 @@ test("a mapped draft is read and written through both mappings", () => {
     toDraft: (columns) => columns[0]?.name ?? "",
     toDocument: (name: string, columns) => renamed(columns, name)
   });
-  const replica = firstColumnName.fromDocument(board);
+  const replica = firstColumnName.fromDocument(board, peerBlock());
   assert.equal(replica.currentDraft(), board.columns[0]?.name);
 
   replica.replaceDraft("Backlog");
 
-  const written = BOARDS.fromUpdate(replica.exportUpdateBase64()).currentDraft();
+  const written = BOARDS.fromUpdate(replica.exportUpdateBase64(), peerBlock()).currentDraft();
   assert.deepEqual(written, { ...board, columns: renamed(board.columns, "Backlog") });
 });
 
 test("a draft whose document the plan refuses leaves the replica as it was", () => {
   const board = boardDocument();
-  const replica = COLUMN_DRAFTS.fromDocument(board);
+  const replica = COLUMN_DRAFTS.fromDocument(board, peerBlock());
   const [first, ...rest] = board.columns;
   assert.ok(first);
   const unidentified = { ...first, columnId: undefined } as unknown as BoardColumn;
@@ -71,7 +72,7 @@ test("a draft whose document the plan refuses leaves the replica as it was", () 
 });
 
 test("text typed into a draft replica's field reaches its draft", () => {
-  const replica = COLUMN_DRAFTS.fromDocument(boardDocument());
+  const replica = COLUMN_DRAFTS.fromDocument(boardDocument(), peerBlock());
   const brief = replica.bindText("columns.*.brief", { column_id: "todo" });
 
   insert(brief, 0, "Urgent. ");
@@ -81,7 +82,7 @@ test("text typed into a draft replica's field reaches its draft", () => {
 
 test("a fork's edits reach the replica it came from only once imported", () => {
   const board = boardDocument();
-  const replica = COLUMN_DRAFTS.fromDocument(board);
+  const replica = COLUMN_DRAFTS.fromDocument(board, peerBlock());
   const frontier = replica.acceptedFrontierBase64();
   const fork = replica.fork();
   const columns = renamed(board.columns, "Backlog");
@@ -94,7 +95,7 @@ test("a fork's edits reach the replica it came from only once imported", () => {
 });
 
 test("drafts refuse accepted state written under another schema version", () => {
-  const replica = COLUMN_DRAFTS.fromDocument(boardDocument());
+  const replica = COLUMN_DRAFTS.fromDocument(boardDocument(), peerBlock());
   const other = BOARD_PLAN.schemaVersion + 1;
 
   assert.doesNotThrow(() => COLUMN_DRAFTS.requireSchemaVersion(BOARD_PLAN.schemaVersion));
@@ -105,7 +106,7 @@ test("drafts refuse accepted state written under another schema version", () => 
 
 test("an authoring runtime records a mapped replica's pending work as its operations", async () => {
   const board = boardDocument();
-  const accepted = BOARDS.fromDocument(board);
+  const accepted = BOARDS.fromDocument(board, peerBlock());
   const resource = { entity: "Board", resourceKey: board.boardId } as const;
   const runtime = new AuthoringRuntime();
   runtime.open({
@@ -118,7 +119,7 @@ test("an authoring runtime records a mapped replica's pending work as its operat
     draft: board.columns
   });
   const session = runtime.ensureController(resource, () =>
-    COLUMN_DRAFTS.fromUpdate(accepted.exportUpdateBase64()).controller());
+    COLUMN_DRAFTS.fromUpdate(accepted.exportUpdateBase64(), peerBlock()).controller());
 
   insert(session.bindText("columns.*.brief", { column_id: "done" }), 0, "Really. ");
   await new Promise<void>((resolve) => queueMicrotask(resolve));

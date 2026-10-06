@@ -160,10 +160,11 @@ pub fn render_model_module(definition: &Definition, project: &Project) -> Result
         [
             "",
             "pub use clerkenwell_schema::{",
-            "    GeneratedAuthoringPolicyKind, GeneratedCollaborationConflict, GeneratedCollaborationEntitySpec,",
-            "    GeneratedCollaborationFieldSpec, GeneratedCollaborationStorageKind,",
-            "    GeneratedCollaborationValueCodec, GeneratedEntityAuthoringSpec, GeneratedMaterializationPlan,",
-            "    GeneratedMutationSpec, GeneratedProjectionSpec, GeneratedRemoveMode, GeneratedSnapshotMode,",
+            "    ActorKind, GeneratedAuthoringPolicyKind, GeneratedCollaborationConflict,",
+            "    GeneratedCollaborationEntitySpec, GeneratedCollaborationFieldSpec,",
+            "    GeneratedCollaborationStorageKind, GeneratedCollaborationValueCodec,",
+            "    GeneratedEntityAuthoringSpec, GeneratedMaterializationPlan, GeneratedMutationSpec,",
+            "    GeneratedProjectionSpec, GeneratedRemoveMode, GeneratedSnapshotMode, GeneratedWriterConflict,",
             "};",
             "use serde::{Deserialize, Serialize};",
         ]
@@ -470,6 +471,36 @@ fn collaboration_metadata(definition: &Definition) -> String {
                                 "GeneratedCollaborationConflict::{}",
                                 pascal_identifier(field.conflict())
                             )),
+                        ),
+                        (
+                            "writers",
+                            Expr::slice(
+                                field
+                                    .writers()
+                                    .into_iter()
+                                    .map(|(kind, conflict)| {
+                                        spec(
+                                            "GeneratedWriterConflict",
+                                            vec![
+                                                (
+                                                    "kind",
+                                                    Expr::atom(format!(
+                                                        "ActorKind::{}",
+                                                        pascal_identifier(kind)
+                                                    )),
+                                                ),
+                                                (
+                                                    "conflict",
+                                                    Expr::atom(format!(
+                                                        "GeneratedCollaborationConflict::{}",
+                                                        pascal_identifier(conflict)
+                                                    )),
+                                                ),
+                                            ],
+                                        )
+                                    })
+                                    .collect(),
+                            ),
                         ),
                     ],
                 )

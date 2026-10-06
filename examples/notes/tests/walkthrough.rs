@@ -1,10 +1,11 @@
 //! Each step of the walk-through does what it says.
 
 use clerkenwell_example_notes::{
-    audit_recovery, conflict_on_status, create_note, merge_concurrent_prose, rebase,
-    refuse_a_superseded_read, refuse_an_unknown_base, seed, Notes, NOTE_ID,
+    agent, audit, conflict_on_status, create_note, human, merge_concurrent_prose, rebase,
+    refuse_a_superseded_read, refuse_an_agents_status, refuse_an_unknown_base, seed, Notes,
+    NOTE_ID,
 };
-use clerkenwell_store::{CollaborationRecoveryAction, StoreErrorKind};
+use clerkenwell_store::{CollaborationAuditEvent, CollaborationRecoveryAction, StoreErrorKind};
 use serde_json::{json, Value};
 
 fn store() -> Notes {
@@ -116,21 +117,59 @@ fn a_rebased_status_is_accepted_over_the_one_it_conflicted_with() {
 }
 
 #[test]
-fn recovery_requests_are_audited_in_order_without_changing_the_note() {
+fn an_agents_status_is_refused_unopposed_and_its_body_edit_is_accepted() {
     let notes = store();
     let before = notes.read().expect("read");
 
-    let audit = audit_recovery(&notes).expect("the step runs");
+    let (refusal, accepted) = refuse_an_agents_status(&notes).expect("the step runs");
 
+    assert_eq!(refusal.kind, StoreErrorKind::Conflict);
+    let data = refusal.data.as_ref().expect("the refusal carries detail");
+    assert_eq!(data["conflict_paths"], json!(["status"]));
+    assert_eq!(accepted["status"], before["status"]);
+    assert_ne!(accepted["body"], before["body"]);
+}
+
+#[test]
+fn every_refusal_and_recovery_request_is_audited_with_who_made_it() {
+    let notes = store();
+    refuse_an_agents_status(&notes).expect("the agent's refusal");
+    let before = notes.read().expect("read");
+
+    let audit = audit(&notes).expect("the step runs");
+
+    let entries: Vec<_> = audit
+        .iter()
+        .map(|record| {
+            let what = match &record.event {
+                CollaborationAuditEvent::Refusal { code, .. } => json!(code),
+                CollaborationAuditEvent::Recovery {
+                    action,
+                    destructive,
+                    ..
+                } => {
+                    assert!(!destructive);
+                    json!(action)
+                }
+            };
+            (record.actor.clone(), what)
+        })
+        .collect();
     assert_eq!(
-        audit.iter().map(|record| record.action).collect::<Vec<_>>(),
+        entries,
         [
-            CollaborationRecoveryAction::Export,
-            CollaborationRecoveryAction::Reindex
+            (agent("planner"), json!("collaboration_policy")),
+            (
+                human("operator"),
+                json!(CollaborationRecoveryAction::Export)
+            ),
+            (
+                human("operator"),
+                json!(CollaborationRecoveryAction::Reindex)
+            ),
         ]
     );
     assert_eq!(audit[0].resource_id, NOTE_ID);
-    assert!(audit.iter().all(|record| !record.destructive));
     assert_eq!(notes.read().expect("read"), before);
 }
 

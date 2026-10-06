@@ -36,6 +36,9 @@ export type CollaborationConflictPolicy =
   | "merge"
   | "lastWriterWins";
 
+/** The kind of principal a change is made by. */
+export type CollaborationWriterKind = "human" | "agent" | "service" | "system";
+
 /**
  * Where a field lives in the document. `container` names one container;
  * `containerTemplate` names one per keyed item through `{identity}`
@@ -68,6 +71,16 @@ export interface CollaborationFieldPlan {
   /** The object holding the field requires it, so the field is present whenever that object is. */
   readonly requiredInParent: boolean;
   readonly conflict: CollaborationConflictPolicy;
+  /** The kinds of writer whose changes are judged by another policy than `conflict`. */
+  readonly writers?: Readonly<Partial<Record<CollaborationWriterKind, CollaborationConflictPolicy>>>;
+}
+
+/** The policy a change `kind` makes to `field` is judged by. */
+export function collaborationConflictFor(
+  field: CollaborationFieldPlan,
+  kind: CollaborationWriterKind
+): CollaborationConflictPolicy {
+  return field.writers?.[kind] ?? field.conflict;
 }
 
 export interface CollaborationEntityPlan<

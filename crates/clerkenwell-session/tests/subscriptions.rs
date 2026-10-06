@@ -1,5 +1,6 @@
 use std::time::Duration;
 
+use clerkenwell_events::{ActorKind, Principal};
 use clerkenwell_session::transport::ProjectionTransportEvent;
 use clerkenwell_session::{FollowingDelivery, ProjectionSubscriptions};
 use serde_json::{json, Value};
@@ -9,6 +10,10 @@ type Snapshot = Value;
 type Subscriptions = ProjectionSubscriptions<Patch, String>;
 type Event = ProjectionTransportEvent<Snapshot, Patch>;
 
+fn subscriptions_of_a_client() -> Subscriptions {
+    Subscriptions::new(Principal::new("client", ActorKind::Human))
+}
+
 fn held(event: &Event) -> Option<&Value> {
     match event {
         Event::Snapshot { held, .. } | Event::Patch { held, .. } => held.as_ref(),
@@ -17,7 +22,7 @@ fn held(event: &Event) -> Option<&Value> {
 
 #[test]
 fn a_subscriber_that_holds_nothing_is_sent_a_snapshot_naming_what_it_leaves_it_holding() {
-    let mut subscriptions = Subscriptions::default();
+    let mut subscriptions = subscriptions_of_a_client();
     let state = "accepted-state".to_string();
 
     let (accepted, events) = subscriptions.accept_subscription(
@@ -46,7 +51,7 @@ fn a_subscriber_that_holds_nothing_is_sent_a_snapshot_naming_what_it_leaves_it_h
 
 #[test]
 fn a_subscriber_that_already_holds_what_it_would_be_sent_is_sent_nothing() {
-    let mut subscriptions = Subscriptions::default();
+    let mut subscriptions = subscriptions_of_a_client();
     let state = "accepted-state".to_string();
 
     let (accepted, events) = subscriptions.accept_subscription(
@@ -70,7 +75,7 @@ fn a_subscriber_that_already_holds_what_it_would_be_sent_is_sent_nothing() {
 
 #[test]
 fn a_subscriber_that_holds_an_earlier_state_is_sent_a_snapshot() {
-    let mut subscriptions = Subscriptions::default();
+    let mut subscriptions = subscriptions_of_a_client();
     let current = "current-state".to_string();
 
     let (accepted, events) = subscriptions.accept_subscription(
@@ -89,7 +94,7 @@ fn a_subscriber_that_holds_an_earlier_state_is_sent_a_snapshot() {
 
 #[test]
 fn an_update_the_host_cannot_name_leaves_its_client_holding_nothing_named() {
-    let mut subscriptions = Subscriptions::default();
+    let mut subscriptions = subscriptions_of_a_client();
     let (accepted, events) = subscriptions.accept_subscription(
         "notes.list".to_string(),
         json!({}),
@@ -119,7 +124,7 @@ fn an_update_the_host_cannot_name_leaves_its_client_holding_nothing_named() {
 
 #[test]
 fn a_patch_takes_its_client_from_the_revision_it_holds_and_names_what_it_leaves() {
-    let mut subscriptions = Subscriptions::default();
+    let mut subscriptions = subscriptions_of_a_client();
     let id = subscriptions.insert("notes.byId".to_string(), json!({}), 3);
     let after = "after-patch".to_string();
 
@@ -139,7 +144,7 @@ fn a_patch_takes_its_client_from_the_revision_it_holds_and_names_what_it_leaves(
 
 #[test]
 fn a_resync_names_what_its_snapshot_leaves_the_client_holding() {
-    let mut subscriptions = Subscriptions::default();
+    let mut subscriptions = subscriptions_of_a_client();
     let id = subscriptions.insert("notes.byId".to_string(), json!({}), 3);
     let state = "resynced".to_string();
 
@@ -163,7 +168,7 @@ fn a_resync_names_what_its_snapshot_leaves_the_client_holding() {
 
 #[test]
 fn diagnostics_count_resumes_resyncs_and_mutations_and_hash_params() {
-    let mut subscriptions = Subscriptions::default();
+    let mut subscriptions = subscriptions_of_a_client();
     let secret = "content that must not cross diagnostics";
     let state = "held".to_string();
     let (accepted, _) = subscriptions.accept_subscription(
@@ -216,7 +221,7 @@ fn diagnostics_count_resumes_resyncs_and_mutations_and_hash_params() {
 
 #[test]
 fn a_subscription_remembers_where_its_last_delivery_left_the_client() {
-    let mut subscriptions = Subscriptions::default();
+    let mut subscriptions = subscriptions_of_a_client();
     let id = subscriptions.insert("notes.authoringState".to_string(), json!({}), 3);
     assert_eq!(
         subscriptions.get(id).and_then(|s| s.delivered.clone()),
@@ -231,7 +236,7 @@ fn a_subscription_remembers_where_its_last_delivery_left_the_client() {
 
 #[test]
 fn a_delivery_built_on_a_superseded_one_is_not_sent() {
-    let mut subscriptions = Subscriptions::default();
+    let mut subscriptions = subscriptions_of_a_client();
     let id = subscriptions.insert("notes.authoringState".to_string(), json!({}), 3);
     let built_at = subscriptions.get(id).expect("subscribed").revision;
 
@@ -274,7 +279,7 @@ fn a_delivery_built_on_a_superseded_one_is_not_sent() {
 
 #[test]
 fn a_delivery_that_leaves_the_client_where_the_last_one_did_is_not_sent() {
-    let mut subscriptions = Subscriptions::default();
+    let mut subscriptions = subscriptions_of_a_client();
     let id = subscriptions.insert("notes.authoringState".to_string(), json!({}), 3);
     subscriptions.record_delivery(id, 4, Some("held-state".to_string()));
 

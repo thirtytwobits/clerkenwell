@@ -4,8 +4,8 @@ use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use crate::{
-    CollaborationDocumentId, CollaborationRecoveryAuditRecord, CollaborationStoragePort,
-    StoreError, StoreResult, StoredEnvelope,
+    CollaborationAuditQuery, CollaborationAuditRecord, CollaborationDocumentId,
+    CollaborationStoragePort, StoreError, StoreResult, StoredEnvelope,
 };
 
 #[derive(Debug, Default)]
@@ -13,7 +13,7 @@ struct MemoryState {
     next_version: u64,
     envelopes: BTreeMap<String, StoredEnvelope>,
     evidence: Vec<Vec<u8>>,
-    audit: Vec<CollaborationRecoveryAuditRecord>,
+    audit: Vec<CollaborationAuditRecord>,
     reads: usize,
     writes: usize,
     withhold_stamps: bool,
@@ -173,14 +173,30 @@ impl CollaborationStoragePort for MemoryStorage {
         ))
     }
 
-    fn append_recovery_audit(&self, record: &CollaborationRecoveryAuditRecord) -> StoreResult<()> {
+    fn append_audit(&self, record: &CollaborationAuditRecord) -> StoreResult<()> {
         let mut state = self.state();
         state.writes += 1;
         state.audit.push(record.clone());
         Ok(())
     }
 
-    fn recovery_audit(&self) -> StoreResult<Vec<CollaborationRecoveryAuditRecord>> {
-        Ok(self.state().audit.clone())
+    fn audit(&self, query: &CollaborationAuditQuery) -> StoreResult<Vec<CollaborationAuditRecord>> {
+        Ok(self
+            .state()
+            .audit
+            .iter()
+            .filter(|record| query.selects(record))
+            .cloned()
+            .collect())
+    }
+
+    fn discard_audit_before(&self, unix_ms: u128) -> StoreResult<usize> {
+        let mut state = self.state();
+        state.writes += 1;
+        let kept = state.audit.len();
+        state
+            .audit
+            .retain(|record| record.timestamp_unix_ms >= unix_ms);
+        Ok(kept - state.audit.len())
     }
 }

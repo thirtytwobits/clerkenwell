@@ -5,12 +5,9 @@ mod support;
 use std::sync::{Arc, Mutex};
 
 use clerkenwell_store::testing::MemoryStorage;
-use clerkenwell_store::{
-    CollaborationDocumentId, CollaborationExchangeMode, CollaborationImportRequest,
-    CollaborationStores, ImportFence,
-};
+use clerkenwell_store::{CollaborationDocumentId, CollaborationStores};
 use serde_json::{json, Value};
-use support::{accept, Renamed, NOTE_PLAN, PLANS, POLICY};
+use support::{accept, key, request, writer, Renamed, NOTE_PLAN, PLANS, POLICY};
 
 fn note() -> CollaborationDocumentId {
     CollaborationDocumentId::new("Note", "note-1")
@@ -22,7 +19,7 @@ fn seed() -> Value {
 
 #[test]
 fn a_name_the_set_holds_is_the_store_it_keeps() {
-    let stores = CollaborationStores::new(PLANS, POLICY);
+    let stores = CollaborationStores::new(PLANS, POLICY, key());
     let first = stores.store_or_register("tasks", MemoryStorage::default);
     let again = stores.store_or_register("tasks", MemoryStorage::default);
 
@@ -35,7 +32,7 @@ fn a_name_the_set_holds_is_the_store_it_keeps() {
 
 #[test]
 fn registering_a_name_the_set_holds_is_refused() {
-    let stores = CollaborationStores::new(PLANS, POLICY);
+    let stores = CollaborationStores::new(PLANS, POLICY, key());
     stores
         .register("tasks", MemoryStorage::default())
         .expect("register");
@@ -47,7 +44,7 @@ fn registering_a_name_the_set_holds_is_refused() {
 
 #[test]
 fn one_set_holds_stores_kept_by_different_kinds_of_storage() {
-    let stores = CollaborationStores::new(PLANS, POLICY);
+    let stores = CollaborationStores::new(PLANS, POLICY, key());
     let memory = stores
         .register("memory", MemoryStorage::default())
         .expect("register");
@@ -69,7 +66,7 @@ fn one_set_holds_stores_kept_by_different_kinds_of_storage() {
 
 #[test]
 fn the_set_holds_each_store_until_it_is_forgotten() {
-    let stores = CollaborationStores::new(PLANS, POLICY);
+    let stores = CollaborationStores::new(PLANS, POLICY, key());
     stores
         .register("second", MemoryStorage::default())
         .expect("register");
@@ -87,7 +84,7 @@ fn the_set_holds_each_store_until_it_is_forgotten() {
 
 #[test]
 fn every_store_announces_on_the_sets_feed_under_its_own_name() {
-    let stores = CollaborationStores::new(PLANS, POLICY);
+    let stores = CollaborationStores::new(PLANS, POLICY, key());
     let sources = Arc::new(Mutex::new(Vec::new()));
     let heard = sources.clone();
     stores
@@ -106,7 +103,7 @@ fn every_store_announces_on_the_sets_feed_under_its_own_name() {
 
 #[test]
 fn the_set_counts_what_every_store_in_it_counts() {
-    let stores = CollaborationStores::new(PLANS, POLICY);
+    let stores = CollaborationStores::new(PLANS, POLICY, key());
     let store = stores
         .register("tasks", MemoryStorage::default())
         .expect("register");
@@ -116,15 +113,14 @@ fn the_set_counts_what_every_store_in_it_counts() {
     let state = store
         .authoring_state(&NOTE_PLAN, &note(), None)
         .expect("authoring state");
-    let request = CollaborationImportRequest {
-        document: note(),
-        schema_version: NOTE_PLAN.schema_version,
-        operation_id: "resent".to_string(),
-        exchange_mode: CollaborationExchangeMode::Incremental,
-        base_frontier_base64: state.accepted_frontier_base64.clone(),
-        update_base64: state.update_base64.clone(),
-        fence: ImportFence::Frontier,
-    };
+    let request = request(
+        &note(),
+        &writer(),
+        &store.allocate_peers(&writer(), &note()),
+        "resent",
+        &state.accepted_frontier_base64,
+        state.update_base64.clone(),
+    );
     let before = stores.counters().duplicate_imports;
     for _ in 0..2 {
         store

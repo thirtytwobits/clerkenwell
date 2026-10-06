@@ -9,10 +9,11 @@
 use std::fmt;
 use std::sync::Arc;
 
+use clerkenwell_events::Principal;
 use clerkenwell_schema::GeneratedCollaborationEntitySpec;
 use clerkenwell_store::{
     CollaborationDocumentId, CollaborationExchangeMode, CollaborationStores, StoreError,
-    StoreErrorKind,
+    StoreErrorKind, PEER_INDEX_BITS,
 };
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -34,6 +35,18 @@ pub struct AuthoringState {
     pub etag: String,
     /// How the store accepts an import of the document.
     pub exchange_modes: Vec<CollaborationExchangeMode>,
+    /// A new block of peers for the client to write the document under.
+    pub peer_block: AuthoringPeerBlock,
+}
+
+/// A block of peers allocated to the subscriber: every peer whose bits above
+/// the low `index_bits` are `base`'s. An import names the block by its nonce.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct AuthoringPeerBlock {
+    pub nonce: String,
+    /// The block's first peer, in decimal.
+    pub base: String,
+    pub index_bits: u32,
 }
 
 /// What an authoring-state update leaves its client holding.
@@ -143,11 +156,12 @@ impl AuthoringStates {
     }
 
     /// The state of `document` for a client that holds `held`: only the
-    /// operations it lacks.
+    /// operations it lacks, and a new block of peers for `principal`.
     pub(crate) fn state(
         &self,
         document: &FollowedDocument,
         held: Option<&AuthoringHeld>,
+        principal: &Principal,
     ) -> Result<AuthoringState, ProjectionRefusal> {
         let service = self.stores.store(&document.store).ok_or_else(|| {
             ProjectionRefusal::new(
@@ -166,6 +180,7 @@ impl AuthoringStates {
                 held.map(|held| held.frontier.as_str()),
             )
             .map_err(ProjectionRefusal::from)?;
+        let block = service.allocate_peers(principal, &document.id);
         Ok(AuthoringState {
             schema_version: read.schema_version,
             accepted_frontier_base64: read.accepted_frontier_base64,
@@ -175,6 +190,11 @@ impl AuthoringStates {
                 CollaborationExchangeMode::Incremental,
                 CollaborationExchangeMode::Bootstrap,
             ],
+            peer_block: AuthoringPeerBlock {
+                nonce: block.nonce,
+                base: block.base.to_string(),
+                index_bits: PEER_INDEX_BITS,
+            },
         })
     }
 }

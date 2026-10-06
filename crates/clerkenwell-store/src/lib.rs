@@ -5,7 +5,13 @@
 //! judges it against the plan's field policies, validates the materialised
 //! document, and replaces the envelope only if it is still the one the commit
 //! read. Corruption is reported, never read as an empty document, and recovery
-//! preserves evidence and records an audit trail.
+//! preserves evidence. The audit records every recovery request and every
+//! refused import, each with the principal that made it.
+//!
+//! Every change names its principal. A writer writes a document's operations
+//! under peers in a block the store set allocated to it, and the envelope
+//! binds each peer to the principal whose commit first held its operations,
+//! so every operation the document holds is attributable.
 //!
 //! The service builds and judges every envelope. A storage port keeps each
 //! document's envelope as bytes and replaces or removes them only from the
@@ -20,18 +26,20 @@
 
 mod envelope;
 mod error;
+mod peers;
 mod residency;
 
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use clerkenwell_doc::{CollaborationReplica, CollaborationReplicaError};
-use clerkenwell_events::{ChangeData, ChangeEvent, ChangeFeed, ChangeKind};
+use clerkenwell_events::{ActorKind, ChangeData, ChangeEvent, ChangeFeed, ChangeKind, Principal};
 use clerkenwell_schema::GeneratedCollaborationEntitySpec;
 pub use error::{StoreError, StoreErrorKind, StoreResult};
+pub use peers::{PeerBlock, PeerKey, PEER_INDEX_BITS, PEER_KEY_MIN_BYTES};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::num::NonZeroU32;
 use std::sync::atomic::{AtomicU64, Ordering};
 #[cfg(test)]
@@ -45,7 +53,7 @@ use residency::{Residency, Resident};
 
 /// The envelope format this store reads and writes. An envelope in any other
 /// format is corrupt.
-pub const ENVELOPE_VERSION: u32 = 3;
+pub const ENVELOPE_VERSION: u32 = 4;
 
 #[cfg(test)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -154,6 +162,11 @@ struct CollaborationCommit {
     document: CollaborationDocumentId,
     schema_version: u32,
     operation_id: String,
+    actor: Principal,
+    intent: Option<String>,
+    /// The peers the operation holds operations of that the envelope it is
+    /// committed over may not bind yet.
+    peers: Vec<u64>,
     imported_update: Vec<u8>,
     has_new_operations: bool,
     accepted_update: Vec<u8>,
@@ -161,6 +174,19 @@ struct CollaborationCommit {
     /// read them.
     frontier_before: Option<String>,
     frontier_after: Option<String>,
+}
+
+/// Why an import was not committed: the store refused or failed it, or the
+/// application's validator refused the document it would leave.
+enum ImportFailure<E> {
+    Store(StoreError),
+    Invalid(E),
+}
+
+impl<E> From<StoreError> for ImportFailure<E> {
+    fn from(error: StoreError) -> Self {
+        Self::Store(error)
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -199,6 +225,31 @@ pub struct CollaborationImportRequest {
     pub base_frontier_base64: String,
     pub update_base64: String,
     pub fence: ImportFence,
+    /// The principal the host authenticated the import's connection as.
+    pub actor: Principal,
+    /// The nonce of every block the update's new operations are written
+    /// under.
+    pub peer_nonces: Vec<String>,
+    /// Why the principal made the change, as its client describes it.
+    pub intent: Option<String>,
+}
+
+/// Who made a document's operations: the principal each peer is bound to,
+/// and the principal and intent of each retained operation.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CollaborationAttribution {
+    pub peers: BTreeMap<u64, Principal>,
+    /// The retained operations, oldest first.
+    pub operations: Vec<AttributedOperation>,
+}
+
+/// A retained operation and the commit that accepted it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AttributedOperation {
+    pub operation_id: String,
+    pub sequence: u64,
+    pub actor: Principal,
+    pub intent: Option<String>,
 }
 
 /// What an import is judged against when it commits.
@@ -255,15 +306,63 @@ pub enum CollaborationRecoveryAction {
     Reset,
 }
 
+/// One audited request: who made it, when, and against which document.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct CollaborationRecoveryAuditRecord {
+pub struct CollaborationAuditRecord {
     pub timestamp_unix_ms: u128,
-    pub action: CollaborationRecoveryAction,
+    pub actor: Principal,
     pub entity: String,
     pub resource_id: String,
-    pub reason_sha256: Option<String>,
-    pub destructive: bool,
+    pub event: CollaborationAuditEvent,
+}
+
+/// What an audited request asked for.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum CollaborationAuditEvent {
+    /// A recovery action. A reason is recorded by its digest.
+    Recovery {
+        action: CollaborationRecoveryAction,
+        reason_sha256: Option<String>,
+        destructive: bool,
+    },
+    /// An import the store refused, named by the code its refusal carries.
+    Refusal {
+        operation_id: String,
+        code: String,
+        base_frontier_base64: String,
+        conflict_paths: Vec<String>,
+        update_base64_sha256: String,
+    },
+}
+
+/// The audit records a query selects: those of `document`, made by the
+/// principal `actor_id` names, and recorded from `from_unix_ms` until before
+/// `until_unix_ms`. A bound left out selects every record.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct CollaborationAuditQuery {
+    pub document: Option<CollaborationDocumentId>,
+    pub actor_id: Option<String>,
+    pub from_unix_ms: Option<u128>,
+    pub until_unix_ms: Option<u128>,
+}
+
+impl CollaborationAuditQuery {
+    pub fn selects(&self, record: &CollaborationAuditRecord) -> bool {
+        self.document.as_ref().is_none_or(|document| {
+            document.entity == record.entity && document.resource_id == record.resource_id
+        }) && self
+            .actor_id
+            .as_ref()
+            .is_none_or(|actor_id| *actor_id == record.actor.id)
+            && self
+                .from_unix_ms
+                .is_none_or(|from| record.timestamp_unix_ms >= from)
+            && self
+                .until_unix_ms
+                .is_none_or(|until| record.timestamp_unix_ms < until)
+    }
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
@@ -358,10 +457,14 @@ pub trait CollaborationStoragePort: std::fmt::Debug + Send + Sync {
         bytes: &[u8],
     ) -> StoreResult<String>;
 
-    fn append_recovery_audit(&self, record: &CollaborationRecoveryAuditRecord) -> StoreResult<()>;
+    fn append_audit(&self, record: &CollaborationAuditRecord) -> StoreResult<()>;
 
-    /// Every recorded recovery request, oldest first.
-    fn recovery_audit(&self) -> StoreResult<Vec<CollaborationRecoveryAuditRecord>>;
+    /// The kept audit records `query` selects, oldest first.
+    fn audit(&self, query: &CollaborationAuditQuery) -> StoreResult<Vec<CollaborationAuditRecord>>;
+
+    /// Discards every audit record from before `unix_ms`, and returns how
+    /// many it discarded.
+    fn discard_audit_before(&self, unix_ms: u128) -> StoreResult<usize>;
 }
 
 /// How a service commits imports: the history each envelope keeps, and how
@@ -387,6 +490,7 @@ pub struct CollaborationService {
     storage: Arc<dyn CollaborationStoragePort>,
     plans: &'static [GeneratedCollaborationEntitySpec],
     policy: CommitPolicy,
+    key: PeerKey,
     counters: Arc<CollaborationRuntimeCounters>,
     changes: Arc<ChangeFeed>,
     source: Arc<str>,
@@ -396,14 +500,15 @@ pub struct CollaborationService {
 }
 
 /// The stores an application keeps its documents in, each under a name. The
-/// stores in a set share its plans, commit policy, counters and change feed,
-/// and each names itself as the source of the changes it announces. The
-/// application registers each store's root and routes each document to the
-/// store that holds it.
+/// stores in a set share its plans, commit policy, peer key, counters and
+/// change feed, and each names itself as the source of the changes it
+/// announces. The application registers each store's root and routes each
+/// document to the store that holds it.
 #[derive(Debug, Clone)]
 pub struct CollaborationStores {
     plans: &'static [GeneratedCollaborationEntitySpec],
     policy: CommitPolicy,
+    key: PeerKey,
     counters: Arc<CollaborationRuntimeCounters>,
     changes: Arc<ChangeFeed>,
     stores: Arc<RwLock<BTreeMap<String, CollaborationService>>>,
@@ -421,11 +526,16 @@ fn registered(name: &str) -> StoreError {
 
 impl CollaborationStores {
     /// A set, holding no store yet, for documents of `plans` committed under
-    /// `policy`.
-    pub fn new(plans: &'static [GeneratedCollaborationEntitySpec], policy: CommitPolicy) -> Self {
+    /// `policy`, whose writers write under peers `key` allocates.
+    pub fn new(
+        plans: &'static [GeneratedCollaborationEntitySpec],
+        policy: CommitPolicy,
+        key: PeerKey,
+    ) -> Self {
         Self {
             plans,
             policy,
+            key,
             counters: Arc::new(CollaborationRuntimeCounters::default()),
             changes: Arc::new(ChangeFeed::default()),
             stores: Arc::default(),
@@ -480,6 +590,7 @@ impl CollaborationStores {
             storage,
             self.plans,
             self.policy,
+            self.key.clone(),
             self.counters.clone(),
             self.changes.clone(),
             name.to_string(),
@@ -528,17 +639,20 @@ impl CollaborationStores {
 
 impl CollaborationService {
     /// A service for documents of `plans` committing through `storage`, whose
-    /// changes name `source` as their source.
+    /// writers write under peers `key` allocates, and whose changes name
+    /// `source` as their source.
     pub fn new(
         storage: impl CollaborationStoragePort + 'static,
         plans: &'static [GeneratedCollaborationEntitySpec],
         policy: CommitPolicy,
+        key: PeerKey,
         source: impl Into<String>,
     ) -> Self {
         Self::within(
             Arc::new(storage),
             plans,
             policy,
+            key,
             Arc::new(CollaborationRuntimeCounters::default()),
             Arc::new(ChangeFeed::default()),
             source.into(),
@@ -550,6 +664,7 @@ impl CollaborationService {
         storage: Arc<dyn CollaborationStoragePort>,
         plans: &'static [GeneratedCollaborationEntitySpec],
         policy: CommitPolicy,
+        key: PeerKey,
         counters: Arc<CollaborationRuntimeCounters>,
         changes: Arc<ChangeFeed>,
         source: String,
@@ -558,6 +673,7 @@ impl CollaborationService {
             storage,
             plans,
             policy,
+            key,
             residency: Arc::new(Residency::new(counters.clone())),
             counters,
             changes,
@@ -571,6 +687,26 @@ impl CollaborationService {
         self.storage.as_ref()
     }
 
+    /// A new block of peers for `principal` to write `document` under.
+    /// Allocating writes nothing.
+    pub fn allocate_peers(
+        &self,
+        principal: &Principal,
+        document: &CollaborationDocumentId,
+    ) -> PeerBlock {
+        self.key.allocate(principal, document)
+    }
+
+    /// The principal the service's own writes are made by.
+    fn system(&self) -> Principal {
+        Principal::new(self.source.as_ref(), ActorKind::System)
+    }
+
+    /// A peer for a write the service makes itself to `document`.
+    fn system_peer(&self, document: &CollaborationDocumentId) -> u64 {
+        self.key.allocate(&self.system(), document).base
+    }
+
     /// The feed this service announces each change to a document's accepted
     /// state on: a commit, a repair or a deletion.
     pub fn changes(&self) -> &ChangeFeed {
@@ -581,19 +717,24 @@ impl CollaborationService {
         &self,
         kind: ChangeKind,
         generation: Option<u64>,
+        actor: &Principal,
+        intent: Option<&str>,
         data: impl FnOnce() -> ChangeData,
     ) {
         if !self.changes.is_heard() {
             return;
         }
-        self.changes.announce(&ChangeEvent::new(
+        let mut event = ChangeEvent::new(
             Uuid::new_v4().to_string(),
             self.source.as_ref(),
             kind,
             chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
             generation,
+            actor,
             data(),
-        ));
+        );
+        event.intent = intent.map(str::to_owned);
+        self.changes.announce(&event);
     }
 
     /// The accepted frontier `envelope` holds, when its plan can read it.
@@ -684,8 +825,13 @@ impl CollaborationService {
                 return Ok(current);
             }
             if self.swap(&document, None, &envelope)?.is_some() {
-                self.announce(ChangeKind::Committed, Some(envelope.generation), || {
-                    ChangeData {
+                let system = self.system();
+                self.announce(
+                    ChangeKind::Committed,
+                    Some(envelope.generation),
+                    &system,
+                    None,
+                    || ChangeData {
                         entity: document.entity.clone(),
                         resource_id: document.resource_id.clone(),
                         etag_before: None,
@@ -693,8 +839,8 @@ impl CollaborationService {
                         frontier_before: None,
                         frontier_after: self.accepted_frontier(&envelope),
                         operation_id: None,
-                    }
-                });
+                    },
+                );
                 return Ok(envelope);
             }
         }
@@ -840,12 +986,43 @@ impl CollaborationService {
             }
         }
         let current_envelope = current.map(|read| &read.envelope);
+        if let Some(envelope) = current_envelope {
+            let bound_elsewhere: Vec<String> = commit
+                .peers
+                .iter()
+                .filter(|peer| {
+                    envelope
+                        .peers
+                        .get(peer)
+                        .is_some_and(|bound| *bound != commit.actor)
+                })
+                .map(u64::to_string)
+                .collect();
+            if !bound_elsewhere.is_empty() {
+                return Err(StoreError::conflict(format!(
+                    "Collaboration document {}/{} binds peers {} to another principal.",
+                    document.entity,
+                    document.resource_id,
+                    bound_elsewhere.join(", ")
+                ))
+                .with_data(serde_json::json!({
+                    "code": "collaboration_peer_bound",
+                    "entity": document.entity,
+                    "resource_id": document.resource_id,
+                    "peers": bound_elsewhere,
+                })));
+            }
+        }
         let envelope = self.next_envelope(current_envelope, &document, &commit);
         let expected = current.map(|read| read.version.as_str());
         Ok(match self.swap(&document, expected, &envelope)? {
             Some(_) => {
-                self.announce(ChangeKind::Committed, Some(envelope.generation), || {
-                    ChangeData {
+                self.announce(
+                    ChangeKind::Committed,
+                    Some(envelope.generation),
+                    &commit.actor,
+                    commit.intent.as_deref(),
+                    || ChangeData {
                         entity: document.entity.clone(),
                         resource_id: document.resource_id.clone(),
                         etag_before: current_envelope.map(DurableCollaborationEnvelope::etag),
@@ -855,8 +1032,8 @@ impl CollaborationService {
                             .frontier_after
                             .or_else(|| self.accepted_frontier(&envelope)),
                         operation_id: Some(operation_id.clone()),
-                    }
-                });
+                    },
+                );
                 CollaborationCommitOutcome::Accepted(envelope)
             }
             None => CollaborationCommitOutcome::Stale,
@@ -883,8 +1060,14 @@ impl CollaborationService {
             commit.operation_id.clone(),
             sequence,
             commit.schema_version,
+            commit.actor.clone(),
+            commit.intent.clone(),
             &commit.imported_update,
         ));
+        let mut peers = current.map_or_else(BTreeMap::new, |state| state.peers.clone());
+        for peer in &commit.peers {
+            peers.entry(*peer).or_insert_with(|| commit.actor.clone());
+        }
         let kept = self.policy.retained_operations;
         if retained_operations.len() > kept {
             retained_operations.drain(0..retained_operations.len() - kept);
@@ -906,6 +1089,7 @@ impl CollaborationService {
             checkpoint_sha256: sha256_hex(&commit.accepted_update),
             checkpoint_bytes: commit.accepted_update.len(),
             retained_operations,
+            peers,
         }
     }
 
@@ -920,6 +1104,29 @@ impl CollaborationService {
         Ok(Some(
             (*Self::materialized(plan, document, &resident)?).clone(),
         ))
+    }
+
+    /// Who made `document`'s operations, or `None` when none is stored.
+    pub fn attribution(
+        &self,
+        document: &CollaborationDocumentId,
+    ) -> StoreResult<Option<CollaborationAttribution>> {
+        Ok(self.read_envelope(document)?.map(|resident| {
+            let envelope = &resident.envelope;
+            CollaborationAttribution {
+                peers: envelope.peers.clone(),
+                operations: envelope
+                    .retained_operations
+                    .iter()
+                    .map(|operation| AttributedOperation {
+                        operation_id: operation.operation_id.clone(),
+                        sequence: operation.sequence,
+                        actor: operation.actor.clone(),
+                        intent: operation.intent.clone(),
+                    })
+                    .collect(),
+            }
+        }))
     }
 
     /// The accepted state for a peer that holds every operation up to
@@ -963,21 +1170,111 @@ impl CollaborationService {
         })
     }
 
+    /// Commits `request`'s update, made by its actor, or refuses it. Every
+    /// refusal is audited; an import whose refusal cannot be audited fails.
     pub fn import<E: From<StoreError>>(
         &self,
         plan: &'static GeneratedCollaborationEntitySpec,
         request: CollaborationImportRequest,
         validate: impl Fn(&Value) -> Result<(), E>,
     ) -> Result<CollaborationImportResult, E> {
-        self.import_internal(plan, request, validate)
+        match self.import_internal(plan, &request, validate) {
+            Ok(imported) => Ok(imported),
+            Err(ImportFailure::Store(error)) if error.kind == StoreErrorKind::Internal => {
+                Err(error.into())
+            }
+            Err(ImportFailure::Store(error)) => {
+                let data = error.data.as_ref();
+                let code = data
+                    .and_then(|data| data["code"].as_str())
+                    .map(|code| {
+                        match (code, data.and_then(|data| data["conflict_kind"].as_str())) {
+                            ("conflict", Some(kind)) => kind,
+                            _ => code,
+                        }
+                    })
+                    .unwrap_or("collaboration_import_refused");
+                let conflict_paths = data
+                    .and_then(|data| data["conflict_paths"].as_array())
+                    .map(|paths| {
+                        paths
+                            .iter()
+                            .filter_map(Value::as_str)
+                            .map(str::to_owned)
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                self.audit_refusal(&request, code, conflict_paths)?;
+                Err(error.into())
+            }
+            Err(ImportFailure::Invalid(error)) => {
+                self.audit_refusal(&request, "collaboration_document_invalid", Vec::new())?;
+                Err(error)
+            }
+        }
     }
 
-    fn import_internal<E: From<StoreError>>(
+    fn audit_refusal(
+        &self,
+        request: &CollaborationImportRequest,
+        code: &str,
+        conflict_paths: Vec<String>,
+    ) -> StoreResult<()> {
+        self.audit_request(
+            &request.actor,
+            &request.document,
+            CollaborationAuditEvent::Refusal {
+                operation_id: request.operation_id.clone(),
+                code: code.to_owned(),
+                base_frontier_base64: request.base_frontier_base64.clone(),
+                conflict_paths,
+                update_base64_sha256: sha256_hex(request.update_base64.as_bytes()),
+            },
+        )
+    }
+
+    /// Refuses the operations of `peers` unless each is in a block one of
+    /// `request`'s nonces names for its actor.
+    fn require_allocated_peers(
+        &self,
+        request: &CollaborationImportRequest,
+        peers: &[u64],
+    ) -> StoreResult<()> {
+        let blocks: BTreeSet<u64> = request
+            .peer_nonces
+            .iter()
+            .map(|nonce| self.key.base(&request.actor, &request.document, nonce))
+            .collect();
+        let unallocated: Vec<String> = peers
+            .iter()
+            .filter(|peer| !blocks.contains(&peers::block_of(**peer)))
+            .map(u64::to_string)
+            .collect();
+        if unallocated.is_empty() {
+            return Ok(());
+        }
+        Err(StoreError::invalid_request(format!(
+            "The update for {}/{} holds operations under peers {} that were not allocated to {}.",
+            request.document.entity,
+            request.document.resource_id,
+            unallocated.join(", "),
+            request.actor.id
+        ))
+        .with_data(serde_json::json!({
+            "code": "collaboration_peer_not_allocated",
+            "entity": request.document.entity,
+            "resource_id": request.document.resource_id,
+            "peers": unallocated,
+            "draft_retained": true,
+        })))
+    }
+
+    fn import_internal<E>(
         &self,
         plan: &'static GeneratedCollaborationEntitySpec,
-        request: CollaborationImportRequest,
+        request: &CollaborationImportRequest,
         validate: impl Fn(&Value) -> Result<(), E>,
-    ) -> Result<CollaborationImportResult, E> {
+    ) -> Result<CollaborationImportResult, ImportFailure<E>> {
         if request.schema_version != plan.schema_version {
             return Err(StoreError::invalid_request(format!(
                 "Unsupported {} collaboration schema version {}; expected {}.",
@@ -1071,6 +1368,7 @@ impl CollaborationService {
                         checkpoint_sha256: sha256_hex(&accepted_update),
                         checkpoint_bytes: accepted_update.len(),
                         retained_operations: Vec::new(),
+                        peers: BTreeMap::new(),
                     }
                 }
                 None => {
@@ -1088,6 +1386,36 @@ impl CollaborationService {
                 }
             };
             let mut authoring = load_authoring_document(plan, &request.document, &current)?;
+            // A document the import creates holds nothing yet: every peer in
+            // the update is new.
+            let new_peers = match read {
+                None => CollaborationReplica::peers_in_update(&request.update_base64),
+                Some(_) => authoring.peers_with_new_operations(&request.update_base64),
+            }
+            .map_err(|error| replica_error(&request.document, error))?;
+            self.require_allocated_peers(request, &new_peers)?;
+            if read.is_none() {
+                let conflicts = authoring
+                    .policy_conflicts_for_creation(request.actor.kind)
+                    .map_err(|error| replica_error(&request.document, error))?;
+                if !conflicts.is_empty() {
+                    return Err(StoreError::conflict(format!(
+                        "The {} created by {} conflicts with the policy of: {}.",
+                        request.document.entity,
+                        request.actor.id,
+                        conflicts.join(", ")
+                    ))
+                    .with_data(serde_json::json!({
+                        "code": "conflict",
+                        "conflict_kind": "collaboration_policy",
+                        "entity": request.document.entity,
+                        "resource_id": request.document.resource_id,
+                        "conflict_paths": conflicts,
+                        "draft_retained": true,
+                    }))
+                    .into());
+                }
+            }
             let current_update = current.checkpoint_update(&request.document)?;
             let current_etag = collaboration_etag(&current_update);
             // An operation already in the retained window was accepted: its
@@ -1135,6 +1463,7 @@ impl CollaborationService {
                         &request.base_frontier_base64,
                         request.schema_version,
                         &request.update_base64,
+                        request.actor.kind,
                     )
                     .map_err(|error| {
                         self.record_replica_failure(&error);
@@ -1152,8 +1481,9 @@ impl CollaborationService {
                         )
                         .map_err(|error| replica_error(&request.document, error))?;
                     return Err(StoreError::conflict(format!(
-                        "Concurrent {} edits require explicit resolution for: {}.",
+                        "The {} edit by {} conflicts with the policy of: {}.",
                         request.document.entity,
+                        request.actor.id,
                         conflicts.join(", ")
                     ))
                     .with_data(serde_json::json!({
@@ -1198,7 +1528,7 @@ impl CollaborationService {
             })?;
             #[cfg(test)]
             self.faults.fail_if(CollaborationFaultPoint::Materialised)?;
-            validate(&materialized)?;
+            validate(&materialized).map_err(ImportFailure::Invalid)?;
             #[cfg(test)]
             self.faults.fail_if(CollaborationFaultPoint::Validated)?;
             let outcome = self.commit(
@@ -1207,6 +1537,9 @@ impl CollaborationService {
                     document: request.document.clone(),
                     schema_version: request.schema_version,
                     operation_id: request.operation_id.clone(),
+                    actor: request.actor.clone(),
+                    intent: request.intent.clone(),
+                    peers: new_peers.clone(),
                     imported_update: imported_update.clone(),
                     has_new_operations: before_import != authoring.accepted_frontier_base64(),
                     accepted_update: accepted_update.clone(),
@@ -1260,7 +1593,7 @@ impl CollaborationService {
                 .map_err(|error| replica_error(&request.document, error))?;
             let debug = authoring.debug();
             return Ok(CollaborationImportResult {
-                operation_id: request.operation_id,
+                operation_id: request.operation_id.clone(),
                 duplicate,
                 schema_version: accepted.schema_version,
                 accepted_frontier_base64: authoring.accepted_frontier_base64(),
@@ -1300,8 +1633,8 @@ impl CollaborationService {
         std::thread::sleep(bound.mul_f64(random as f64 / u64::MAX as f64));
     }
 
-    /// Removes `document`'s envelope, whatever it holds.
-    pub fn delete(&self, document: &CollaborationDocumentId) -> StoreResult<()> {
+    /// Removes `document`'s envelope, whatever it holds, as `actor` asked.
+    pub fn delete(&self, actor: &Principal, document: &CollaborationDocumentId) -> StoreResult<()> {
         let source = self.storage.source(document);
         while let Some(stored) = self.storage.read(&source)? {
             if self.remove(document, &stored.version)? {
@@ -1309,6 +1642,8 @@ impl CollaborationService {
                 self.announce(
                     ChangeKind::Deleted,
                     deleted.as_ref().map(|envelope| envelope.generation),
+                    actor,
+                    None,
                     || ChangeData {
                         entity: document.entity.clone(),
                         resource_id: document.resource_id.clone(),
@@ -1464,17 +1799,29 @@ impl CollaborationService {
             .ok_or_else(|| missing_state(document))
     }
 
-    pub fn export_for_recovery(&self, document: &CollaborationDocumentId) -> StoreResult<Vec<u8>> {
-        self.audit_recovery_request(CollaborationRecoveryAction::Export, document, None, false)?;
+    pub fn export_for_recovery(
+        &self,
+        actor: &Principal,
+        document: &CollaborationDocumentId,
+    ) -> StoreResult<Vec<u8>> {
+        self.audit_recovery_request(
+            actor,
+            CollaborationRecoveryAction::Export,
+            document,
+            None,
+            false,
+        )?;
         Ok(self.stored(document)?.bytes)
     }
 
     pub fn quarantine(
         &self,
+        actor: &Principal,
         document: &CollaborationDocumentId,
         reason: &str,
     ) -> StoreResult<String> {
         self.audit_recovery_request(
+            actor,
             CollaborationRecoveryAction::Quarantine,
             document,
             Some(reason),
@@ -1487,8 +1834,14 @@ impl CollaborationService {
 
     /// Keeps the stored envelope as evidence, then drops its retained
     /// operations so the document reads from its checkpoint alone.
-    pub fn repair(&self, document: &CollaborationDocumentId, reason: &str) -> StoreResult<String> {
+    pub fn repair(
+        &self,
+        actor: &Principal,
+        document: &CollaborationDocumentId,
+        reason: &str,
+    ) -> StoreResult<String> {
         self.audit_recovery_request(
+            actor,
             CollaborationRecoveryAction::Repair,
             document,
             Some(reason),
@@ -1529,8 +1882,12 @@ impl CollaborationService {
                 "resource_id": document.resource_id,
             })));
         }
-        self.announce(ChangeKind::Committed, Some(envelope.generation), || {
-            ChangeData {
+        self.announce(
+            ChangeKind::Committed,
+            Some(envelope.generation),
+            actor,
+            None,
+            || ChangeData {
                 entity: document.entity.clone(),
                 resource_id: document.resource_id.clone(),
                 etag_before: Some(etag_before),
@@ -1538,14 +1895,15 @@ impl CollaborationService {
                 frontier_before,
                 frontier_after: self.accepted_frontier(&envelope),
                 operation_id: None,
-            }
-        });
+            },
+        );
         Ok(evidence)
     }
 
     /// Re-reads every stored document and fingerprints the redacted catalogue.
-    pub fn reindex(&self) -> StoreResult<(usize, String)> {
+    pub fn reindex(&self, actor: &Principal) -> StoreResult<(usize, String)> {
         self.audit_recovery_request(
+            actor,
             CollaborationRecoveryAction::Reindex,
             &CollaborationDocumentId::new("*", "*"),
             None,
@@ -1557,35 +1915,63 @@ impl CollaborationService {
         Ok((documents.len(), sha256_hex(&bytes)))
     }
 
-    pub fn recovery_audit(&self) -> StoreResult<Vec<CollaborationRecoveryAuditRecord>> {
-        self.storage.recovery_audit()
+    /// The kept audit records `query` selects, oldest first.
+    pub fn audit(
+        &self,
+        query: &CollaborationAuditQuery,
+    ) -> StoreResult<Vec<CollaborationAuditRecord>> {
+        self.storage.audit(query)
     }
 
-    pub fn reset(&self, document: &CollaborationDocumentId) -> StoreResult<()> {
-        self.audit_recovery_request(CollaborationRecoveryAction::Reset, document, None, true)?;
-        self.delete(document)
+    /// Discards every audit record from before `cutoff`, as the application's
+    /// retention decides, and returns how many it discarded.
+    pub fn discard_audit_before(&self, cutoff: SystemTime) -> StoreResult<usize> {
+        self.storage.discard_audit_before(unix_ms(cutoff)?)
+    }
+
+    pub fn reset(&self, actor: &Principal, document: &CollaborationDocumentId) -> StoreResult<()> {
+        self.audit_recovery_request(
+            actor,
+            CollaborationRecoveryAction::Reset,
+            document,
+            None,
+            true,
+        )?;
+        self.delete(actor, document)
     }
 
     fn audit_recovery_request(
         &self,
+        actor: &Principal,
         action: CollaborationRecoveryAction,
         document: &CollaborationDocumentId,
         reason: Option<&str>,
         destructive: bool,
     ) -> StoreResult<()> {
-        let timestamp_unix_ms = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map_err(|error| StoreError::internal(error.to_string()))?
-            .as_millis();
-        self.storage
-            .append_recovery_audit(&CollaborationRecoveryAuditRecord {
-                timestamp_unix_ms,
+        self.audit_request(
+            actor,
+            document,
+            CollaborationAuditEvent::Recovery {
                 action,
-                entity: document.entity.clone(),
-                resource_id: document.resource_id.clone(),
                 reason_sha256: reason.map(|value| sha256_hex(value.as_bytes())),
                 destructive,
-            })
+            },
+        )
+    }
+
+    fn audit_request(
+        &self,
+        actor: &Principal,
+        document: &CollaborationDocumentId,
+        event: CollaborationAuditEvent,
+    ) -> StoreResult<()> {
+        self.storage.append_audit(&CollaborationAuditRecord {
+            timestamp_unix_ms: unix_ms(SystemTime::now())?,
+            actor: actor.clone(),
+            entity: document.entity.clone(),
+            resource_id: document.resource_id.clone(),
+            event,
+        })
     }
 
     fn record_replica_failure(&self, error: &CollaborationReplicaError) {
@@ -1614,7 +2000,7 @@ impl CollaborationService {
         if let Some(current) = self.load(document)? {
             return Ok(CollaborationDocumentSummary::of(&current));
         }
-        let authoring = CollaborationReplica::from_document(plan, seed)
+        let authoring = CollaborationReplica::from_document(plan, seed, self.system_peer(document))
             .map_err(|error| replica_error(document, error))?;
         let accepted_update = BASE64
             .decode(
@@ -1717,12 +2103,22 @@ impl CollaborationService {
                 plan.schema_version,
                 sha256_hex(&accepted_update)
             );
+            // The rewrite keeps each operation it carries over under the
+            // principal it was bound to, and is the author of the rest.
+            let peers = CollaborationReplica::peers_in_update(migrated_update_base64)
+                .map_err(|error| replica_error(document, error))?
+                .into_iter()
+                .filter(|peer| !current.peers.contains_key(peer))
+                .collect();
             match self.commit(
                 Some(&read),
                 CollaborationCommit {
                     document: document.clone(),
                     schema_version: plan.schema_version,
                     operation_id,
+                    actor: self.system(),
+                    intent: None,
+                    peers,
                     imported_update: accepted_update.clone(),
                     has_new_operations: true,
                     accepted_update: accepted_update.clone(),
@@ -1740,7 +2136,8 @@ impl CollaborationService {
     }
 
     /// Stores `accepted_update` as the first checkpoint of a document that
-    /// has none, and returns the document's envelope either way.
+    /// has none, made by the service itself, and returns the document's
+    /// envelope either way.
     fn seed(
         &self,
         plan: &'static GeneratedCollaborationEntitySpec,
@@ -1748,6 +2145,8 @@ impl CollaborationService {
         accepted_update: Vec<u8>,
     ) -> StoreResult<DurableCollaborationEnvelope> {
         let operation_id = format!("seed:{}", sha256_hex(&accepted_update));
+        let peers = CollaborationReplica::peers_in_update(&BASE64.encode(&accepted_update))
+            .map_err(|error| replica_error(document, error))?;
         loop {
             if let Some(current) = self.load(document)? {
                 return Ok(current);
@@ -1758,6 +2157,9 @@ impl CollaborationService {
                     document: document.clone(),
                     schema_version: plan.schema_version,
                     operation_id: operation_id.clone(),
+                    actor: self.system(),
+                    intent: None,
+                    peers: peers.clone(),
                     imported_update: accepted_update.clone(),
                     has_new_operations: true,
                     accepted_update: accepted_update.clone(),
@@ -1771,6 +2173,13 @@ impl CollaborationService {
             }
         }
     }
+}
+
+fn unix_ms(time: SystemTime) -> StoreResult<u128> {
+    Ok(time
+        .duration_since(UNIX_EPOCH)
+        .map_err(|error| StoreError::internal(error.to_string()))?
+        .as_millis())
 }
 
 fn missing_state(document: &CollaborationDocumentId) -> StoreError {
@@ -1965,6 +2374,22 @@ fn validate_envelope(
         ));
     }
     let _ = envelope.checkpoint_update(document)?;
+    let unbound: Vec<String> =
+        CollaborationReplica::peers_in_update(&envelope.checkpoint_update_base64)
+            .map_err(|error| corrupt_state(document, error.to_string()))?
+            .into_iter()
+            .filter(|peer| !envelope.peers.contains_key(peer))
+            .map(|peer| peer.to_string())
+            .collect();
+    if !unbound.is_empty() {
+        return Err(corrupt_state(
+            document,
+            format!(
+                "the operations of peers {} are bound to no principal",
+                unbound.join(", ")
+            ),
+        ));
+    }
     let mut previous_sequence = envelope.compacted_through_sequence;
     for operation in &envelope.retained_operations {
         if operation.sequence <= previous_sequence {

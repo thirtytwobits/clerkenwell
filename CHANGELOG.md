@@ -16,6 +16,38 @@ names the contracts.
   implements, and depends on no file system. `LocalFileCollaborationStorage` is removed, and
   `CollaborationService::new` takes the port and a change source in place of a directory; it
   replaces `CollaborationService::with_storage`.
+- Every change names its principal. `clerkenwell-events` adds `Principal`; a `ChangeEvent`'s
+  `actorid` and `actorkind` are required, and `ChangeEvent::new` takes the actor. A
+  `CollaborationImportRequest` carries its `actor`, its `peer_nonces` and an optional `intent`;
+  `CollaborationService::delete` and every recovery request take the principal that made it.
+  The store's own writes are made by a `System` principal named after the store.
+- A writer writes a document's operations under a block of peers the store set allocates it.
+  `CollaborationStores::new` and `CollaborationService::new` take a `PeerKey`, and
+  `CollaborationService::allocate_peers` allocates a `PeerBlock`. An import holding operations
+  under a peer no nonce of its request names for its actor is refused as
+  `collaboration_peer_not_allocated`, and a commit adding operations under a peer bound to
+  another principal as `collaboration_peer_bound`. `CollaborationReplica::from_document` and the
+  text preparations take the peer they write under.
+- Envelope format 4 records the principal and intent of each retained operation and the
+  principal each peer is bound to. An envelope whose checkpoint holds operations of an unbound
+  peer is corrupt. `CollaborationService::attribution` reads who made a document's operations.
+- One audit stream replaces the recovery audit. `CollaborationAuditRecord` names its actor and
+  holds a recovery request or a refused import; the storage port's `append_audit`, `audit` and
+  `discard_audit_before` replace `append_recovery_audit` and `recovery_audit`, and
+  `CollaborationService::audit` answers a `CollaborationAuditQuery`.
+- A collaborative field may judge a kind of writer by another policy than its own: the
+  definition's `writers` maps a kind to a policy, `GeneratedCollaborationFieldSpec::writers`
+  carries it, and creating a document judges the creator's kind. `conflicting_field_paths` and
+  the replica's policy checks take the writer's kind; `creation_conflicting_field_paths` judges a
+  creation.
+- `ProjectionSubscriptions::new` takes the connection's principal, `ProjectionHost::mutate` is
+  given it, and every `AuthoringState` carries a `peer_block`. `ProjectionServer::router` takes
+  the function that authenticates each connection, and refuses one it names no principal for.
+- `@clerkenwell/client`: `CollaborationReplica.from` and `CollaborationDrafts`' constructors take
+  a `CollaborationPeerBlock`; forks, text bindings and views write under its later peers, and
+  `peerNonces()` names the blocks an import carries. A `CollaborationTextView` takes its view's
+  `peer`. Persisted draft operations record `peer_nonces`. `conflictingFieldPaths` takes the
+  writer's kind, and `creationConflictingFieldPaths` judges a creation.
 
 ### Fixed
 

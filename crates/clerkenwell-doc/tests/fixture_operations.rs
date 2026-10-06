@@ -281,7 +281,7 @@ fn every_fixture_invalid_case_is_refused_without_changing_the_replica() {
                     };
                     let document = broken(plan, kind, sequence);
                     assert!(
-                        CollaborationReplica::from_document(plan, &document).is_err(),
+                        CollaborationReplica::from_document(plan, &document, 1).is_err(),
                         "{} {kind} seeds",
                         plan.name
                     );

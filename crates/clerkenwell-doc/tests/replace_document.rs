@@ -34,6 +34,7 @@ const fn field(
         required,
         required_in_parent: required,
         conflict: GeneratedCollaborationConflict::LastWriterWins,
+        writers: &[],
     }
 }
 
@@ -84,7 +85,7 @@ fn note() -> Value {
 }
 
 fn replica() -> CollaborationReplica {
-    CollaborationReplica::from_document(&NOTE_PLAN, &note()).expect("seed replica")
+    CollaborationReplica::from_document(&NOTE_PLAN, &note(), 1).expect("seed replica")
 }
 
 /// Everything an observer can see of a replica: its operations and its document.

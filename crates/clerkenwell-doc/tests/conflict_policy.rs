@@ -1,14 +1,15 @@
 //! Field conflict policy: `immutable` fields may not change, `explicit` fields
 //! refuse two different changes to one value, and `merge` and
-//! `lastWriterWins` fields accept concurrent changes.
+//! `lastWriterWins` fields accept concurrent changes. A field may judge one
+//! kind of writer by another policy than its own.
 
 mod support;
 
-use clerkenwell_doc::conflicting_field_paths;
+use clerkenwell_doc::{conflicting_field_paths, creation_conflicting_field_paths};
 use clerkenwell_notebook::{
-    GeneratedCollaborationConflict, GeneratedCollaborationEntitySpec,
-    GeneratedCollaborationStorageKind, GeneratedCollaborationValueCodec,
-    GENERATED_COLLABORATION_SPECS,
+    ActorKind, GeneratedCollaborationConflict, GeneratedCollaborationEntitySpec,
+    GeneratedCollaborationFieldSpec, GeneratedCollaborationStorageKind,
+    GeneratedCollaborationValueCodec, GENERATED_COLLABORATION_SPECS,
 };
 use serde_json::{json, Value};
 use support::*;
@@ -52,7 +53,7 @@ fn two_edits(codec: GeneratedCollaborationValueCodec, original: &Value) -> Optio
 /// edited two ways.
 fn editable_fields(
     plan: &'static GeneratedCollaborationEntitySpec,
-) -> Vec<(&'static str, GeneratedCollaborationConflict, Value, Value)> {
+) -> Vec<(&'static GeneratedCollaborationFieldSpec, Value, Value)> {
     let document = wire_document(plan);
     plan.fields
         .iter()
@@ -67,24 +68,38 @@ fn editable_fields(
         .filter_map(|field| {
             let original = document.pointer(&pointer(field.path))?;
             let (one, two) = two_edits(field.codec, original)?;
-            Some((field.path, field.conflict, one, two))
+            Some((field, one, two))
         })
         .collect()
 }
 
+const KINDS: [ActorKind; 4] = [
+    ActorKind::Human,
+    ActorKind::Agent,
+    ActorKind::Service,
+    ActorKind::System,
+];
+
 #[test]
-fn every_plan_judges_its_fields_by_their_declared_policy() {
+fn every_plan_judges_each_kind_of_writer_by_the_policy_declared_for_it() {
     let mut judged = Vec::new();
+    let mut overridden = false;
     for plan in GENERATED_COLLABORATION_SPECS {
         let base = wire_document(plan);
-        for (path, conflict, one, two) in editable_fields(plan) {
+        for ((field, one, two), kind) in editable_fields(plan)
+            .into_iter()
+            .flat_map(|edits| KINDS.map(|kind| (edits.clone(), kind)))
+        {
+            let (path, conflict) = (field.path, field.conflict_for(kind));
             judged.push(conflict);
+            overridden |= conflict != field.conflict;
             let at = pointer(path);
             let client = with(&base, &at, one.clone());
             let diverged = with(&base, &at, two);
             let agreed = with(&base, &at, one);
             let reported = |current: &Value| {
-                conflicting_field_paths(plan, &base, &client, current).contains(&path.to_string())
+                conflicting_field_paths(plan, &base, &client, current, kind)
+                    .contains(&path.to_string())
             };
             match conflict {
                 GeneratedCollaborationConflict::Immutable => {
@@ -129,6 +144,38 @@ fn every_plan_judges_its_fields_by_their_declared_policy() {
             "the fixtures must exercise a {policy:?} field"
         );
     }
+    assert!(
+        overridden,
+        "the fixtures must judge a kind of writer by another policy than its field's own"
+    );
+}
+
+#[test]
+fn creating_a_document_sets_fields_only_as_their_creators_kind_may() {
+    for plan in GENERATED_COLLABORATION_SPECS {
+        let created = wire_document(plan);
+        for kind in KINDS {
+            let expected: Vec<String> = plan
+                .fields
+                .iter()
+                .filter(|field| {
+                    field.writer_conflict(kind) == Some(GeneratedCollaborationConflict::Immutable)
+                        && created.pointer(&pointer(field.path)).is_some()
+                })
+                .map(|field| field.path.to_string())
+                .collect();
+            assert_eq!(
+                creation_conflicting_field_paths(plan, &created, kind),
+                expected,
+                "{} created by {kind:?}",
+                plan.name
+            );
+        }
+    }
+    assert_eq!(
+        creation_conflicting_field_paths(NOTE, &wire_document(NOTE), ActorKind::Agent),
+        ["status"]
+    );
 }
 
 #[test]
@@ -143,10 +190,13 @@ fn a_keyed_item_field_is_judged_per_item_and_named_by_its_identity() {
     let sibling_changed = with(&base, "/columns/1/title", json!("Sibling title"));
 
     assert_eq!(
-        conflicting_field_paths(BOARD, &base, &client, &current),
+        conflicting_field_paths(BOARD, &base, &client, &current, ActorKind::Human),
         vec![format!("columns[{identity}].title")]
     );
-    assert!(conflicting_field_paths(BOARD, &base, &client, &sibling_changed).is_empty());
+    assert!(
+        conflicting_field_paths(BOARD, &base, &client, &sibling_changed, ActorKind::Human)
+            .is_empty()
+    );
 }
 
 #[test]
@@ -172,11 +222,17 @@ fn a_replica_refuses_an_update_that_diverges_from_what_it_has_accepted() {
         )
         .expect("accept the first edit");
 
-    let judge = |update: &str| {
+    let judge_as = |kind: ActorKind, update: &str| {
         server
-            .policy_conflicts_for_incremental_update(&base_frontier, NOTE.schema_version, update)
+            .policy_conflicts_for_incremental_update(
+                &base_frontier,
+                NOTE.schema_version,
+                update,
+                kind,
+            )
             .expect("judge")
     };
+    let judge = |update: &str| judge_as(ActorKind::Human, update);
     assert_eq!(
         judge(&edit("/title", json!("Rival title"))),
         vec!["title".to_string()]
@@ -187,6 +243,12 @@ fn a_replica_refuses_an_update_that_diverges_from_what_it_has_accepted() {
         judge(&edit("/created_at", json!("rewritten"))),
         vec!["created_at".to_string()],
         "an immutable field refuses any change"
+    );
+    assert!(judge(&edit("/status", json!("archived"))).is_empty());
+    assert_eq!(
+        judge_as(ActorKind::Agent, &edit("/status", json!("archived"))),
+        vec!["status".to_string()],
+        "an agent may not change what its kind is judged immutable on, unopposed"
     );
 }
 
@@ -226,6 +288,7 @@ mod nested {
             required: true,
             required_in_parent: true,
             conflict,
+            writers: &[],
         }
     }
 
@@ -287,6 +350,7 @@ fn an_explicit_field_two_keyed_sequences_deep_is_judged_per_nested_item() {
         &base,
         &nested_board("doing", "todo"),
         &nested_board("done", "todo"),
+        ActorKind::Human,
     );
     assert_eq!(same_card, ["columns[c1].cards[k1].status"]);
 
@@ -295,6 +359,7 @@ fn an_explicit_field_two_keyed_sequences_deep_is_judged_per_nested_item() {
         &base,
         &nested_board("doing", "todo"),
         &nested_board("todo", "done"),
+        ActorKind::Human,
     );
     assert!(different_cards.is_empty(), "{different_cards:?}");
 }

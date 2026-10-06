@@ -21,6 +21,27 @@
       ],
       "type": "object"
     },
+    "AuthoringPeerBlock": {
+      "properties": {
+        "base": {
+          "type": "string"
+        },
+        "index_bits": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "nonce": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "nonce",
+        "base",
+        "index_bits"
+      ],
+      "type": "object"
+    },
     "AuthoringState": {
       "properties": {
         "accepted_frontier_base64": {
@@ -34,6 +55,9 @@
             "$ref": "#/$defs/CollaborationExchangeMode"
           },
           "type": "array"
+        },
+        "peer_block": {
+          "$ref": "#/$defs/AuthoringPeerBlock"
         },
         "schema_version": {
           "format": "uint32",
@@ -49,7 +73,8 @@
         "accepted_frontier_base64",
         "update_base64",
         "etag",
-        "exchange_modes"
+        "exchange_modes",
+        "peer_block"
       ],
       "type": "object"
     },

@@ -52,6 +52,8 @@ export interface AuthoringDraftOperations {
   baseFrontierBase64: string;
   /** Loro update from that frontier to the state the draft materialises. */
   updateBase64: string;
+  /** The nonce of every peer block the operations are written under. */
+  peerNonces: readonly string[];
 }
 
 export interface AuthoringSession<TDocument> {
@@ -141,6 +143,10 @@ export interface AuthoringSessionController<
   coversFrontierBase64?: (frontierBase64: string) => boolean;
   /** The draft as it stood at a frontier the replica holds. */
   draftAt?: (frontierBase64: string) => TDocument;
+  /** The nonce of every peer block the replica's operations may be written under. */
+  peerNonces?: () => readonly string[];
+  /** Records that the replica holds operations written under the blocks `nonces` name. */
+  includePeerNonces?: (nonces: readonly string[]) => void;
   dispose?: () => void;
 }
 

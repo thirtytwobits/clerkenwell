@@ -8,12 +8,12 @@
 mod policy;
 mod substrate;
 
-pub use policy::conflicting_field_paths;
+pub use policy::{conflicting_field_paths, creation_conflicting_field_paths};
 
 use std::collections::HashMap;
 
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
-use clerkenwell_schema::GeneratedCollaborationEntitySpec;
+use clerkenwell_schema::{ActorKind, GeneratedCollaborationEntitySpec};
 use loro::{ExportMode, Frontiers, LoroDoc, VersionVector};
 use serde_json::Value;
 use thiserror::Error;
@@ -80,13 +80,16 @@ pub struct CollaborationReplica {
 }
 
 impl CollaborationReplica {
+    /// A replica holding `document`, written as operations under `peer`.
     pub fn from_document(
         plan: &'static GeneratedCollaborationEntitySpec,
         document: &Value,
+        peer: u64,
     ) -> Result<Self, CollaborationReplicaError> {
         let document = substrate::without_null_optionals(plan, document);
         substrate::validate_document(plan, &document)?;
         let doc = LoroDoc::new();
+        doc.set_peer_id(peer).map_err(update_error)?;
         substrate::write_document_changes(plan, &doc, &Value::Null, &document)?;
         Ok(Self {
             plan,
@@ -146,6 +149,34 @@ impl CollaborationReplica {
         }
         self.baseline = None;
         Ok(())
+    }
+
+    /// Writes the replica's later edits as operations under `peer`.
+    pub fn set_peer(&self, peer: u64) -> Result<(), CollaborationReplicaError> {
+        self.doc.set_peer_id(peer).map_err(update_error)
+    }
+
+    /// Every peer `update_base64` holds operations of, in ascending order.
+    pub fn peers_in_update(update_base64: &str) -> Result<Vec<u64>, CollaborationReplicaError> {
+        let mut peers: Vec<u64> = update_end_version(update_base64)?.keys().copied().collect();
+        peers.sort_unstable();
+        Ok(peers)
+    }
+
+    /// The peers `update_base64` holds operations of that this replica
+    /// lacks, in ascending order.
+    pub fn peers_with_new_operations(
+        &self,
+        update_base64: &str,
+    ) -> Result<Vec<u64>, CollaborationReplicaError> {
+        let held = self.doc.oplog_vv();
+        let mut peers: Vec<u64> = update_end_version(update_base64)?
+            .iter()
+            .filter(|(peer, end)| **end > held.get(peer).copied().unwrap_or(0))
+            .map(|(peer, _)| *peer)
+            .collect();
+        peers.sort_unstable();
+        Ok(peers)
     }
 
     pub fn export_update_base64(&self) -> Result<String, CollaborationReplicaError> {
@@ -256,7 +287,7 @@ impl CollaborationReplica {
         identities: &HashMap<String, String>,
         frontier_base64: &str,
     ) -> Result<String, CollaborationReplicaError> {
-        let branch = self.fork_at_frontier(frontier_base64)?;
+        let branch = self.fork_at_frontier(frontier_base64, None)?;
         Ok(substrate::declared_text(self.plan, &branch, field_path, identities)?.to_string())
     }
 
@@ -265,6 +296,8 @@ impl CollaborationReplica {
     /// Preparation is read-only. The owner must durably accept and deduplicate its
     /// command before publishing these operations, and reject overlapping consumption.
     /// Retain the returned payload for retries; preparing again creates new operation IDs.
+    /// The operations are written under `peer`, which no other replica writes under.
+    #[allow(clippy::too_many_arguments)]
     pub fn prepare_text_replacement_at_frontier(
         &self,
         field_path: &str,
@@ -272,8 +305,9 @@ impl CollaborationReplica {
         frontier_base64: &str,
         expected_text: &str,
         replacement: &str,
+        peer: u64,
     ) -> Result<String, CollaborationReplicaError> {
-        let branch = self.fork_at_frontier(frontier_base64)?;
+        let branch = self.fork_at_frontier(frontier_base64, Some(peer))?;
         let text = substrate::declared_text(self.plan, &branch, field_path, identities)?;
         // Membership must also hold at the live head: retained history is not
         // permission to write an orphaned container after its record was deleted.
@@ -293,6 +327,8 @@ impl CollaborationReplica {
 
     /// Prepare an insertion before captured text without replacing any captured
     /// character identities. Concurrent operations remain mergeable on import.
+    /// The operations are written under `peer`, which no other replica writes under.
+    #[allow(clippy::too_many_arguments)]
     pub fn prepare_text_prefix_at_frontier(
         &self,
         field_path: &str,
@@ -300,8 +336,9 @@ impl CollaborationReplica {
         frontier_base64: &str,
         expected_text: &str,
         prefix: &str,
+        peer: u64,
     ) -> Result<String, CollaborationReplicaError> {
-        let branch = self.fork_at_frontier(frontier_base64)?;
+        let branch = self.fork_at_frontier(frontier_base64, Some(peer))?;
         let text = substrate::declared_text(self.plan, &branch, field_path, identities)?;
         substrate::declared_text(self.plan, &self.doc, field_path, identities)?;
         if text.to_string() != expected_text {
@@ -317,15 +354,23 @@ impl CollaborationReplica {
         ))
     }
 
+    /// A branch of the document at `frontier_base64`, writing under `peer`
+    /// when it is given one.
     fn fork_at_frontier(
         &self,
         frontier_base64: &str,
+        peer: Option<u64>,
     ) -> Result<LoroDoc, CollaborationReplicaError> {
         let frontier = Frontiers::decode(&BASE64.decode(frontier_base64).map_err(base64_error)?)
             .map_err(update_error)?;
-        self.doc
+        let branch = self
+            .doc
             .fork_at(&frontier)
-            .map_err(|_| CollaborationReplicaError::UnknownFrontier)
+            .map_err(|_| CollaborationReplicaError::UnknownFrontier)?;
+        if let Some(peer) = peer {
+            branch.set_peer_id(peer).map_err(update_error)?;
+        }
+        Ok(branch)
     }
 
     pub fn materialized_documents_for_incremental_update(
@@ -359,14 +404,15 @@ impl CollaborationReplica {
         ))
     }
 
-    /// The declared fields an incremental update changes against their
-    /// conflict policy, judged against the concurrent edits this replica
-    /// already holds beyond the update's base frontier.
+    /// The declared fields an incremental update `kind` made changes against
+    /// their conflict policy for `kind`, judged against the concurrent edits
+    /// this replica already holds beyond the update's base frontier.
     pub fn policy_conflicts_for_incremental_update(
         &self,
         base_frontier_base64: &str,
         schema_version: u32,
         update_base64: &str,
+        kind: ActorKind,
     ) -> Result<Vec<String>, CollaborationReplicaError> {
         let (base, client) = self.materialized_documents_for_incremental_update(
             base_frontier_base64,
@@ -375,7 +421,19 @@ impl CollaborationReplica {
             "replica:policy",
         )?;
         let current = self.materialized_document("replica:policy")?;
-        Ok(conflicting_field_paths(self.plan, &base, &client, &current))
+        Ok(conflicting_field_paths(
+            self.plan, &base, &client, &current, kind,
+        ))
+    }
+
+    /// The declared fields this replica's document, created by `kind`, sets
+    /// against the policy that replaces their own for `kind`.
+    pub fn policy_conflicts_for_creation(
+        &self,
+        kind: ActorKind,
+    ) -> Result<Vec<String>, CollaborationReplicaError> {
+        let created = self.materialized_document("replica:policy")?;
+        Ok(creation_conflicting_field_paths(self.plan, &created, kind))
     }
 
     pub fn debug(&self) -> CollaborationReplicaDebug {
@@ -392,6 +450,17 @@ impl CollaborationReplica {
     ) -> Result<Value, CollaborationReplicaError> {
         substrate::materialize_document(self.plan, &self.doc, revision)
     }
+}
+
+/// For each peer `update_base64` holds operations of, the counter after its
+/// last one.
+fn update_end_version(update_base64: &str) -> Result<VersionVector, CollaborationReplicaError> {
+    Ok(LoroDoc::decode_import_blob_meta(
+        &BASE64.decode(update_base64).map_err(base64_error)?,
+        false,
+    )
+    .map_err(update_error)?
+    .partial_end_vv)
 }
 
 fn require_supported_schema_version(

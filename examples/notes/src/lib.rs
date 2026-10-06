@@ -2,9 +2,10 @@
 //!
 //! The note's definition, `notes.projections.json`, declares a title writers
 //! overwrite, a body whose concurrent edits merge, and a status whose
-//! concurrent changes must be resolved explicitly. `model` holds the
-//! bindings generated from it. Each step of the walk-through is a function
-//! here; the binary runs them in order and the tests check each outcome.
+//! concurrent changes must be resolved explicitly and which an agent may not
+//! change. `model` holds the bindings generated from it. Each step of the
+//! walk-through is a function here; the binary runs them in order and the
+//! tests check each outcome.
 
 pub mod model;
 pub mod server;
@@ -14,10 +15,11 @@ use std::num::NonZeroU32;
 use std::time::Duration;
 
 use clerkenwell_doc::{CollaborationReplica, CollaborationReplicaError};
+use clerkenwell_events::{ActorKind, Principal};
 use clerkenwell_store::{
-    CollaborationDocumentId, CollaborationExchangeMode, CollaborationImportRequest,
-    CollaborationImportResult, CollaborationRecoveryAuditRecord, CollaborationService,
-    CommitPolicy, ImportFence, StoreError,
+    CollaborationAuditQuery, CollaborationAuditRecord, CollaborationDocumentId,
+    CollaborationExchangeMode, CollaborationImportRequest, CollaborationImportResult,
+    CollaborationService, CommitPolicy, ImportFence, PeerKey, StoreError,
 };
 use model::{GeneratedCollaborationEntitySpec, NoteDocumentStatus};
 use serde_json::{json, Value};
@@ -38,6 +40,22 @@ pub const COMMIT_POLICY: CommitPolicy = CommitPolicy {
     },
     backoff: Duration::from_millis(2),
 };
+
+/// The key the example's stores allocate peers from. An application keeps
+/// its key secret, as configuration.
+pub fn peer_key() -> PeerKey {
+    PeerKey::new(b"the notes example's own peer key").expect("a key of 32 bytes")
+}
+
+/// A person writing notes.
+pub fn human(id: &str) -> Principal {
+    Principal::new(id, ActorKind::Human)
+}
+
+/// An agent writing notes.
+pub fn agent(id: &str) -> Principal {
+    Principal::new(id, ActorKind::Agent)
+}
 
 /// Why a step failed.
 #[derive(Debug)]
@@ -97,9 +115,12 @@ pub struct Notes {
     note: CollaborationDocumentId,
 }
 
-/// A writer's replica of the note, and the accepted frontier and etag its
-/// edits are based on.
+/// A principal's replica of the note, written under a block of peers the
+/// store allocated to it, and the accepted frontier and etag its edits are
+/// based on.
 pub struct Writer {
+    actor: Principal,
+    nonce: String,
     replica: CollaborationReplica,
     base_frontier: String,
     read_etag: String,
@@ -107,10 +128,14 @@ pub struct Writer {
 }
 
 impl Writer {
-    /// A replica seeded from `document` outside any store.
-    pub fn offline(document: &Value) -> Result<Self> {
-        let replica = CollaborationReplica::from_document(NOTE, document)?;
+    /// `actor`'s replica seeded from `document` outside the store, written
+    /// under a block `notes` allocated.
+    pub fn offline(notes: &Notes, actor: Principal, document: &Value) -> Result<Self> {
+        let block = notes.service.allocate_peers(&actor, &notes.note);
+        let replica = CollaborationReplica::from_document(NOTE, document, block.base)?;
         Ok(Self {
+            actor,
+            nonce: block.nonce,
             base_frontier: replica.accepted_frontier_base64(),
             read_etag: String::new(),
             replica,
@@ -142,15 +167,19 @@ impl Notes {
             .ok_or_else(|| StoreError::not_found(format!("No note {NOTE_ID}.")).into())
     }
 
-    /// A writer holding the note as accepted now.
-    pub fn writer(&self) -> Result<Writer> {
+    /// `actor`'s writer, holding the note as accepted now.
+    pub fn writer(&self, actor: Principal) -> Result<Writer> {
         let read = self.service.authoring_state(NOTE, &self.note, None)?;
         let replica = CollaborationReplica::from_versioned_update_base64(
             NOTE,
             read.schema_version,
             &read.update_base64,
         )?;
+        let block = self.service.allocate_peers(&actor, &self.note);
+        replica.set_peer(block.base)?;
         Ok(Writer {
+            actor,
+            nonce: block.nonce,
             document: replica.materialized_document(&read.etag)?,
             base_frontier: read.accepted_frontier_base64,
             read_etag: read.etag,
@@ -196,6 +225,9 @@ impl Notes {
                 base_frontier_base64: writer.base_frontier.clone(),
                 update_base64: update,
                 fence,
+                actor: writer.actor.clone(),
+                peer_nonces: vec![writer.nonce.clone()],
+                intent: None,
             },
             validate,
         )?)
@@ -212,6 +244,7 @@ pub fn create_note() -> Result<Notes> {
         MemoryStorage::default(),
         model::GENERATED_COLLABORATION_SPECS,
         COMMIT_POLICY,
+        peer_key(),
         "notes",
     );
     let note = CollaborationDocumentId::new(NOTE.name, NOTE_ID);
@@ -224,8 +257,8 @@ pub fn create_note() -> Result<Notes> {
 /// second merges with the first instead of replacing it. Returns the accepted
 /// note.
 pub fn merge_concurrent_prose(notes: &Notes) -> Result<Value> {
-    let mut ada = notes.writer()?;
-    let mut grace = notes.writer()?;
+    let mut ada = notes.writer(human("ada"))?;
+    let mut grace = notes.writer(human("grace"))?;
     ada.edit(|note| note["body"] = json!("Ship the notes example. Announce it on Friday."))?;
     grace.edit(|note| {
         note["body"] = json!("Test it first. Ship the notes example.");
@@ -240,7 +273,7 @@ pub fn merge_concurrent_prose(notes: &Notes) -> Result<Value> {
 /// on a frontier the store never accepted. The store refuses them and the
 /// writer must resynchronise. Returns the refusal.
 pub fn refuse_an_unknown_base(notes: &Notes) -> Result<StoreError> {
-    let mut stranger = Writer::offline(&seed())?;
+    let mut stranger = Writer::offline(notes, human("stranger"), &seed())?;
     stranger.edit(|note| note["body"] = json!("A body from elsewhere."))?;
     match notes.submit(&stranger, "stranger-body") {
         Err(Error::Store(refusal)) => Ok(refusal),
@@ -253,8 +286,8 @@ pub fn refuse_an_unknown_base(notes: &Notes) -> Result<StoreError> {
 /// writer commits first, so the store refuses the edit as stale and returns the
 /// accepted note with its etag. Returns the refusal.
 pub fn refuse_a_superseded_read(notes: &Notes) -> Result<StoreError> {
-    let mut careful = notes.writer()?;
-    let mut quick = notes.writer()?;
+    let mut careful = notes.writer(human("careful"))?;
+    let mut quick = notes.writer(human("quick"))?;
     quick.edit(|note| note["title"] = json!("Launch plan, final"))?;
     careful.edit(|note| note["title"] = json!("Launch plan, checked"))?;
     notes.submit(&quick, "quick-title")?;
@@ -269,8 +302,8 @@ pub fn refuse_a_superseded_read(notes: &Notes) -> Result<StoreError> {
 /// first commits; the second is refused as a conflict naming the status.
 /// Returns the refused writer and the refusal.
 pub fn conflict_on_status(notes: &Notes) -> Result<(Writer, StoreError)> {
-    let mut ada = notes.writer()?;
-    let mut grace = notes.writer()?;
+    let mut ada = notes.writer(human("ada"))?;
+    let mut grace = notes.writer(human("grace"))?;
     ada.edit(|note| note["status"] = json!("review"))?;
     grace.edit(|note| note["status"] = json!("published"))?;
     notes.submit(&ada, "ada-status")?;
@@ -294,7 +327,7 @@ pub fn rebase(notes: &Notes, refused: &Writer, refusal: &StoreError) -> Result<V
         .filter_map(Value::as_str)
         .map(|path| format!("/{}", path.replace('.', "/")))
         .collect::<Vec<_>>();
-    let mut rebased = notes.writer()?;
+    let mut rebased = notes.writer(refused.actor.clone())?;
     rebased.edit(|note| {
         for path in &paths {
             if let (Some(target), Some(decided)) =
@@ -308,10 +341,30 @@ pub fn rebase(notes: &Notes, refused: &Writer, refusal: &StoreError) -> Result<V
     notes.read()
 }
 
-/// Step 7: an operator exports the note's evidence and reindexes the store.
-/// Each recovery request is audited. Returns the audit.
-pub fn audit_recovery(notes: &Notes) -> Result<Vec<CollaborationRecoveryAuditRecord>> {
-    notes.service.export_for_recovery(&notes.note)?;
-    notes.service.reindex()?;
-    Ok(notes.service.recovery_audit()?)
+/// Step 7: an agent sets the status while nobody else is changing it. The
+/// definition judges an agent's change to the status as immutable, so the
+/// store refuses it naming the status, and accepts the agent's edit to the
+/// body. Returns the refusal and the accepted note.
+pub fn refuse_an_agents_status(notes: &Notes) -> Result<(StoreError, Value)> {
+    let mut planner = notes.writer(agent("planner"))?;
+    planner.edit(|note| note["status"] = json!("review"))?;
+    let refusal = match notes.submit(&planner, "planner-status") {
+        Err(Error::Store(refusal)) => refusal,
+        Err(other) => return Err(other),
+        Ok(_) => return Err(StoreError::internal("The store accepted an agent's status.").into()),
+    };
+    let mut planner = notes.writer(agent("planner"))?;
+    planner.edit(|note| note["body"] = json!("Ship the notes example. Drafted by the planner."))?;
+    notes.submit(&planner, "planner-body")?;
+    Ok((refusal, notes.read()?))
+}
+
+/// Step 8: an operator exports the note's evidence and reindexes the store.
+/// The audit records every refused import and every recovery request, each
+/// with the principal that made it. Returns the audit.
+pub fn audit(notes: &Notes) -> Result<Vec<CollaborationAuditRecord>> {
+    let operator = human("operator");
+    notes.service.export_for_recovery(&operator, &notes.note)?;
+    notes.service.reindex(&operator)?;
+    Ok(notes.service.audit(&CollaborationAuditQuery::default())?)
 }

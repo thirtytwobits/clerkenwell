@@ -8,14 +8,14 @@ use clerkenwell_store::{
     CollaborationDocumentId, CollaborationService, CollaborationStoragePort, ENVELOPE_VERSION,
 };
 use serde_json::{json, Value};
-use support::{accept, NOTE_PLAN, PLANS, POLICY};
+use support::{accept, key, operator, NOTE_PLAN, PLANS, POLICY};
 
 fn note() -> CollaborationDocumentId {
     CollaborationDocumentId::new("Note", "note-1")
 }
 
 fn service(storage: &MemoryStorage) -> CollaborationService {
-    CollaborationService::new(storage.clone(), PLANS, POLICY, "notes")
+    CollaborationService::new(storage.clone(), PLANS, POLICY, key(), "notes")
 }
 
 /// A fresh store holding one note.
@@ -45,14 +45,17 @@ fn stored_envelope(storage: &MemoryStorage) -> serde_json::Map<String, Value> {
     serde_json::from_slice(&stored_bytes(storage)).expect("an envelope")
 }
 
-/// Rewrites the note's envelope to declare `format`.
-fn declare_format(storage: &MemoryStorage, format: u32) {
+/// Rewrites the note's envelope as `rewrite` changes it.
+fn rewrite_envelope(
+    storage: &MemoryStorage,
+    rewrite: impl FnOnce(&mut serde_json::Map<String, Value>),
+) {
     let stored = storage
         .read(&storage.source(&note()))
         .expect("read")
         .expect("stored");
     let mut envelope = stored_envelope(storage);
-    envelope.insert("envelope_version".to_string(), json!(format));
+    rewrite(&mut envelope);
     storage
         .compare_and_swap(
             &note(),
@@ -61,6 +64,13 @@ fn declare_format(storage: &MemoryStorage, format: u32) {
         )
         .expect("write")
         .expect("unchanged since read");
+}
+
+/// Rewrites the note's envelope to declare `format`.
+fn declare_format(storage: &MemoryStorage, format: u32) {
+    rewrite_envelope(storage, |envelope| {
+        envelope.insert("envelope_version".to_string(), json!(format));
+    });
 }
 
 fn refusal_code(error: &clerkenwell_store::StoreError) -> Option<&str> {
@@ -126,7 +136,7 @@ fn an_envelope_in_another_format_is_refused_as_corrupt_and_left_as_it_is() {
         );
         assert_eq!(inspected.len(), 1, "format {format}");
         let refused = service
-            .repair(&note(), "another format")
+            .repair(&operator(), &note(), "another format")
             .expect_err("another format");
         assert_eq!(
             refusal_code(&refused),
@@ -136,4 +146,19 @@ fn an_envelope_in_another_format_is_refused_as_corrupt_and_left_as_it_is() {
 
         assert_eq!(stored_bytes(&storage), kept, "format {format}");
     }
+}
+
+#[test]
+fn an_envelope_holding_operations_of_a_peer_bound_to_no_principal_is_corrupt() {
+    let storage = seeded();
+    rewrite_envelope(&storage, |envelope| {
+        envelope.insert("peers".to_string(), json!({}));
+    });
+    let kept = stored_bytes(&storage);
+    let service = service(&storage);
+
+    let refused = service.detail(&NOTE_PLAN, &note()).expect_err("unbound");
+    assert_eq!(refusal_code(&refused), Some("collaboration_state_corrupt"));
+    assert!(!service.verify(&note()).valid);
+    assert_eq!(stored_bytes(&storage), kept);
 }

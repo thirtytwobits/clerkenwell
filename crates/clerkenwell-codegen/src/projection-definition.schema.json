@@ -303,10 +303,17 @@
         "value": { "$ref": "#/definitions/collaborationValue" },
         "required": { "type": "boolean" },
         "requiredInParent": { "type": "boolean" },
-        "conflict": {
-          "enum": ["immutable", "explicit", "merge", "lastWriterWins"]
+        "conflict": { "$ref": "#/definitions/collaborationConflict" },
+        "writers": {
+          "type": "object",
+          "minProperties": 1,
+          "propertyNames": { "enum": ["human", "agent", "service", "system"] },
+          "additionalProperties": { "$ref": "#/definitions/collaborationConflict" }
         }
       }
+    },
+    "collaborationConflict": {
+      "enum": ["immutable", "explicit", "merge", "lastWriterWins"]
     },
     "collaborationStorage": {
       "type": "object",

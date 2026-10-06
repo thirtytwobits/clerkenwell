@@ -379,11 +379,18 @@ export type AuthoringState = {
   "update_base64": string;
   "etag": string;
   "exchange_modes": ("incremental" | "bootstrap")[];
+  "peer_block": AuthoringPeerBlock;
 };
 
 export type AuthoringStatePatch = {
   "kind": "replace" | "remove";
   "state"?: AuthoringState;
+};
+
+export type AuthoringPeerBlock = {
+  "nonce": string;
+  "base": string;
+  "index_bits": number;
 };
 
 export type NoteAuthoringParams = {
@@ -961,6 +968,9 @@ export const COLLABORATION_PLANS = {
         },
         "required": true,
         "conflict": "explicit",
+        "writers": {
+          "agent": "immutable"
+        },
         "requiredInParent": true
       },
       "created_at": {

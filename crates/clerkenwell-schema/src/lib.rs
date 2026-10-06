@@ -3,6 +3,8 @@
 //! `clerkenwell-codegen` turns a definition into `static` values of these
 //! types. Projections and mutations are named by their wire names.
 
+pub use clerkenwell_events::ActorKind;
+
 /// How an entity's content is authored.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GeneratedAuthoringPolicyKind {
@@ -122,6 +124,14 @@ pub enum GeneratedCollaborationConflict {
     LastWriterWins,
 }
 
+/// How a change one kind of writer makes to a field is judged, in place of
+/// the field's own conflict policy.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct GeneratedWriterConflict {
+    pub kind: ActorKind,
+    pub conflict: GeneratedCollaborationConflict,
+}
+
 /// One declared field of a collaborative document and where it lives.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct GeneratedCollaborationFieldSpec {
@@ -146,6 +156,23 @@ pub struct GeneratedCollaborationFieldSpec {
     /// whenever that object is.
     pub required_in_parent: bool,
     pub conflict: GeneratedCollaborationConflict,
+    /// The kinds of writer whose changes are judged by another policy.
+    pub writers: &'static [GeneratedWriterConflict],
+}
+
+impl GeneratedCollaborationFieldSpec {
+    /// The policy a change `kind` makes to the field is judged by.
+    pub fn conflict_for(&self, kind: ActorKind) -> GeneratedCollaborationConflict {
+        self.writer_conflict(kind).unwrap_or(self.conflict)
+    }
+
+    /// The policy that replaces the field's own for `kind`, when one does.
+    pub fn writer_conflict(&self, kind: ActorKind) -> Option<GeneratedCollaborationConflict> {
+        self.writers
+            .iter()
+            .find(|writer| writer.kind == kind)
+            .map(|writer| writer.conflict)
+    }
 }
 
 /// A collaborative entity's document layout and the wire names that carry it.

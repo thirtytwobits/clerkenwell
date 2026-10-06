@@ -14,7 +14,7 @@ use serde::de::DeserializeOwned;
 use serde::Serialize;
 use serde_json::{json, Value};
 
-use clerkenwell_events::{ChangeEvent, ChangeKind};
+use clerkenwell_events::{ChangeEvent, ChangeKind, Principal};
 
 use crate::authoring::{AuthoringHeld, AuthoringState, AuthoringStates, Held};
 use crate::registry::ProjectionRegistry;
@@ -150,8 +150,11 @@ pub trait ProjectionHost: Sync {
     /// it.
     fn delivered_by_patch(&self, patch: &Self::Patch) -> Option<Self::Delivery>;
 
+    /// Makes `mutation` as `principal`, the principal the host authenticated
+    /// the command's connection as.
     fn mutate(
         &self,
+        principal: &Principal,
         mutation: &str,
         params: Value,
     ) -> impl Future<Output = Result<Self::MutationResult, Self::Failure>> + Send;
@@ -342,10 +345,17 @@ where
         })
         .await;
     subscriptions.sort_by_key(|(subscription_id, _)| *subscription_id);
+    let principal = principal_of(connection).await;
     let mut events = Vec::new();
     for (subscription_id, subscription) in subscriptions {
-        let Ok((snapshot, delivered)) =
-            snapshot_for(host, &subscription.projection, &subscription.params, None).await
+        let Ok((snapshot, delivered)) = snapshot_for(
+            host,
+            &principal,
+            &subscription.projection,
+            &subscription.params,
+            None,
+        )
+        .await
         else {
             continue;
         };
@@ -387,6 +397,7 @@ where
         })
         .await;
     subscriptions.sort_by_key(|(subscription_id, _)| *subscription_id);
+    let principal = principal_of(connection).await;
     let mut events = Vec::new();
     for (subscription_id, subscription) in subscriptions {
         let Some(Ok(document)) = authoring.follow(&subscription.projection, &subscription.params)
@@ -416,7 +427,7 @@ where
             continue;
         }
         let held = subscription.delivered.as_ref().and_then(Held::authoring);
-        let Ok(state) = authoring.state(&document, held) else {
+        let Ok(state) = authoring.state(&document, held, &principal) else {
             continue;
         };
         let Ok(patch) = authoring_patch::<H>(&subscription.projection, Some(&state)) else {
@@ -439,10 +450,18 @@ fn is_authoring<H: ProjectionHost>(host: &H, projection: &str) -> bool {
         .is_some_and(|authoring| authoring.plan(projection).is_some())
 }
 
-/// A subscription's snapshot for a client that holds `held`, and what it
-/// leaves the client holding.
+/// The principal the host authenticated `connection` as.
+async fn principal_of<P: Send, D: Send>(connection: &impl ProjectionConnection<P, D>) -> Principal {
+    connection
+        .with_subscriptions(|subscriptions| subscriptions.principal().clone())
+        .await
+}
+
+/// A subscription's snapshot for a client that holds `held`, served to
+/// `principal`, and what it leaves the client holding.
 async fn snapshot_for<H: ProjectionHost>(
     host: &H,
+    principal: &Principal,
     projection: &str,
     params: &Value,
     held: Option<&Held<H::Delivery>>,
@@ -452,7 +471,7 @@ async fn snapshot_for<H: ProjectionHost>(
         let document = document.map_err(H::Failure::refused)?;
         let state = authoring
             .expect("a followed document is an authoring state's")
-            .state(&document, held.and_then(Held::authoring))
+            .state(&document, held.and_then(Held::authoring), principal)
             .map_err(H::Failure::refused)?;
         let delivered = Held::Authoring(AuthoringHeld::from(&state));
         return Ok((
@@ -532,8 +551,15 @@ where
             serde_json::from_value(held).ok().map(Held::Host)
         }
     });
-    let (snapshot, delivered) =
-        snapshot_for(host, &command.projection, &params, held.as_ref()).await?;
+    let principal = principal_of(connection).await;
+    let (snapshot, delivered) = snapshot_for(
+        host,
+        &principal,
+        &command.projection,
+        &params,
+        held.as_ref(),
+    )
+    .await?;
     let projection = command.projection;
     let (accepted, events) = connection
         .with_subscriptions(move |subscriptions| {
@@ -561,8 +587,15 @@ where
         .with_subscriptions(move |subscriptions| subscriptions.get(subscription_id).cloned())
         .await
         .ok_or_else(|| subscription_not_found::<H>(subscription_id))?;
-    let (snapshot, delivered) =
-        snapshot_for(host, &subscription.projection, &subscription.params, None).await?;
+    let principal = principal_of(connection).await;
+    let (snapshot, delivered) = snapshot_for(
+        host,
+        &principal,
+        &subscription.projection,
+        &subscription.params,
+        None,
+    )
+    .await?;
     let (accepted, event) = connection
         .with_subscriptions(move |subscriptions| {
             subscriptions.resync(subscription_id, snapshot, delivered, "clientRequested")
@@ -619,7 +652,8 @@ where
             Some(json!({ "mutation": mutation })),
         )));
     }
-    let result = host.mutate(&mutation, command.params).await?;
+    let principal = principal_of(connection).await;
+    let result = host.mutate(&principal, &mutation, command.params).await?;
     let accepted = AcceptedMutation { mutation, result };
     let (revision, events) = publish(host, connection, &accepted).await;
     let reply = ProjectionMutationAccepted {

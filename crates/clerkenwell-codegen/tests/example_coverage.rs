@@ -78,8 +78,12 @@ fn every_collaboration_storage_kind_codec_and_conflict_policy_is_used() {
     );
     assert_covers(
         "conflict policy",
-        admitted("/definitions/collaborationField/properties/conflict/enum"),
+        admitted("/definitions/collaborationConflict/enum"),
         collect("/conflict"),
+    );
+    assert!(
+        fields.iter().any(|field| field.get("writers").is_some()),
+        "the example judges no kind of writer by its own policy"
     );
     let storage_settings: BTreeSet<String> = fields
         .iter()

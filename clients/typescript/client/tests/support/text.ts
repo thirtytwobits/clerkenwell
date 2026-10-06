@@ -5,6 +5,7 @@
  */
 import type { CollaborationEntityPlan, TextBinding } from "@clerkenwell/client";
 import { CollaborationReplica } from "@clerkenwell/client/replica";
+import { peerBlock } from "./peers.js";
 
 const SCRATCH_PLAN = {
   schemaVersion: 1,
@@ -27,7 +28,7 @@ export function createScratchTextBinding(text: string): TextBinding {
   return CollaborationReplica.from("Scratch", SCRATCH_PLAN, {
     kind: "document",
     document: { text }
-  }).bindText("text");
+  }, peerBlock()).bindText("text");
 }
 
 export function insert(binding: TextBinding, at: number, text: string, group = "typing"): void {

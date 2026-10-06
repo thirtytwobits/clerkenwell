@@ -280,7 +280,7 @@ fn a_document_missing_a_required_field_is_refused_naming_the_field() {
         }) {
             let mut missing = document.clone();
             remove(&mut missing, &pointer(field.path));
-            match CollaborationReplica::from_document(plan, &missing) {
+            match CollaborationReplica::from_document(plan, &missing, 1) {
                 Err(CollaborationReplicaError::InvalidField { path, .. }) => {
                     assert_eq!(path, field.path, "{}", plan.name)
                 }
@@ -303,7 +303,7 @@ fn a_keyed_item_missing_a_required_field_is_refused_and_changes_nothing() {
         let mut missing = base.clone();
         remove(&mut missing, pointer);
         assert!(
-            CollaborationReplica::from_document(BOARD, &missing).is_err(),
+            CollaborationReplica::from_document(BOARD, &missing, 1).is_err(),
             "{pointer}"
         );
         assert!(replica.replace_document(&missing).is_err(), "{pointer}");

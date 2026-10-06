@@ -268,6 +268,17 @@ fn a_definition_outside_the_meta_schema_is_refused_naming_the_instance_path() {
     let mut no_namespace = notebook_document();
     remove(&mut no_namespace, "/namespace");
     assert_mentions(&refusal(no_namespace), &["namespace"]);
+
+    let mut unknown_writer = notebook_document();
+    set(
+        &mut unknown_writer,
+        "/collaboration/entities/Note/fields/status/writers",
+        json(r#"{ "robot": "immutable" }"#),
+    );
+    assert_mentions(
+        &refusal(unknown_writer),
+        &["/collaboration/entities/Note/fields/status/writers"],
+    );
 }
 
 /// Each semantic rule, provoked once, names the definition path it guards.

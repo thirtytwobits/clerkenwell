@@ -3,6 +3,8 @@
 // Each test binary uses a different part of this module.
 #![allow(dead_code)]
 
+use clerkenwell_doc::CollaborationReplica;
+use clerkenwell_events::{ActorKind, Principal};
 use clerkenwell_schema::{
     GeneratedCollaborationConflict, GeneratedCollaborationEntitySpec,
     GeneratedCollaborationFieldSpec, GeneratedCollaborationStorageKind,
@@ -10,14 +12,73 @@ use clerkenwell_schema::{
 };
 use clerkenwell_store::testing::MemoryStorage;
 use clerkenwell_store::{
-    CollaborationDocumentId, CollaborationRecoveryAuditRecord, CollaborationStoragePort,
-    CommitPolicy, StoreResult, StoredEnvelope,
+    CollaborationAuditQuery, CollaborationAuditRecord, CollaborationAuthoringState,
+    CollaborationDocumentId, CollaborationExchangeMode, CollaborationImportRequest,
+    CollaborationService, CollaborationStoragePort, CommitPolicy, ImportFence, PeerBlock, PeerKey,
+    StoreResult, StoredEnvelope,
 };
 use serde_json::Value;
 use std::num::NonZeroU32;
 use std::time::Duration;
 
-const fn field(
+/// The key the tests' store sets derive peer blocks from.
+pub fn key() -> PeerKey {
+    PeerKey::new([7; 32]).expect("a key of 32 bytes")
+}
+
+/// The principal the tests write as.
+pub fn writer() -> Principal {
+    Principal::new("writer", ActorKind::Human)
+}
+
+/// The principal the tests recover documents as.
+pub fn operator() -> Principal {
+    Principal::new("operator", ActorKind::Human)
+}
+
+/// A replica of what `state` delivers, writing under the first peer of a
+/// block `service` allocates to `actor` for `document`, and that block.
+pub fn client(
+    service: &CollaborationService,
+    document: &CollaborationDocumentId,
+    actor: &Principal,
+    state: &CollaborationAuthoringState,
+) -> (CollaborationReplica, PeerBlock) {
+    let replica = CollaborationReplica::from_versioned_update_base64(
+        &NOTE_PLAN,
+        state.schema_version,
+        &state.update_base64,
+    )
+    .expect("client replica");
+    let block = service.allocate_peers(actor, document);
+    replica.set_peer(block.base).expect("allocated peer");
+    (replica, block)
+}
+
+/// An import of `update`, made from `base` by `actor` under `block`.
+pub fn request(
+    document: &CollaborationDocumentId,
+    actor: &Principal,
+    block: &PeerBlock,
+    operation_id: &str,
+    base: &str,
+    update: String,
+) -> CollaborationImportRequest {
+    CollaborationImportRequest {
+        document: document.clone(),
+        schema_version: NOTE_PLAN.schema_version,
+        operation_id: operation_id.to_string(),
+        exchange_mode: CollaborationExchangeMode::Incremental,
+        base_frontier_base64: base.to_string(),
+        update_base64: update,
+        fence: ImportFence::Frontier,
+        actor: actor.clone(),
+        peer_nonces: vec![block.nonce.clone()],
+        intent: None,
+    }
+}
+
+pub const fn field(
     path: &'static str,
     storage_kind: GeneratedCollaborationStorageKind,
     container: Option<&'static str>,
@@ -42,6 +103,7 @@ const fn field(
         required: true,
         required_in_parent: true,
         conflict,
+        writers: &[],
     }
 }
 
@@ -173,11 +235,15 @@ impl CollaborationStoragePort for Renamed {
         ))
     }
 
-    fn append_recovery_audit(&self, record: &CollaborationRecoveryAuditRecord) -> StoreResult<()> {
-        self.0.append_recovery_audit(record)
+    fn append_audit(&self, record: &CollaborationAuditRecord) -> StoreResult<()> {
+        self.0.append_audit(record)
     }
 
-    fn recovery_audit(&self) -> StoreResult<Vec<CollaborationRecoveryAuditRecord>> {
-        self.0.recovery_audit()
+    fn audit(&self, query: &CollaborationAuditQuery) -> StoreResult<Vec<CollaborationAuditRecord>> {
+        self.0.audit(query)
+    }
+
+    fn discard_audit_before(&self, unix_ms: u128) -> StoreResult<usize> {
+        self.0.discard_audit_before(unix_ms)
     }
 }

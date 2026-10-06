@@ -3,21 +3,19 @@
 
 mod support;
 
-use clerkenwell_doc::CollaborationReplica;
 use clerkenwell_store::testing::{self, MemoryStorage};
 use clerkenwell_store::{
-    CollaborationDocumentId, CollaborationExchangeMode, CollaborationImportRequest,
-    CollaborationService, CollaborationStores, ImportFence, StoreError, StoreResult,
+    CollaborationDocumentId, CollaborationService, CollaborationStores, StoreError, StoreResult,
 };
 use serde_json::{json, Value};
-use support::{accept, NOTE_PLAN, PLANS, POLICY};
+use support::{accept, client, key, operator, request, writer, NOTE_PLAN, PLANS, POLICY};
 
 fn note(resource_id: &str) -> CollaborationDocumentId {
     CollaborationDocumentId::new("Note", resource_id)
 }
 
 fn service(port: &MemoryStorage) -> CollaborationService {
-    CollaborationService::new(port.clone(), PLANS, POLICY, "notes")
+    CollaborationService::new(port.clone(), PLANS, POLICY, key(), "notes")
 }
 
 fn bootstrap(service: &CollaborationService, resource_id: &str) {
@@ -41,29 +39,23 @@ fn edit(
     let state = service
         .authoring_state(&NOTE_PLAN, &note("note-1"), None)
         .expect("authoring state");
-    let mut client = CollaborationReplica::from_versioned_update_base64(
-        &NOTE_PLAN,
-        state.schema_version,
-        &state.update_base64,
-    )
-    .expect("client");
+    let (mut client, block) = client(service, &note("note-1"), &writer(), &state);
     let mut edited = client.materialized_document("edit").expect("document");
     edited["body"] = Value::from(body);
     client.replace_document(&edited).expect("edit");
     service
         .import(
             &NOTE_PLAN,
-            CollaborationImportRequest {
-                document: note("note-1"),
-                schema_version: NOTE_PLAN.schema_version,
-                operation_id: format!("edit-{body}"),
-                exchange_mode: CollaborationExchangeMode::Incremental,
-                base_frontier_base64: state.accepted_frontier_base64.clone(),
-                update_base64: client
+            request(
+                &note("note-1"),
+                &writer(),
+                &block,
+                &format!("edit-{body}"),
+                &state.accepted_frontier_base64,
+                client
                     .export_incremental_update_base64(&state.accepted_frontier_base64)
                     .expect("update"),
-                fence: ImportFence::Frontier,
-            },
+            ),
             validate,
         )
         .map(|imported| imported.etag)
@@ -191,7 +183,9 @@ fn a_deleted_document_is_no_longer_served() {
     bootstrap(&service, "note-1");
     body(&service);
 
-    service.delete(&note("note-1")).expect("delete");
+    service
+        .delete(&operator(), &note("note-1"))
+        .expect("delete");
 
     assert!(service
         .detail(&NOTE_PLAN, &note("note-1"))
@@ -201,7 +195,7 @@ fn a_deleted_document_is_no_longer_served() {
 
 #[test]
 fn the_counters_report_what_the_stores_hold_until_they_let_it_go() {
-    let stores = CollaborationStores::new(PLANS, POLICY);
+    let stores = CollaborationStores::new(PLANS, POLICY, key());
     let store = stores
         .register("notes", MemoryStorage::default())
         .expect("register");
@@ -218,7 +212,7 @@ fn the_counters_report_what_the_stores_hold_until_they_let_it_go() {
             .sum::<u64>()
     );
 
-    store.delete(&note("note-1")).expect("delete");
+    store.delete(&operator(), &note("note-1")).expect("delete");
     assert_eq!(stores.counters().resident_documents, held.len() as u64 - 1);
 
     stores.forget("notes");

@@ -5,6 +5,7 @@ use std::pin::pin;
 use std::sync::Mutex;
 use std::task::{Context, Poll, Waker};
 
+use clerkenwell_events::{ActorKind, Principal};
 use clerkenwell_schema::{
     GeneratedAuthoringPolicyKind, GeneratedEntityAuthoringSpec, GeneratedMaterializationPlan,
     GeneratedMutationSpec, GeneratedProjectionSpec,
@@ -92,15 +93,26 @@ struct Notes {
     title: Mutex<String>,
     refusal: Option<ProjectionRefusal>,
     mutations_run: Mutex<usize>,
+    /// The principal each mutation was made as, in order.
+    mutated_by: Mutex<Vec<Principal>>,
+}
+
+/// The connection the host authenticated as `id`.
+fn connection(id: &str) -> Mutex<ProjectionSubscriptions<Value, Held<String>>> {
+    Mutex::new(ProjectionSubscriptions::new(Principal::new(
+        id,
+        ActorKind::Human,
+    )))
 }
 
 impl Notes {
     fn new() -> Self {
         Self {
-            subscriptions: Mutex::new(ProjectionSubscriptions::default()),
+            subscriptions: connection("reader"),
             title: Mutex::new("Shopping".to_owned()),
             refusal: None,
             mutations_run: Mutex::new(0),
+            mutated_by: Mutex::new(Vec::new()),
         }
     }
 
@@ -153,10 +165,15 @@ impl ProjectionHost for Notes {
 
     fn mutate(
         &self,
+        principal: &Principal,
         mutation: &str,
         params: Value,
     ) -> impl Future<Output = Result<Value, Failure>> + Send {
         *self.mutations_run.lock().expect("count") += 1;
+        self.mutated_by
+            .lock()
+            .expect("principals")
+            .push(principal.clone());
         let outcome = match (&self.refusal, mutation) {
             (Some(refusal), _) => Err(Failure::refused(refusal.clone())),
             (None, "note.rename") => {
@@ -574,7 +591,10 @@ fn mutations_and_their_refusals_are_counted() {
 
 #[test]
 fn a_patch_starts_from_the_revision_its_client_holds_when_it_is_delivered() {
-    let mut subscriptions = ProjectionSubscriptions::<Value, Held<String>>::default();
+    let mut subscriptions = ProjectionSubscriptions::<Value, Held<String>>::new(Principal::new(
+        "other",
+        ActorKind::Human,
+    ));
     let subscription_id = subscriptions.insert("notes.list".to_owned(), json!({}), 5);
 
     // A delivery reached the client after the mutation chose its revision.
@@ -679,7 +699,7 @@ fn a_request_is_served_as_the_command_it_names() {
 #[test]
 fn a_mutation_accepted_elsewhere_patches_the_subscriptions_it_affects() {
     let host = Notes::new();
-    let elsewhere = Mutex::new(ProjectionSubscriptions::<Value, Held<String>>::default());
+    let elsewhere = connection("other");
     let (notes, _) = subscribe(&host, "notes.list", None);
     let reply = block_on(serve(
         &host,
@@ -692,6 +712,11 @@ fn a_mutation_accepted_elsewhere_patches_the_subscriptions_it_affects() {
         }),
     ))
     .expect("rename elsewhere");
+    assert_eq!(
+        *host.mutated_by.lock().expect("principals"),
+        [Principal::new("other", ActorKind::Human)],
+        "the host makes a mutation as the connection that sent it"
+    );
     let accepted = reply
         .accepted
         .expect("the reply names the mutation it accepted");

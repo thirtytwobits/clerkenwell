@@ -16,7 +16,7 @@ mod subscriptions;
 pub mod testing;
 pub mod transport;
 
-pub use authoring::{AuthoringHeld, AuthoringState, AuthoringStates, Held};
+pub use authoring::{AuthoringHeld, AuthoringPeerBlock, AuthoringState, AuthoringStates, Held};
 pub use registry::ProjectionRegistry;
 pub use server::{
     deliver_change, publish, resync_all, serve, serve_request, AcceptedMutation, ProjectionCommand,

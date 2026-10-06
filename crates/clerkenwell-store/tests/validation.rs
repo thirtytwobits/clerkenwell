@@ -5,7 +5,7 @@ mod support;
 use clerkenwell_store::testing::MemoryStorage;
 use clerkenwell_store::{CollaborationDocumentId, CollaborationService, StoreError};
 use serde_json::{json, Value};
-use support::{NOTE_PLAN, PLANS, POLICY};
+use support::{key, NOTE_PLAN, PLANS, POLICY};
 
 #[derive(Debug)]
 enum AppError {
@@ -21,7 +21,8 @@ impl From<StoreError> for AppError {
 
 #[test]
 fn a_rejecting_validator_fails_the_commit_with_its_own_error() {
-    let service = CollaborationService::new(MemoryStorage::default(), PLANS, POLICY, "notes");
+    let service =
+        CollaborationService::new(MemoryStorage::default(), PLANS, POLICY, key(), "notes");
     let document = CollaborationDocumentId::new("Note", "note-1");
     let reason = "notes must not be empty";
     let seed = json!({ "note_id": "note-1", "body": "", "etag": "" });

@@ -6,6 +6,7 @@ use std::sync::Mutex;
 use std::time::Duration;
 
 use clerkenwell_axum::{ProjectionServer, RpcFailure};
+use clerkenwell_events::{ActorKind, Principal};
 use clerkenwell_schema::{
     GeneratedMaterializationPlan, GeneratedMutationSpec, GeneratedProjectionSpec,
 };
@@ -15,6 +16,7 @@ use futures_util::{SinkExt, StreamExt};
 use serde_json::{json, Value};
 use tokio::net::TcpStream;
 use tokio::sync::Semaphore;
+use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
 
@@ -98,7 +100,12 @@ impl ProjectionHost for Counters {
         None
     }
 
-    async fn mutate(&self, _mutation: &str, params: Value) -> Result<Value, RpcFailure> {
+    async fn mutate(
+        &self,
+        principal: &Principal,
+        _mutation: &str,
+        params: Value,
+    ) -> Result<Value, RpcFailure> {
         if let Some(details) = params.get("refuse") {
             return Err(RpcFailure::new(
                 ProjectionErrorCode::Conflict,
@@ -110,7 +117,7 @@ impl ProjectionHost for Counters {
         let mut values = self.values.lock().expect("values");
         let value = values.entry(id.clone()).or_default();
         *value += 1;
-        Ok(json!({ "counter_id": id, "value": *value }))
+        Ok(json!({ "counter_id": id, "value": *value, "by": principal.id }))
     }
 
     async fn mutation_patch(
@@ -133,16 +140,38 @@ async fn start(window: usize) -> (String, std::sync::Arc<ProjectionServer<Counte
         .await
         .expect("a listener");
     let address = listener.local_addr().expect("an address");
-    let router = server.clone().router("/projections");
+    let router = server.clone().router("/projections", |parts| {
+        let id = parts
+            .headers
+            .get("authorization")?
+            .to_str()
+            .ok()?
+            .strip_prefix("Bearer ")?;
+        Some(Principal::new(id, ActorKind::Human))
+    });
     tokio::spawn(async move { axum::serve(listener, router).await.expect("serve") });
     (format!("ws://{address}/projections"), server)
 }
 
-async fn connect(url: &str) -> Socket {
-    tokio_tungstenite::connect_async(url)
+/// The upgrade request to `url` of a client presenting `id`'s credentials.
+fn upgrade_as(url: &str, id: &str) -> tokio_tungstenite::tungstenite::handshake::client::Request {
+    let mut request = url.into_client_request().expect("a request");
+    request.headers_mut().insert(
+        "authorization",
+        format!("Bearer {id}").parse().expect("a header value"),
+    );
+    request
+}
+
+async fn connect_as(url: &str, id: &str) -> Socket {
+    tokio_tungstenite::connect_async(upgrade_as(url, id))
         .await
         .expect("a connection")
         .0
+}
+
+async fn connect(url: &str) -> Socket {
+    connect_as(url, "client").await
 }
 
 async fn send(socket: &mut Socket, frame: Value) {
@@ -205,6 +234,29 @@ async fn increment(socket: &mut Socket, id: u64, counter: &str) -> Value {
 fn update(frame: &Value) -> &Value {
     assert_eq!(frame["method"], "projection.update", "{frame}");
     &frame["params"]
+}
+
+#[tokio::test]
+async fn an_upgrade_the_application_authenticates_as_no_principal_is_refused() {
+    let (url, _) = start(8).await;
+
+    match tokio_tungstenite::connect_async(url.as_str()).await {
+        Err(tokio_tungstenite::tungstenite::Error::Http(response)) => {
+            assert_eq!(response.status(), 401)
+        }
+        Err(error) => panic!("expected an unauthorised response, got {error}"),
+        Ok(_) => panic!("an unauthenticated upgrade was served"),
+    }
+}
+
+#[tokio::test]
+async fn each_command_is_made_as_the_principal_its_connection_authenticated_as() {
+    let (url, _) = start(8).await;
+    let mut alice = connect_as(&url, "alice").await;
+    let mut bob = connect_as(&url, "bob").await;
+
+    assert_eq!(increment(&mut alice, 1, "a").await["result"]["by"], "alice");
+    assert_eq!(increment(&mut bob, 1, "a").await["result"]["by"], "bob");
 }
 
 #[tokio::test]

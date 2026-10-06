@@ -2,6 +2,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::marker::PhantomData;
 use std::time::Duration;
 
+use clerkenwell_events::Principal;
 use serde::Serialize;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -76,32 +77,40 @@ struct Counters {
     rejections: BTreeMap<String, u64>,
 }
 
-/// One connection's projection subscriptions. `P` is the application's patch
-/// payload, and `D` what an update leaves a client holding.
+/// One connection's projection subscriptions, and the principal the host
+/// authenticated the connection as. `P` is the application's patch payload,
+/// and `D` what an update leaves a client holding.
 ///
 /// A subscription's revisions order the updates it sends its client. What a
 /// client holds is named by `D`, which the client sends back when it
 /// subscribes again.
 #[derive(Debug)]
 pub struct ProjectionSubscriptions<P, D> {
+    principal: Principal,
     next_subscription_id: u64,
     subscriptions: HashMap<u64, ProjectionSubscription<D>>,
     counters: Counters,
     patches: PhantomData<P>,
 }
 
-impl<P, D> Default for ProjectionSubscriptions<P, D> {
-    fn default() -> Self {
+impl<P, D> ProjectionSubscriptions<P, D> {
+    /// The subscriptions of a connection the host authenticated as
+    /// `principal`, holding none yet.
+    pub fn new(principal: Principal) -> Self {
         Self {
+            principal,
             next_subscription_id: 1,
             subscriptions: HashMap::new(),
             counters: Counters::default(),
             patches: PhantomData,
         }
     }
-}
 
-impl<P, D> ProjectionSubscriptions<P, D> {
+    /// The principal every command on the connection is made by.
+    pub fn principal(&self) -> &Principal {
+        &self.principal
+    }
+
     /// Registers a subscription at `revision`.
     pub fn insert(&mut self, projection: String, params: Value, revision: u64) -> u64 {
         let subscription_id = self.next_subscription_id;

@@ -50,11 +50,12 @@ export type {
   CollaborationPlanTextFieldPath,
   CollaborationStorageKind,
   CollaborationValueCodec,
+  CollaborationWriterKind,
   ProjectionCompositionPlan,
   ProjectionCompositionPlans
 } from "./plans.js";
 export { resolveCollaborationContainer } from "./plans.js";
-export { conflictingFieldPaths } from "./conflict-policy.js";
+export { conflictingFieldPaths, creationConflictingFieldPaths } from "./conflict-policy.js";
 
 // A projection model's names, parameters and payloads.
 export type {

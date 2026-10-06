@@ -1,9 +1,10 @@
 //! Runs the walk-through against a store in memory.
 
 use clerkenwell_example_notes::{
-    audit_recovery, conflict_on_status, create_note, merge_concurrent_prose, rebase,
-    refuse_a_superseded_read, refuse_an_unknown_base, Result,
+    audit, conflict_on_status, create_note, merge_concurrent_prose, rebase,
+    refuse_a_superseded_read, refuse_an_agents_status, refuse_an_unknown_base, Result,
 };
+use clerkenwell_store::CollaborationAuditEvent;
 
 fn main() -> Result<()> {
     let notes = create_note()?;
@@ -24,11 +25,20 @@ fn main() -> Result<()> {
     let rebased = rebase(&notes, &grace, &refusal)?;
     println!("\n6. Grace rebased onto the accepted note and restated her status:\n{rebased:#}");
 
-    println!("\n7. Recovery requests are audited:");
-    for record in audit_recovery(&notes)? {
+    let (refusal, accepted) = refuse_an_agents_status(&notes)?;
+    println!("\n7. The planner, an agent, may not change the status even unopposed; its body edit was accepted:\n{refusal}\n{accepted:#}");
+
+    println!("\n8. Every refused import and recovery request is audited with who made it:");
+    for record in audit(&notes)? {
+        let what = match &record.event {
+            CollaborationAuditEvent::Refusal {
+                operation_id, code, ..
+            } => format!("refused {operation_id}: {code}"),
+            CollaborationAuditEvent::Recovery { action, .. } => format!("{action:?}"),
+        };
         println!(
-            "   {:?} {}/{} destructive: {}",
-            record.action, record.entity, record.resource_id, record.destructive
+            "   {} {:?} {}/{} {what}",
+            record.actor.id, record.actor.kind, record.entity, record.resource_id
         );
     }
     Ok(())

@@ -2,7 +2,7 @@
 # Types named from: none
 
 enum clerkenwell_events::ActorKind
-derive clerkenwell_events::ActorKind: Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize
+derive clerkenwell_events::ActorKind: Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize
 variant clerkenwell_events::ActorKind::Agent
 variant clerkenwell_events::ActorKind::Human
 variant clerkenwell_events::ActorKind::Service
@@ -18,15 +18,15 @@ field clerkenwell_events::ChangeData::operation_id: Option<String>
 field clerkenwell_events::ChangeData::resource_id: String
 struct clerkenwell_events::ChangeEvent
 derive clerkenwell_events::ChangeEvent: Clone, Debug, Deserialize, Eq, PartialEq, Serialize
-field clerkenwell_events::ChangeEvent::actorid: Option<String>
-field clerkenwell_events::ChangeEvent::actorkind: Option<ActorKind>
+field clerkenwell_events::ChangeEvent::actorid: String
+field clerkenwell_events::ChangeEvent::actorkind: ActorKind
 field clerkenwell_events::ChangeEvent::data: ChangeData
 field clerkenwell_events::ChangeEvent::datacontenttype: String
 field clerkenwell_events::ChangeEvent::generation: Option<u64>
 field clerkenwell_events::ChangeEvent::id: String
 field clerkenwell_events::ChangeEvent::intent: Option<String>
 field clerkenwell_events::ChangeEvent::kind: ChangeKind
-fn clerkenwell_events::ChangeEvent::new(id: impl Into<String>, source: impl Into<String>, kind: ChangeKind, time: impl Into<String>, generation: Option<u64>, data: ChangeData) -> Self
+fn clerkenwell_events::ChangeEvent::new(id: impl Into<String>, source: impl Into<String>, kind: ChangeKind, time: impl Into<String>, generation: Option<u64>, actor: &Principal, data: ChangeData) -> Self
 field clerkenwell_events::ChangeEvent::proposalstate: Option<String>
 field clerkenwell_events::ChangeEvent::source: String
 field clerkenwell_events::ChangeEvent::specversion: String
@@ -44,4 +44,9 @@ derive clerkenwell_events::ChangeKind: Clone, Copy, Debug, Deserialize, Eq, Part
 variant clerkenwell_events::ChangeKind::Committed
 variant clerkenwell_events::ChangeKind::Deleted
 const clerkenwell_events::DATA_CONTENT_TYPE: &str
+struct clerkenwell_events::Principal
+derive clerkenwell_events::Principal: Clone, Debug, Deserialize, Eq, Hash, PartialEq, Serialize
+field clerkenwell_events::Principal::id: String
+field clerkenwell_events::Principal::kind: ActorKind
+fn clerkenwell_events::Principal::new(id: impl Into<String>, kind: ActorKind) -> Self
 const clerkenwell_events::SPEC_VERSION: &str

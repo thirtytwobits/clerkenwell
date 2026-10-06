@@ -13,7 +13,12 @@
           "etag": "fixture",
           "exchange_modes": [
             "incremental"
-          ]
+          ],
+          "peer_block": {
+            "nonce": "fixture",
+            "base": "fixture",
+            "index_bits": 1
+          }
         }
       },
       "cases": [
@@ -30,7 +35,12 @@
                 "etag": "fixture",
                 "exchange_modes": [
                   "incremental"
-                ]
+                ],
+                "peer_block": {
+                  "nonce": "fixture",
+                  "base": "fixture",
+                  "index_bits": 1
+                }
               }
             }
           },
@@ -41,7 +51,12 @@
             "etag": "fixture",
             "exchange_modes": [
               "incremental"
-            ]
+            ],
+            "peer_block": {
+              "nonce": "fixture",
+              "base": "fixture",
+              "index_bits": 1
+            }
           }
         },
         {
