@@ -59,6 +59,9 @@
         "peer_block": {
           "$ref": "#/$defs/AuthoringPeerBlock"
         },
+        "replaces_held": {
+          "type": "boolean"
+        },
         "schema_version": {
           "format": "uint32",
           "minimum": 0,
@@ -74,7 +77,8 @@
         "update_base64",
         "etag",
         "exchange_modes",
-        "peer_block"
+        "peer_block",
+        "replaces_held"
       ],
       "type": "object"
     },

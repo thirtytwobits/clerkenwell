@@ -214,6 +214,10 @@ pub struct CollaborationAuthoringState {
     pub update_base64: String,
     /// Hashes the whole stored checkpoint, whatever the update carries.
     pub etag: String,
+    /// Whether the update is every accepted operation because the frontier
+    /// the peer named is not this document's: the peer replaces what it holds
+    /// with the update rather than adding the update to it.
+    pub replaces_held: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -1151,13 +1155,13 @@ impl CollaborationService {
         // Building the replica checks the checkpoint the whole update is.
         let authoring = Self::replica(plan, document, &resident)?;
         let envelope = &resident.envelope;
-        let lacking = match held_frontier_base64 {
-            None => envelope.checkpoint_update_base64.clone(),
+        let (lacking, replaces_held) = match held_frontier_base64 {
+            None => (envelope.checkpoint_update_base64.clone(), false),
             Some(held) => match authoring.export_incremental_update_base64(held) {
-                Ok(lacking) => lacking,
+                Ok(lacking) => (lacking, false),
                 // A frontier from another history places nothing the peer holds.
                 Err(CollaborationReplicaError::UnknownFrontier) => {
-                    envelope.checkpoint_update_base64.clone()
+                    (envelope.checkpoint_update_base64.clone(), true)
                 }
                 Err(error) => return Err(replica_error(document, error)),
             },
@@ -1167,6 +1171,7 @@ impl CollaborationService {
             accepted_frontier_base64: authoring.accepted_frontier_base64(),
             update_base64: lacking,
             etag: envelope.etag(),
+            replaces_held,
         })
     }
 
@@ -1386,6 +1391,17 @@ impl CollaborationService {
                 }
             };
             let mut authoring = load_authoring_document(plan, &request.document, &current)?;
+            // An edit descends from the document's one root, its seed. A
+            // history built apart, as a re-seed leaves a client, is answered
+            // with a resynchronisation before anything else is judged of it.
+            if read.is_some() {
+                authoring
+                    .require_related_history(&request.update_base64)
+                    .map_err(|error| {
+                        self.record_replica_failure(&error);
+                        replica_error(&request.document, error)
+                    })?;
+            }
             // A document the import creates holds nothing yet: every peer in
             // the update is new.
             let new_peers = match read {
@@ -1981,7 +1997,8 @@ impl CollaborationService {
                     .dependency_blocks
                     .fetch_add(1, Ordering::Relaxed);
             }
-            CollaborationReplicaError::UnknownFrontier => {
+            CollaborationReplicaError::UnknownFrontier
+            | CollaborationReplicaError::UnrelatedHistory => {
                 self.counters
                     .resync_requirements
                     .fetch_add(1, Ordering::Relaxed);
@@ -2233,17 +2250,24 @@ fn replica_error(
     document: &CollaborationDocumentId,
     error: CollaborationReplicaError,
 ) -> StoreError {
-    match error {
-        CollaborationReplicaError::UnknownFrontier => StoreError::conflict(format!(
-            "The collaboration frontier for {}/{} is no longer available; resynchronise without discarding the retained draft.",
-            document.entity, document.resource_id
-        ))
-        .with_data(serde_json::json!({
-            "code": "collaboration_resync_required",
+    let resync = |message: String| {
+        StoreError::conflict(message).with_data(serde_json::json!({
+            "code": "conflict",
+            "conflict_kind": "collaboration_resync_required",
             "entity": document.entity,
             "resource_id": document.resource_id,
             "draft_retained": true,
-        })),
+        }))
+    };
+    match error {
+        CollaborationReplicaError::UnrelatedHistory => resync(format!(
+            "The collaboration update for {}/{} holds a history built apart from the document's; resynchronise without discarding the retained draft.",
+            document.entity, document.resource_id
+        )),
+        CollaborationReplicaError::UnknownFrontier => resync(format!(
+            "The collaboration frontier for {}/{} is no longer available; resynchronise without discarding the retained draft.",
+            document.entity, document.resource_id
+        )),
         CollaborationReplicaError::MissingDependency => StoreError::conflict(format!(
             "The collaboration update for {}/{} has operations whose causal dependencies are missing; the draft was retained.",
             document.entity, document.resource_id

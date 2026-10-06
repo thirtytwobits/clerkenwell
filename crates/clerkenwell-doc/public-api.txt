@@ -22,6 +22,7 @@ fn clerkenwell_doc::CollaborationReplica::prepare_text_prefix_at_frontier(&self,
 fn clerkenwell_doc::CollaborationReplica::prepare_text_replacement_at_frontier(&self, field_path: &str, identities: &HashMap<String, String>, frontier_base64: &str, expected_text: &str, replacement: &str, peer: u64) -> Result<String, CollaborationReplicaError>
 fn clerkenwell_doc::CollaborationReplica::replace_document(&mut self, document: &Value) -> Result<(), CollaborationReplicaError>
 fn clerkenwell_doc::CollaborationReplica::require_frontier_base64(&self, accepted_frontier_base64: &str) -> Result<(), CollaborationReplicaError>
+fn clerkenwell_doc::CollaborationReplica::require_related_history(&self, update_base64: &str) -> Result<(), CollaborationReplicaError>
 fn clerkenwell_doc::CollaborationReplica::set_peer(&self, peer: u64) -> Result<(), CollaborationReplicaError>
 fn clerkenwell_doc::CollaborationReplica::text_at_frontier(&self, field_path: &str, identities: &HashMap<String, String>, frontier_base64: &str) -> Result<String, CollaborationReplicaError>
 struct clerkenwell_doc::CollaborationReplicaDebug
@@ -37,6 +38,7 @@ variant clerkenwell_doc::CollaborationReplicaError::InvalidField { path: String,
 variant clerkenwell_doc::CollaborationReplicaError::MissingDependency
 variant clerkenwell_doc::CollaborationReplicaError::TextCaptureMismatch
 variant clerkenwell_doc::CollaborationReplicaError::UnknownFrontier
+variant clerkenwell_doc::CollaborationReplicaError::UnrelatedHistory
 variant clerkenwell_doc::CollaborationReplicaError::UnsupportedSchemaVersion { entity: &'static str, actual: u32, expected: u32 }
 variant clerkenwell_doc::CollaborationReplicaError::Update(String)
 fn clerkenwell_doc::conflicting_field_paths(plan: &GeneratedCollaborationEntitySpec, base: &Value, client: &Value, current: &Value, kind: ActorKind) -> Vec<String>

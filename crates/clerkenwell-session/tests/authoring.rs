@@ -552,6 +552,46 @@ fn a_client_that_holds_the_accepted_state_is_sent_nothing_when_it_subscribes_aga
 }
 
 #[test]
+fn a_client_holding_a_state_of_a_reseeded_document_is_told_to_replace_it() {
+    let library = Library::new(&[]);
+    library.create(WORKSPACE, NOTE, "note-1");
+    let (_, first) = subscribe(
+        &library,
+        &subscriptions_of_a_client(),
+        "notes.authoringState",
+        note("note-1"),
+        None,
+    )
+    .expect("subscribe");
+    let (state, held) = snapshot_state(&first[0]);
+    assert!(
+        !state.replaces_held,
+        "a client that held nothing replaces nothing"
+    );
+    library
+        .store(WORKSPACE)
+        .delete(&client(), &CollaborationDocumentId::new("Note", "note-1"))
+        .expect("delete");
+    library.create(WORKSPACE, NOTE, "note-1");
+
+    let (accepted, events) = subscribe(
+        &library,
+        &subscriptions_of_a_client(),
+        "notes.authoringState",
+        note("note-1"),
+        Some(held),
+    )
+    .expect("subscribe again");
+
+    assert!(!accepted.up_to_date);
+    let (state, _) = snapshot_state(&events[0]);
+    assert!(
+        state.replaces_held,
+        "the client's state is of another history"
+    );
+}
+
+#[test]
 fn a_commit_sends_each_subscription_following_the_document_the_operations_its_client_lacks() {
     let library = Library::new(&[]);
     library.create(WORKSPACE, NOTE, "note-1");

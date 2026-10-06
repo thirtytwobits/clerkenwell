@@ -94,6 +94,40 @@ class PeerAllocator {
   }
 }
 
+/**
+ * An update holding a history built apart from a replica's own, such as the
+ * history a re-seed leaves a client. The replica takes none of it; its owner
+ * builds a new replica from the accepted state instead.
+ */
+export class CollaborationUnrelatedHistoryError extends Error {
+  constructor(entityName: string) {
+    super(`The ${entityName} update holds a history built apart from this replica's.`);
+    this.name = "CollaborationUnrelatedHistoryError";
+  }
+}
+
+/**
+ * Refuses an update holding a root `doc` lacks: a change that depends on
+ * nothing, so a history built apart from `doc`'s own.
+ */
+function requireRelatedHistory(entityName: string, doc: LoroDoc, update: Uint8Array): void {
+  // A root depends on nothing, so it lands in an empty document even when the
+  // rest of the update waits on operations held elsewhere.
+  const scratch = new LoroDoc();
+  try {
+    scratch.import(update);
+    const held = doc.oplogVersion();
+    for (const peer of scratch.oplogVersion().toJSON().keys()) {
+      const first = scratch.getChangeAt({ peer, counter: 0 });
+      if (first.deps.length === 0 && (held.get(peer) ?? 0) === 0) {
+        throw new CollaborationUnrelatedHistoryError(entityName);
+      }
+    }
+  } finally {
+    scratch.free();
+  }
+}
+
 /** An accepted update seeds the replica; otherwise the caller's initial content must. */
 export function collaborationReplicaSource<TDocument extends ClientDocument>(
   entityName: string,
@@ -456,11 +490,15 @@ export class CollaborationReplica<TDocument extends ClientDocument> {
   /**
    * Imports an update and re-materialises only when it carried ops this
    * replica did not already hold. Returns whether the document changed.
+   * Refuses an update holding a history built apart from this replica's with
+   * {@link CollaborationUnrelatedHistoryError}, and takes none of it.
    */
   importUpdateBase64(updateBase64: string): boolean {
     this.flushTextBindings();
+    const update = base64ToBytes(updateBase64);
+    requireRelatedHistory(this.entityName, this.doc, update);
     const before = this.textBindings.size > 0 || this.views.size > 0 ? this.doc.version() : undefined;
-    const status = this.doc.import(base64ToBytes(updateBase64));
+    const status = this.doc.import(update);
     if (status.success.size === 0) {
       return false;
     }

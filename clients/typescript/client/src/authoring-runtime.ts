@@ -6,7 +6,7 @@
  */
 
 import type { AuthoringResourceIdentity, AuthoringRuntimeListener, AuthoringRuntimeState, AuthoringSession, AuthoringSessionController, AuthoringTextStageConfirmation, AuthoringTextStageController, QueuedAuthoringOperation, RedactedAuthoringRuntimeDiagnostic, RedactedAuthoringSessionDiagnostic } from "./authoring-session.js";
-import { acknowledgeAuthoringOperation, adoptAuthoringBaseline, authoringSessionAcceptsDraft, authoringSessionId, authoringSessionRequiresDurableRestoration, beginAuthoringReplay, blockAuthoringSession, bootstrapAuthoringSession, discardAuthoringChanges, disconnectAuthoringSession, documentsEqual, modifyAuthoringSession, queueAuthoringOperation, reconnectAuthoringSession, rejectAuthoringOperation, startAuthoringSession, supersedeBlockedAuthoringOperations } from "./authoring-state-machine.js";
+import { acknowledgeAuthoringOperation, adoptAuthoringBaseline, authoringSessionAcceptsDraft, authoringSessionId, authoringSessionRequiresDurableRestoration, beginAuthoringReplay, blockAuthoringSession, bootstrapAuthoringSession, discardAuthoringChanges, disconnectAuthoringSession, documentsEqual, modifyAuthoringSession, queueAuthoringOperation, reconnectAuthoringSession, rejectAuthoringOperation, replaceAuthoringHistory, startAuthoringSession, supersedeBlockedAuthoringOperations } from "./authoring-state-machine.js";
 import type { TextBinding } from "./text-binding.js";
 
 /**
@@ -617,6 +617,37 @@ export class AuthoringRuntime {
     controller: AuthoringSessionController<TDocument, TTextFieldPath>
   ): AuthoringSessionHandle<TDocument, TTextFieldPath> {
     this.detachController(resource);
+    return this.ensureController(resource, () => controller);
+  }
+
+  /**
+   * Replace a session's replica with one of the store's history, as an
+   * authoring state that replaces what its client held, or a refusal that
+   * requires a resynchronisation, calls for. `create` builds the replica from
+   * the store's whole accepted state at `acceptedRevision`; the old replica is
+   * disposed and nothing of its history is sent again. With nothing pending
+   * the session takes the store's document. Pending edits are written again
+   * on the new replica when the store's document is the one they were made
+   * from; otherwise the session is held for recovery with its draft.
+   */
+  replaceHistory<TDocument, TTextFieldPath extends string>(
+    resource: AuthoringResourceIdentity,
+    input: {
+      create: () => AuthoringSessionController<TDocument, TTextFieldPath>;
+      acceptedRevision: string;
+    }
+  ): AuthoringSessionHandle<TDocument, TTextFieldPath> {
+    const session = this.#requireSession<TDocument>(resource);
+    this.detachController(resource);
+    const controller = input.create();
+    if (controller.currentDraft === undefined) {
+      controller.dispose?.();
+      throw new Error(`${resource.entity} authoring cannot read the store's document.`);
+    }
+    this.#setSession(
+      replaceAuthoringHistory(session, controller.currentDraft(), input.acceptedRevision),
+      false
+    );
     return this.ensureController(resource, () => controller);
   }
 

@@ -49,8 +49,24 @@ names the contracts.
   `peer`. Persisted draft operations record `peer_nonces`. `conflictingFieldPaths` takes the
   writer's kind, and `creationConflictingFieldPaths` judges a creation.
 
+- An import never adds a root to a document's history. `CollaborationReplica` refuses an update
+  holding a root it lacks with `CollaborationReplicaError::UnrelatedHistory`, and the store refuses
+  such an import with its resynchronisation refusal. That refusal carries `code: "conflict"` and
+  `conflict_kind: "collaboration_resync_required"`, so it reaches a client through the session
+  protocol.
+- An authoring state carries `replaces_held`: the store answered a frontier that is not of the
+  document's history with every accepted operation, which replace what the client holds.
+- `@clerkenwell/client`: a `CollaborationReplica` refuses an update holding a history built apart
+  from its own with `CollaborationUnrelatedHistoryError`. `AuthoringRuntime.replaceHistory`
+  replaces a session's replica with one of the store's history, and a rejection whose category
+  is `collaboration_resync_required` holds the session as `resyncRequired` until it does.
+
 ### Fixed
 
+- A client whose document was re-seeded no longer doubles every text field or sends its earlier
+  history to the store (#49). The store refuses that history, tells the client its state
+  replaces what it holds, and the client replaces its replica: it takes the store's document,
+  keeps unsent edits made from that document, and holds any others for recovery.
 - `AuthoringRuntime.ensureController` no longer drops a session's pending work when the controller
   it attaches holds a draft or records operations but takes no documents, and its replica cannot
   take the work: the replica lacks the history the recorded operations extend, or there are none.

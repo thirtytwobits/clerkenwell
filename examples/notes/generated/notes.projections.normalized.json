@@ -128,6 +128,10 @@
         "peer_block": {
           "$ref": "#/$defs/AuthoringPeerBlock"
         },
+        "replaces_held": {
+          "description": "Whether the client replaces what it holds with this delivery, because what it named holding is not of this document's history.",
+          "type": "boolean"
+        },
         "schema_version": {
           "description": "The layout version the document's operations are written in.",
           "type": "integer"
@@ -143,7 +147,8 @@
         "update_base64",
         "etag",
         "exchange_modes",
-        "peer_block"
+        "peer_block",
+        "replaces_held"
       ],
       "type": "object"
     },

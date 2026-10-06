@@ -23,6 +23,7 @@ base64.workspace = true
 clerkenwell-axum = { path = "../clerkenwell-axum" }
 clerkenwell-example-notes = { path = "../../examples/notes" }
 clerkenwell-notebook = { path = "../clerkenwell-notebook" }
+clerkenwell-store = { path = "../clerkenwell-store" }
 loro.workspace = true
 tempfile.workspace = true
 tokio = { version = "1.50.0", features = ["macros", "net", "process", "rt-multi-thread"] }

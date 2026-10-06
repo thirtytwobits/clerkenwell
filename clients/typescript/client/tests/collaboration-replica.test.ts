@@ -337,7 +337,7 @@ test("a replica refuses an update from another schema version", () => {
     /schema version/
   );
   assert.doesNotThrow(
-    () => noteReplica(noteDocument()).importVersionedUpdateBase64(NOTE_PLAN.schemaVersion, update)
+    () => noteReplicaFromUpdate(update).importVersionedUpdateBase64(NOTE_PLAN.schemaVersion, update)
   );
 });
 

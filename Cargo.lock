@@ -411,6 +411,7 @@ dependencies = [
  "clerkenwell-example-notes",
  "clerkenwell-notebook",
  "clerkenwell-schema",
+ "clerkenwell-store",
  "loro",
  "serde_json",
  "tempfile",

@@ -108,6 +108,7 @@
     "CollaborationReplicaSource",
     "CollaborationReplicaView",
     "CollaborationTextView",
+    "CollaborationUnrelatedHistoryError",
     "collaborationReplicaSource",
     "documentDraftMapping",
     "requireCollaborationSchemaVersion"

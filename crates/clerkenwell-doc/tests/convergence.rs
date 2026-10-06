@@ -74,29 +74,6 @@ fn concurrent_structured_ordered_and_optional_edits_converge() {
 }
 
 #[test]
-fn independently_seeded_keyed_items_with_one_identity_converge_once() {
-    let mut left = board();
-    left["columns"][0]["title"] = json!("Left title");
-    let mut right = board();
-    right["columns"][0]["cards"][0]["text"] = json!("Right text");
-    let mut replica = seed(BOARD, &left);
-    replica
-        .adopt_versioned_update_base64(
-            BOARD.schema_version,
-            &seed(BOARD, &right)
-                .export_update_base64()
-                .expect("export right"),
-        )
-        .expect("import right");
-
-    let merged = read(&replica);
-    assert_eq!(column_ids(&merged), column_ids(&board()));
-    for column in 0..column_ids(&merged).len() {
-        assert_eq!(card_ids(&merged, column), card_ids(&board(), column));
-    }
-}
-
-#[test]
 fn concurrent_nested_records_map_keys_and_prose_converge() {
     let base = board();
     let mut one = base.clone();
