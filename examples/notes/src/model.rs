@@ -105,6 +105,7 @@ pub struct AuthoringState {
     pub etag: String,
     pub exchange_modes: Vec<AuthoringStateExchangeModes>,
     pub peer_block: AuthoringPeerBlock,
+    pub replaces_held: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, PartialEq)]

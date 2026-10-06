@@ -14,7 +14,7 @@ use std::collections::HashMap;
 
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use clerkenwell_schema::{ActorKind, GeneratedCollaborationEntitySpec};
-use loro::{ExportMode, Frontiers, LoroDoc, VersionVector};
+use loro::{ExportMode, Frontiers, LoroDoc, VersionVector, ID};
 use serde_json::Value;
 use thiserror::Error;
 
@@ -50,6 +50,8 @@ pub enum CollaborationReplicaError {
     UnknownFrontier,
     #[error("the collaboration update has causal dependencies that are not present")]
     MissingDependency,
+    #[error("the collaboration update holds a history built apart from this document's")]
+    UnrelatedHistory,
     #[error("the supplied text does not match the captured collaboration frontier")]
     TextCaptureMismatch,
 }
@@ -140,6 +142,7 @@ impl CollaborationReplica {
         update_base64: &str,
     ) -> Result<(), CollaborationReplicaError> {
         require_supported_schema_version(self.plan, schema_version)?;
+        self.require_related_history(update_base64)?;
         let status = self
             .doc
             .import(&BASE64.decode(update_base64).map_err(base64_error)?)
@@ -148,6 +151,32 @@ impl CollaborationReplica {
             return Err(CollaborationReplicaError::MissingDependency);
         }
         self.baseline = None;
+        Ok(())
+    }
+
+    /// Refuses an update holding a root this replica lacks: a change that
+    /// depends on nothing, so a history built apart from the replica's own.
+    pub fn require_related_history(
+        &self,
+        update_base64: &str,
+    ) -> Result<(), CollaborationReplicaError> {
+        // A root depends on nothing, so it lands in an empty document even
+        // when the rest of the update waits on operations held elsewhere.
+        let scratch = LoroDoc::new();
+        scratch
+            .import(&BASE64.decode(update_base64).map_err(base64_error)?)
+            .map_err(update_error)?;
+        let held = self.doc.oplog_vv();
+        let unrelated = scratch.oplog_vv().keys().any(|peer| {
+            let first = ID::new(*peer, 0);
+            scratch
+                .get_change(first)
+                .is_some_and(|change| change.deps.is_empty())
+                && !held.includes_id(first)
+        });
+        if unrelated {
+            return Err(CollaborationReplicaError::UnrelatedHistory);
+        }
         Ok(())
     }
 

@@ -576,7 +576,8 @@
             "nonce": "fixture",
             "base": "fixture",
             "index_bits": 1
-          }
+          },
+          "replaces_held": true
         }
       },
       "cases": [
@@ -598,7 +599,8 @@
                   "nonce": "fixture",
                   "base": "fixture",
                   "index_bits": 1
-                }
+                },
+                "replaces_held": true
               }
             }
           },
@@ -614,7 +616,8 @@
               "nonce": "fixture",
               "base": "fixture",
               "index_bits": 1
-            }
+            },
+            "replaces_held": true
           }
         },
         {
@@ -646,7 +649,8 @@
             "nonce": "fixture",
             "base": "fixture",
             "index_bits": 1
-          }
+          },
+          "replaces_held": true
         }
       },
       "cases": [
@@ -668,7 +672,8 @@
                   "nonce": "fixture",
                   "base": "fixture",
                   "index_bits": 1
-                }
+                },
+                "replaces_held": true
               }
             }
           },
@@ -684,7 +689,8 @@
               "nonce": "fixture",
               "base": "fixture",
               "index_bits": 1
-            }
+            },
+            "replaces_held": true
           }
         },
         {

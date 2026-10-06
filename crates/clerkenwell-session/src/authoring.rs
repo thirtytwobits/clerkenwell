@@ -37,6 +37,9 @@ pub struct AuthoringState {
     pub exchange_modes: Vec<CollaborationExchangeMode>,
     /// A new block of peers for the client to write the document under.
     pub peer_block: AuthoringPeerBlock,
+    /// Whether the client replaces what it holds with this state, because
+    /// what it named holding is not of this document's history.
+    pub replaces_held: bool,
 }
 
 /// A block of peers allocated to the subscriber: every peer whose bits above
@@ -195,6 +198,7 @@ impl AuthoringStates {
                 base: block.base.to_string(),
                 index_bits: PEER_INDEX_BITS,
             },
+            replaces_held: read.replaces_held,
         })
     }
 }

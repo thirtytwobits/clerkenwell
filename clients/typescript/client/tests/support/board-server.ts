@@ -31,7 +31,7 @@ export interface BoardAuthoringUpdate {
 }
 
 export class FakeBoardServer {
-  private readonly accepted: BoardReplica;
+  private accepted: BoardReplica;
   /** Every incremental update the server was asked to import. */
   readonly imports: BoardAuthoringUpdate[] = [];
 
@@ -68,6 +68,11 @@ export class FakeBoardServer {
     const missingUpdateBase64 = this.accepted.exportIncrementalUpdateBase64(outgoing.baseFrontierBase64);
     this.accepted.importUpdateBase64(outgoing.updateBase64);
     return { state: this.snapshot(), board: this.board(), missingUpdateBase64 };
+  }
+
+  /** Replaces the accepted document with `board` on a history of its own, as a re-seed does. */
+  reseed(board: BoardDocument): void {
+    this.accepted = boardReplica(board);
   }
 
   /** Another writer's change, accepted by the server. */

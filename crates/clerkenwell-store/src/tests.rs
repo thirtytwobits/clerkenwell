@@ -453,6 +453,10 @@ fn a_peer_holding_an_accepted_frontier_receives_only_the_operations_after_it() {
         accepted.accepted_frontier_base64
     );
     assert_eq!(delivered.etag, accepted.etag);
+    assert!(
+        !delivered.replaces_held,
+        "what follows a held frontier adds to it"
+    );
 
     let mut peer = CollaborationReplica::from_versioned_update_base64(
         &NOTE_PLAN,
@@ -480,7 +484,8 @@ fn a_peer_holding_an_accepted_frontier_receives_only_the_operations_after_it() {
 }
 
 #[test]
-fn a_peer_holding_a_frontier_from_another_history_receives_every_operation() {
+fn a_peer_holding_a_frontier_from_another_history_receives_every_operation_in_place_of_what_it_holds(
+) {
     let storage = MemoryStorage::default();
     let (service, document, _seed, _) = initialise(&storage);
     let (_, _, _, foreign) = initialise(&MemoryStorage::default());
@@ -503,6 +508,14 @@ fn a_peer_holding_a_frontier_from_another_history_receives_every_operation() {
     assert_eq!(
         peer.accepted_frontier_base64(),
         accepted.accepted_frontier_base64
+    );
+    assert!(
+        delivered.replaces_held,
+        "the peer replaces what it holds with the state delivered"
+    );
+    assert!(
+        !accepted.replaces_held,
+        "a peer that holds nothing has nothing replaced"
     );
 }
 

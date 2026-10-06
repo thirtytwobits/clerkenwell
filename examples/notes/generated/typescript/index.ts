@@ -60,6 +60,7 @@ export type AuthoringState = {
   "etag": string;
   "exchange_modes": ("incremental" | "bootstrap")[];
   "peer_block": AuthoringPeerBlock;
+  "replaces_held": boolean;
 };
 
 export type AuthoringStatePatch = {

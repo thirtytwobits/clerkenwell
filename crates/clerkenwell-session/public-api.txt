@@ -22,6 +22,7 @@ field clerkenwell_session::AuthoringState::accepted_frontier_base64: String
 field clerkenwell_session::AuthoringState::etag: String
 field clerkenwell_session::AuthoringState::exchange_modes: Vec<CollaborationExchangeMode>
 field clerkenwell_session::AuthoringState::peer_block: AuthoringPeerBlock
+field clerkenwell_session::AuthoringState::replaces_held: bool
 field clerkenwell_session::AuthoringState::schema_version: u32
 field clerkenwell_session::AuthoringState::update_base64: String
 struct clerkenwell_session::AuthoringStates { .. }

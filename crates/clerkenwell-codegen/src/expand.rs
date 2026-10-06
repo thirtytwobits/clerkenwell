@@ -20,7 +20,7 @@ pub const AUTHORING_PEER_BLOCK: &str = "AuthoringPeerBlock";
 const AUTHORING_STATE_SCHEMA: &str = r##"{
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_version", "accepted_frontier_base64", "update_base64", "etag", "exchange_modes", "peer_block"],
+  "required": ["schema_version", "accepted_frontier_base64", "update_base64", "etag", "exchange_modes", "peer_block", "replaces_held"],
   "properties": {
     "schema_version": {
       "type": "integer",
@@ -43,7 +43,11 @@ const AUTHORING_STATE_SCHEMA: &str = r##"{
       "items": { "type": "string", "enum": ["incremental", "bootstrap"] },
       "description": "How the store accepts an import of this document."
     },
-    "peer_block": { "$ref": "#/$defs/AuthoringPeerBlock" }
+    "peer_block": { "$ref": "#/$defs/AuthoringPeerBlock" },
+    "replaces_held": {
+      "type": "boolean",
+      "description": "Whether the client replaces what it holds with this delivery, because what it named holding is not of this document's history."
+    }
   }
 }"##;
 

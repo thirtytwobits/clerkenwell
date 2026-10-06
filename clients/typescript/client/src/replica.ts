@@ -16,6 +16,7 @@ export {
   CollaborationDrafts,
   CollaborationReplica,
   CollaborationTextView,
+  CollaborationUnrelatedHistoryError,
   collaborationReplicaSource,
   documentDraftMapping,
   requireCollaborationSchemaVersion

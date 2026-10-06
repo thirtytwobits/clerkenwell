@@ -8,6 +8,12 @@
 import type { AuthoringExchangeMode, AuthoringResourceIdentity, AuthoringSession, AuthoringSessionStatus, QueuedAuthoringOperation } from "./authoring-session.js";
 import { areJsonValuesEqual } from "./json-value-equality.js";
 
+/**
+ * The code a store refuses an import with when the importer must replace its
+ * replica with one of the store's history.
+ */
+const RESYNC_REQUIRED = "collaboration_resync_required";
+
 export type AuthoringLeaveDecision =
   | { kind: "allow"; restoration: "notRequired" | "durable" }
   | { kind: "confirmDiscard" };
@@ -251,6 +257,41 @@ export function resolveAuthoringDraftForBaselineAdoption<TDocument>(
     : session.draft;
 }
 
+/**
+ * A session whose replica is replaced by one of another history: the
+ * accepted state `accepted` at `acceptedRevision`, as a re-seeded document
+ * leaves it. Operations of the old history are never sent, so the queue and
+ * the recorded operations go. With nothing pending the session takes
+ * `accepted`. Pending edits are kept, to be written again on the new replica,
+ * when `accepted` is the document they were made from; otherwise the session
+ * is held for recovery with its draft, over `accepted`.
+ */
+export function replaceAuthoringHistory<TDocument>(
+  session: AuthoringSession<TDocument>,
+  accepted: TDocument,
+  acceptedRevision: string
+): AuthoringSession<TDocument> {
+  const replaced: AuthoringSession<TDocument> = {
+    ...session,
+    acceptedRevision,
+    baseline: structuredClone(accepted),
+    queuedOperations: [],
+    lastRejection: undefined
+  };
+  delete replaced.draftOperations;
+  if (!authoringSessionRequiresDurableRestoration(session)) {
+    return { ...replaced, status: "clean", draft: structuredClone(accepted) };
+  }
+  const editable = authoringSessionAcceptsDraft(session) || session.status === "resyncRequired";
+  if (editable && documentsEqual(session.baseline, accepted)) {
+    return {
+      ...replaced,
+      status: documentsEqual(accepted, session.draft) ? "clean" : "modified"
+    };
+  }
+  return { ...replaced, status: "recoveryRequired" };
+}
+
 export function discardAuthoringChanges<TDocument>(
   session: AuthoringSession<TDocument>
 ): AuthoringSession<TDocument> {
@@ -271,15 +312,19 @@ export function rejectAuthoringOperation<TDocument>(input: {
   retryable: boolean;
 }): AuthoringSession<TDocument> {
   requireQueuedOperation(input.session, input.operationId);
+  // The store holds a history the session's replica is not of: no operation
+  // of that replica can be accepted until it is replaced, whatever a later
+  // rejection says.
+  const resync = input.category === RESYNC_REQUIRED || input.session.status === "resyncRequired";
   return {
     ...input.session,
-    status: "commitRejected",
+    status: resync ? "resyncRequired" : "commitRejected",
     queuedOperations: input.session.queuedOperations.map((candidate) =>
       candidate.operationId === input.operationId
         ? {
             ...candidate,
             retryCount: candidate.retryCount + 1,
-            state: input.retryable ? "queued" : "blocked",
+            state: input.retryable && !resync ? "queued" : "blocked",
             rejectionCategory: input.category
           }
         : candidate
