@@ -1,6 +1,6 @@
 {
   "name": "@clerkenwell/client",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "React-free client for Clerkenwell documents: plan types, projection materialisation and subscription, the authoring state machine, and a plan-driven Loro replica.",
   "license": "MIT",
   "type": "module",
