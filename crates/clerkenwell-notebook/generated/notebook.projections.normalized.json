@@ -1938,6 +1938,13 @@
           "properties": {
             "reason": {
               "type": "string"
+            },
+            "severity": {
+              "enum": [
+                "minor",
+                "major"
+              ],
+              "type": "string"
             }
           },
           "required": [
@@ -1960,6 +1967,16 @@
         "done": {
           "additionalProperties": false,
           "properties": {
+            "checks": {
+              "items": {
+                "enum": [
+                  "tests",
+                  "review"
+                ],
+                "type": "string"
+              },
+              "type": "array"
+            },
             "completed_at": {
               "type": "string"
             },

@@ -62,6 +62,10 @@ names the contracts.
 
 ### Fixed
 
+- `clerkenwell-codegen` emits the Rust enum of a string-enum property, or of an array of one,
+  inside a tagged-union variant (#64). It named the enum and never declared it, so the generated
+  crate did not compile. A variant's enum is named after its union, its tag and its property, so
+  two variants' properties of one name stay distinct.
 - A client whose document was re-seeded no longer doubles every text field or sends its earlier
   history to the store (#49). The store refuses that history, tells the client its state
   replaces what it holds, and the client replaces its replica: it takes the store's document,

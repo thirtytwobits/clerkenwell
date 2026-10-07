@@ -120,6 +120,47 @@ fn generated_rust_imports_only_what_it_uses() {
     }
 }
 
+#[test]
+fn every_string_enum_a_tagged_union_variant_declares_is_emitted_under_its_variant() {
+    let mut document = notebook_document();
+    for (variant, values) in [
+        ("blocked", r#"["minor", "major"]"#),
+        ("done", r#"["checked", "waived"]"#),
+    ] {
+        set(
+            &mut document,
+            &format!("/$defs/TaskState/oneOf/{variant}/properties/level"),
+            json(&format!(r#"{{ "type": "string", "enum": {values} }}"#)),
+        );
+    }
+    let definition = validate(document).expect("valid");
+
+    let rust = build_outputs(&definition, &notebook_config())
+        .expect("renders")
+        .rust_model;
+
+    for (variant, first, second) in [("Blocked", "Minor", "Major"), ("Done", "Checked", "Waived")] {
+        let name = format!("TaskState{variant}Level");
+        assert!(
+            rust.contains(&format!("pub enum {name} {{")),
+            "{name} is emitted:\n{rust}"
+        );
+        let declared = rust
+            .split(&format!("pub enum {name} {{"))
+            .nth(1)
+            .and_then(|rest| rest.split('}').next())
+            .expect("its variants");
+        assert!(
+            declared.contains(first) && declared.contains(second),
+            "{declared}"
+        );
+        assert!(
+            rust.contains(&format!("level: Option<{name}>")),
+            "the {variant} variant's field is {name}"
+        );
+    }
+}
+
 /// A configuration pointing every output into `directory`, over the example
 /// definition.
 fn config_writing_into(directory: &Path) -> Config {

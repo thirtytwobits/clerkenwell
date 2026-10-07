@@ -22,50 +22,88 @@ pub(crate) struct RustPropertyEnum {
     pub values: Vec<String>,
 }
 
-/// Every object property with a string enum (directly or as array items), each
-/// named after its definition and property so two `kind` fields stay distinct.
+/// Every object property, and every property of a tagged-union variant, with a
+/// string enum (directly or as array items). Each is named after its owner and
+/// property so two `kind` fields stay distinct; a variant's owner is its union
+/// and its tag, so two variants' `kind` fields do too.
 pub(crate) fn collect_rust_property_enums(definition: &Definition) -> Vec<RustPropertyEnum> {
     let mut enums = Vec::new();
     for (definition_name, schema) in definition.def_entries() {
         if !has_type(schema, "object") {
             continue;
         }
-        let Some(properties) = object_at(schema, "properties") else {
-            continue;
-        };
-        for (property_name, property_schema) in properties.iter() {
-            let Some(property_schema) = property_schema.as_object() else {
-                continue;
-            };
-            let enum_schema = if property_schema
-                .get("enum")
-                .and_then(Json::as_array)
-                .is_some()
-            {
-                Some(property_schema)
-            } else if has_type(property_schema, "array") {
-                object_at(property_schema, "items")
-                    .filter(|items| items.get("enum").and_then(Json::as_array).is_some())
-            } else {
-                None
-            };
-            if let Some(enum_schema) = enum_schema {
+        let mut owners = Vec::new();
+        if let Some(properties) = object_at(schema, "properties") {
+            owners.push((
+                definition_name.to_owned(),
+                format!("$defs.{definition_name}.properties"),
+                properties,
+            ));
+        }
+        for (tag, variant) in object_at(schema, "oneOf")
+            .into_iter()
+            .flat_map(Object::iter)
+        {
+            if let Some(properties) = variant.as_object().and_then(|v| object_at(v, "properties")) {
+                owners.push((
+                    variant_enum_owner(definition_name, tag),
+                    format!("$defs.{definition_name}.oneOf.{tag}.properties"),
+                    properties,
+                ));
+            }
+        }
+        for (owner, path, properties) in owners {
+            for (property_name, property_schema) in properties.iter() {
+                let Some(values) = property_schema.as_object().and_then(property_enum_values)
+                else {
+                    continue;
+                };
                 enums.push(RustPropertyEnum {
-                    name: rust_property_enum_name(definition_name, property_name),
-                    source: format!("$defs.{definition_name}.properties.{property_name}"),
-                    values: enum_schema
-                        .get("enum")
-                        .and_then(Json::as_array)
-                        .expect("checked above")
-                        .iter()
-                        .filter_map(Json::as_str)
-                        .map(str::to_owned)
-                        .collect(),
+                    name: rust_property_enum_name(&owner, property_name),
+                    source: format!("{path}.{property_name}"),
+                    values,
                 });
             }
         }
     }
     enums
+}
+
+/// The values of a property's string enum, declared directly or as its array
+/// items.
+fn property_enum_values(property_schema: &Object) -> Option<Vec<String>> {
+    let enum_schema = if property_schema
+        .get("enum")
+        .and_then(Json::as_array)
+        .is_some()
+    {
+        property_schema
+    } else if has_type(property_schema, "array") {
+        object_at(property_schema, "items")
+            .filter(|items| items.get("enum").and_then(Json::as_array).is_some())?
+    } else {
+        return None;
+    };
+    Some(
+        enum_schema
+            .get("enum")
+            .and_then(Json::as_array)
+            .expect("checked above")
+            .iter()
+            .filter_map(Json::as_str)
+            .map(str::to_owned)
+            .collect(),
+    )
+}
+
+/// What a tagged-union variant's property enums are named after: the union
+/// and the variant's tag.
+fn variant_enum_owner(definition_name: &str, tag: &str) -> String {
+    format!(
+        "{}{}",
+        pascal_identifier(definition_name),
+        pascal_identifier(tag)
+    )
 }
 
 /// The model crate's source.
@@ -622,7 +660,7 @@ fn render_definition(definition_name: &str, schema: &Object) -> Result<String> {
     // A record-shaped `$def` names one open map, so a value schema used at many
     // sites is written once.
     if let Some(additional) = object_at(schema, "additionalProperties") {
-        let value = rust_type(definition_name, "value", additional, false)?;
+        let value = rust_type(definition_name, definition_name, "value", additional, false)?;
         return Ok(format!("pub type {type_name} = HashMap<String, {value}>;"));
     }
     let Some(properties) = object_at(schema, "properties") else {
@@ -640,6 +678,7 @@ fn render_definition(definition_name: &str, schema: &Object) -> Result<String> {
             .as_object()
             .expect("validation requires object property schemas");
         fields.push(render_field(
+            definition_name,
             definition_name,
             property_name,
             property_schema,
@@ -706,6 +745,7 @@ fn tagged_union(definition_name: &str, schema: &Object) -> Result<String> {
             variant.get("required"),
             &format!("{definition_name}.{tag}.required"),
         )?;
+        let owner = variant_enum_owner(definition_name, tag);
         let mut fields = Vec::new();
         let mut inline_fields = Vec::new();
         for (property_name, property_schema) in properties.iter() {
@@ -715,13 +755,20 @@ fn tagged_union(definition_name: &str, schema: &Object) -> Result<String> {
             let is_required = required.contains(&property_name);
             fields.push(render_field(
                 definition_name,
+                &owner,
                 property_name,
                 property_schema,
                 is_required,
                 "        ",
                 "",
             )?);
-            let base = rust_type(definition_name, property_name, property_schema, false)?;
+            let base = rust_type(
+                definition_name,
+                &owner,
+                property_name,
+                property_schema,
+                false,
+            )?;
             inline_fields.push(format!(
                 "{}: {}",
                 rust_field_identifier(property_name),
@@ -767,6 +814,7 @@ fn tagged_union(definition_name: &str, schema: &Object) -> Result<String> {
 /// One field, with serde attributes for a renamed or optional wire property.
 fn render_field(
     definition_name: &str,
+    enum_owner: &str,
     property_name: &str,
     property_schema: &Object,
     required: bool,
@@ -788,7 +836,13 @@ fn render_field(
     if !validation.is_empty() {
         attributes.push(format!("{indent}#[schemars({})]", validation.join(", ")));
     }
-    let base = rust_type(definition_name, property_name, property_schema, false)?;
+    let base = rust_type(
+        definition_name,
+        enum_owner,
+        property_name,
+        property_schema,
+        false,
+    )?;
     let field_type = if required {
         base
     } else {
@@ -838,10 +892,12 @@ fn schemars_arguments(schema: &Object) -> Vec<String> {
     arguments
 }
 
-/// The Rust type of a field. A field holding its own type directly is boxed;
-/// `Vec` and `HashMap` already are indirections.
+/// The Rust type of a field of `definition_name`. A field holding its own
+/// type directly is boxed; `Vec` and `HashMap` already are indirections. A
+/// string enum is the helper enum named after `enum_owner` and the property.
 fn rust_type(
     definition_name: &str,
+    enum_owner: &str,
     property_name: &str,
     schema: &Object,
     behind_indirection: bool,
@@ -857,7 +913,7 @@ fn rust_type(
         );
     }
     if schema.get("enum").and_then(Json::as_array).is_some() {
-        return Ok(rust_property_enum_name(definition_name, property_name));
+        return Ok(rust_property_enum_name(enum_owner, property_name));
     }
     if primitive_union_types(schema)?.is_some() {
         return refuse(format!(
@@ -868,7 +924,10 @@ fn rust_type(
     Ok(match schema_type.and_then(Json::as_str) {
         Some("array") => {
             let items = object_at(schema, "items").expect("validation requires array items");
-            format!("Vec<{}>", rust_type(definition_name, property_name, items, true)?)
+            format!(
+                "Vec<{}>",
+                rust_type(definition_name, enum_owner, property_name, items, true)?
+            )
         }
         Some("string") => "String".to_owned(),
         Some("boolean") => "bool".to_owned(),
@@ -878,7 +937,13 @@ fn rust_type(
         Some("object") => match object_at(schema, "additionalProperties") {
             Some(additional) => format!(
                 "HashMap<String, {}>",
-                rust_type(definition_name, property_name, additional, true)?
+                rust_type(
+                    definition_name,
+                    enum_owner,
+                    property_name,
+                    additional,
+                    true
+                )?
             ),
             None => {
                 return refuse(format!(

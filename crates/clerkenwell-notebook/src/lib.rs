@@ -61,6 +61,22 @@ pub enum NoteDetailPatchKind {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, PartialEq, Eq)]
+pub enum TaskStateBlockedSeverity {
+    #[serde(rename = "minor")]
+    Minor,
+    #[serde(rename = "major")]
+    Major,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, PartialEq, Eq)]
+pub enum TaskStateDoneChecks {
+    #[serde(rename = "tests")]
+    Tests,
+    #[serde(rename = "review")]
+    Review,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, PartialEq, Eq)]
 pub enum TaskRecordType {
     #[serde(rename = "chore")]
     Chore,
@@ -456,12 +472,18 @@ pub enum TaskState {
     #[serde(rename = "open")]
     Open {},
     #[serde(rename = "blocked")]
-    Blocked { reason: String },
+    Blocked {
+        reason: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        severity: Option<TaskStateBlockedSeverity>,
+    },
     #[serde(rename = "done")]
     Done {
         completed_at: String,
         #[serde(skip_serializing_if = "Option::is_none")]
         reviewer: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        checks: Option<Vec<TaskStateDoneChecks>>,
         #[serde(skip_serializing_if = "Option::is_none")]
         evidence: Option<JsonValue>,
     },
