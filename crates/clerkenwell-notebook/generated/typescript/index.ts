@@ -212,11 +212,13 @@ export type TaskState =
   | {
   "phase": "blocked";
   "reason": string;
+  "severity"?: "minor" | "major";
 }
   | {
   "phase": "done";
   "completed_at": string;
   "reviewer"?: string;
+  "checks"?: ("tests" | "review")[];
   "evidence"?: unknown;
 }
   | {
