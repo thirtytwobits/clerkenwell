@@ -1213,6 +1213,8 @@
           "type": "boolean"
         },
         "priority": {
+          "maximum": 255,
+          "minimum": 0,
           "type": "integer"
         },
         "properties": {
