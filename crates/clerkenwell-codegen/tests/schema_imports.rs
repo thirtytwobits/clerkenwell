@@ -121,7 +121,8 @@ fn reference_annotations_preserve_defaults_and_validate_the_referenced_type() {
     }});
     let config = common::notebook_config();
     fs::write(&path, imported.to_string()).unwrap();
-    let definition = Definition::load_with_schemas(&config.definition, &[path.clone()]).unwrap();
+    let definition =
+        Definition::load_with_schemas(&config.definition, std::slice::from_ref(&path)).unwrap();
     assert!(build_outputs(&definition, &config).is_ok());
     imported["$defs"]["Selection"]["properties"]["choice"]["default"] = json!(false);
     fs::write(&path, imported.to_string()).unwrap();
