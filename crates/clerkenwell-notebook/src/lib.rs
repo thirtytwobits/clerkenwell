@@ -289,7 +289,7 @@ pub struct NoteDocument {
     pub summary: Option<String>,
     pub tags: Vec<String>,
     pub pinned: bool,
-    #[schemars(extend("minimum" = 0), extend("maximum" = 255))]
+    #[schemars(extend("minimum" = 0), extend("maximum" = 4294967295i64))]
     pub priority: i64,
     pub weight: f64,
     #[serde(skip_serializing_if = "Option::is_none")]
