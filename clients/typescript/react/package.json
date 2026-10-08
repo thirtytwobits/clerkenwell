@@ -1,6 +1,6 @@
 {
   "name": "@clerkenwell/react",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "description": "React binding for @clerkenwell/client: external stores, edit overlays, text bindings, autosync and the authoring runtime provider.",
   "license": "MIT",
   "type": "module",
@@ -25,7 +25,7 @@
     "test": "node --conditions=@clerkenwell/source --import tsx --test \"tests/**/*.test.ts\" \"tests/**/*.test.tsx\""
   },
   "dependencies": {
-    "@clerkenwell/client": "0.3.1"
+    "@clerkenwell/client": "0.4.0"
   },
   "peerDependencies": {
     "react": ">=18"

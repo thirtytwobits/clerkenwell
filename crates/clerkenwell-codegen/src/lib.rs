@@ -21,6 +21,7 @@ mod names;
 mod normalize;
 mod rust;
 mod schema;
+mod schema_imports;
 mod typescript;
 mod validate;
 
@@ -94,7 +95,7 @@ pub enum Mode {
 /// Loads the definition `config` names, renders it, and writes or checks the
 /// artefacts. Returns the paths whose content changed.
 pub fn generate(config: &Config, mode: Mode) -> Result<Vec<PathBuf>> {
-    let definition = Definition::load(&config.definition)?;
+    let definition = Definition::load_with_schemas(&config.definition, &config.schema_imports)?;
     let outputs = build_outputs(&definition, config)?;
     let mut changed = Vec::new();
     for (path, content) in outputs.with_paths(&config.outputs) {

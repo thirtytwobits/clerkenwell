@@ -649,6 +649,15 @@ fn render_definition(definition_name: &str, schema: &Object) -> Result<String> {
     if let Some(members) = primitive_union_types(schema)? {
         return primitive_union(definition_name, &members);
     }
+    if let Some(values) = schema.get("enum").and_then(Json::as_array) {
+        return Ok(render_enum(
+            &type_name,
+            &values
+                .iter()
+                .map(|value| value.as_str().unwrap().to_owned())
+                .collect::<Vec<_>>(),
+        ));
+    }
     if !has_type(schema, "object") {
         return refuse(format!(
             "Rust generation currently expects $defs.{definition_name} to be an object schema."
@@ -882,6 +891,11 @@ fn schemars_arguments(schema: &Object) -> Vec<String> {
     }
     if let Some(min_length) = schema.get("minLength").and_then(Json::as_f64) {
         arguments.push(format!("length(min = {})", number_to_string(min_length)));
+    }
+    for name in ["minimum", "maximum"] {
+        if let Some(bound) = schema.get(name) {
+            arguments.push(format!("extend(\"{name}\" = {})", bound.stringify()));
+        }
     }
     if let Some(items) = object_at(schema, "items") {
         let inner = schemars_arguments(items);

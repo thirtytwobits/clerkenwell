@@ -42,3 +42,10 @@ root.
 | `@clerkenwell/client` | plan types, projection materialisation and subscriptions, the projection protocol over a JSON-RPC WebSocket with reconnection, the authoring runtime and its persisted form, text bindings, field conflict policy |
 | `@clerkenwell/client/replica` | plan-driven Loro replicas, read and written as an application's drafts; the package's only importer of `loro-crdt` |
 | `@clerkenwell/react` | React stores, edit overlays, text-binding hooks, autosync and the authoring runtime provider |
+
+The code generator's optional `schemaImports` configuration lists JSON Schema bundles with
+`$defs`, resolved relative to the configuration file. Each definition name has one owner.
+Supported imports include closed objects, typed maps, arrays, named string enums, recursive
+references, tagged object unions, numeric bounds and opaque JSON extension fields. Unsupported
+constraints fail generation. The projection definition supplies collaboration and transport
+semantics for these imported types.
