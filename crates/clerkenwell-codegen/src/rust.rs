@@ -894,7 +894,21 @@ fn schemars_arguments(schema: &Object) -> Vec<String> {
     }
     for name in ["minimum", "maximum"] {
         if let Some(bound) = schema.get(name) {
-            arguments.push(format!("extend(\"{name}\" = {})", bound.stringify()));
+            let value = bound.as_f64().expect("validated numeric bound");
+            let suffix =
+                if value.fract() == 0.0 && (value < i32::MIN as f64 || value > i32::MAX as f64) {
+                    if value >= i64::MIN as f64 && value < -(i64::MIN as f64) {
+                        "i64"
+                    } else {
+                        "f64"
+                    }
+                } else {
+                    ""
+                };
+            arguments.push(format!(
+                "extend(\"{name}\" = {}{suffix})",
+                bound.stringify()
+            ));
         }
     }
     if let Some(items) = object_at(schema, "items") {
