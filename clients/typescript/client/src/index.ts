@@ -106,6 +106,10 @@ export type {
   WebSocketLike
 } from "./rpc-socket.js";
 export { RpcError, RpcSocket } from "./rpc-socket.js";
+
+// The timers and clock the client waits by.
+export type { Timers } from "./timers.js";
+export { PLATFORM_TIMERS } from "./timers.js";
 export { ProjectionClient } from "./projection-client.js";
 export type {
   ProjectionConnectionState,

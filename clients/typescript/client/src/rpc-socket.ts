@@ -6,6 +6,7 @@
  * after it closes.
  */
 import type { ProjectionErrorEnvelope } from "./protocol.js";
+import { PLATFORM_TIMERS, type Timers } from "./timers.js";
 
 /** The WebSocket a socket runs over: what browsers and Node both provide. */
 export interface WebSocketLike {
@@ -83,6 +84,8 @@ export interface RpcSocketOptions {
   readonly onClose?: () => void;
   /** Called each time the socket opens after having closed. */
   readonly onReopen?: () => void;
+  /** The timers the socket waits to reopen by; the platform's when absent. */
+  readonly timers?: Timers;
 }
 
 interface PendingRequest {
@@ -102,7 +105,8 @@ export class RpcSocket {
   private readonly delay: { readonly initialMs: number; readonly maxMs: number };
   private socket: WebSocketLike | null = null;
   private opening: Promise<void> | null = null;
-  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private readonly timers: Timers;
+  private reconnectTimer: { readonly handle: unknown } | null = null;
   private reconnectDelayMs: number;
   private hasOpened = false;
   private allowReconnect: boolean;
@@ -118,6 +122,7 @@ export class RpcSocket {
     this.delay = options.reconnectDelay ?? { initialMs: 500, maxMs: 4_000 };
     this.reconnectDelayMs = this.delay.initialMs;
     this.allowReconnect = options.reconnectOnClose ?? true;
+    this.timers = options.timers ?? PLATFORM_TIMERS;
   }
 
   get url(): string {
@@ -211,7 +216,7 @@ export class RpcSocket {
   async disconnect(): Promise<void> {
     this.allowReconnect = false;
     if (this.reconnectTimer !== null) {
-      clearTimeout(this.reconnectTimer);
+      this.timers.cancel(this.reconnectTimer.handle);
       this.reconnectTimer = null;
     }
     this.setState({ status: "disconnected", retryAt: null });
@@ -282,13 +287,15 @@ export class RpcSocket {
 
   private scheduleReconnect(): void {
     if (!this.allowReconnect || this.reconnectTimer !== null) return;
-    this.setState({ status: "retry_wait", retryAt: Date.now() + this.reconnectDelayMs });
-    this.reconnectTimer = setTimeout(() => {
-      this.reconnectTimer = null;
-      void this.connect().catch(() => {
-        this.reconnectDelayMs = Math.min(this.reconnectDelayMs * 2, this.delay.maxMs);
-        this.scheduleReconnect();
-      });
-    }, this.reconnectDelayMs);
+    this.setState({ status: "retry_wait", retryAt: this.timers.now() + this.reconnectDelayMs });
+    this.reconnectTimer = {
+      handle: this.timers.schedule(() => {
+        this.reconnectTimer = null;
+        void this.connect().catch(() => {
+          this.reconnectDelayMs = Math.min(this.reconnectDelayMs * 2, this.delay.maxMs);
+          this.scheduleReconnect();
+        });
+      }, this.reconnectDelayMs)
+    };
   }
 }

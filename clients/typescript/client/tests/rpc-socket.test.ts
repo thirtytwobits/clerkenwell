@@ -9,7 +9,7 @@ import test from "node:test";
 
 import { RpcError, type RpcSocketState } from "@clerkenwell/client";
 
-import { fakeSocket, pause, settle } from "./support/fake-socket.js";
+import { fakeSocket, settle } from "./support/fake-socket.js";
 
 test("a request resolves with the result its response carries", async () => {
   const { socket, latest } = fakeSocket();
@@ -88,7 +88,7 @@ test("a notification reaches every listener and settles no request", async () =>
 
 test("a request pending when the socket closes is rejected, and the socket reopens", async () => {
   let reopened = 0;
-  const { socket, sockets, latest } = fakeSocket({
+  const { socket, sockets, latest, timers } = fakeSocket({
     closedMessage: "Closed.",
     onReopen: () => { reopened += 1; }
   });
@@ -101,9 +101,12 @@ test("a request pending when the socket closes is rejected, and the socket reope
   latest().drop();
 
   await assert.rejects(called, { message: "Closed." });
-  assert.equal(socket.getConnectionState().status, "retry_wait");
-  assert.ok((socket.getConnectionState().retryAt ?? 0) >= Date.now());
-  while (sockets.length < 2) await pause(1);
+  const { status, retryAt } = socket.getConnectionState();
+  assert.equal(status, "retry_wait");
+  timers.runNext();
+  assert.equal(timers.now(), retryAt);
+  await settle();
+  assert.equal(sockets.length, 2);
   latest().accept();
   assert.equal(socket.getConnectionState().status, "connected");
   assert.equal(reopened, 1);
@@ -114,10 +117,10 @@ test("a request pending when the socket closes is rejected, and the socket reope
 });
 
 test("each failed attempt to reopen waits longer than the last", async () => {
-  const { socket, sockets, latest } = fakeSocket();
+  const { socket, sockets, latest, timers } = fakeSocket();
   const waits: number[] = [];
   socket.addConnectionStateListener(({ status, retryAt }) => {
-    if (status === "retry_wait" && retryAt !== null) waits.push(retryAt - Date.now());
+    if (status === "retry_wait" && retryAt !== null) waits.push(retryAt - timers.now());
   });
   const connected = socket.connect();
   latest().accept();
@@ -125,7 +128,9 @@ test("each failed attempt to reopen waits longer than the last", async () => {
 
   latest().drop();
   for (const attempt of [2, 3]) {
-    while (sockets.length < attempt) await pause(1);
+    timers.runNext();
+    await settle();
+    assert.equal(sockets.length, attempt);
     latest().refuse();
     await settle();
     await settle();
@@ -149,14 +154,14 @@ test("a socket that cannot be reached rejects the attempt to open it", async () 
 });
 
 test("a socket disconnected on purpose stays closed", async () => {
-  const { socket, sockets, latest } = fakeSocket();
+  const { socket, sockets, latest, timers } = fakeSocket();
   const connected = socket.connect();
   latest().accept();
   await connected;
 
   await socket.disconnect();
-  await pause(30);
 
+  assert.deepEqual(timers.pendingDelays(), []);
   assert.equal(sockets.length, 1);
   assert.equal(socket.getConnectionState().status, "disconnected");
 });
