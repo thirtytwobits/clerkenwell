@@ -5,6 +5,8 @@
  */
 import { RpcSocket, type RpcSocketOptions, type WebSocketLike } from "@clerkenwell/client";
 
+import { ManualTimers } from "./manual-timers.js";
+
 type Listener = (event: { readonly data: unknown }) => void;
 
 export interface SentRequest {
@@ -86,9 +88,11 @@ export class FakeSocket implements WebSocketLike {
 /** A socket whose every connection is a {@link FakeSocket}. */
 export function fakeSocket(options: Partial<RpcSocketOptions> = {}) {
   const sockets: FakeSocket[] = [];
+  const timers = new ManualTimers();
   const socket = new RpcSocket({
     url: "ws://server.test/projections",
     reconnectDelay: { initialMs: 5, maxMs: 20 },
+    timers,
     open: () => {
       const opened = new FakeSocket();
       sockets.push(opened);
@@ -101,10 +105,8 @@ export function fakeSocket(options: Partial<RpcSocketOptions> = {}) {
     if (!opened) throw new Error("No connection was opened.");
     return opened;
   };
-  return { socket, sockets, latest };
+  return { socket, sockets, latest, timers };
 }
 
 /** Lets pending promise callbacks run. */
 export const settle = () => new Promise<void>((resolve) => setImmediate(resolve));
-
-export const pause = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));

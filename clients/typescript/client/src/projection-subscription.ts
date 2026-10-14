@@ -21,6 +21,7 @@ import {
   type ProjectionTransportEvent,
   type ProjectionUnsubscribeAccepted
 } from "./protocol.js";
+import { PLATFORM_TIMERS, type Timers } from "./timers.js";
 
 /** A message the server pushes; projection events arrive as `projection.update`. */
 export interface ProjectionNotification {
@@ -81,6 +82,8 @@ export async function subscribeProjection<
   params: ProjectionParams<M, TProjection>;
   onSnapshot?: (snapshot: ProjectionSnapshot<M, TProjection>) => void;
   onPatch?: (patch: ProjectionPatch<M, TProjection>) => void;
+  /** The timers the wait for the first snapshot runs by; the platform's when absent. */
+  timers?: Timers;
 }): Promise<ProjectionSubscription<M, TProjection>> {
   let subscriptionId: number | null = null;
   const earlySnapshots = new Map<number, ProjectionSnapshot<M, TProjection>>();
@@ -90,7 +93,8 @@ export async function subscribeProjection<
     resolveSnapshot = resolve;
     rejectSnapshot = reject;
   });
-  const timeoutId = setTimeout(() => {
+  const timers = options.timers ?? PLATFORM_TIMERS;
+  const timeoutId = timers.schedule(() => {
     rejectSnapshot(new Error(`Timed out waiting for ${options.projection} projection snapshot.`));
   }, 30_000);
   // The first snapshot settles the subscription, so a handler that throws on
@@ -168,7 +172,7 @@ export async function subscribeProjection<
     }
     throw error;
   } finally {
-    clearTimeout(timeoutId);
+    timers.cancel(timeoutId);
   }
 }
 
@@ -186,6 +190,8 @@ export async function watchProjection<
   plans: ProjectionCompositionPlans<ProjectionName<M>>;
   signal?: AbortSignal;
   initialSnapshotTimeoutMs?: number;
+  /** The timers the wait for the first snapshot runs by; the platform's when absent. */
+  timers?: Timers;
   projection: TProjection;
   params: ProjectionParams<M, TProjection>;
   onValue: (
@@ -197,7 +203,8 @@ export async function watchProjection<
   let resolveFirst!: () => void;
   let rejectFirst!: (error: unknown) => void;
   const firstSnapshot = new Promise<void>((resolve, reject) => { resolveFirst = resolve; rejectFirst = reject; });
-  const timeout = setTimeout(
+  const timers = options.timers ?? PLATFORM_TIMERS;
+  const timeout = timers.schedule(
     () => rejectFirst(new Error("Timed out waiting for projection snapshot.")),
     options.initialSnapshotTimeoutMs ?? 30_000
   );
@@ -305,7 +312,7 @@ export async function watchProjection<
     removeConnectionListener();
     if (subscriptionId !== null) await options.client.projectionUnsubscribe(subscriptionId).catch(options.onError);
     throw error;
-  } finally { clearTimeout(timeout); }
+  } finally { timers.cancel(timeout); }
   return { resync: async () => {
     await connect();
     if (subscriptionId === null) throw new Error("The projection is disconnected.");
