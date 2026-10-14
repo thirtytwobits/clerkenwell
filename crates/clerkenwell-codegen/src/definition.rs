@@ -68,6 +68,11 @@ impl Fields for Object {
 impl Definition {
     /// Reads and validates the definition at `path`.
     pub fn load(path: &Path) -> Result<Definition> {
+        Self::load_with_schemas(path, &[])
+    }
+
+    /// Compose explicitly supplied JSON Schema bundles before validating the definition.
+    pub fn load_with_schemas(path: &Path, schemas: &[std::path::PathBuf]) -> Result<Definition> {
         let text = std::fs::read_to_string(path).map_err(|source| Error::Read {
             path: path.to_owned(),
             source,
@@ -76,7 +81,7 @@ impl Definition {
             path: path.to_owned(),
             message: error.to_string(),
         })?;
-        Definition::from_json(document)
+        Definition::from_json(crate::schema_imports::compose(document, schemas)?)
     }
 
     /// Validates `document` against the meta-schema and the semantic rules.

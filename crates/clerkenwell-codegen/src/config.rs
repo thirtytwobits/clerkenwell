@@ -12,6 +12,8 @@ use crate::error::{Error, Result};
 #[derive(Clone, Debug)]
 pub struct Config {
     pub definition: PathBuf,
+    /// JSON Schema bundles whose `$defs` are composed into the definition.
+    pub schema_imports: Vec<PathBuf>,
     pub outputs: OutputPaths,
     pub project: Project,
 }
@@ -42,6 +44,8 @@ pub struct Project {
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 struct ConfigFile {
     definition: PathBuf,
+    #[serde(default)]
+    schema_imports: Vec<PathBuf>,
     outputs: OutputPaths,
     regenerate_command: String,
     #[serde(default)]
@@ -85,6 +89,7 @@ impl Config {
         let outputs = file.outputs;
         Ok(Config {
             definition: resolve(file.definition),
+            schema_imports: file.schema_imports.into_iter().map(resolve).collect(),
             outputs: OutputPaths {
                 collaboration_fixtures: resolve(outputs.collaboration_fixtures),
                 contract_fixtures: resolve(outputs.contract_fixtures),

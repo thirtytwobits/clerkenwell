@@ -22,6 +22,7 @@ import {
   type NoteSummary,
   type TestProjectionModel
 } from "./support/projections.js";
+import { ManualTimers } from "./support/manual-timers.js";
 
 type Model = TestProjectionModel;
 
@@ -340,18 +341,41 @@ test("an aborted watch releases its subscription and rejects", async () => {
   assert.equal(h.listeners.size + h.connections.size, 0);
 });
 
-test("a watch honours a caller-owned initial snapshot deadline", async () => {
+test("a watch gives up on its first snapshot when the caller's deadline passes", async () => {
   const h = transportHarness();
+  const timers = new ManualTimers();
+  const deadline = 1_000;
   const ready = watchProjection({
     client: h.client,
     plans: TEST_COMPOSITION_PLANS,
     projection: "notes.list",
     params: {},
-    initialSnapshotTimeoutMs: 1,
+    initialSnapshotTimeoutMs: deadline,
+    timers,
     onValue: () => assert.fail("A snapshot was not published."),
     onError: () => undefined
   });
+  assert.deepEqual(timers.pendingDelays(), [deadline]);
+  timers.runNext();
   await assert.rejects(ready, /Timed out waiting for projection snapshot/);
+});
+
+test("a one-shot subscription releases itself when its first snapshot never arrives", async () => {
+  const h = transportHarness();
+  const timers = new ManualTimers();
+  const subscribed = subscribeProjection({
+    client: h.client,
+    projection: "notes.list",
+    params: {},
+    timers
+  });
+  await tick();
+  h.pending[0]!.resolve({ subscription_id: 1, revision: 1 });
+  await tick();
+  timers.runNext();
+  await assert.rejects(subscribed, /Timed out waiting for notes\.list projection snapshot/);
+  assert.deepEqual(h.released, [1]);
+  assert.deepEqual(timers.pendingDelays(), []);
 });
 
 test("a one-shot subscription resolves its first snapshot, reports patches, and releases on unsubscribe", async () => {

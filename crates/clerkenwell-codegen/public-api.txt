@@ -7,9 +7,11 @@ field clerkenwell_codegen::Config::definition: PathBuf
 fn clerkenwell_codegen::Config::load(path: &Path) -> Result<Config>
 field clerkenwell_codegen::Config::outputs: OutputPaths
 field clerkenwell_codegen::Config::project: Project
+field clerkenwell_codegen::Config::schema_imports: Vec<PathBuf>
 struct clerkenwell_codegen::Definition { .. }
 derive clerkenwell_codegen::Definition: Clone, Debug
 fn clerkenwell_codegen::Definition::load(path: &Path) -> Result<Definition>
+fn clerkenwell_codegen::Definition::load_with_schemas(path: &Path, schemas: &[std::path::PathBuf]) -> Result<Definition>
 enum clerkenwell_codegen::Error
 derive clerkenwell_codegen::Error: Debug, thiserror::Error
 variant clerkenwell_codegen::Error::Config { path: PathBuf, message: String }

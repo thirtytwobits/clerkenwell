@@ -4,6 +4,36 @@ Each release's section is the notes of its GitHub release. A release that change
 lists each change under **Breaking**; `cargo run -p clerkenwell-release -- breaking --help`
 names the contracts.
 
+## 0.5.0
+
+### Breaking
+
+- `@clerkenwell/client` exports `Timers` and `PLATFORM_TIMERS`. `RpcSocket`,
+  `subscribeProjection` and `watchProjection` take `timers`, the `Timers` they wait by: when a
+  socket reopens, and when a wait for a first snapshot gives up. `PLATFORM_TIMERS`, the
+  platform's timers and clock, is the default.
+
+## 0.4.1
+
+### Fixed
+
+- Generated Rust schema bounds use a numeric suffix when an integer exceeds `i32`.
+  Unsigned 32-bit contracts compile with their full range.
+
+## 0.4.0
+
+### Breaking
+
+- `clerkenwell-codegen::Config` adds `schema_imports`. `Definition::load_with_schemas`
+  composes JSON Schema bundles from explicit paths before validating the definition.
+
+### Added
+
+- Generator configuration accepts `schemaImports`, resolved beside the configuration file.
+  Imported definitions have one owner; duplicate names and unsupported constraints are refused.
+- Named string enums, reference annotations, numeric bounds and tagged object unions from
+  JSON Schema are represented in the generated contract.
+
 ## 0.3.1
 
 ### Fixed

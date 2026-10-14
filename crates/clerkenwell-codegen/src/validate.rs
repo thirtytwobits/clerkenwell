@@ -984,7 +984,7 @@ const TYPE_SCHEMA_KEYS: &[&str] = &[
 
 /// Keywords that constrain a value without changing its type. The type
 /// renderers ignore them; they ride into the schema-shaped artefacts.
-const VALIDATION_SCHEMA_KEYS: &[&str] = &["const", "minLength"];
+const VALIDATION_SCHEMA_KEYS: &[&str] = &["const", "minLength", "minimum", "maximum"];
 
 /// Informational: what the owner supplies when the field is absent.
 const ANNOTATION_SCHEMA_KEYS: &[&str] = &["default"];
@@ -1019,14 +1019,22 @@ fn check_schema_node(definition: &Definition, schema: Option<&Json>, context: &s
         }
     }
 
-    // `$ref` is all-or-nothing in this subset.
+    // References may carry annotations; validation constraints belong to their definition.
     if schema.get("$ref").is_some() {
-        if schema.len() != 1 {
+        if schema
+            .keys()
+            .any(|key| !["$ref", "default", "description", "title"].contains(&key))
+        {
             return refuse(format!(
-                "{context} may not combine $ref with other schema keywords."
+                "{context} may not combine $ref with validation keywords."
             ));
         }
-        schema_ref_name(definition, schema, context)?;
+        let name = schema_ref_name(definition, schema, context)?;
+        if let Some(default) = schema.get("default") {
+            let mut referenced = definition.def(&name).unwrap().clone();
+            referenced.insert("default", default.clone());
+            check_default_value(&referenced, context)?;
+        }
         return Ok(());
     }
 
@@ -1135,6 +1143,26 @@ fn is_integer(value: &Json) -> bool {
 /// Checks the validation-only keywords against the type they constrain.
 fn check_validation_keywords(schema: &Object, context: &str) -> Result<()> {
     let schema_type = schema.get("type").and_then(Json::as_str);
+    for name in ["minimum", "maximum"] {
+        if let Some(bound) = schema.get(name) {
+            if !matches!(schema_type, Some("integer" | "number"))
+                || !bound.as_f64().is_some_and(f64::is_finite)
+            {
+                return refuse(format!(
+                    "{context}.{name} requires a finite numeric bound on a numeric schema."
+                ));
+            }
+        }
+    }
+    if let (Some(min), Some(max)) = (
+        schema.get("minimum").and_then(Json::as_f64),
+        schema.get("maximum").and_then(Json::as_f64),
+    ) {
+        if min > max {
+            return refuse(format!("{context}.minimum exceeds maximum."));
+        }
+    }
+
     if let Some(constant) = schema.get("const") {
         if schema.get("enum").is_some() {
             return refuse(format!("{context} may not declare both const and enum."));

@@ -554,12 +554,12 @@ fn every_semantic_rule_refuses_naming_the_definition_path() {
             &["collaboration.entities.Note.fields.layout.value.schema"],
         ),
         (
-            "combined ref",
+            "reference with validation constraints",
             |d| {
                 set(
                     d,
                     "/$defs/NoteSummary/properties/title",
-                    json(r##"{ "$ref": "#/$defs/SortKey", "description": "x" }"##),
+                    json(r##"{ "$ref": "#/$defs/SortKey", "minLength": 1 }"##),
                 )
             },
             &["$defs.NoteSummary.properties.title"],
