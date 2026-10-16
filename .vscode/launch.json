@@ -1,0 +1,139 @@
+{
+    // Rust configurations use CodeLLDB (vadimcn.vscode-lldb); TypeScript ones use the built-in Node debugger.
+    // "test filter" configurations pass the selected text to the test binary: select a test's name first.
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Rust: notes walk-through",
+            "type": "lldb",
+            "request": "launch",
+            "cargo": {
+                "args": ["build", "--package=clerkenwell-example-notes", "--bin=clerkenwell-example-notes"],
+                "filter": { "kind": "bin" }
+            },
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "name": "Rust: notes server",
+            "type": "lldb",
+            "request": "launch",
+            "cargo": {
+                "args": ["build", "--package=clerkenwell-example-notes", "--bin=notes-server"],
+                "filter": { "kind": "bin" }
+            },
+            "args": ["--port", "${input:port}"],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "name": "Rust: codegen notes example",
+            "type": "lldb",
+            "request": "launch",
+            "cargo": {
+                "args": ["build", "--package=clerkenwell-codegen", "--bin=clerkenwell-codegen"],
+                "filter": { "kind": "bin" }
+            },
+            "args": ["--config", "examples/notes/clerkenwell-codegen.json", "--check"],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "name": "Rust: public API check",
+            "type": "lldb",
+            "request": "launch",
+            "cargo": {
+                "args": ["build", "--package=clerkenwell-public-api", "--bin=clerkenwell-public-api"],
+                "filter": { "kind": "bin" }
+            },
+            "args": ["--check"],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "name": "Rust: release check",
+            "type": "lldb",
+            "request": "launch",
+            "cargo": {
+                "args": ["build", "--package=clerkenwell-release", "--bin=clerkenwell-release"],
+                "filter": { "kind": "bin" }
+            },
+            "args": ["check"],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "name": "Rust: integration test file (test filter)",
+            "type": "lldb",
+            "request": "launch",
+            "cargo": {
+                "args": ["test", "--no-run", "--package=${input:package}", "--test=${fileBasenameNoExtension}"],
+                "filter": { "kind": "test" }
+            },
+            "args": ["${selectedText}", "--nocapture", "--test-threads=1"],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "name": "Rust: unit tests (test filter)",
+            "type": "lldb",
+            "request": "launch",
+            "cargo": {
+                "args": ["test", "--no-run", "--package=${input:package}", "--lib"],
+                "filter": { "kind": "lib" }
+            },
+            "args": ["${selectedText}", "--nocapture", "--test-threads=1"],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "name": "TypeScript: test file",
+            "type": "node",
+            "request": "launch",
+            "runtimeExecutable": "node",
+            "runtimeArgs": ["--conditions=@clerkenwell/source", "--import", "tsx", "--test"],
+            "args": ["${file}"],
+            "cwd": "${fileDirname}/..",
+            "skipFiles": ["<node_internals>/**"],
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "TypeScript: test file (test filter)",
+            "type": "node",
+            "request": "launch",
+            "runtimeExecutable": "node",
+            "runtimeArgs": [
+                "--conditions=@clerkenwell/source",
+                "--import",
+                "tsx",
+                "--test",
+                "--test-name-pattern",
+                "${selectedText}"
+            ],
+            "args": ["${file}"],
+            "cwd": "${fileDirname}/..",
+            "skipFiles": ["<node_internals>/**"],
+            "console": "integratedTerminal"
+        }
+    ],
+    "inputs": [
+        {
+            "id": "package",
+            "type": "pickString",
+            "description": "Package the test belongs to",
+            "options": [
+                "clerkenwell-axum",
+                "clerkenwell-codegen",
+                "clerkenwell-conformance",
+                "clerkenwell-doc",
+                "clerkenwell-events",
+                "clerkenwell-notebook",
+                "clerkenwell-schema",
+                "clerkenwell-session",
+                "clerkenwell-store",
+                "clerkenwell-example-notes",
+                "clerkenwell-public-api",
+                "clerkenwell-release"
+            ]
+        },
+        {
+            "id": "port",
+            "type": "promptString",
+            "description": "Port to listen on; 0 lets the system choose one",
+            "default": "0"
+        }
+    ]
+}

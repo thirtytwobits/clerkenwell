@@ -1,0 +1,157 @@
+{
+    // Cargo tasks share the workspace's build locks: run them one at a time.
+    // "validate" runs the AGENTS.md validation table in sequence.
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "cargo: build",
+            "type": "shell",
+            "command": "cargo build --workspace --all-targets",
+            "group": { "kind": "build", "isDefault": true },
+            "problemMatcher": ["$rustc"]
+        },
+        {
+            "label": "cargo: fmt",
+            "type": "shell",
+            "command": "cargo fmt --all",
+            "problemMatcher": []
+        },
+        {
+            "label": "cargo: fmt check",
+            "type": "shell",
+            "command": "cargo fmt --all --check",
+            "problemMatcher": []
+        },
+        {
+            "label": "cargo: clippy",
+            "type": "shell",
+            "command": "cargo clippy --workspace --all-targets -- -D warnings",
+            "group": "build",
+            "problemMatcher": ["$rustc"]
+        },
+        {
+            "label": "cargo: test",
+            "type": "shell",
+            "command": "cargo test --workspace",
+            "group": { "kind": "test", "isDefault": true },
+            "problemMatcher": ["$rustc"]
+        },
+        {
+            "label": "cargo: test without Node",
+            "type": "shell",
+            "command": "cargo test --workspace --exclude clerkenwell-conformance",
+            "group": "test",
+            "problemMatcher": ["$rustc"]
+        },
+        {
+            "label": "cargo: test package",
+            "type": "shell",
+            "command": "cargo test -p ${input:package}",
+            "group": "test",
+            "problemMatcher": ["$rustc"]
+        },
+        {
+            "label": "cargo: doc",
+            "type": "shell",
+            "command": "cargo doc --workspace --no-deps && cargo run --quiet -p clerkenwell-release -- docs target/doc",
+            "group": "build",
+            "problemMatcher": ["$rustc"]
+        },
+        {
+            "label": "codegen: regenerate notes example",
+            "type": "shell",
+            "command": "cargo run -p clerkenwell-codegen -- --config examples/notes/clerkenwell-codegen.json",
+            "problemMatcher": ["$rustc"]
+        },
+        {
+            "label": "codegen: check notes example",
+            "type": "shell",
+            "command": "cargo run -p clerkenwell-codegen -- --config examples/notes/clerkenwell-codegen.json --check",
+            "problemMatcher": ["$rustc"]
+        },
+        {
+            "label": "records: write public API",
+            "type": "shell",
+            "command": "cargo run -p clerkenwell-public-api",
+            "problemMatcher": ["$rustc"]
+        },
+        {
+            "label": "records: write wire protocol",
+            "type": "shell",
+            "command": "cargo test -p clerkenwell-session --test wire_protocol && cargo test -p clerkenwell-axum --test wire_protocol",
+            "options": { "env": { "CLERKENWELL_WRITE_RECORDS": "1" } },
+            "problemMatcher": ["$rustc"]
+        },
+        {
+            "label": "npm: ci",
+            "type": "shell",
+            "command": "npm ci",
+            "problemMatcher": []
+        },
+        {
+            "label": "npm: build",
+            "type": "shell",
+            "command": "npm run build",
+            "group": "build",
+            "problemMatcher": ["$tsc"]
+        },
+        {
+            "label": "npm: typecheck",
+            "type": "shell",
+            "command": "npm run typecheck",
+            "group": "build",
+            "problemMatcher": ["$tsc"]
+        },
+        {
+            "label": "npm: test",
+            "type": "shell",
+            "command": "npm test",
+            "group": "test",
+            "problemMatcher": []
+        },
+        {
+            "label": "npm: package check",
+            "type": "shell",
+            "command": "npm run package:check",
+            "group": "test",
+            "problemMatcher": []
+        },
+        {
+            "label": "validate",
+            "dependsOrder": "sequence",
+            "dependsOn": [
+                "cargo: fmt check",
+                "npm: ci",
+                "cargo: clippy",
+                "cargo: test",
+                "cargo: doc",
+                "npm: typecheck",
+                "npm: test",
+                "npm: package check"
+            ],
+            "group": "test",
+            "problemMatcher": []
+        }
+    ],
+    "inputs": [
+        {
+            "id": "package",
+            "type": "pickString",
+            "description": "Package to test",
+            "options": [
+                "clerkenwell-axum",
+                "clerkenwell-codegen",
+                "clerkenwell-conformance",
+                "clerkenwell-doc",
+                "clerkenwell-events",
+                "clerkenwell-notebook",
+                "clerkenwell-schema",
+                "clerkenwell-session",
+                "clerkenwell-store",
+                "clerkenwell-example-notes",
+                "clerkenwell-public-api",
+                "clerkenwell-release"
+            ]
+        }
+    ]
+}
