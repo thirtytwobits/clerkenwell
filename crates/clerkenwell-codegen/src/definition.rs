@@ -181,6 +181,14 @@ impl Definition {
             .iter()
             .map(|(name, schema)| (name, object(schema, "$defs entry")))
     }
+
+    /// The `$defs` entries the bindings declare a type for: every entry but
+    /// those the generator declares for the authoring states, whose types are
+    /// Clerkenwell's.
+    pub(crate) fn declared_def_entries(&self) -> impl Iterator<Item = (&str, &Object)> {
+        self.def_entries()
+            .filter(|(name, _)| !crate::expand::SHARED.contains(name))
+    }
 }
 
 fn object<'a>(value: &'a Json, what: &str) -> &'a Object {

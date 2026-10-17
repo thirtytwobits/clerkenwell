@@ -2,55 +2,23 @@
 //! collaborative document in step with.
 //!
 //! Every collaborative entity's authoring state has the same snapshot and
-//! patch. The session answers a subscription to one from the store the
-//! application keeps the document in, and delivers each change a store
-//! announces to the subscriptions that follow the document.
+//! patch: `clerkenwell_schema`'s `AuthoringState` and `AuthoringStatePatch`.
+//! The session answers a subscription to one from the store the application
+//! keeps the document in, and delivers each change a store announces to the
+//! subscriptions that follow the document.
 
 use std::fmt;
 use std::sync::Arc;
 
 use clerkenwell_events::Principal;
-use clerkenwell_schema::GeneratedCollaborationEntitySpec;
-use clerkenwell_store::{
-    CollaborationDocumentId, CollaborationExchangeMode, CollaborationStores, StoreError,
-    StoreErrorKind, PEER_INDEX_BITS,
-};
+use clerkenwell_schema::{AuthoringState, GeneratedCollaborationEntitySpec};
+use clerkenwell_store::{CollaborationDocumentId, CollaborationStores, StoreError, StoreErrorKind};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 
 use crate::server::ProjectionRefusal;
 use crate::transport::ProjectionErrorCode;
-
-/// A document's accepted state as an authoring-state update delivers it.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-pub struct AuthoringState {
-    /// The layout version the document's operations are written in.
-    pub schema_version: u32,
-    /// The frontier of the accepted state the update leaves its client holding.
-    pub accepted_frontier_base64: String,
-    /// The accepted operations the update adds: every one in a snapshot, and
-    /// in a patch those after the frontier its client held.
-    pub update_base64: String,
-    pub etag: String,
-    /// How the store accepts an import of the document.
-    pub exchange_modes: Vec<CollaborationExchangeMode>,
-    /// A new block of peers for the client to write the document under.
-    pub peer_block: AuthoringPeerBlock,
-    /// Whether the client replaces what it holds with this state, because
-    /// what it named holding is not of this document's history.
-    pub replaces_held: bool,
-}
-
-/// A block of peers allocated to the subscriber: every peer whose bits above
-/// the low `index_bits` are `base`'s. An import names the block by its nonce.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-pub struct AuthoringPeerBlock {
-    pub nonce: String,
-    /// The block's first peer, in decimal.
-    pub base: String,
-    pub index_bits: u32,
-}
 
 /// What an authoring-state update leaves its client holding.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -183,23 +151,7 @@ impl AuthoringStates {
                 held.map(|held| held.frontier.as_str()),
             )
             .map_err(ProjectionRefusal::from)?;
-        let block = service.allocate_peers(principal, &document.id);
-        Ok(AuthoringState {
-            schema_version: read.schema_version,
-            accepted_frontier_base64: read.accepted_frontier_base64,
-            update_base64: read.update_base64,
-            etag: read.etag,
-            exchange_modes: vec![
-                CollaborationExchangeMode::Incremental,
-                CollaborationExchangeMode::Bootstrap,
-            ],
-            peer_block: AuthoringPeerBlock {
-                nonce: block.nonce,
-                base: block.base.to_string(),
-                index_bits: PEER_INDEX_BITS,
-            },
-            replaces_held: read.replaces_held,
-        })
+        Ok(read.into_authoring_state(service.allocate_peers(principal, &document.id)))
     }
 }
 

@@ -6,16 +6,16 @@
 use clerkenwell_doc::CollaborationReplica;
 use clerkenwell_events::{ActorKind, Principal};
 use clerkenwell_schema::{
-    GeneratedCollaborationConflict, GeneratedCollaborationEntitySpec,
+    CollaborationExchangeMode, GeneratedCollaborationConflict, GeneratedCollaborationEntitySpec,
     GeneratedCollaborationFieldSpec, GeneratedCollaborationStorageKind,
     GeneratedCollaborationValueCodec,
 };
 use clerkenwell_store::testing::MemoryStorage;
 use clerkenwell_store::{
     CollaborationAuditQuery, CollaborationAuditRecord, CollaborationAuthoringState,
-    CollaborationDocumentId, CollaborationExchangeMode, CollaborationImportRequest,
-    CollaborationService, CollaborationStoragePort, CommitPolicy, ImportFence, PeerBlock, PeerKey,
-    StoreResult, StoredEnvelope,
+    CollaborationDocumentId, CollaborationImportRequest, CollaborationService,
+    CollaborationStoragePort, CommitPolicy, ImportFence, PeerBlock, PeerKey, StoreResult,
+    StoredEnvelope,
 };
 use serde_json::Value;
 use std::num::NonZeroU32;

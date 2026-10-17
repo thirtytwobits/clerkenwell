@@ -7,7 +7,6 @@
 
 export type {
   CollaborationDraftMapping,
-  CollaborationPeerBlock,
   CollaborationReplicaSource,
   CollaborationReplicaView
 } from "./collaboration-replica.js";

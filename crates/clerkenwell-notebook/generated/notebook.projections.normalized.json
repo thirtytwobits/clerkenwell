@@ -797,6 +797,8 @@
           "type": "string"
         },
         "index_bits": {
+          "maximum": 4294967295,
+          "minimum": 0,
           "type": "integer"
         },
         "nonce": {
@@ -825,11 +827,7 @@
         "exchange_modes": {
           "description": "How the store accepts an import of this document.",
           "items": {
-            "enum": [
-              "incremental",
-              "bootstrap"
-            ],
-            "type": "string"
+            "$ref": "#/$defs/CollaborationExchangeMode"
           },
           "type": "array"
         },
@@ -842,6 +840,8 @@
         },
         "schema_version": {
           "description": "The layout version the document's operations are written in.",
+          "maximum": 4294967295,
+          "minimum": 0,
           "type": "integer"
         },
         "update_base64": {
@@ -1027,6 +1027,15 @@
         "etag"
       ],
       "type": "object"
+    },
+    {
+      "description": "Whether an import creates a document (bootstrap) or edits one (incremental).",
+      "enum": [
+        "incremental",
+        "bootstrap"
+      ],
+      "name": "CollaborationExchangeMode",
+      "type": "string"
     },
     {
       "$ref": "#/$defs/TaskRecord",

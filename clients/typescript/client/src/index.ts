@@ -24,6 +24,14 @@ export type {
 export { AuthoringRuntime, redactedAuthoringRuntimeDiagnostic } from "./authoring-runtime.js";
 export { authoringSessionAcceptsDraft } from "./authoring-state-machine.js";
 
+// The authoring state every collaborative entity's projection delivers.
+export type {
+  AuthoringPeerBlock,
+  AuthoringState,
+  AuthoringStatePatch,
+  CollaborationExchangeMode
+} from "./authoring-state.js";
+
 // What an application persists of the runtime.
 export type {
   PersistedAuthoringDraftOperations,

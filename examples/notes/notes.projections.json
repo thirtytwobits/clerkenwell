@@ -197,11 +197,7 @@
           "minLength": 1
         },
         "exchange_mode": {
-          "type": "string",
-          "enum": [
-            "incremental",
-            "bootstrap"
-          ]
+          "$ref": "#/$defs/CollaborationExchangeMode"
         },
         "base_frontier_base64": {
           "type": "string"

@@ -27,11 +27,17 @@ fn module_header(project: &Project) -> String {
 /// The React-free TypeScript model module.
 pub fn render_model_module(definition: &Definition, project: &Project) -> Result<String> {
     let mut lines = vec![module_header(project), String::new()];
+    // The authoring states' types are `@clerkenwell/client`'s: the module
+    // imports them for its own declarations and exports them as its own.
     lines.extend(
         [
             "import type {",
+            "  AuthoringPeerBlock,",
             "  AuthoringPlan,",
+            "  AuthoringState,",
+            "  AuthoringStatePatch,",
             "  CollaborationEntityPlan as ClerkenwellCollaborationEntityPlan,",
+            "  CollaborationExchangeMode,",
             "  CollaborationPlanTextFieldPath,",
             "  ProjectionCompositionPlan as ClerkenwellProjectionCompositionPlan",
             "} from \"@clerkenwell/client\";",
@@ -41,12 +47,18 @@ pub fn render_model_module(definition: &Definition, project: &Project) -> Result
             "  CollaborationStorageKind,",
             "  CollaborationValueCodec",
             "} from \"@clerkenwell/client\";",
+            "export type {",
+            "  AuthoringPeerBlock,",
+            "  AuthoringState,",
+            "  AuthoringStatePatch,",
+            "  CollaborationExchangeMode",
+            "};",
             "export { resolveCollaborationContainer } from \"@clerkenwell/client\";",
             "",
         ]
         .map(str::to_owned),
     );
-    for (definition_name, schema) in definition.def_entries() {
+    for (definition_name, schema) in definition.declared_def_entries() {
         lines.push(render_definition(definition_name, schema)?);
         lines.push(String::new());
     }

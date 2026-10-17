@@ -33,6 +33,7 @@ struct clerkenwell_store::CollaborationAuthoringState
 derive clerkenwell_store::CollaborationAuthoringState: Clone, Debug, Eq, PartialEq
 field clerkenwell_store::CollaborationAuthoringState::accepted_frontier_base64: String
 field clerkenwell_store::CollaborationAuthoringState::etag: String
+fn clerkenwell_store::CollaborationAuthoringState::into_authoring_state(self, peers: PeerBlock) -> AuthoringState
 field clerkenwell_store::CollaborationAuthoringState::replaces_held: bool
 field clerkenwell_store::CollaborationAuthoringState::schema_version: u32
 field clerkenwell_store::CollaborationAuthoringState::update_base64: String
@@ -71,10 +72,6 @@ field clerkenwell_store::CollaborationDocumentSummary::generation: u64
 field clerkenwell_store::CollaborationDocumentSummary::retained_count: usize
 field clerkenwell_store::CollaborationDocumentSummary::retained_sequences: Option<(u64, u64)>
 field clerkenwell_store::CollaborationDocumentSummary::schema_version: u32
-enum clerkenwell_store::CollaborationExchangeMode
-derive clerkenwell_store::CollaborationExchangeMode: Clone, Copy, Debug, Deserialize, Eq, JsonSchema, PartialEq, Serialize
-variant clerkenwell_store::CollaborationExchangeMode::Bootstrap
-variant clerkenwell_store::CollaborationExchangeMode::Incremental
 struct clerkenwell_store::CollaborationImportRequest
 derive clerkenwell_store::CollaborationImportRequest: Clone, Debug
 field clerkenwell_store::CollaborationImportRequest::actor: Principal

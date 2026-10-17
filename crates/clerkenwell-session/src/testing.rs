@@ -4,7 +4,9 @@ use schemars::generate::{SchemaGenerator, SchemaSettings};
 use schemars::JsonSchema;
 use serde_json::{json, Map, Value};
 
-use crate::authoring::{AuthoringHeld, AuthoringState};
+use clerkenwell_schema::{AuthoringState, AuthoringStatePatch};
+
+use crate::authoring::AuthoringHeld;
 use crate::transport::{
     ProjectionErrorEnvelope, ProjectionMutationAccepted, ProjectionMutationCommand,
     ProjectionResyncAccepted, ProjectionResyncCommand, ProjectionSubscribeAccepted,
@@ -18,9 +20,10 @@ pub const WIRE_PROTOCOL_RECORD: &str = "wire-protocol.json";
 
 /// The JSON Schema of every message the protocol exchanges: each method's
 /// parameters and result, each notification's parameters, the refusal
-/// envelope and the authoring state. Snapshots, patches and mutation results
-/// are the application's, so any value stands for them. The schema carries
-/// no annotations, so documentation can change without changing the record.
+/// envelope, and the authoring state and its patch. Other snapshots, patches
+/// and mutation results are the application's, so any value stands for them.
+/// The schema carries no annotations, so documentation can change without
+/// changing the record.
 pub fn wire_protocol() -> Value {
     let mut generator = SchemaSettings::draft2020_12().into_generator();
     let mut methods = Map::new();
@@ -58,6 +61,7 @@ pub fn wire_protocol() -> Value {
     let refusal = schema::<ProjectionErrorEnvelope>(&mut generator);
     let authoring = json!({
         "state": schema::<AuthoringState>(&mut generator),
+        "patch": schema::<AuthoringStatePatch>(&mut generator),
         "held": schema::<AuthoringHeld>(&mut generator),
     });
     let mut definitions = generator.take_definitions(true);

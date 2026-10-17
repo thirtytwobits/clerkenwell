@@ -18,22 +18,19 @@ import { parseArgs } from "node:util";
 
 import {
   conflictingFieldPaths,
+  type AuthoringPeerBlock,
   type CollaborationEntityPlan,
   type CollaborationWriterKind,
   type TextBinding
 } from "@clerkenwell/client";
-import {
-  CollaborationReplica,
-  requireCollaborationSchemaVersion,
-  type CollaborationPeerBlock
-} from "@clerkenwell/client/replica";
+import { CollaborationReplica, requireCollaborationSchemaVersion } from "@clerkenwell/client/replica";
 
 type Identities = Readonly<Record<string, string>>;
 
 type Request =
   | { readonly op: "clientVersion" }
-  | { readonly op: "seedFixture"; readonly replica: string; readonly entity: string; readonly peerBlock: CollaborationPeerBlock }
-  | { readonly op: "hydrate"; readonly replica: string; readonly entity: string; readonly schemaVersion: number; readonly updateBase64: string; readonly peerBlock: CollaborationPeerBlock }
+  | { readonly op: "seedFixture"; readonly replica: string; readonly entity: string; readonly peerBlock: AuthoringPeerBlock }
+  | { readonly op: "hydrate"; readonly replica: string; readonly entity: string; readonly schemaVersion: number; readonly updateBase64: string; readonly peerBlock: AuthoringPeerBlock }
   | { readonly op: "replace"; readonly replica: string; readonly document: object }
   | { readonly op: "import"; readonly replica: string; readonly schemaVersion: number; readonly updateBase64: string }
   | { readonly op: "export"; readonly replica: string }

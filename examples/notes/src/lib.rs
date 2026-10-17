@@ -16,10 +16,11 @@ use std::time::Duration;
 
 use clerkenwell_doc::{CollaborationReplica, CollaborationReplicaError};
 use clerkenwell_events::{ActorKind, Principal};
+use clerkenwell_schema::CollaborationExchangeMode;
 use clerkenwell_store::{
     CollaborationAuditQuery, CollaborationAuditRecord, CollaborationDocumentId,
-    CollaborationExchangeMode, CollaborationImportRequest, CollaborationImportResult,
-    CollaborationService, CommitPolicy, ImportFence, PeerKey, StoreError,
+    CollaborationImportRequest, CollaborationImportResult, CollaborationService, CommitPolicy,
+    ImportFence, PeerKey, StoreError,
 };
 use model::{GeneratedCollaborationEntitySpec, NoteDocumentStatus};
 use serde_json::{json, Value};

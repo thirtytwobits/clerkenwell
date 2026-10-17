@@ -4,7 +4,7 @@
 
 | Crate | Owns |
 |---|---|
-| `clerkenwell-schema` | the plan types generated bindings instantiate |
+| `clerkenwell-schema` | the plan types generated bindings instantiate, and the authoring state every collaborative entity's projection delivers, which generated bindings re-export |
 | `clerkenwell-doc` | plan-driven Loro replicas: whole-document edits written as operations under a given peer, text edits at a captured frontier, forks, the peers an update holds operations of, and field conflict policy judged by the writer's kind |
 | `clerkenwell-session` | the projection session protocol: wire contracts, registry, per-connection subscriptions, the principal each connection is authenticated as, and what each update left its client holding, resuming a subscription from that, and serving each command against an application's host as that principal; it answers every collaborative entity's authoring state from the store keeping the document, with a block of peers allocated to the subscriber, and delivers each change a store announces to the subscriptions following it |
 | `clerkenwell-axum` | a reference transport: the session protocol as JSON-RPC 2.0 over axum WebSocket connections, each authenticated as a principal by the application, each mutation published to every connection's subscriptions and each store change to its authoring-state subscriptions |
@@ -39,7 +39,7 @@ root.
 
 | Package | Owns |
 |---|---|
-| `@clerkenwell/client` | plan types, projection materialisation and subscriptions, the projection protocol over a JSON-RPC WebSocket with reconnection, the authoring runtime and its persisted form, text bindings, field conflict policy |
+| `@clerkenwell/client` | plan types, the authoring state generated bindings re-export, projection materialisation and subscriptions, the projection protocol over a JSON-RPC WebSocket with reconnection, the authoring runtime and its persisted form, text bindings, field conflict policy |
 | `@clerkenwell/client/replica` | plan-driven Loro replicas, read and written as an application's drafts; the package's only importer of `loro-crdt` |
 | `@clerkenwell/react` | React stores, edit overlays, text-binding hooks, autosync and the authoring runtime provider |
 

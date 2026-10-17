@@ -4,6 +4,33 @@ Each release's section is the notes of its GitHub release. A release that change
 lists each change under **Breaking**; `cargo run -p clerkenwell-release -- breaking --help`
 names the contracts.
 
+## 0.6.0
+
+### Breaking
+
+- `clerkenwell-schema` owns the authoring state's wire types: `AuthoringState`,
+  `AuthoringStatePatch`, `AuthoringStatePatchKind`, `AuthoringPeerBlock` and
+  `CollaborationExchangeMode` (#73). It depends on serde and schemars. Generated Rust
+  re-exports these types, where it declared `AuthoringState`, `AuthoringStatePatch`,
+  `AuthoringPeerBlock`, `AuthoringStateExchangeModes` and `AuthoringStatePatchKind` of its own:
+  `schema_version` and `index_bits` are `u32`, and `exchange_modes` holds
+  `CollaborationExchangeMode` values.
+- `clerkenwell_session::AuthoringState` and `clerkenwell_session::AuthoringPeerBlock` are
+  removed; the session delivers `clerkenwell_schema`'s types. Its wire record adds the
+  authoring-state patch, and the authoring state and its peer block refuse members they do not
+  declare.
+- `clerkenwell_store::CollaborationExchangeMode` is removed; `CollaborationImportRequest` takes
+  `clerkenwell_schema`'s. `CollaborationAuthoringState::into_authoring_state` gives a read as an
+  authoring state delivers it to the writer of a `PeerBlock`.
+- The generator declares `CollaborationExchangeMode` beside the authoring state, and a
+  definition may reference it but not declare it. The authoring state's `schema_version` and
+  `index_bits` carry the bounds of `u32`.
+- `@clerkenwell/client` exports `AuthoringState`, `AuthoringStatePatch`, `AuthoringPeerBlock` and
+  `CollaborationExchangeMode`, and generated TypeScript re-exports them where it declared its
+  own. Replicas take an `AuthoringPeerBlock`, and `@clerkenwell/client/replica`'s
+  `CollaborationPeerBlock` is removed. `AuthoringExchangeMode` is a `CollaborationExchangeMode`
+  or `optimisticDocument`.
+
 ## 0.5.0
 
 ### Breaking

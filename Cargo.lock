@@ -389,6 +389,7 @@ dependencies = [
  "clap",
  "clerkenwell-codegen",
  "clerkenwell-notebook",
+ "clerkenwell-schema",
  "icu_collator",
  "indexmap",
  "jsonschema",
@@ -499,6 +500,9 @@ name = "clerkenwell-schema"
 version = "0.5.0"
 dependencies = [
  "clerkenwell-events",
+ "schemars",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -528,7 +532,6 @@ dependencies = [
  "clerkenwell-store",
  "hmac",
  "loro",
- "schemars",
  "serde",
  "serde_json",
  "sha2",

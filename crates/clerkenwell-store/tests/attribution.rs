@@ -8,14 +8,13 @@ use std::time::{Duration, SystemTime};
 use clerkenwell_doc::CollaborationReplica;
 use clerkenwell_events::{ActorKind, Principal};
 use clerkenwell_schema::{
-    GeneratedCollaborationConflict, GeneratedCollaborationEntitySpec,
+    CollaborationExchangeMode, GeneratedCollaborationConflict, GeneratedCollaborationEntitySpec,
     GeneratedCollaborationFieldSpec, GeneratedCollaborationStorageKind, GeneratedWriterConflict,
 };
 use clerkenwell_store::testing::MemoryStorage;
 use clerkenwell_store::{
     CollaborationAuditEvent, CollaborationAuditQuery, CollaborationDocumentId,
-    CollaborationExchangeMode, CollaborationImportRequest, CollaborationService, StoreError,
-    PEER_INDEX_BITS,
+    CollaborationImportRequest, CollaborationService, StoreError, PEER_INDEX_BITS,
 };
 use serde_json::{json, Value};
 use support::{accept, field, key, request, writer, POLICY};
@@ -268,6 +267,69 @@ fn every_peer_of_a_block_is_the_writers_and_one_import_may_name_several_blocks()
         .peers;
     assert_eq!(peers.get(&(first.base | last_index)), Some(&writer()));
     assert_eq!(peers.get(&second.base), Some(&writer()));
+}
+
+#[test]
+fn an_authoring_state_delivers_the_read_and_the_block_its_writer_writes_under() {
+    let service = seeded();
+    let read = service
+        .authoring_state(&TASK_PLAN, &task(), None)
+        .expect("authoring state");
+    let block = service.allocate_peers(&writer(), &task());
+
+    let delivered = read.clone().into_authoring_state(block.clone());
+
+    assert_eq!(delivered.schema_version, read.schema_version);
+    assert_eq!(
+        delivered.accepted_frontier_base64,
+        read.accepted_frontier_base64
+    );
+    assert_eq!(delivered.update_base64, read.update_base64);
+    assert_eq!(delivered.etag, read.etag);
+    assert_eq!(delivered.replaces_held, read.replaces_held);
+    for mode in [
+        CollaborationExchangeMode::Incremental,
+        CollaborationExchangeMode::Bootstrap,
+    ] {
+        assert!(delivered.exchange_modes.contains(&mode), "{mode:?}");
+    }
+
+    // A replica of the delivery, writing under its block's last peer, is
+    // accepted as the writer's.
+    let peers = &delivered.peer_block;
+    let base: u64 = peers.base.parse().expect("a decimal peer");
+    let last = base | ((1 << peers.index_bits) - 1);
+    let mut replica = CollaborationReplica::from_versioned_update_base64(
+        &TASK_PLAN,
+        delivered.schema_version,
+        &delivered.update_base64,
+    )
+    .expect("replica");
+    replica.set_peer(last).expect("a peer of the block");
+    let mut edited = replica.materialized_document("edit").expect("document");
+    edited["notes"] = json!("Under the delivered block.");
+    replica.replace_document(&edited).expect("edit");
+    let mut import = request(
+        &task(),
+        &writer(),
+        &block,
+        "delivered-block",
+        &delivered.accepted_frontier_base64,
+        replica
+            .export_incremental_update_base64(&delivered.accepted_frontier_base64)
+            .expect("update"),
+    );
+    import.peer_nonces = vec![peers.nonce.clone()];
+
+    service
+        .import(&TASK_PLAN, import, accept)
+        .expect("the delivered block is the writer's");
+
+    let attribution = service
+        .attribution(&task())
+        .expect("attribution")
+        .expect("the task");
+    assert_eq!(attribution.peers.get(&last), Some(&writer()));
 }
 
 #[test]

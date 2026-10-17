@@ -170,6 +170,8 @@ fn the_declarations_the_generator_writes_are_refused_when_written_by_hand() {
     for name in [
         "AuthoringState",
         "AuthoringStatePatch",
+        "AuthoringPeerBlock",
+        "CollaborationExchangeMode",
         "NoteAuthoringParams",
     ] {
         let mut document = notebook_document();

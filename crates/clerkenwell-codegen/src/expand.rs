@@ -5,6 +5,11 @@
 //! the document, and its snapshot and patch are the same for every entity. The
 //! generator writes them into the definition before checking it, so the
 //! definition declares none of them.
+//!
+//! The snapshot, the patch and the types they hold are `SHARED`: Clerkenwell
+//! owns their types, `clerkenwell_schema`'s in Rust and `@clerkenwell/client`'s
+//! in TypeScript, and generated bindings name those rather than declaring
+//! their own.
 
 use crate::definition::Fields;
 use crate::error::{refuse, Result};
@@ -16,6 +21,16 @@ pub const AUTHORING_STATE: &str = "AuthoringState";
 pub const AUTHORING_STATE_PATCH: &str = "AuthoringStatePatch";
 /// The block of peers every authoring state allocates its subscriber.
 pub const AUTHORING_PEER_BLOCK: &str = "AuthoringPeerBlock";
+/// How the store accepts an import of a document.
+pub const COLLABORATION_EXCHANGE_MODE: &str = "CollaborationExchangeMode";
+
+/// The declarations whose types Clerkenwell owns.
+pub(crate) const SHARED: [&str; 4] = [
+    AUTHORING_STATE,
+    AUTHORING_STATE_PATCH,
+    AUTHORING_PEER_BLOCK,
+    COLLABORATION_EXCHANGE_MODE,
+];
 
 const AUTHORING_STATE_SCHEMA: &str = r##"{
   "type": "object",
@@ -24,6 +39,8 @@ const AUTHORING_STATE_SCHEMA: &str = r##"{
   "properties": {
     "schema_version": {
       "type": "integer",
+      "minimum": 0,
+      "maximum": 4294967295,
       "description": "The layout version the document's operations are written in."
     },
     "accepted_frontier_base64": {
@@ -40,7 +57,7 @@ const AUTHORING_STATE_SCHEMA: &str = r##"{
     },
     "exchange_modes": {
       "type": "array",
-      "items": { "type": "string", "enum": ["incremental", "bootstrap"] },
+      "items": { "$ref": "#/$defs/CollaborationExchangeMode" },
       "description": "How the store accepts an import of this document."
     },
     "peer_block": { "$ref": "#/$defs/AuthoringPeerBlock" },
@@ -62,8 +79,14 @@ const AUTHORING_PEER_BLOCK_SCHEMA: &str = r##"{
       "type": "string",
       "description": "The block's first peer, in decimal."
     },
-    "index_bits": { "type": "integer" }
+    "index_bits": { "type": "integer", "minimum": 0, "maximum": 4294967295 }
   }
+}"##;
+
+const COLLABORATION_EXCHANGE_MODE_SCHEMA: &str = r##"{
+  "type": "string",
+  "enum": ["incremental", "bootstrap"],
+  "description": "Whether an import creates a document (bootstrap) or edits one (incremental)."
 }"##;
 
 const AUTHORING_STATE_PATCH_SCHEMA: &str = r##"{
@@ -98,7 +121,7 @@ pub(crate) fn expand(mut document: Object) -> Result<Object> {
     }
 
     let mut defs = section(&document, "$defs");
-    for reserved in [AUTHORING_STATE, AUTHORING_STATE_PATCH, AUTHORING_PEER_BLOCK] {
+    for reserved in SHARED {
         if defs.contains_key(reserved) {
             return refuse(format!(
                 "$defs.{reserved} is the authoring state every collaborative entity shares; the generator declares it."
@@ -108,6 +131,10 @@ pub(crate) fn expand(mut document: Object) -> Result<Object> {
     defs.insert(AUTHORING_STATE, parse(AUTHORING_STATE_SCHEMA));
     defs.insert(AUTHORING_STATE_PATCH, parse(AUTHORING_STATE_PATCH_SCHEMA));
     defs.insert(AUTHORING_PEER_BLOCK, parse(AUTHORING_PEER_BLOCK_SCHEMA));
+    defs.insert(
+        COLLABORATION_EXCHANGE_MODE,
+        parse(COLLABORATION_EXCHANGE_MODE_SCHEMA),
+    );
 
     let entities = section(&document, "entities");
     let mut projections = section(&document, "projections");

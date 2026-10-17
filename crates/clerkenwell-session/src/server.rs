@@ -15,8 +15,9 @@ use serde::Serialize;
 use serde_json::{json, Value};
 
 use clerkenwell_events::{ChangeEvent, ChangeKind, Principal};
+use clerkenwell_schema::AuthoringStatePatch;
 
-use crate::authoring::{AuthoringHeld, AuthoringState, AuthoringStates, Held};
+use crate::authoring::{AuthoringHeld, AuthoringStates, Held};
 use crate::registry::ProjectionRegistry;
 use crate::subscriptions::{ProjectionSubscription, ProjectionSubscriptions};
 use crate::transport::{
@@ -414,7 +415,9 @@ where
             if subscription.delivered.is_none() {
                 continue;
             }
-            let Ok(patch) = authoring_patch::<H>(&subscription.projection, None) else {
+            let Ok(patch) =
+                authoring_patch::<H>(&subscription.projection, AuthoringStatePatch::remove())
+            else {
                 continue;
             };
             events.extend(
@@ -430,10 +433,13 @@ where
         let Ok(state) = authoring.state(&document, held, &principal) else {
             continue;
         };
-        let Ok(patch) = authoring_patch::<H>(&subscription.projection, Some(&state)) else {
+        let delivered = Held::Authoring(AuthoringHeld::from(&state));
+        let Ok(patch) = authoring_patch::<H>(
+            &subscription.projection,
+            AuthoringStatePatch::replace(state),
+        ) else {
             continue;
         };
-        let delivered = Held::Authoring(AuthoringHeld::from(&state));
         let from_revision = subscription.revision;
         let delivery = connection
             .with_subscriptions(move |subscriptions| {
@@ -488,16 +494,12 @@ async fn snapshot_for<H: ProjectionHost>(
     Ok((snapshot, delivered))
 }
 
-/// The authoring-state patch delivering `state`, or removing the document.
+/// `patch` to `projection`, as the host's type for it.
 fn authoring_patch<H: ProjectionHost>(
     projection: &str,
-    state: Option<&AuthoringState>,
+    patch: AuthoringStatePatch,
 ) -> Result<H::Patch, H::Failure> {
-    let value = match state {
-        Some(state) => json!({ "kind": "replace", "state": state }),
-        None => json!({ "kind": "remove" }),
-    };
-    typed::<H, _>(json!({ "projection": projection, "value": value }))
+    typed::<H, _>(json!({ "projection": projection, "value": patch }))
 }
 
 /// `value` as the host's type for it.
