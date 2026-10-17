@@ -70,14 +70,18 @@ pub fn remove(document: &mut Value, pointer: &str) {
 /// `wire`, a document of `plan`'s entity, as a replica materialises it at
 /// `revision`. Outside keyed items a replica holds no `derivedIdentity`
 /// member, and gives each `derivedRevision` member `revision`; inside them it
-/// holds no `derivedRevision` member. It writes an object only beneath a field
-/// it holds.
+/// holds no `derivedRevision` member. It leaves out an optional member whose
+/// value is empty, unless the member stores a structured map or document, and
+/// keeps a keyed sequence `wire` holds even when empty. It writes an object
+/// only beneath a field it holds, and gives a present object each member that
+/// object requires but `wire` leaves out or holds empty, as its codec's empty
+/// form.
 pub fn held_document(
     plan: &GeneratedCollaborationEntitySpec,
     wire: &Value,
     revision: &str,
 ) -> Value {
-    let mut held = held_node(plan, "", wire);
+    let mut held = held_node(plan, "", wire, true);
     for field in plan.fields.iter().filter(|field| {
         field.storage_kind == GeneratedCollaborationStorageKind::DerivedRevision
             && !field.path.contains('*')
@@ -100,8 +104,14 @@ pub fn held_document(
     held
 }
 
-/// `node`, at plan path `prefix`, as a replica holds it.
-fn held_node(plan: &GeneratedCollaborationEntitySpec, prefix: &str, node: &Value) -> Value {
+/// `node`, at plan path `prefix`, as a replica holds it. A root or keyed item
+/// is `always_present`; any other object is present only when a member is.
+fn held_node(
+    plan: &GeneratedCollaborationEntitySpec,
+    prefix: &str,
+    node: &Value,
+    always_present: bool,
+) -> Value {
     let Value::Object(members) = node else {
         return node.clone();
     };
@@ -125,9 +135,16 @@ fn held_node(plan: &GeneratedCollaborationEntitySpec, prefix: &str, node: &Value
                 Some(Value::Array(
                     items
                         .iter()
-                        .map(|item| held_node(plan, &item_prefix, item))
+                        .map(|item| held_node(plan, &item_prefix, item, true))
                         .collect(),
                 ))
+            }
+            (Some(kind), value)
+                if is_empty_optional_value(value)
+                    && !field.is_some_and(|field| field.required)
+                    && !is_object_storage_kind(kind) =>
+            {
+                None
             }
             (None, Value::Object(_))
                 if plan
@@ -135,7 +152,7 @@ fn held_node(plan: &GeneratedCollaborationEntitySpec, prefix: &str, node: &Value
                     .iter()
                     .any(|field| field.path.starts_with(&format!("{path}."))) =>
             {
-                Some(held_node(plan, &path, value)).filter(|object| {
+                Some(held_node(plan, &path, value, false)).filter(|object| {
                     object
                         .as_object()
                         .is_some_and(|members| !members.is_empty())
@@ -147,7 +164,60 @@ fn held_node(plan: &GeneratedCollaborationEntitySpec, prefix: &str, node: &Value
             held.insert(name.clone(), member);
         }
     }
+    if always_present || !held.is_empty() {
+        complete_required_members(plan, prefix, &mut held);
+    }
     Value::Object(held)
+}
+
+/// Gives `node`, the present object at plan path `prefix`, each member it
+/// requires but does not hold, as that member's codec's empty form.
+fn complete_required_members(
+    plan: &GeneratedCollaborationEntitySpec,
+    prefix: &str,
+    node: &mut Map<String, Value>,
+) {
+    for field in plan
+        .fields
+        .iter()
+        .filter(|field| field.required_in_parent && !field.required)
+    {
+        let (parent, name) = field.path.rsplit_once('.').unwrap_or(("", field.path));
+        if parent != prefix || node.contains_key(name) {
+            continue;
+        }
+        let empty = match field.codec {
+            GeneratedCollaborationValueCodec::String
+            | GeneratedCollaborationValueCodec::OptionalString => Value::String(String::new()),
+            GeneratedCollaborationValueCodec::StringList
+            | GeneratedCollaborationValueCodec::KeyedSequence => Value::Array(Vec::new()),
+            GeneratedCollaborationValueCodec::StructuredJson
+                if !is_object_storage_kind(field.storage_kind) =>
+            {
+                Value::Array(Vec::new())
+            }
+            _ => continue,
+        };
+        node.insert(name.to_owned(), empty);
+    }
+}
+
+/// Whether a replica reads `value` as absent from an optional member.
+fn is_empty_optional_value(value: &Value) -> bool {
+    value.as_array().is_some_and(Vec::is_empty)
+        || value.as_object().is_some_and(Map::is_empty)
+        || value.as_str().is_some_and(str::is_empty)
+        || value.is_null()
+}
+
+/// Whether a member stores its value whole as an object, which a replica
+/// keeps even when empty.
+fn is_object_storage_kind(kind: GeneratedCollaborationStorageKind) -> bool {
+    matches!(
+        kind,
+        GeneratedCollaborationStorageKind::StructuredMap
+            | GeneratedCollaborationStorageKind::StructuredDocument
+    )
 }
 
 /// One declared text field of a document: the plan path, the identities of
@@ -317,6 +387,41 @@ mod tests {
 
         assert_eq!(held, materialised(plan, &wire));
         assert!(held.get("cover_image").is_none(), "{held}");
+    }
+
+    #[test]
+    fn a_held_document_leaves_out_an_empty_optional_value() {
+        let (plan, mut wire) = notebook("Note");
+        wire["summary"] = json!("");
+        wire["estimate"] = Value::Null;
+
+        let held = held_document(plan, &wire, REVISION);
+
+        assert_eq!(held, materialised(plan, &wire));
+        assert!(held.get("summary").is_none(), "{held}");
+        assert!(held.get("estimate").is_none(), "{held}");
+    }
+
+    #[test]
+    fn a_held_document_restores_a_member_its_present_parent_requires() {
+        let (plan, mut wire) = notebook("Note");
+        wire["source"] = json!({ "url": "", "excerpt": "Quoted." });
+
+        let held = held_document(plan, &wire, REVISION);
+
+        assert_eq!(held, materialised(plan, &wire));
+        assert!(held["source"].get("url").is_some(), "{held}");
+    }
+
+    #[test]
+    fn a_held_document_keeps_an_empty_keyed_sequence_its_document_holds() {
+        let (plan, mut wire) = notebook("Board");
+        wire["archive"] = json!([]);
+
+        let held = held_document(plan, &wire, REVISION);
+
+        assert_eq!(held, materialised(plan, &wire));
+        assert!(held.get("archive").is_some(), "{held}");
     }
 
     #[test]

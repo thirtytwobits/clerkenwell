@@ -51,7 +51,7 @@ constraints fail generation. The projection definition supplies collaboration an
 semantics for these imported types.
 
 A replica reads and writes a collaborative document as the application's schema spells it,
-at every depth. The generated TypeScript module declares `CollaborationDocument<TEntity>`, each
+at every depth. A member name is data, `__proto__` included. The generated TypeScript module declares `CollaborationDocument<TEntity>`, each
 collaborative entity's document as a replica holds it: its generated document type, through
 `@clerkenwell/client`'s `CollaborationReplicaDocument<TDocument, TPath>`, which makes optional
 the member at each path where a replica may leave out a member the schema requires. A replica

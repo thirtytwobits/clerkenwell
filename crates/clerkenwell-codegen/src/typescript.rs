@@ -25,41 +25,90 @@ fn module_header(project: &Project) -> String {
     lines.join("\n")
 }
 
+/// The `@clerkenwell/client` types the module imports for its own
+/// declarations, each with the name it binds.
+const CLIENT_TYPE_IMPORTS: [(&str, &str); 9] = [
+    ("AuthoringPeerBlock", "AuthoringPeerBlock"),
+    ("AuthoringPlan", "AuthoringPlan"),
+    ("AuthoringState", "AuthoringState"),
+    ("AuthoringStatePatch", "AuthoringStatePatch"),
+    (
+        "CollaborationEntityPlan",
+        "ClerkenwellCollaborationEntityPlan",
+    ),
+    ("CollaborationExchangeMode", "CollaborationExchangeMode"),
+    (
+        "CollaborationPlanTextFieldPath",
+        "CollaborationPlanTextFieldPath",
+    ),
+    (
+        "CollaborationReplicaDocument",
+        "CollaborationReplicaDocument",
+    ),
+    (
+        "ProjectionCompositionPlan",
+        "ClerkenwellProjectionCompositionPlan",
+    ),
+];
+
+/// The `@clerkenwell/client` types the module exports as its own.
+const CLIENT_TYPE_EXPORTS: [&str; 4] = [
+    "AuthoringPolicyKind",
+    "CollaborationFieldPlan",
+    "CollaborationStorageKind",
+    "CollaborationValueCodec",
+];
+
+/// The `@clerkenwell/client` value the module exports as its own.
+const CLIENT_VALUE_EXPORT: &str = "resolveCollaborationContainer";
+
+/// Every name the module binds from `@clerkenwell/client`, which no `$defs`
+/// entry may generate.
+pub(crate) fn client_bindings() -> impl Iterator<Item = &'static str> {
+    CLIENT_TYPE_IMPORTS
+        .iter()
+        .map(|(_, bound)| *bound)
+        .chain(CLIENT_TYPE_EXPORTS)
+        .chain([CLIENT_VALUE_EXPORT])
+}
+
+/// `items` as one per line between `open` and `close`, separated by commas.
+fn listed(open: &str, items: &[String], close: &str) -> Vec<String> {
+    let mut lines = vec![open.to_owned()];
+    for (index, item) in items.iter().enumerate() {
+        let separator = if index + 1 < items.len() { "," } else { "" };
+        lines.push(format!("  {item}{separator}"));
+    }
+    lines.push(close.to_owned());
+    lines
+}
+
 /// The React-free TypeScript model module.
 pub fn render_model_module(definition: &Definition, project: &Project) -> Result<String> {
     let mut lines = vec![module_header(project), String::new()];
     // The authoring states' types are `@clerkenwell/client`'s: the module
     // imports them for its own declarations and exports them as its own.
-    lines.extend(
-        [
-            "import type {",
-            "  AuthoringPeerBlock,",
-            "  AuthoringPlan,",
-            "  AuthoringState,",
-            "  AuthoringStatePatch,",
-            "  CollaborationEntityPlan as ClerkenwellCollaborationEntityPlan,",
-            "  CollaborationExchangeMode,",
-            "  CollaborationPlanTextFieldPath,",
-            "  CollaborationReplicaDocument,",
-            "  ProjectionCompositionPlan as ClerkenwellProjectionCompositionPlan",
-            "} from \"@clerkenwell/client\";",
-            "export type {",
-            "  AuthoringPolicyKind,",
-            "  CollaborationFieldPlan,",
-            "  CollaborationStorageKind,",
-            "  CollaborationValueCodec",
-            "} from \"@clerkenwell/client\";",
-            "export type {",
-            "  AuthoringPeerBlock,",
-            "  AuthoringState,",
-            "  AuthoringStatePatch,",
-            "  CollaborationExchangeMode",
-            "};",
-            "export { resolveCollaborationContainer } from \"@clerkenwell/client\";",
-            "",
-        ]
-        .map(str::to_owned),
-    );
+    let from_client = "} from \"@clerkenwell/client\";";
+    let imports: Vec<String> = CLIENT_TYPE_IMPORTS
+        .iter()
+        .map(|(name, bound)| {
+            if name == bound {
+                (*name).to_owned()
+            } else {
+                format!("{name} as {bound}")
+            }
+        })
+        .collect();
+    lines.extend(listed("import type {", &imports, from_client));
+    let exports: Vec<String> = CLIENT_TYPE_EXPORTS.map(str::to_owned).to_vec();
+    lines.extend(listed("export type {", &exports, from_client));
+    let mut shared: Vec<String> = crate::expand::SHARED.map(str::to_owned).to_vec();
+    shared.sort();
+    lines.extend(listed("export type {", &shared, "};"));
+    lines.push(format!(
+        "export {{ {CLIENT_VALUE_EXPORT} }} from \"@clerkenwell/client\";"
+    ));
+    lines.push(String::new());
     for (definition_name, schema) in definition.declared_def_entries() {
         lines.push(render_definition(definition_name, schema)?);
         lines.push(String::new());

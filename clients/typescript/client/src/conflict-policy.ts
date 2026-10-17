@@ -9,6 +9,7 @@
  * judge one kind of writer by another policy than its own.
  */
 import { areJsonValuesEqual } from "./json-value-equality.js";
+import { ownMember } from "./members.js";
 import {
   collaborationConflictFor,
   type CollaborationConflictPolicy,
@@ -148,7 +149,7 @@ function valueAtPath(value: unknown, path: string): unknown {
     if (current === null || typeof current !== "object" || Array.isArray(current)) {
       return undefined;
     }
-    current = (current as Record<string, unknown>)[segment];
+    current = ownMember(current, segment);
   }
   return current;
 }

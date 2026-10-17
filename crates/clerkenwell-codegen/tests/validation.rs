@@ -809,3 +809,29 @@ fn a_definition_named_as_the_collaborative_document_types_is_refused() {
         ],
     );
 }
+
+/// Every name the generated bindings import is taken in their module, so no
+/// `$defs` entry may generate it.
+#[test]
+fn a_definition_named_as_a_name_the_bindings_import_is_refused() {
+    for name in [
+        "CollaborationReplicaDocument",
+        "AuthoringPlan",
+        "CollaborationPlanTextFieldPath",
+        "ClerkenwellCollaborationEntityPlan",
+        "AuthoringPolicyKind",
+        "CollaborationFieldPlan",
+        "GeneratedMutationSpec",
+        "ActorKind",
+        "Serialize",
+        "JsonValue",
+    ] {
+        assert_mentions(
+            &refusal(with_defs(&format!(
+                r#"{{ "{name}": {{ "type": "object", "additionalProperties": false,
+                    "properties": {{ "label": {{ "type": "string" }} }} }} }}"#
+            ))),
+            &[&format!("$defs.{name}"), "the generated bindings' import"],
+        );
+    }
+}

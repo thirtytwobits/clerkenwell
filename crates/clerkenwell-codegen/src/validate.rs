@@ -896,14 +896,28 @@ fn check_generated_output_names(definition: &Definition) -> Result<()> {
         Ok(())
     };
 
-    for definition_name in definition.defs().keys() {
+    // The generator's own shared declarations are Clerkenwell's types, which
+    // the bindings import rather than declare.
+    for (definition_name, _) in definition.declared_def_entries() {
         register(
             pascal_identifier(definition_name),
             format!("$defs.{definition_name}"),
         )?;
     }
-    for property_enum in collect_rust_property_enums(definition) {
+    for property_enum in collect_rust_property_enums(definition)
+        .into_iter()
+        .filter(|property_enum| !crate::expand::SHARED.contains(&property_enum.def.as_str()))
+    {
         register(property_enum.name, property_enum.source)?;
+    }
+    let mut imported: IndexSet<&str> = IndexSet::new();
+    imported.extend(crate::typescript::client_bindings());
+    imported.extend(crate::rust::import_bindings());
+    for name in imported {
+        register(
+            name.to_owned(),
+            format!("the generated bindings' import of {name}"),
+        )?;
     }
     register(
         "CollaborationDocument".to_owned(),

@@ -9,7 +9,8 @@ use std::process::Command;
 use clerkenwell_codegen::testing::{normalized_document, Json, Object};
 use clerkenwell_codegen::{build_outputs, generate, Config, Definition, Error, Mode};
 use common::{
-    copy_notebook, json, notebook_config, notebook_config_path, notebook_document, set, validate,
+    copy_notebook, json, notebook_config, notebook_config_path, notebook_document, push, set,
+    validate,
 };
 
 fn reversed(object: &Object) -> Object {
@@ -269,6 +270,36 @@ fn a_replica_may_leave_out_only_members_the_schema_requires() {
     for optional in ["source", "cover_image", "summary"] {
         assert!(!note.iter().any(|path| path == optional), "{note:?}");
     }
+}
+
+/// A required object no field lies beneath is never written, so a replica's
+/// document may lack it.
+#[test]
+fn a_replica_may_leave_out_a_required_object_no_field_lies_beneath() {
+    let mut document = notebook_document();
+    set(
+        &mut document,
+        "/$defs/NoteMarker",
+        json(r#"{ "type": "object", "additionalProperties": false, "properties": {} }"#),
+    );
+    set(
+        &mut document,
+        "/$defs/NoteDocument/properties/marker",
+        json(r##"{ "$ref": "#/$defs/NoteMarker" }"##),
+    );
+    push(
+        &mut document,
+        "/$defs/NoteDocument/required",
+        json(r#""marker""#),
+    );
+    validate(document.clone()).expect("a closed empty object needs no field");
+
+    let left_out = replica_optional_paths(&typescript_of(document), "Note");
+
+    assert!(
+        left_out.iter().any(|path| path == "marker"),
+        "no field lies beneath marker: {left_out:?}"
+    );
 }
 
 /// A replica writes an object only beneath a field it writes, so it may leave

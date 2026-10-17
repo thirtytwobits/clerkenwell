@@ -20,21 +20,30 @@ names the contracts.
   `CollaborationReplicaDocument<TDocument, TPath>`, which `@clerkenwell/client` exports and
   which makes the member at each dotted path of `TPath` optional. The paths are those at which
   a replica may leave out a member the schema requires: a `derivedIdentity` member outside
-  keyed items, every `derivedRevision` member, and an object member no field beneath which is
-  in every document.
-- `clerkenwell-codegen` drops its refusals of an ambiguous client spelling, and refuses a
-  `$defs` entry named `CollaborationDocument`. The collaboration fixtures drop
-  `clientDocument`; both replicas take `wireDocument`.
+  keyed items, every `derivedRevision` member, an object member no field beneath which is in
+  every document, and an object member no field lies beneath at all.
+- `clerkenwell-codegen` drops its refusals of an ambiguous client spelling. It refuses a
+  `$defs` entry that generates `CollaborationDocument` or any name the generated bindings
+  import: each name the TypeScript module binds from `@clerkenwell/client`, each
+  `clerkenwell_schema` item the Rust model re-exports, and `Deserialize`, `Serialize`,
+  `JsonValue` and `HashMap`. The collaboration fixtures drop `clientDocument`; both replicas
+  take `wireDocument`.
 - `clerkenwell-conformance` removes `check_client_naming`. `Conformance::client_document_types`
   is `Conformance::document_types`, which checks each document TypeScript materialises against
   its entity's `CollaborationDocument`. `Conformance::seeding` and
   `Conformance::fixture_operations` require each replica to materialise the fixture document,
-  and the document after each fixture edit, as the wire document a replica holds of it.
+  and the document after each fixture edit, as the wire document a replica holds of it: less
+  each optional member whose value is empty, unless it stores a structured map or document,
+  and with each member a present object requires restored to its codec's empty form.
 
 ### Fixed
 
 - A structured-list entry key spelled with an upper-case letter, such as `fileName`, is written
   back as spelled. `@clerkenwell/client` wrote it back as `file_name`.
+- `@clerkenwell/client` holds a member named `__proto__` as a document member, whether a field
+  path names it or a structured document or keyed item holds it as data. It reads only a
+  document's own members and defines each member it writes, so no name reaches what an object
+  inherits.
 
 ## 0.6.0
 

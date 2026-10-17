@@ -27,6 +27,7 @@ import {
   type CollaborationStorageKind
 } from "./plans.js";
 import { areJsonValuesEqual } from "./json-value-equality.js";
+import { defineMember, ownMember } from "./members.js";
 import type { AuthoringPeerBlock } from "./authoring-state.js";
 import type { AuthoringSessionController, AuthoringTextStageController } from "./authoring-session.js";
 import { validateTextEdits, type TextBinding, type TextBindingChange, type TextEdit, type TextSelection } from "./text-binding.js";
@@ -1782,15 +1783,15 @@ function setKeyedList(
   const previousByIdentity = listByIdentity(previous, identity);
   const nextByIdentity = listByIdentity(next, identity);
 
-  for (const key of Object.keys(previousByIdentity)) {
-    if (!(key in nextByIdentity)) {
+  for (const key of previousByIdentity.keys()) {
+    if (!nextByIdentity.has(key)) {
       items.delete(key);
     }
   }
-  for (const [key, value] of Object.entries(nextByIdentity)) {
+  for (const [key, value] of nextByIdentity) {
     setStructuredDocument(
       ensureStructuredMapChild(items, key),
-      previousByIdentity[key] ?? {},
+      previousByIdentity.get(key) ?? {},
       value
     );
   }
@@ -1798,7 +1799,7 @@ function setKeyedList(
   setStringList(
     map.ensureMergeableList(KEYED_LIST_ORDER) as LoroList,
     next
-      .map((value) => (isRecord(value) ? value[identity] : undefined))
+      .map((value) => (isRecord(value) ? ownMember(value, identity) : undefined))
       .filter((key): key is string => typeof key === "string")
   );
 }
@@ -1806,15 +1807,15 @@ function setKeyedList(
 function listByIdentity(
   values: readonly unknown[],
   identity: string
-): Record<string, DocumentRecord> {
-  const byIdentity: Record<string, DocumentRecord> = {};
+): Map<string, DocumentRecord> {
+  const byIdentity = new Map<string, DocumentRecord>();
   for (const value of values) {
     if (!isRecord(value)) {
       continue;
     }
-    const key = value[identity];
+    const key = ownMember(value, identity);
     if (typeof key === "string" && key.length > 0) {
-      byIdentity[key] = value;
+      byIdentity.set(key, value);
     }
   }
   return byIdentity;
@@ -1833,15 +1834,17 @@ function readStructuredDocument(map: LoroMap): DocumentRecord {
   const values: DocumentRecord = {};
   for (const [key, entry] of map.entries()) {
     if (entry instanceof LoroText) {
-      values[key] = entry.toString();
+      defineMember(values, key, entry.toString());
     } else if (entry instanceof LoroMap) {
-      values[key] = entry.get(KEYED_LIST_MARKER) !== undefined
-        ? readKeyedList(entry)
-        : readStructuredDocument(entry);
+      defineMember(
+        values,
+        key,
+        entry.get(KEYED_LIST_MARKER) !== undefined ? readKeyedList(entry) : readStructuredDocument(entry)
+      );
     } else if (entry instanceof LoroList || entry instanceof LoroMovableList) {
-      values[key] = entry.toJSON();
+      defineMember(values, key, entry.toJSON());
     } else {
-      values[key] = entry;
+      defineMember(values, key, entry);
     }
   }
   return values;
@@ -1907,7 +1910,7 @@ function valueAtPath(value: unknown, path: string): unknown {
     if (!isRecord(current)) {
       return undefined;
     }
-    current = current[segment];
+    current = ownMember(current, segment);
   }
   return current;
 }
@@ -1920,13 +1923,14 @@ function setValueAtPath(root: DocumentRecord, path: string, value: unknown): voi
   }
   let current = root;
   for (const segment of segments) {
-    const child = current[segment];
+    let child = ownMember(current, segment);
     if (!isRecord(child)) {
-      current[segment] = {};
+      child = {};
+      defineMember(current, segment, child);
     }
-    current = current[segment] as DocumentRecord;
+    current = child as DocumentRecord;
   }
-  current[last] = value;
+  defineMember(current, last, value);
 }
 
 /**
@@ -1978,10 +1982,10 @@ function deleteNullAtPath(root: unknown, path: string): void {
     if (!isRecord(parent)) {
       return;
     }
-    parent = parent[segment];
+    parent = ownMember(parent, segment);
   }
   const last = segments[segments.length - 1];
-  if (isRecord(parent) && last !== undefined && parent[last] === null) {
+  if (isRecord(parent) && last !== undefined && ownMember(parent, last) === null) {
     delete parent[last];
   }
 }
