@@ -6,6 +6,7 @@ use std::sync::OnceLock;
 
 use indexmap::IndexSet;
 
+use crate::client::{client_type_name, ClientSpelling};
 use crate::collate::code_unit_compare;
 use crate::definition::{CollaborationEntity, CollaborationField, Definition, Fields, Projection};
 use crate::error::{refuse, Result};
@@ -201,7 +202,8 @@ pub(crate) fn check_semantics(definition: &Definition) -> Result<()> {
         }
     }
 
-    check_generated_output_names(definition)?;
+    let spelling = ClientSpelling::of(definition)?;
+    check_generated_output_names(definition, &spelling)?;
 
     // Projection and mutation names share a public API namespace.
     let mut public_names = HashSet::new();
@@ -884,7 +886,7 @@ fn shallowest_uncovered<'a>(
 
 /// Generated identifiers from independent concepts can still collide after
 /// normalisation, especially Rust enum helpers.
-fn check_generated_output_names(definition: &Definition) -> Result<()> {
+fn check_generated_output_names(definition: &Definition, spelling: &ClientSpelling) -> Result<()> {
     let mut output_names: HashMap<String, String> = HashMap::new();
     let mut register = |name: String, source: String| -> Result<()> {
         if let Some(previous) = output_names.get(&name) {
@@ -905,6 +907,16 @@ fn check_generated_output_names(definition: &Definition) -> Result<()> {
     for property_enum in collect_rust_property_enums(definition) {
         register(property_enum.name, property_enum.source)?;
     }
+    for definition_name in spelling.types() {
+        register(
+            client_type_name(definition_name),
+            format!("the client document type of $defs.{definition_name}"),
+        )?;
+    }
+    register(
+        "CollaborationClientDocument".to_owned(),
+        "the generated client document types".to_owned(),
+    )?;
     register(
         "ProjectionName".to_owned(),
         "generated projection dispatch enum".to_owned(),

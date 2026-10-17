@@ -1433,11 +1433,7 @@ function readCollaborationField(
     case "orderedList":
       return doc.getList(container).toArray();
     case "structuredList":
-      return doc.getList(container).toArray().map((entry) =>
-        typeof entry === "object" && entry !== null
-          ? mapObjectKeys(entry as ClientRecord, clientSegment)
-          : entry
-      );
+      return mapKeys(doc.getList(container).toArray(), clientSegment);
     case "structuredMap": {
       const value = doc.getMap(container).toJSON();
       const explicitlyPresent = doc.getMap(STRUCTURED_MAP_PRESENCE_CONTAINER).get(container) !== undefined;
@@ -2111,19 +2107,20 @@ function camelToSnake(value: string): string {
   return value.replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`);
 }
 
+/** `value` with every object key, at any depth, spelled by `mapper`. */
+function mapKeys(value: unknown, mapper: (key: string) => string): unknown {
+  if (Array.isArray(value)) {
+    return value.map((entry) => mapKeys(entry, mapper));
+  }
+  return isRecord(value) ? mapObjectKeys(value, mapper) : value;
+}
+
 function mapObjectKeys(
   value: ClientRecord,
   mapper: (key: string) => string
 ): ClientRecord {
   return Object.fromEntries(
-    Object.entries(value).map(([key, child]) => [
-      mapper(key),
-      Array.isArray(child)
-        ? child.map((entry) => isRecord(entry) ? mapObjectKeys(entry, mapper) : entry)
-        : isRecord(child)
-          ? mapObjectKeys(child, mapper)
-          : child
-    ])
+    Object.entries(value).map(([key, child]) => [mapper(key), mapKeys(child, mapper)])
   );
 }
 

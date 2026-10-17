@@ -365,6 +365,20 @@
             }
           },
           {
+            "conflict": "explicit",
+            "path": "cover_image.alt_text",
+            "required": false,
+            "requiredInParent": true,
+            "storage": {
+              "container": "note",
+              "key": "cover_image.alt_text",
+              "kind": "scalar"
+            },
+            "value": {
+              "codec": "optionalString"
+            }
+          },
+          {
             "conflict": "immutable",
             "path": "created_at",
             "required": true,
@@ -774,6 +788,9 @@
         "file_name": {
           "type": "string"
         },
+        "preview": {
+          "$ref": "#/$defs/AttachmentPreview"
+        },
         "size_bytes": {
           "type": "integer"
         },
@@ -783,7 +800,24 @@
       },
       "required": [
         "file_name",
-        "size_bytes"
+        "size_bytes",
+        "preview"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "name": "AttachmentPreview",
+      "properties": {
+        "mime_type": {
+          "type": "string"
+        },
+        "page_count": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "mime_type"
       ],
       "type": "object"
     },
@@ -1104,6 +1138,19 @@
     },
     {
       "additionalProperties": false,
+      "name": "NoteCoverImage",
+      "properties": {
+        "alt_text": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "alt_text"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
       "name": "NoteCreateParams",
       "properties": {
         "title": {
@@ -1196,6 +1243,9 @@
         },
         "body": {
           "$ref": "#/$defs/MimeValue"
+        },
+        "cover_image": {
+          "$ref": "#/$defs/NoteCoverImage"
         },
         "created_at": {
           "type": "string"
@@ -1322,6 +1372,9 @@
           ],
           "type": "string"
         },
+        "panel_gap": {
+          "type": "integer"
+        },
         "panels": {
           "items": {
             "$ref": "#/$defs/NoteLayoutPanel"
@@ -1334,7 +1387,8 @@
         "columns",
         "grid",
         "mode",
-        "panels"
+        "panels",
+        "panel_gap"
       ],
       "type": "object"
     },

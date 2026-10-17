@@ -30,6 +30,33 @@ names the contracts.
   own. Replicas take an `AuthoringPeerBlock`, and `@clerkenwell/client/replica`'s
   `CollaborationPeerBlock` is removed. `AuthoringExchangeMode` is a `CollaborationExchangeMode`
   or `optimisticDocument`.
+- `clerkenwell-codegen` refuses a definition whose client spelling is ambiguous: an object two
+  of whose members client documents spell alike, or a member one field holds in wire spelling
+  while another respells it differently. It refuses a `$defs` entry named as a client document
+  type.
+- `clerkenwell-conformance` adds `Conformance::client_document_types`: TypeScript materialises
+  each fixture document, and the document after each fixture edit, and the TypeScript compiler
+  checks each against its entity's client document type. It needs `typescript` installed in the
+  project it runs in.
+
+### Added
+
+- The generated TypeScript module declares `Client<Name>` for each `$defs` entry a
+  collaborative document holds in client spelling, and `CollaborationClientDocument<TEntity>`
+  for each collaborative entity's document (#74). A member stored whole as a structured map, a
+  structured document or property text has its wire type. A `derivedIdentity` member at the
+  document root, and every `derivedRevision` member, is optional: a replica does not always
+  materialise them.
+
+### Fixed
+
+- `@clerkenwell/client` respells the keys of a structured list's entries at every depth. An
+  object in an array nested in an array kept its wire spelling.
+- The collaboration fixtures' `clientDocument` keeps the wire spelling of structured maps,
+  structured documents and property text, as a replica does, and `clerkenwell-conformance`
+  respells a structured list's entries at every depth.
+- The collaboration fixtures keep the enum values and union tags inside structured values, and
+  the fixture scalar edit writes a value of its field's type.
 
 ## 0.5.0
 

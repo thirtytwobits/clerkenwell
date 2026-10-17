@@ -61,24 +61,6 @@ pub fn kebab_identifier(value: &str) -> String {
     }
 }
 
-/// A client document key: `world_key` becomes `worldKey`.
-pub fn snake_to_camel_identifier(value: &str) -> String {
-    let characters: Vec<char> = value.chars().collect();
-    let mut out = String::with_capacity(value.len());
-    let mut index = 0;
-    while index < characters.len() {
-        let next = characters.get(index + 1);
-        if characters[index] == '_' && next.is_some_and(char::is_ascii_lowercase) {
-            out.push(next.expect("checked above").to_ascii_uppercase());
-            index += 2;
-        } else {
-            out.push(characters[index]);
-            index += 1;
-        }
-    }
-    out
-}
-
 /// A constant prefix: `authoring.runtime` becomes `AUTHORING_RUNTIME`.
 pub fn constant_name(value: &str) -> String {
     let words = words(value);
@@ -203,13 +185,5 @@ mod tests {
         {
             assert_eq!(rust_field_identifier(keyword), format!("r#{keyword}"));
         }
-    }
-
-    #[test]
-    fn snake_case_keys_become_camel_case_and_nothing_else_changes() {
-        assert_eq!(snake_to_camel_identifier("world_key"), "worldKey");
-        assert_eq!(snake_to_camel_identifier("already"), "already");
-        assert_eq!(snake_to_camel_identifier("trailing_"), "trailing_");
-        assert_eq!(snake_to_camel_identifier("a_1"), "a_1");
     }
 }

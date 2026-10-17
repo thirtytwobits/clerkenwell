@@ -7,6 +7,7 @@ field clerkenwell_conformance::Bindings::collaboration_fixtures: PathBuf
 field clerkenwell_conformance::Bindings::plans: &'static [GeneratedCollaborationEntitySpec]
 field clerkenwell_conformance::Bindings::typescript_plans: PathBuf
 struct clerkenwell_conformance::Conformance { .. }
+fn clerkenwell_conformance::Conformance::client_document_types(&self)
 fn clerkenwell_conformance::Conformance::concurrent_edits(&self)
 fn clerkenwell_conformance::Conformance::concurrent_typing(&self)
 fn clerkenwell_conformance::Conformance::conflict_policy(&self)

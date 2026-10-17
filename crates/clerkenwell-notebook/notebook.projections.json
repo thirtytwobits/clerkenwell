@@ -681,6 +681,19 @@
             },
             "required": false,
             "conflict": "merge"
+          },
+          "cover_image.alt_text": {
+            "storage": {
+              "kind": "scalar",
+              "container": "note",
+              "key": "cover_image.alt_text"
+            },
+            "value": {
+              "codec": "optionalString"
+            },
+            "required": false,
+            "requiredInParent": true,
+            "conflict": "explicit"
           }
         }
       },
@@ -1061,7 +1074,8 @@
       "additionalProperties": false,
       "required": [
         "file_name",
-        "size_bytes"
+        "size_bytes",
+        "preview"
       ],
       "properties": {
         "file_name": {
@@ -1072,6 +1086,24 @@
         },
         "url": {
           "type": "string"
+        },
+        "preview": {
+          "$ref": "#/$defs/AttachmentPreview"
+        }
+      }
+    },
+    "AttachmentPreview": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "mime_type"
+      ],
+      "properties": {
+        "mime_type": {
+          "type": "string"
+        },
+        "page_count": {
+          "type": "integer"
         }
       }
     },
@@ -1096,7 +1128,8 @@
         "columns",
         "grid",
         "mode",
-        "panels"
+        "panels",
+        "panel_gap"
       ],
       "properties": {
         "caption": {
@@ -1126,6 +1159,9 @@
           "items": {
             "$ref": "#/$defs/NoteLayoutPanel"
           }
+        },
+        "panel_gap": {
+          "type": "integer"
         }
       }
     },
@@ -1171,6 +1207,18 @@
           "type": "string"
         },
         "excerpt": {
+          "type": "string"
+        }
+      }
+    },
+    "NoteCoverImage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "alt_text"
+      ],
+      "properties": {
+        "alt_text": {
           "type": "string"
         }
       }
@@ -1266,6 +1314,9 @@
         },
         "source": {
           "$ref": "#/$defs/NoteSource"
+        },
+        "cover_image": {
+          "$ref": "#/$defs/NoteCoverImage"
         }
       }
     },

@@ -26,4 +26,5 @@ fn rust_and_typescript_replicas_of_the_notes_example_converge() {
     conformance.concurrent_edits();
     conformance.concurrent_typing();
     conformance.text_consumption();
+    conformance.client_document_types();
 }

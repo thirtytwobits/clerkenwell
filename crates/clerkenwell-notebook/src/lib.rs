@@ -223,6 +223,15 @@ pub struct Attachment {
     pub size_bytes: i64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub url: Option<String>,
+    pub preview: AttachmentPreview,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct AttachmentPreview {
+    pub mime_type: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub page_count: Option<i64>,
 }
 
 pub type NoteProperties = HashMap<String, String>;
@@ -237,6 +246,7 @@ pub struct NoteLayout {
     pub grid: Vec<Vec<i64>>,
     pub mode: NoteLayoutMode,
     pub panels: Vec<NoteLayoutPanel>,
+    pub panel_gap: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, PartialEq)]
@@ -260,6 +270,12 @@ pub struct NoteSource {
     pub url: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub excerpt: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct NoteCoverImage {
+    pub alt_text: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, PartialEq)]
@@ -290,6 +306,8 @@ pub struct NoteDocument {
     pub meta: NoteMeta,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub source: Option<NoteSource>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cover_image: Option<NoteCoverImage>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, PartialEq)]
@@ -1738,6 +1756,26 @@ pub static NOTE_COLLABORATION_FIELDS: &[GeneratedCollaborationFieldSpec] = &[
         required: false,
         required_in_parent: false,
         conflict: GeneratedCollaborationConflict::Merge,
+        writers: &[],
+    },
+    GeneratedCollaborationFieldSpec {
+        path: "cover_image.alt_text",
+        storage_kind: GeneratedCollaborationStorageKind::Scalar,
+        container: Some("note"),
+        container_template: None,
+        key: Some("cover_image.alt_text"),
+        identity_path: None,
+        identity_variable: None,
+        order_container: None,
+        item_container_template: None,
+        metadata_container: None,
+        metadata_container_template: None,
+        metadata_key: None,
+        codec: GeneratedCollaborationValueCodec::OptionalString,
+        value_schema: None,
+        required: false,
+        required_in_parent: true,
+        conflict: GeneratedCollaborationConflict::Explicit,
         writers: &[],
     },
 ];

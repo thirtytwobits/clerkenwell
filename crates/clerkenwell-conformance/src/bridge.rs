@@ -36,6 +36,8 @@ pub struct Bridge {
     io: RefCell<(ChildStdin, BufReader<ChildStdout>)>,
     replicas: Cell<u64>,
     script: PathBuf,
+    /// The export conditions Node resolves packages under.
+    conditions: Vec<String>,
 }
 
 /// A replica the bridge holds.
@@ -77,6 +79,7 @@ impl Bridge {
             io: RefCell::new((stdin, stdout)),
             replicas: Cell::new(0),
             script,
+            conditions: conditions.iter().map(ToString::to_string).collect(),
         };
         let installed = bridge.call(json!({ "op": "clientVersion" }));
         let installed = installed
@@ -151,6 +154,18 @@ impl Bridge {
             "kind": kind,
         }));
         serde_json::from_value(paths).expect("the bridge answers a list of paths")
+    }
+
+    /// The TypeScript compiler's diagnostics for `documents`, each an entity
+    /// and a document in client spelling, declared as a value of the entity's
+    /// generated client document type.
+    pub fn type_check(&self, documents: &[Value]) -> Vec<String> {
+        let diagnostics = self.call(json!({
+            "op": "typeCheck",
+            "documents": documents,
+            "conditions": self.conditions,
+        }));
+        serde_json::from_value(diagnostics).expect("the bridge answers a list of diagnostics")
     }
 
     /// A replica seeded from the fixture corpus's client document for `entity`.

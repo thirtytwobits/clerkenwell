@@ -161,6 +161,58 @@ fn every_string_enum_a_tagged_union_variant_declares_is_emitted_under_its_varian
     }
 }
 
+#[test]
+fn each_collaborative_entity_names_the_client_document_type_of_its_schema() {
+    let document = notebook_document();
+    let definition = validate(document.clone()).expect("valid");
+    let typescript = build_outputs(&definition, &notebook_config())
+        .expect("renders")
+        .typescript_model;
+    let by_entity = typescript
+        .split("export type CollaborationClientDocument<")
+        .nth(1)
+        .and_then(|rest| rest.split("}[TEntity];").next())
+        .expect("the client document type of each entity");
+    let schema_of = |entity: &str| {
+        document
+            .pointer(&format!("/entities/{entity}/schema/$ref"))
+            .and_then(Json::as_str)
+            .and_then(|reference| reference.strip_prefix("#/$defs/"))
+            .expect("an entity schema")
+            .to_owned()
+    };
+    let collaborative = document
+        .pointer("/collaboration/entities")
+        .and_then(Json::as_object)
+        .expect("collaborative entities");
+    assert!(!collaborative.is_empty());
+    for entity in collaborative.keys() {
+        let client = format!("Client{}", schema_of(entity));
+        assert!(
+            by_entity.contains(&format!("\"{entity}\": {client};")),
+            "{entity}: {by_entity}"
+        );
+        assert!(
+            typescript.contains(&format!("export type {client} = ")),
+            "{client} is declared"
+        );
+    }
+    let entities = document
+        .pointer("/entities")
+        .and_then(Json::as_object)
+        .expect("entities");
+    for entity in entities
+        .keys()
+        .filter(|entity| !collaborative.contains_key(entity))
+    {
+        let client = format!("Client{}", schema_of(entity));
+        assert!(
+            !typescript.contains(&format!("export type {client} ")),
+            "{entity} is not collaborative, so no client document holds {client}"
+        );
+    }
+}
+
 /// A configuration pointing every output into `directory`, over the example
 /// definition.
 fn config_writing_into(directory: &Path) -> Config {

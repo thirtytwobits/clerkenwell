@@ -8,8 +8,9 @@
  * corpus, holds named replicas of `@clerkenwell/client/replica`, and answers each
  * JSON request line on standard input with one JSON response line on standard
  * output: `{"ok": true, "value": ...}` or `{"ok": false, "error": "..."}`.
+ * Its `typeCheck` operation imports the project's `typescript`.
  */
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { createInterface } from "node:readline";
@@ -40,7 +41,14 @@ type Request =
   | { readonly op: "captureText"; readonly replica: string; readonly field: string; readonly identities: Identities }
   | { readonly op: "readText"; readonly replica: string; readonly field: string; readonly identities: Identities }
   | { readonly op: "insertText"; readonly replica: string; readonly field: string; readonly identities: Identities; readonly offset: number; readonly text: string }
-  | { readonly op: "policyConflicts"; readonly entity: string; readonly base: object; readonly client: object; readonly current: object; readonly kind: CollaborationWriterKind };
+  | { readonly op: "policyConflicts"; readonly entity: string; readonly base: object; readonly client: object; readonly current: object; readonly kind: CollaborationWriterKind }
+  | { readonly op: "typeCheck"; readonly documents: readonly ClientDocument[]; readonly conditions: readonly string[] };
+
+/** A document in client spelling, and the collaborative entity it is of. */
+interface ClientDocument {
+  readonly entity: string;
+  readonly document: object;
+}
 
 interface CollaborationFixtures {
   readonly entities: readonly { readonly entity: string; readonly clientDocument: object }[];
@@ -60,6 +68,7 @@ if (options.plans === undefined || options.fixtures === undefined) {
 const plansModule = await import(pathToFileURL(options.plans).href) as {
   readonly COLLABORATION_PLANS?: Readonly<Record<string, CollaborationEntityPlan>>;
 };
+const plansPath = options.plans;
 const plans = plansModule.COLLABORATION_PLANS;
 if (plans === undefined) {
   throw new Error(`${options.plans} does not export COLLABORATION_PLANS.`);
@@ -109,6 +118,66 @@ function clientVersion(): string {
     if (path.dirname(directory) === directory) {
       throw new Error(`${entry} is in no @clerkenwell/client package.`);
     }
+  }
+}
+
+/**
+ * The TypeScript compiler's diagnostics for `documents`, each declared as a
+ * value of its entity's `CollaborationClientDocument` in the generated plans
+ * module, compiled under the export `conditions`.
+ */
+async function typeCheck(
+  documents: readonly ClientDocument[],
+  conditions: readonly string[]
+): Promise<string[]> {
+  const ts = (await import("typescript")).default;
+  const script = fileURLToPath(import.meta.url);
+  const directory = path.dirname(script);
+  const checked = path.join(directory, `${path.basename(script, ".mts")}-documents.mts`);
+  const relative = path.relative(directory, plansPath).split(path.sep).join("/").replace(/\.ts$/, ".js");
+  const specifier = relative.startsWith(".") ? relative : `./${relative}`;
+  writeFileSync(checked, [
+    `import type { CollaborationClientDocument } from ${JSON.stringify(specifier)};`,
+    ...documents.map(({ entity, document }, index) =>
+      `export const document${index}: CollaborationClientDocument<${JSON.stringify(entity)}> = ${JSON.stringify(document, null, 2)};`)
+  ].join("\n"));
+  try {
+    const program = ts.createProgram([checked], {
+      strict: true,
+      noEmit: true,
+      skipLibCheck: true,
+      target: ts.ScriptTarget.ES2022,
+      module: ts.ModuleKind.NodeNext,
+      moduleResolution: ts.ModuleResolutionKind.NodeNext,
+      customConditions: [...conditions],
+      lib: ["lib.es2023.d.ts", "lib.dom.d.ts"],
+      types: []
+    });
+    const files = [checked, plansPath].map((file) => {
+      const source = program.getSourceFile(file);
+      if (source === undefined) {
+        throw new Error(`The TypeScript program holds no ${file}.`);
+      }
+      return source;
+    });
+    return [
+      ...program.getOptionsDiagnostics(),
+      ...program.getGlobalDiagnostics(),
+      ...files.flatMap((file) => [
+        ...program.getSyntacticDiagnostics(file),
+        ...program.getSemanticDiagnostics(file)
+      ])
+    ].map((diagnostic) => {
+      const message = ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n");
+      if (diagnostic.file === undefined || diagnostic.start === undefined) {
+        return message;
+      }
+      const { line } = diagnostic.file.getLineAndCharacterOfPosition(diagnostic.start);
+      const text = diagnostic.file.text.split("\n")[line]?.trim() ?? "";
+      return `${path.basename(diagnostic.file.fileName)}:${line + 1}: ${message} (${text})`;
+    });
+  } finally {
+    rmSync(checked, { force: true });
   }
 }
 
@@ -179,6 +248,8 @@ function handle(request: Request): unknown {
         request.current,
         request.kind
       );
+    case "typeCheck":
+      return typeCheck(request.documents, request.conditions);
     default:
       throw new Error(`Unknown bridge operation ${(request as { readonly op: string }).op}.`);
   }
@@ -188,7 +259,7 @@ for await (const line of createInterface({ input: process.stdin, crlfDelay: Infi
   if (line.trim().length === 0) continue;
   let response: object;
   try {
-    response = { ok: true, value: handle(JSON.parse(line) as Request) ?? null };
+    response = { ok: true, value: (await handle(JSON.parse(line) as Request)) ?? null };
   } catch (error) {
     response = { ok: false, error: error instanceof Error ? error.message : String(error) };
   }

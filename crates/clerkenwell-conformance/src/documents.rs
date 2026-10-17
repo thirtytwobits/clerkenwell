@@ -84,8 +84,8 @@ pub fn snake_to_camel(value: &str) -> String {
 }
 
 /// `wire` as a TypeScript client document holds it. Declared field paths and
-/// the keys of structured list entries are camelCase; the contents of maps
-/// and structured documents keep their keys.
+/// the keys of structured list entries, at every depth, are camelCase; the
+/// contents of maps and structured documents keep their keys.
 pub fn client_document(plan: &GeneratedCollaborationEntitySpec, wire: &Value) -> Value {
     client_node(plan, "", wire)
 }
@@ -140,9 +140,10 @@ fn camel_case_keys(entry: &Value) -> Value {
         Value::Object(object) => Value::Object(
             object
                 .iter()
-                .map(|(key, value)| (snake_to_camel(key), value.clone()))
+                .map(|(key, value)| (snake_to_camel(key), camel_case_keys(value)))
                 .collect(),
         ),
+        Value::Array(items) => Value::Array(items.iter().map(camel_case_keys).collect()),
         other => other.clone(),
     }
 }

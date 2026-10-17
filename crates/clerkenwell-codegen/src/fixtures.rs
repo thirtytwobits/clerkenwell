@@ -2,10 +2,11 @@
 //! snapshot and one patch per patch kind for every projection, and one sample
 //! document with its operations for every collaborative entity.
 
+use crate::client::client_document;
 use crate::definition::{CollaborationEntity, CollaborationField, Definition, Materialization};
 use crate::error::{refuse, Result};
 use crate::json::{Json, Object};
-use crate::names::{kebab_identifier, snake_to_camel_identifier};
+use crate::names::kebab_identifier;
 use crate::schema::{
     has_type, object_at, primitive_union_types, read_string_array, resolve_ref,
     stringify_or_undefined,
@@ -71,14 +72,15 @@ fn collaboration_entity_fixture(
     }
 
     let mut scalar = Object::new();
-    scalar.insert_some(
-        "path",
-        fields
-            .iter()
-            .find(|field| field.storage_kind() == "scalar" && field.conflict() == "explicit")
-            .map(|field| field.path.into()),
-    );
-    scalar.insert("value", "updated-value".into());
+    let explicit_scalar = fields
+        .iter()
+        .find(|field| field.storage_kind() == "scalar" && field.conflict() == "explicit");
+    scalar.insert_some("path", explicit_scalar.map(|field| field.path.into()));
+    let updated = match explicit_scalar {
+        Some(field) => scalar_update_value(definition, entity.name, field)?,
+        None => "updated-value".into(),
+    };
+    scalar.insert("value", updated);
     let sequence_operation = |key: &str, value: Json| -> Json {
         Json::Array(
             sequence_fields
@@ -117,7 +119,7 @@ fn collaboration_entity_fixture(
     let mut fixture = Object::new();
     fixture.insert("entity", entity.name.into());
     fixture.insert("schemaVersion", entity.schema_version().into());
-    let client_document = map_fixture_keys(&Json::Object(document.clone()));
+    let client_document = client_document(entity, &Json::Object(document.clone()));
     fixture.insert("wireDocument", document.into());
     fixture.insert("clientDocument", client_document);
     fixture.insert("operations", operations.into());
@@ -169,8 +171,7 @@ fn collaboration_fixture_value(
                 reference,
                 &format!("collaboration field {path}"),
             )?;
-            let sample =
-                populate_fixture_strings(&sample_schema_value(definition, schema)?, suffix);
+            let sample = sample_value(definition, schema, Some(suffix), None)?;
             if !matches!(field.storage_kind(), "structuredMap" | "structuredDocument") {
                 Json::Array(vec![sample])
             } else if sample.as_object().is_some_and(Object::is_empty) {
@@ -181,6 +182,34 @@ fn collaboration_fixture_value(
         }
         "identity" | "keyedSequence" => format!("{}-{suffix}", kebab_identifier(path)).into(),
         other => unreachable!("the meta-schema admits no codec {other:?}"),
+    })
+}
+
+/// A value of `field`'s codec and declared schema other than its sample value.
+fn scalar_update_value(
+    definition: &Definition,
+    entity_name: &str,
+    field: &CollaborationField,
+) -> Result<Json> {
+    Ok(match field.codec() {
+        "integer" => 2.0.into(),
+        "number" | "optionalNumber" => 2.5.into(),
+        "boolean" => false.into(),
+        _ => {
+            let declared =
+                collaboration_field_declared_schema(definition, entity_name, field.path)?;
+            match declared
+                .and_then(|schema| schema.get("enum"))
+                .and_then(Json::as_array)
+            {
+                Some(values) => values
+                    .get(1)
+                    .or(values.first())
+                    .cloned()
+                    .unwrap_or(Json::Null),
+                None => "updated-value".into(),
+            }
+        }
     })
 }
 
@@ -196,7 +225,7 @@ fn open_map_fixture_sample(
     let stem = kebab_identifier(path);
     let entry = match object_at(schema, "additionalProperties") {
         Some(additional) if !has_type(additional, "json") => {
-            populate_fixture_strings(&sample_schema_value(definition, additional)?, suffix)
+            sample_value(definition, additional, Some(suffix), None)?
         }
         _ => format!("{stem}-{suffix}").into(),
     };
@@ -322,32 +351,6 @@ fn direct_item_fields<'f, 'a>(
         .collect()
 }
 
-/// Replaces every sampled string with one naming its key and the fixture suffix.
-fn populate_fixture_strings(value: &Json, suffix: &str) -> Json {
-    match value {
-        Json::Array(items) => Json::Array(
-            items
-                .iter()
-                .map(|item| populate_fixture_strings(item, suffix))
-                .collect(),
-        ),
-        Json::String(_) => format!("{suffix}-value").into(),
-        Json::Object(object) => Json::Object(
-            object
-                .iter()
-                .map(|(key, child)| {
-                    let populated = match child {
-                        Json::String(_) => format!("{}-{suffix}", kebab_identifier(key)).into(),
-                        other => populate_fixture_strings(other, suffix),
-                    };
-                    (key, populated)
-                })
-                .collect(),
-        ),
-        other => other.clone(),
-    }
-}
-
 /// Assigns `value` at the dotted `path`, replacing whatever non-object stands
 /// in the way.
 fn set_fixture_path(root: &mut Object, path: &str, value: Json) {
@@ -364,27 +367,6 @@ fn set_fixture_path(root: &mut Object, path: &str, value: Json) {
             .expect("inserted above");
     }
     current.insert(last, value);
-}
-
-/// The client spelling of a wire document: keys camel-cased, `$` keys kept.
-fn map_fixture_keys(value: &Json) -> Json {
-    match value {
-        Json::Array(items) => Json::Array(items.iter().map(map_fixture_keys).collect()),
-        Json::Object(object) => Json::Object(
-            object
-                .iter()
-                .map(|(key, child)| {
-                    let key = if key.starts_with('$') {
-                        key.to_owned()
-                    } else {
-                        snake_to_camel_identifier(key)
-                    };
-                    (key, map_fixture_keys(child))
-                })
-                .collect(),
-        ),
-        other => other.clone(),
-    }
 }
 
 /// The projection contract fixture corpus.
@@ -491,10 +473,24 @@ fn first_object_item(collection: Option<&Json>) -> Option<&Object> {
 /// A sample value of `schema`: required properties only, the first enum value,
 /// the first union member, the first tagged variant.
 fn sample_schema_value(definition: &Definition, schema: &Object) -> Result<Json> {
+    sample_value(definition, schema, None, None)
+}
+
+/// A sample value of `schema`, as [`sample_schema_value`] samples it. With a
+/// `suffix`, each free string names the property `key` holding it and the
+/// suffix; enum values and tags are kept.
+fn sample_value(
+    definition: &Definition,
+    schema: &Object,
+    suffix: Option<&str>,
+    key: Option<&str>,
+) -> Result<Json> {
     if schema.get("$ref").is_some() {
-        return sample_schema_value(
+        return sample_value(
             definition,
             resolve_ref(definition, schema, "fixture schema")?,
+            suffix,
+            key,
         );
     }
     if let Some(values) = schema.get("enum").and_then(Json::as_array) {
@@ -503,17 +499,21 @@ fn sample_schema_value(definition: &Definition, schema: &Object) -> Result<Json>
     if let Some(members) = primitive_union_types(schema)? {
         let mut member = Object::new();
         member.insert("type", members[0].into());
-        return sample_schema_value(definition, &member);
+        return sample_value(definition, &member, suffix, key);
     }
     let schema_type = schema.get("type");
     Ok(match schema_type.and_then(Json::as_str) {
-        Some("string") => "fixture".into(),
+        Some("string") => match (suffix, key) {
+            (None, _) => "fixture".into(),
+            (Some(suffix), Some(key)) => format!("{}-{suffix}", kebab_identifier(key)).into(),
+            (Some(suffix), None) => format!("{suffix}-value").into(),
+        },
         Some("integer" | "number") => 1.0.into(),
         Some("boolean") => true.into(),
         Some("json") => Json::Null,
         Some("array") => {
             let items = object_at(schema, "items").expect("validation requires array items");
-            Json::Array(vec![sample_schema_value(definition, items)?])
+            Json::Array(vec![sample_value(definition, items, suffix, None)?])
         }
         Some("object") => {
             if let Some(variants) = object_at(schema, "oneOf") {
@@ -530,7 +530,7 @@ fn sample_schema_value(definition: &Definition, schema: &Object) -> Result<Json>
                 let variant = variant
                     .as_object()
                     .expect("validation requires object variants");
-                if let Json::Object(fields) = sample_schema_value(definition, variant)? {
+                if let Json::Object(fields) = sample_value(definition, variant, suffix, key)? {
                     sample.spread(&fields);
                 }
                 return Ok(sample.into());
@@ -543,7 +543,10 @@ fn sample_schema_value(definition: &Definition, schema: &Object) -> Result<Json>
                         let property_schema = property_schema
                             .as_object()
                             .expect("validation requires object property schemas");
-                        sample.insert(property, sample_schema_value(definition, property_schema)?);
+                        sample.insert(
+                            property,
+                            sample_value(definition, property_schema, suffix, Some(property))?,
+                        );
                     }
                 }
             }

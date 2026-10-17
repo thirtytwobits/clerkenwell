@@ -374,6 +374,51 @@ impl Conformance {
         );
     }
 
+    /// TypeScript materialises each fixture document, and the document after
+    /// each fixture edit Rust writes, as a value of its entity's generated
+    /// client document type. The project the bridge runs in resolves
+    /// `typescript`.
+    pub fn client_document_types(&self) {
+        let mut documents = Vec::new();
+        for (plan, fixture) in self.fixtures() {
+            let Pair {
+                mut rust,
+                typescript,
+                ..
+            } = self.pair(plan, fixture);
+            let mut materialised = |typescript: &TypeScriptReplica<'_>| {
+                documents.push(json!({
+                    "entity": plan.name,
+                    "document": typescript.materialize(REVISION),
+                }));
+            };
+            materialised(&typescript);
+            let mut document = fixture.wire_document.clone();
+            for edit in fixture.edits() {
+                document = edit.apply(&document);
+                let frontier = rust.accepted_frontier_base64();
+                rust.replace_document(&document).unwrap_or_else(|error| {
+                    panic!("{}: Rust writes {}: {error}", plan.name, edit.name)
+                });
+                let update = rust
+                    .export_incremental_update_base64(&frontier)
+                    .expect("Rust exports");
+                typescript
+                    .import(fixture.schema_version, &update)
+                    .unwrap_or_else(|error| {
+                        panic!("{}: TypeScript imports {}: {error}", plan.name, edit.name)
+                    });
+                materialised(&typescript);
+            }
+        }
+        let diagnostics = self.bridge.type_check(&documents);
+        assert!(
+            diagnostics.is_empty(),
+            "a document TypeScript materialised is not a value of its client document type:\n{}",
+            diagnostics.join("\n")
+        );
+    }
+
     /// Rust appends to every text field of the fixture document while
     /// TypeScript types at the start of each through its text binding. Both
     /// insertions survive in every field.

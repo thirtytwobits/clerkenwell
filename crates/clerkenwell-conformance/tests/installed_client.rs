@@ -68,13 +68,6 @@ fn consumer_in(parent: &Path) -> tempfile::TempDir {
         r#"{ "name": "consumer", "private": true, "type": "module" }"#,
     )
     .expect("writable");
-    let manifest: Value = serde_json::from_str(
-        &std::fs::read_to_string(workspace().join("package.json")).expect("readable"),
-    )
-    .expect("JSON");
-    let tsx = manifest["devDependencies"]["tsx"]
-        .as_str()
-        .expect("the workspace develops with tsx");
     npm(
         &[
             "install",
@@ -82,7 +75,7 @@ fn consumer_in(parent: &Path) -> tempfile::TempDir {
             "--no-fund",
             "--prefer-offline",
             packed_client().to_str().expect("a UTF-8 path"),
-            &format!("tsx@{tsx}"),
+            &developed_with("tsx"),
         ],
         project.path(),
     );
@@ -93,6 +86,18 @@ fn consumer_in(parent: &Path) -> tempfile::TempDir {
     )
     .expect("a copy");
     project
+}
+
+/// `package` at the version this workspace develops with.
+fn developed_with(package: &str) -> String {
+    let manifest: Value = serde_json::from_str(
+        &std::fs::read_to_string(workspace().join("package.json")).expect("readable"),
+    )
+    .expect("JSON");
+    let version = manifest["devDependencies"][package]
+        .as_str()
+        .unwrap_or_else(|| panic!("the workspace develops with {package}"));
+    format!("{package}@{version}")
 }
 
 fn bindings(project: &Path) -> Bindings {
@@ -116,6 +121,24 @@ fn a_consumer_drives_conformance_against_the_client_it_installed() {
     conformance.concurrent_typing();
     conformance.text_consumption();
     conformance.conflict_policy();
+}
+
+#[test]
+fn a_consumer_checks_client_documents_against_the_declarations_of_the_client_it_installed() {
+    let project = consumer();
+    npm(
+        &[
+            "install",
+            "--no-audit",
+            "--no-fund",
+            "--prefer-offline",
+            &developed_with("typescript"),
+        ],
+        project.path(),
+    );
+    std::fs::remove_dir_all(project.path().join("node_modules/@clerkenwell/client/src"))
+        .expect("the package ships its source");
+    Conformance::start_in(&bindings(project.path()), project.path()).client_document_types();
 }
 
 #[test]
