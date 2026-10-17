@@ -125,11 +125,11 @@ export function relabelTask(board: BoardDocument, taskId: string, labels: string
   return next;
 }
 
-export function addTask(board: BoardDocument, columnId: string, taskId: string): BoardDocument {
+export function addTask(board: BoardDocument, column_id: string, taskId: string): BoardDocument {
   const next = structuredClone(board);
-  const column = next.columns.find((candidate) => candidate.columnId === columnId);
+  const column = next.columns.find((candidate) => candidate.column_id === column_id);
   if (column === undefined) {
-    throw new Error(`No column ${columnId}.`);
+    throw new Error(`No column ${column_id}.`);
   }
   column.tasks.push({ id: taskId, title: taskId, notes: "", labels: [] });
   return next;

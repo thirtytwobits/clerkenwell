@@ -221,6 +221,8 @@ pub struct ReplicaUpdateResult {
 pub struct Attachment {
     pub file_name: String,
     pub size_bytes: i64,
+    #[serde(rename = "uploadedBy")]
+    pub uploaded_by: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub url: Option<String>,
     pub preview: AttachmentPreview,

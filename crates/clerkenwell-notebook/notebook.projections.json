@@ -1075,6 +1075,7 @@
       "required": [
         "file_name",
         "size_bytes",
+        "uploadedBy",
         "preview"
       ],
       "properties": {
@@ -1083,6 +1084,9 @@
         },
         "size_bytes": {
           "type": "integer"
+        },
+        "uploadedBy": {
+          "type": "string"
         },
         "url": {
           "type": "string"

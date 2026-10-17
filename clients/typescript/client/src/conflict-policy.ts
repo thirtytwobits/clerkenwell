@@ -1,16 +1,16 @@
 /**
  * Copyright (c) 2026 Scott A Dixon
  *
- * Field conflict policy evaluation over client documents, judging as the
- * Rust evaluator in `clerkenwell-doc` does: `immutable` fields may not change
+ * Field conflict policy evaluation over documents, judging as the Rust
+ * evaluator in `clerkenwell-doc` does: `immutable` fields may not change
  * at all, `explicit` fields refuse two different changes to one value, and
  * `merge` and `lastWriterWins` fields always accept. Fields inside a keyed
  * sequence are judged per item, addressed by the item's identity. A field may
  * judge one kind of writer by another policy than its own.
  */
 import { areJsonValuesEqual } from "./json-value-equality.js";
+import { ownMember } from "./members.js";
 import {
-  clientSegment,
   collaborationConflictFor,
   type CollaborationConflictPolicy,
   type CollaborationEntityPlan,
@@ -21,8 +21,7 @@ import {
 /**
  * The declared field paths an edit `kind` made from `base` to `client`
  * changes against their conflict policy for `kind`, given that the accepted
- * document has meanwhile become `current`. Documents are in client naming;
- * paths are reported in wire naming, a keyed item's field as
+ * document has meanwhile become `current`. A keyed item's field is named
  * `sequence[identity].field`.
  */
 export function conflictingFieldPaths(
@@ -143,14 +142,14 @@ function collectFieldValues(
   }
 }
 
-/** The value at a wire path in a client document. */
+/** The value at a dotted path in a document. */
 function valueAtPath(value: unknown, path: string): unknown {
   let current = value;
   for (const segment of path.split(".").filter((part) => part.length > 0)) {
     if (current === null || typeof current !== "object" || Array.isArray(current)) {
       return undefined;
     }
-    current = (current as Record<string, unknown>)[clientSegment(segment)];
+    current = ownMember(current, segment);
   }
   return current;
 }

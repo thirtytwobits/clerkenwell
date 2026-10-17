@@ -1,11 +1,11 @@
 //! The TypeScript model module.
 
-use crate::client::{client_name, client_type_name, ClientSpelling};
 use crate::config::Project;
 use crate::definition::Definition;
 use crate::error::{refuse, Result};
 use crate::json::{number_to_string, string_literal, Json, Object};
 use crate::names::{name_constant_identifier, pascal_identifier};
+use crate::replica::optional_paths;
 use crate::schema::{
     object_at, primitive_union_types, read_string_array, schema_ref_type_name,
     stringify_or_undefined,
@@ -25,51 +25,92 @@ fn module_header(project: &Project) -> String {
     lines.join("\n")
 }
 
+/// The `@clerkenwell/client` types the module imports for its own
+/// declarations, each with the name it binds.
+const CLIENT_TYPE_IMPORTS: [(&str, &str); 9] = [
+    ("AuthoringPeerBlock", "AuthoringPeerBlock"),
+    ("AuthoringPlan", "AuthoringPlan"),
+    ("AuthoringState", "AuthoringState"),
+    ("AuthoringStatePatch", "AuthoringStatePatch"),
+    (
+        "CollaborationEntityPlan",
+        "ClerkenwellCollaborationEntityPlan",
+    ),
+    ("CollaborationExchangeMode", "CollaborationExchangeMode"),
+    (
+        "CollaborationPlanTextFieldPath",
+        "CollaborationPlanTextFieldPath",
+    ),
+    (
+        "CollaborationReplicaDocument",
+        "CollaborationReplicaDocument",
+    ),
+    (
+        "ProjectionCompositionPlan",
+        "ClerkenwellProjectionCompositionPlan",
+    ),
+];
+
+/// The `@clerkenwell/client` types the module exports as its own.
+const CLIENT_TYPE_EXPORTS: [&str; 4] = [
+    "AuthoringPolicyKind",
+    "CollaborationFieldPlan",
+    "CollaborationStorageKind",
+    "CollaborationValueCodec",
+];
+
+/// The `@clerkenwell/client` value the module exports as its own.
+const CLIENT_VALUE_EXPORT: &str = "resolveCollaborationContainer";
+
+/// Every name the module binds from `@clerkenwell/client`, which no `$defs`
+/// entry may generate.
+pub(crate) fn client_bindings() -> impl Iterator<Item = &'static str> {
+    CLIENT_TYPE_IMPORTS
+        .iter()
+        .map(|(_, bound)| *bound)
+        .chain(CLIENT_TYPE_EXPORTS)
+        .chain([CLIENT_VALUE_EXPORT])
+}
+
+/// `items` as one per line between `open` and `close`, separated by commas.
+fn listed(open: &str, items: &[String], close: &str) -> Vec<String> {
+    let mut lines = vec![open.to_owned()];
+    for (index, item) in items.iter().enumerate() {
+        let separator = if index + 1 < items.len() { "," } else { "" };
+        lines.push(format!("  {item}{separator}"));
+    }
+    lines.push(close.to_owned());
+    lines
+}
+
 /// The React-free TypeScript model module.
 pub fn render_model_module(definition: &Definition, project: &Project) -> Result<String> {
     let mut lines = vec![module_header(project), String::new()];
     // The authoring states' types are `@clerkenwell/client`'s: the module
     // imports them for its own declarations and exports them as its own.
-    lines.extend(
-        [
-            "import type {",
-            "  AuthoringPeerBlock,",
-            "  AuthoringPlan,",
-            "  AuthoringState,",
-            "  AuthoringStatePatch,",
-            "  CollaborationEntityPlan as ClerkenwellCollaborationEntityPlan,",
-            "  CollaborationExchangeMode,",
-            "  CollaborationPlanTextFieldPath,",
-            "  ProjectionCompositionPlan as ClerkenwellProjectionCompositionPlan",
-            "} from \"@clerkenwell/client\";",
-            "export type {",
-            "  AuthoringPolicyKind,",
-            "  CollaborationFieldPlan,",
-            "  CollaborationStorageKind,",
-            "  CollaborationValueCodec",
-            "} from \"@clerkenwell/client\";",
-            "export type {",
-            "  AuthoringPeerBlock,",
-            "  AuthoringState,",
-            "  AuthoringStatePatch,",
-            "  CollaborationExchangeMode",
-            "};",
-            "export { resolveCollaborationContainer } from \"@clerkenwell/client\";",
-            "",
-        ]
-        .map(str::to_owned),
-    );
+    let from_client = "} from \"@clerkenwell/client\";";
+    let imports: Vec<String> = CLIENT_TYPE_IMPORTS
+        .iter()
+        .map(|(name, bound)| {
+            if name == bound {
+                (*name).to_owned()
+            } else {
+                format!("{name} as {bound}")
+            }
+        })
+        .collect();
+    lines.extend(listed("import type {", &imports, from_client));
+    let exports: Vec<String> = CLIENT_TYPE_EXPORTS.map(str::to_owned).to_vec();
+    lines.extend(listed("export type {", &exports, from_client));
+    let mut shared: Vec<String> = crate::expand::SHARED.map(str::to_owned).to_vec();
+    shared.sort();
+    lines.extend(listed("export type {", &shared, "};"));
+    lines.push(format!(
+        "export {{ {CLIENT_VALUE_EXPORT} }} from \"@clerkenwell/client\";"
+    ));
+    lines.push(String::new());
     for (definition_name, schema) in definition.declared_def_entries() {
         lines.push(render_definition(definition_name, schema)?);
-        lines.push(String::new());
-    }
-    let spelling = ClientSpelling::of(definition)?;
-    for definition_name in spelling.types() {
-        lines.push(render_client_definition(
-            definition,
-            &spelling,
-            definition_name,
-        )?);
         lines.push(String::new());
     }
 
@@ -122,7 +163,7 @@ pub fn render_model_module(definition: &Definition, project: &Project) -> Result
         ]
         .map(str::to_owned),
     );
-    lines.push(composition_metadata(definition, &spelling)?);
+    lines.push(composition_metadata(definition)?);
     lines.push(String::new());
     Ok(format!("{}\n", lines.join("\n")))
 }
@@ -195,7 +236,7 @@ fn contract_interfaces(definition: &Definition) -> Result<String> {
     Ok(lines.join("\n"))
 }
 
-fn composition_metadata(definition: &Definition, spelling: &ClientSpelling) -> Result<String> {
+fn composition_metadata(definition: &Definition) -> Result<String> {
     let plans: Object = definition
         .projections()
         .map(|projection| {
@@ -244,12 +285,12 @@ fn composition_metadata(definition: &Definition, spelling: &ClientSpelling) -> R
             Json::from(authoring_plans).stringify_pretty()
         ),
         String::new(),
-        collaboration_metadata(definition, spelling)?,
+        collaboration_metadata(definition)?,
     ]
     .join("\n"))
 }
 
-fn collaboration_metadata(definition: &Definition, spelling: &ClientSpelling) -> Result<String> {
+fn collaboration_metadata(definition: &Definition) -> Result<String> {
     let collaboration = definition.collaboration();
     let plans: Object = collaboration
         .entities()
@@ -285,72 +326,55 @@ fn collaboration_metadata(definition: &Definition, spelling: &ClientSpelling) ->
         "export type CollaborationEntityName = keyof typeof COLLABORATION_PLANS;".to_owned(),
         "export type CollaborationFieldPath<TEntity extends CollaborationEntityName> = keyof (typeof COLLABORATION_PLANS)[TEntity][\"fields\"] & string;".to_owned(),
         "export type CollaborationTextFieldPath<TEntity extends CollaborationEntityName> = CollaborationPlanTextFieldPath<(typeof COLLABORATION_PLANS)[TEntity]>;".to_owned(),
-        client_documents(definition, spelling)?,
+        collaboration_documents(definition)?,
     ]
     .join("\n"))
 }
 
-/// Each collaborative entity's document as a TypeScript replica holds it.
-fn client_documents(definition: &Definition, spelling: &ClientSpelling) -> Result<String> {
+/// Each collaborative entity's document as a replica holds it: its document
+/// type, with the members a replica may leave out optional.
+fn collaboration_documents(definition: &Definition) -> Result<String> {
     let mut lines = vec![
         String::new(),
-        "/** Each collaborative entity's document as a TypeScript replica holds it. */".to_owned(),
-        "export type CollaborationClientDocument<TEntity extends CollaborationEntityName> = {"
-            .to_owned(),
+        "/** Each collaborative entity's document as a replica holds it. */".to_owned(),
+        "export type CollaborationDocument<TEntity extends CollaborationEntityName> = {".to_owned(),
     ];
     for entity in definition.collaboration().entities() {
         let schema = definition
             .entity(entity.name)
             .expect("validation requires the collaborative entity")
             .schema();
+        let mut arguments = vec![schema_ref_type_name(schema)?];
+        let optional = optional_paths(definition, entity)?;
+        if !optional.is_empty() {
+            arguments.push(
+                optional
+                    .iter()
+                    .map(|path| string_literal(path))
+                    .collect::<Vec<_>>()
+                    .join(" | "),
+            );
+        }
         lines.push(format!(
-            "  {}: {};",
+            "  {}: CollaborationReplicaDocument<{}>;",
             string_literal(entity.name),
-            spelling.reference(schema)?
+            arguments.join(", ")
         ));
     }
     lines.push("}[TEntity];".to_owned());
     Ok(lines.join("\n"))
 }
 
-/// `export type Name = ...;` in wire spelling.
+/// `export type Name = ...;` with no trailing whitespace on any line.
 fn render_definition(definition_name: &str, schema: &Object) -> Result<String> {
-    Ok(declaration(
-        &pascal_identifier(definition_name),
-        &schema_to_typescript(schema, None)?,
-    ))
-}
-
-/// The client document type of `definition_name`.
-fn render_client_definition(
-    definition: &Definition,
-    spelling: &ClientSpelling,
-    definition_name: &str,
-) -> Result<String> {
-    let name = client_type_name(definition_name);
-    if spelling.is_unchanged(definition_name) {
-        return Ok(declaration(&name, &pascal_identifier(definition_name)));
-    }
-    let schema = definition
-        .def(definition_name)
-        .expect("a client document type is of a $defs entry");
-    let at = ClientAt {
-        spelling,
-        definition_name,
-        path: String::new(),
-    };
-    Ok(declaration(
-        &name,
-        &schema_to_typescript(schema, Some(&at))?,
-    ))
-}
-
-/// `export type Name = type;` with no trailing whitespace on any line.
-fn declaration(name: &str, rendered_type: &str) -> String {
-    let rendered = format!("export type {name} = {rendered_type};");
+    let rendered = format!(
+        "export type {} = {};",
+        pascal_identifier(definition_name),
+        schema_to_typescript(schema)?
+    );
     let segments: Vec<&str> = rendered.split('\n').collect();
     let last = segments.len() - 1;
-    segments
+    Ok(segments
         .iter()
         .enumerate()
         .map(|(index, segment)| {
@@ -361,40 +385,14 @@ fn declaration(name: &str, rendered_type: &str) -> String {
             }
         })
         .collect::<Vec<_>>()
-        .join("\n")
+        .join("\n"))
 }
 
-/// A schema node rendered in client spelling: the `$defs` entry holding it
-/// and its path within the entry.
-struct ClientAt<'a> {
-    spelling: &'a ClientSpelling,
-    definition_name: &'a str,
-    path: String,
-}
-
-impl ClientAt<'_> {
-    fn child(&self, segment: &str) -> Self {
-        ClientAt {
-            spelling: self.spelling,
-            definition_name: self.definition_name,
-            path: if self.path.is_empty() {
-                segment.to_owned()
-            } else {
-                format!("{}.{segment}", self.path)
-            },
-        }
-    }
-}
-
-/// A TypeScript type expression for the schema subset, in wire spelling or,
-/// with `client`, in client spelling. Property names are quoted to keep each
-/// spelling exactly.
-fn schema_to_typescript(schema: &Object, client: Option<&ClientAt>) -> Result<String> {
+/// A TypeScript type expression for the schema subset. Property names are
+/// quoted to keep the wire names exactly.
+fn schema_to_typescript(schema: &Object) -> Result<String> {
     if matches!(schema.get("$ref"), Some(Json::String(_))) {
-        return match client {
-            Some(at) => at.spelling.reference(schema),
-            None => schema_ref_type_name(schema),
-        };
+        return schema_ref_type_name(schema);
     }
     if let Some(values) = schema.get("enum").and_then(Json::as_array) {
         return Ok(values
@@ -403,10 +401,6 @@ fn schema_to_typescript(schema: &Object, client: Option<&ClientAt>) -> Result<St
             .collect::<Vec<_>>()
             .join(" | "));
     }
-    let member = |name: &str| match client {
-        Some(_) => client_name(name),
-        None => name.to_owned(),
-    };
     if let Some(variants) = object_at(schema, "oneOf") {
         let discriminator = schema
             .get("discriminator")
@@ -417,11 +411,10 @@ fn schema_to_typescript(schema: &Object, client: Option<&ClientAt>) -> Result<St
             let variant = variant
                 .as_object()
                 .expect("validation requires object variants");
-            let variant_at = client.map(|at| at.child(tag));
-            let rendered = schema_to_typescript(variant, variant_at.as_ref())?;
+            let rendered = schema_to_typescript(variant)?;
             let tag_field = format!(
                 "  {}: {};",
-                string_literal(&member(discriminator)),
+                string_literal(discriminator),
                 string_literal(tag)
             );
             if rendered == "{}" {
@@ -451,10 +444,9 @@ fn schema_to_typescript(schema: &Object, client: Option<&ClientAt>) -> Result<St
     match schema_type.and_then(Json::as_str) {
         Some("object") => {
             if let Some(additional) = object_at(schema, "additionalProperties") {
-                let value_at = client.map(|at| at.child("*"));
                 return Ok(format!(
                     "Record<string, {}>",
-                    schema_to_typescript(additional, value_at.as_ref())?
+                    schema_to_typescript(additional)?
                 ));
             }
             let Some(properties) = object_at(schema, "properties") else {
@@ -469,14 +461,7 @@ fn schema_to_typescript(schema: &Object, client: Option<&ClientAt>) -> Result<St
             let required = read_string_array(schema.get("required"), "schema.required")?;
             let mut fields = Vec::new();
             for (property_name, property_schema) in properties.iter() {
-                let property_at = client.map(|at| at.child(property_name));
-                let held_in_wire_spelling = property_at
-                    .as_ref()
-                    .is_some_and(|at| at.spelling.is_wire(at.definition_name, &at.path));
-                let left_out = property_at
-                    .as_ref()
-                    .is_some_and(|at| at.spelling.is_optional(at.definition_name, &at.path));
-                let optional = if required.contains(&property_name) && !left_out {
+                let optional = if required.contains(&property_name) {
                     ""
                 } else {
                     "?"
@@ -484,19 +469,17 @@ fn schema_to_typescript(schema: &Object, client: Option<&ClientAt>) -> Result<St
                 let property_schema = property_schema
                     .as_object()
                     .expect("validation requires object property schemas");
-                let property_at = property_at.filter(|_| !held_in_wire_spelling);
                 fields.push(format!(
                     "  {}{optional}: {};",
-                    string_literal(&member(property_name)),
-                    schema_to_typescript(property_schema, property_at.as_ref())?
+                    string_literal(property_name),
+                    schema_to_typescript(property_schema)?
                 ));
             }
             Ok(format!("{{\n{}\n}}", fields.join("\n")))
         }
         Some("array") => {
             let items = object_at(schema, "items").expect("validation requires array items");
-            let items_at = client.map(|at| at.child("*"));
-            let item_type = schema_to_typescript(items, items_at.as_ref())?;
+            let item_type = schema_to_typescript(items)?;
             Ok(if item_type.contains(" | ") {
                 format!("({item_type})[]")
             } else {

@@ -6,7 +6,6 @@ use std::sync::OnceLock;
 
 use indexmap::IndexSet;
 
-use crate::client::{client_type_name, ClientSpelling};
 use crate::collate::code_unit_compare;
 use crate::definition::{CollaborationEntity, CollaborationField, Definition, Fields, Projection};
 use crate::error::{refuse, Result};
@@ -202,8 +201,7 @@ pub(crate) fn check_semantics(definition: &Definition) -> Result<()> {
         }
     }
 
-    let spelling = ClientSpelling::of(definition)?;
-    check_generated_output_names(definition, &spelling)?;
+    check_generated_output_names(definition)?;
 
     // Projection and mutation names share a public API namespace.
     let mut public_names = HashSet::new();
@@ -886,7 +884,7 @@ fn shallowest_uncovered<'a>(
 
 /// Generated identifiers from independent concepts can still collide after
 /// normalisation, especially Rust enum helpers.
-fn check_generated_output_names(definition: &Definition, spelling: &ClientSpelling) -> Result<()> {
+fn check_generated_output_names(definition: &Definition) -> Result<()> {
     let mut output_names: HashMap<String, String> = HashMap::new();
     let mut register = |name: String, source: String| -> Result<()> {
         if let Some(previous) = output_names.get(&name) {
@@ -898,24 +896,32 @@ fn check_generated_output_names(definition: &Definition, spelling: &ClientSpelli
         Ok(())
     };
 
-    for definition_name in definition.defs().keys() {
+    // The generator's own shared declarations are Clerkenwell's types, which
+    // the bindings import rather than declare.
+    for (definition_name, _) in definition.declared_def_entries() {
         register(
             pascal_identifier(definition_name),
             format!("$defs.{definition_name}"),
         )?;
     }
-    for property_enum in collect_rust_property_enums(definition) {
+    for property_enum in collect_rust_property_enums(definition)
+        .into_iter()
+        .filter(|property_enum| !crate::expand::SHARED.contains(&property_enum.def.as_str()))
+    {
         register(property_enum.name, property_enum.source)?;
     }
-    for definition_name in spelling.types() {
+    let mut imported: IndexSet<&str> = IndexSet::new();
+    imported.extend(crate::typescript::client_bindings());
+    imported.extend(crate::rust::import_bindings());
+    for name in imported {
         register(
-            client_type_name(definition_name),
-            format!("the client document type of $defs.{definition_name}"),
+            name.to_owned(),
+            format!("the generated bindings' import of {name}"),
         )?;
     }
     register(
-        "CollaborationClientDocument".to_owned(),
-        "the generated client document types".to_owned(),
+        "CollaborationDocument".to_owned(),
+        "the generated collaborative document types".to_owned(),
     )?;
     register(
         "ProjectionName".to_owned(),

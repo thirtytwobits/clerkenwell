@@ -83,8 +83,8 @@ test("concurrent list additions keep both and the shared entries once", () => {
 
 test("a structured entry rewritten on one side survives an entry added on the other", () => {
   const base = noteDocument();
-  const rewritten = { targetId: base.links[0]!.targetId, linkLabel: "Rewritten" };
-  const added = { targetId: "note-2", linkLabel: "Next" };
+  const rewritten = { target_id: base.links[0]!.target_id, link_label: "Rewritten" };
+  const added = { target_id: "note-2", link_label: "Next" };
 
   const merged = mergeNotes(
     base,
@@ -140,8 +140,8 @@ test("keyed items and nested keyed items added on both sides all survive", () =>
   const base = boardDocument();
   const leftTask = { id: "left-task", title: "Left", notes: "", labels: [] };
   const rightTask = { id: "right-task", title: "Right", notes: "", labels: [] };
-  const leftColumn = { columnId: "left-column", name: "Left", brief: "", tasks: [] };
-  const rightColumn = { columnId: "right-column", name: "Right", brief: "", tasks: [] };
+  const leftColumn = { column_id: "left-column", name: "Left", brief: "", tasks: [] };
+  const rightColumn = { column_id: "right-column", name: "Right", brief: "", tasks: [] };
 
   const merged = mergeBoards(
     base,
@@ -160,8 +160,8 @@ test("keyed items and nested keyed items added on both sides all survive", () =>
   );
 
   assert.deepEqual(
-    new Set(merged.columns.map(({ columnId }) => columnId)),
-    new Set([...base.columns.map(({ columnId }) => columnId), leftColumn.columnId, rightColumn.columnId])
+    new Set(merged.columns.map(({ column_id }) => column_id)),
+    new Set([...base.columns.map(({ column_id }) => column_id), leftColumn.column_id, rightColumn.column_id])
   );
   assert.deepEqual(
     new Set(merged.columns[0]!.tasks.map(({ id }) => id)),
@@ -184,10 +184,10 @@ test("an item edited on one side survives its reordering on the other", () => {
   );
 
   assert.deepEqual(
-    merged.columns.map(({ columnId }) => columnId),
-    [...base.columns].reverse().map(({ columnId }) => columnId)
+    merged.columns.map(({ column_id }) => column_id),
+    [...base.columns].reverse().map(({ column_id }) => column_id)
   );
-  const column = merged.columns.find(({ columnId }) => columnId === base.columns[0]!.columnId);
+  const column = merged.columns.find(({ column_id }) => column_id === base.columns[0]!.column_id);
   assert.equal(column?.tasks[0]?.title, renamed);
 });
 
@@ -207,5 +207,5 @@ test("independently seeded items with the same identity materialise once", () =>
 
   const materialized = materializeCollaborationDocumentFromLoroDoc<BoardDocument>(replica, BOARD_PLAN, null);
 
-  assert.deepEqual(materialized.columns.map(({ columnId }) => columnId), [base.columns[0]!.columnId]);
+  assert.deepEqual(materialized.columns.map(({ column_id }) => column_id), [base.columns[0]!.column_id]);
 });

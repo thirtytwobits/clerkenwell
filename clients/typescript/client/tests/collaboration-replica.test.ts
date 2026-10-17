@@ -12,6 +12,9 @@ import {
   collaborationReplicaSource,
   requireCollaborationSchemaVersion
 } from "@clerkenwell/client/replica";
+import { LoroDoc } from "loro-crdt";
+
+import { base64ToBytes } from "../src/binary.js";
 import {
   collaborationDocumentToLoroDoc,
   materializeCollaborationDocumentFromLoroDoc
@@ -20,10 +23,9 @@ import {
 import {
   BOARD_PLAN,
   boardDocument,
-  clientSegment,
-  clientValueAt,
   NOTE_PLAN,
   noteDocument,
+  valueAt,
   type BoardDocument,
   type NoteDocument
 } from "./support/plans.js";
@@ -39,17 +41,15 @@ import {
 
 const noteFields: readonly CollaborationFieldPlan[] = Object.values(NOTE_PLAN.fields);
 
-function wireKeys(value: unknown): unknown {
-  if (Array.isArray(value)) {
-    return value.map(wireKeys);
+/** The entries the note's structured list holds in every operation `updateBase64` carries. */
+function storedLinks(updateBase64: string): unknown[] {
+  const doc = new LoroDoc();
+  try {
+    doc.import(base64ToBytes(updateBase64));
+    return doc.getList(NOTE_PLAN.fields.links.storage.container).toArray();
+  } finally {
+    doc.free();
   }
-  if (value !== null && typeof value === "object") {
-    return Object.fromEntries(Object.entries(value).map(([key, child]) => [
-      key.replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`),
-      wireKeys(child)
-    ]));
-  }
-  return value;
 }
 
 function withoutRevision<TDocument extends { etag?: string }>(document: TDocument): TDocument {
@@ -68,7 +68,7 @@ test("every root field lives in the container and key its plan names", () => {
 
   for (const field of noteFields) {
     const storage = field.storage;
-    const value = clientValueAt(note, field.path);
+    const value = valueAt(note, field.path);
     switch (storage.kind) {
       case "scalar":
         assert.deepEqual(doc.getMap(storage.container!).get(storage.key!), value, field.path);
@@ -90,7 +90,7 @@ test("every root field lives in the container and key its plan names", () => {
         assert.deepEqual(doc.getList(storage.container!).toArray(), value, field.path);
         break;
       case "structuredList":
-        assert.deepEqual(doc.getList(storage.container!).toArray(), wireKeys(value), field.path);
+        assert.deepEqual(doc.getList(storage.container!).toArray(), value, field.path);
         break;
       case "structuredMap":
         assert.deepEqual(doc.getMap(storage.container!).toJSON(), value, field.path);
@@ -116,10 +116,10 @@ test("a keyed sequence stores its identities in order and each item under its ow
 
   assert.deepEqual(
     doc.getList(columns.orderContainer).toArray(),
-    board.columns.map(({ columnId }) => columnId)
+    board.columns.map(({ column_id }) => column_id)
   );
   for (const column of board.columns) {
-    const context = { column_id: column.columnId };
+    const context = { column_id: column.column_id };
     assert.deepEqual(
       doc.getList(resolveCollaborationContainer(tasks.orderContainer, context)).toArray(),
       column.tasks.map(({ id }) => id)
@@ -144,16 +144,15 @@ test("a derived identity is read from the sequence, not stored as an item field"
   const column = board.columns[0]!;
   const item = doc.getMap(
     resolveCollaborationContainer(BOARD_PLAN.fields["columns.*.name"].storage.containerTemplate, {
-      column_id: column.columnId
+      column_id: column.column_id
     })
   );
 
   assert.equal(item.get("column_id"), undefined);
-  assert.equal(item.get(clientSegment("column_id")), undefined);
   assert.deepEqual(
     materializeCollaborationDocumentFromLoroDoc<BoardDocument>(doc, BOARD_PLAN, null).columns
-      .map(({ columnId }) => columnId),
-    board.columns.map(({ columnId }) => columnId)
+      .map(({ column_id }) => column_id),
+    board.columns.map(({ column_id }) => column_id)
   );
 });
 
@@ -176,7 +175,7 @@ test("an absent optional field stays absent rather than acquiring content", () =
   delete note.outline;
   const board: BoardDocument = boardDocument();
   delete board.description;
-  delete board.columns[0]!.tasks[0]!.estimateHours;
+  delete board.columns[0]!.tasks[0]!.estimate_hours;
 
   const note2 = roundTripNote(note);
   const board2 = roundTripBoard(board);
@@ -203,13 +202,13 @@ test("an optional string left empty comes back absent", () => {
 
 test("an optional field in a present group comes back absent or empty, and keeps that shape", () => {
   const note = noteDocument();
-  delete note.style.accentColour;
+  delete note.style.accent_colour;
 
   const once = roundTripNote(note);
-  const accent = once.style.accentColour;
+  const accent = once.style.accent_colour;
 
-  assert.ok(accent === undefined || accent === "", `accentColour came back as ${JSON.stringify(accent)}`);
-  assert.equal(once.style.fontFamily, note.style.fontFamily);
+  assert.ok(accent === undefined || accent === "", `accent_colour came back as ${JSON.stringify(accent)}`);
+  assert.equal(once.style.font_family, note.style.font_family);
   assert.deepEqual(roundTripNote(once), once);
 });
 
@@ -229,7 +228,7 @@ test("required empty lists and sequences round-trip empty", () => {
   const note = { ...noteDocument(), tags: [], links: [] };
   const board = {
     ...boardDocument(),
-    columns: [{ columnId: "empty", name: "Empty", brief: "", tasks: [] }]
+    columns: [{ column_id: "empty", name: "Empty", brief: "", tasks: [] }]
   };
 
   assert.deepEqual(roundTripNote(note), note);
@@ -237,26 +236,31 @@ test("required empty lists and sequences round-trip empty", () => {
   assert.deepEqual(roundTripBoard({ ...board, columns: [] }).columns, []);
 });
 
-test("a structured list stores its entries by wire name and reads them back by client name", () => {
-  const note = noteDocument();
-  const doc = collaborationDocumentToLoroDoc(NOTE_PLAN, note);
-
-  assert.deepEqual(doc.getList(NOTE_PLAN.fields.links.storage.container).toArray(), wireKeys(note.links));
-  assert.deepEqual(roundTripNote(note).links, note.links);
-});
-
-test("a structured list respells the keys of its entries at every depth", () => {
+test("a structured list stores and reads back the keys of its entries as written, at every depth", () => {
   const links = [{
-    targetId: "note-0",
-    linkLabel: "Previous",
-    anchorRange: { startOffset: 1, endOffset: 2 },
-    spanGroups: [[{ spanStart: 0 }], [{ spanStart: 3 }]]
+    target_id: "note-0",
+    link_label: "Previous",
+    anchorRange: { start_offset: 1, endOffset: 2 },
+    span_groups: [[{ spanStart: 0 }], [{ span_start: 3 }]]
   }];
   const note = { ...noteDocument(), links };
   const doc = collaborationDocumentToLoroDoc(NOTE_PLAN, note);
 
-  assert.deepEqual(doc.getList(NOTE_PLAN.fields.links.storage.container).toArray(), wireKeys(links));
+  assert.deepEqual(doc.getList(NOTE_PLAN.fields.links.storage.container).toArray(), links);
   assert.deepEqual(roundTripNote(note).links, links);
+});
+
+test("a structured list entry's key spelled with an upper-case letter is written back as spelled", () => {
+  const minutes = { target_id: "note-0", link_label: "Previous", fileName: "minutes.txt", file_name: "minutes-1.txt" };
+  const agenda = { target_id: "note-2", link_label: "Next", fileName: "agenda.txt" };
+  const replica = noteReplica({ ...noteDocument(), links: [minutes] });
+  const read = replica.currentDocument();
+
+  replica.replaceDocument({ ...read, links: [...read.links, agenda] });
+
+  assert.deepEqual(read.links, [minutes]);
+  assert.deepEqual(storedLinks(replica.exportUpdateBase64()), [minutes, agenda]);
+  assert.deepEqual(noteReplicaFromUpdate(replica.exportUpdateBase64()).currentDocument().links, [minutes, agenda]);
 });
 
 test("a structured document keeps nested strings, identity-keyed lists and plain values", () => {
@@ -322,9 +326,9 @@ test("lists refuse entries of the wrong shape", () => {
 test("every keyed item needs a unique, non-empty identity", () => {
   const board = boardDocument();
   const anonymous = structuredClone(board);
-  anonymous.columns[0]!.columnId = "";
+  anonymous.columns[0]!.column_id = "";
   const duplicated = structuredClone(board);
-  duplicated.columns[1]!.columnId = duplicated.columns[0]!.columnId;
+  duplicated.columns[1]!.column_id = duplicated.columns[0]!.column_id;
   const nestedDuplicate = structuredClone(board);
   nestedDuplicate.columns[0]!.tasks[1]!.id = nestedDuplicate.columns[0]!.tasks[0]!.id;
 

@@ -9,7 +9,8 @@ use std::process::Command;
 use clerkenwell_codegen::testing::{normalized_document, Json, Object};
 use clerkenwell_codegen::{build_outputs, generate, Config, Definition, Error, Mode};
 use common::{
-    copy_notebook, json, notebook_config, notebook_config_path, notebook_document, set, validate,
+    copy_notebook, json, notebook_config, notebook_config_path, notebook_document, push, set,
+    validate,
 };
 
 fn reversed(object: &Object) -> Object {
@@ -161,86 +162,155 @@ fn every_string_enum_a_tagged_union_variant_declares_is_emitted_under_its_varian
     }
 }
 
-#[test]
-fn each_collaborative_entity_names_the_client_document_type_of_its_schema() {
-    let document = notebook_document();
-    let definition = validate(document.clone()).expect("valid");
-    let typescript = build_outputs(&definition, &notebook_config())
+/// The generated TypeScript of `document`.
+fn typescript_of(document: Json) -> String {
+    let definition = validate(document).expect("valid");
+    build_outputs(&definition, &notebook_config())
         .expect("renders")
-        .typescript_model;
-    let by_entity = typescript
-        .split("export type CollaborationClientDocument<")
+        .typescript_model
+}
+
+/// Each line of the generated `CollaborationDocument` map, by entity.
+fn collaboration_documents(typescript: &str) -> Vec<(String, String)> {
+    typescript
+        .split("export type CollaborationDocument<TEntity extends CollaborationEntityName> = {\n")
         .nth(1)
         .and_then(|rest| rest.split("}[TEntity];").next())
-        .expect("the client document type of each entity");
-    let schema_of = |entity: &str| {
-        document
-            .pointer(&format!("/entities/{entity}/schema/$ref"))
-            .and_then(Json::as_str)
-            .and_then(|reference| reference.strip_prefix("#/$defs/"))
-            .expect("an entity schema")
-            .to_owned()
-    };
+        .expect("the collaboration document map")
+        .lines()
+        .map(|line| {
+            let (entity, held) = line.trim().split_once(": ").expect("an entity's line");
+            (entity.trim_matches('"').to_owned(), held.to_owned())
+        })
+        .collect()
+}
+
+/// The paths at which a replica may leave out a member of `entity`'s
+/// document, as the generated `CollaborationDocument` names them.
+fn replica_optional_paths(typescript: &str, entity: &str) -> Vec<String> {
+    let held = collaboration_documents(typescript)
+        .into_iter()
+        .find(|(name, _)| name == entity)
+        .unwrap_or_else(|| panic!("{entity} is a collaborative entity"))
+        .1;
+    let arguments = held
+        .strip_prefix("CollaborationReplicaDocument<")
+        .and_then(|rest| rest.strip_suffix(">;"))
+        .unwrap_or_else(|| panic!("{entity}: {held}"));
+    arguments
+        .split_once(", ")
+        .map(|(_, paths)| {
+            paths
+                .split(" | ")
+                .map(|path| path.trim_matches('"').to_owned())
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+#[test]
+fn each_collaborative_entity_holds_its_schema_document_type() {
+    let document = notebook_document();
+    let typescript = typescript_of(document.clone());
     let collaborative = document
         .pointer("/collaboration/entities")
         .and_then(Json::as_object)
         .expect("collaborative entities");
+    let documents = collaboration_documents(&typescript);
+
     assert!(!collaborative.is_empty());
-    for entity in collaborative.keys() {
-        let client = format!("Client{}", schema_of(entity));
+    assert_eq!(
+        documents
+            .iter()
+            .map(|(entity, _)| entity.as_str())
+            .collect::<Vec<_>>(),
+        collaborative.keys().collect::<Vec<_>>()
+    );
+    for (entity, held) in &documents {
+        let schema = document
+            .pointer(&format!("/entities/{entity}/schema/$ref"))
+            .and_then(Json::as_str)
+            .and_then(|reference| reference.strip_prefix("#/$defs/"))
+            .expect("an entity schema");
+        let opened = format!("CollaborationReplicaDocument<{schema}");
         assert!(
-            by_entity.contains(&format!("\"{entity}\": {client};")),
-            "{entity}: {by_entity}"
-        );
-        assert!(
-            typescript.contains(&format!("export type {client} = ")),
-            "{client} is declared"
-        );
-    }
-    let entities = document
-        .pointer("/entities")
-        .and_then(Json::as_object)
-        .expect("entities");
-    for entity in entities
-        .keys()
-        .filter(|entity| !collaborative.contains_key(entity))
-    {
-        let client = format!("Client{}", schema_of(entity));
-        assert!(
-            !typescript.contains(&format!("export type {client} ")),
-            "{entity} is not collaborative, so no client document holds {client}"
+            held.strip_prefix(&opened)
+                .is_some_and(|rest| rest.starts_with(", ") || rest.starts_with('>')),
+            "{entity}: {held}"
         );
     }
 }
 
-/// The declaration of `member` in the generated TypeScript type `type_name`.
-fn typescript_member(document: Json, type_name: &str, member: &str) -> String {
-    let definition = validate(document).expect("valid");
-    let typescript = build_outputs(&definition, &notebook_config())
-        .expect("renders")
-        .typescript_model;
-    let declared = typescript
-        .split(&format!("export type {type_name} = {{"))
-        .nth(1)
-        .and_then(|rest| rest.split("\n};").next())
-        .unwrap_or_else(|| panic!("{type_name} is declared:\n{typescript}"));
-    declared
-        .lines()
-        .map(str::trim)
-        .find(|line| line.starts_with(&format!("\"{member}\"")))
-        .unwrap_or_else(|| panic!("{type_name} declares {member}:\n{declared}"))
-        .to_owned()
-}
-
-/// A replica writes an object only beneath a field it writes, so an object the
-/// schema requires is optional in client documents unless a field beneath it is
-/// in every document.
 #[test]
-fn a_required_object_is_optional_for_a_client_unless_a_field_beneath_it_always_is() {
-    let kept = typescript_member(notebook_document(), "ClientNoteDocument", "meta");
+fn a_replica_may_leave_out_a_root_identity_and_a_revision_but_holds_each_item_identity() {
+    let typescript = typescript_of(notebook_document());
+
+    for (entity, identity) in [("Note", "note_id"), ("Board", "board_id")] {
+        let paths = replica_optional_paths(&typescript, entity);
+        assert!(
+            paths.iter().any(|path| path == identity),
+            "{entity}: {paths:?}"
+        );
+        assert!(
+            paths.iter().any(|path| path == "etag"),
+            "{entity}: {paths:?}"
+        );
+    }
+    let board = replica_optional_paths(&typescript, "Board");
+    for identity in ["columns.*.column_id", "columns.*.cards.*.card_id"] {
+        assert!(!board.iter().any(|path| path == identity), "{board:?}");
+    }
+}
+
+#[test]
+fn a_replica_may_leave_out_only_members_the_schema_requires() {
+    let typescript = typescript_of(notebook_document());
+    let note = replica_optional_paths(&typescript, "Note");
+
+    for optional in ["source", "cover_image", "summary"] {
+        assert!(!note.iter().any(|path| path == optional), "{note:?}");
+    }
+}
+
+/// A required object no field lies beneath is never written, so a replica's
+/// document may lack it.
+#[test]
+fn a_replica_may_leave_out_a_required_object_no_field_lies_beneath() {
+    let mut document = notebook_document();
+    set(
+        &mut document,
+        "/$defs/NoteMarker",
+        json(r#"{ "type": "object", "additionalProperties": false, "properties": {} }"#),
+    );
+    set(
+        &mut document,
+        "/$defs/NoteDocument/properties/marker",
+        json(r##"{ "$ref": "#/$defs/NoteMarker" }"##),
+    );
+    push(
+        &mut document,
+        "/$defs/NoteDocument/required",
+        json(r#""marker""#),
+    );
+    validate(document.clone()).expect("a closed empty object needs no field");
+
+    let left_out = replica_optional_paths(&typescript_of(document), "Note");
+
     assert!(
-        kept.starts_with("\"meta\":"),
-        "meta.owner is in every document: {kept}"
+        left_out.iter().any(|path| path == "marker"),
+        "no field lies beneath marker: {left_out:?}"
+    );
+}
+
+/// A replica writes an object only beneath a field it writes, so it may leave
+/// out an object the schema requires unless a field beneath it is in every
+/// document.
+#[test]
+fn a_replica_may_leave_out_a_required_object_unless_a_field_beneath_it_always_is() {
+    let kept = replica_optional_paths(&typescript_of(notebook_document()), "Note");
+    assert!(
+        !kept.iter().any(|path| path == "meta"),
+        "meta.owner is in every document: {kept:?}"
     );
 
     let mut document = notebook_document();
@@ -250,15 +320,21 @@ fn a_required_object_is_optional_for_a_client_unless_a_field_beneath_it_always_i
         "/collaboration/entities/Note/fields/meta.owner/required",
         json("false"),
     );
-    let left_out = typescript_member(document.clone(), "ClientNoteDocument", "meta");
+    let typescript = typescript_of(document);
+    let left_out = replica_optional_paths(&typescript, "Note");
     assert!(
-        left_out.starts_with("\"meta\"?:"),
-        "no field beneath meta is in every document: {left_out}"
+        left_out.iter().any(|path| path == "meta"),
+        "no field beneath meta is in every document: {left_out:?}"
     );
-    let wire = typescript_member(document, "NoteDocument", "meta");
+    let wire = typescript
+        .split("export type NoteDocument = {")
+        .nth(1)
+        .and_then(|rest| rest.split("\n};").next())
+        .expect("NoteDocument is declared");
     assert!(
-        wire.starts_with("\"meta\":"),
-        "the wire document still requires meta: {wire}"
+        wire.lines()
+            .any(|line| line.trim().starts_with("\"meta\":")),
+        "the document type still requires meta: {wire}"
     );
 }
 

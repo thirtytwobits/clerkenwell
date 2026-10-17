@@ -12,7 +12,7 @@
 | `clerkenwell-store` | durable single-authority storage: a set of named stores over whatever storage ports the application registers, accepted documents held in memory and written through, envelopes, a replaceable storage port, fenced compare-and-swap commits, the peer blocks writers write under and the principal each peer is bound to, quarantine, repair, and an audit of every recovery request and refused import; each commit, repair and deletion is announced on the store's change feed |
 | `clerkenwell-codegen` | the definition language, the authoring-state projection it declares for each collaborative entity, its validation, and the Rust, TypeScript and fixture generator |
 | `clerkenwell-notebook` | the example definition the tests share, and its generated bindings |
-| `clerkenwell-conformance` | cross-language conformance: Rust and TypeScript replicas of one definition's entities exchange the generated fixture operations, concurrent edits and text consumption, and must converge; the TypeScript compiler checks each document TypeScript materialises against its generated client document type; TypeScript clients sync a note through the Rust notes server. An application runs it in its npm project, against the `@clerkenwell/client` installed there |
+| `clerkenwell-conformance` | cross-language conformance: Rust and TypeScript replicas of one definition's entities exchange the generated fixture operations, concurrent edits and text consumption, and must converge on the wire document a replica holds of what was written; the TypeScript compiler checks each document TypeScript materialises against its entity's generated `CollaborationDocument`; TypeScript clients sync a note through the Rust notes server. An application runs it in its npm project, against the `@clerkenwell/client` installed there |
 
 ## Other directories
 
@@ -50,9 +50,11 @@ references, tagged object unions, numeric bounds and opaque JSON extension field
 constraints fail generation. The projection definition supplies collaboration and transport
 semantics for these imported types.
 
-A TypeScript replica holds a collaborative document in client spelling: each member name a
-field path declares, and each key of a structured list's entries, is camelCase; a value stored
-whole as a structured map, a structured document or property text keeps its wire spelling. The
-generated TypeScript module declares `Client<Name>` for each `$defs` entry a collaborative
-document holds in client spelling, and `CollaborationClientDocument<TEntity>` for each
-collaborative entity's document.
+A replica reads and writes a collaborative document as the application's schema spells it,
+at every depth. A member name is data, `__proto__` included. The generated TypeScript module declares `CollaborationDocument<TEntity>`, each
+collaborative entity's document as a replica holds it: its generated document type, through
+`@clerkenwell/client`'s `CollaborationReplicaDocument<TDocument, TPath>`, which makes optional
+the member at each path where a replica may leave out a member the schema requires. A replica
+never materialises a `derivedIdentity` member outside keyed items, materialises a
+`derivedRevision` member only when its caller names a revision, and writes an object only
+beneath a field it writes.

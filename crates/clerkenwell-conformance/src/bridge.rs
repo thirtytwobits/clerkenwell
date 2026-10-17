@@ -136,7 +136,7 @@ impl Bridge {
 
     /// The field paths TypeScript reports an edit `kind` made from `base` to
     /// `client` conflicting on against their policy once the accepted
-    /// document is `current`. Documents are in client naming.
+    /// document is `current`.
     pub fn policy_conflicts(
         &self,
         entity: &str,
@@ -157,8 +157,8 @@ impl Bridge {
     }
 
     /// The TypeScript compiler's diagnostics for `documents`, each an entity
-    /// and a document in client spelling, declared as a value of the entity's
-    /// generated client document type.
+    /// and a document, declared as a value of the entity's generated
+    /// `CollaborationDocument`.
     pub fn type_check(&self, documents: &[Value]) -> Vec<String> {
         let diagnostics = self.call(json!({
             "op": "typeCheck",
@@ -168,7 +168,7 @@ impl Bridge {
         serde_json::from_value(diagnostics).expect("the bridge answers a list of diagnostics")
     }
 
-    /// A replica seeded from the fixture corpus's client document for `entity`.
+    /// A replica seeded from the fixture corpus's document for `entity`.
     pub fn seed_fixture(&self, entity: &str) -> TypeScriptReplica<'_> {
         let (name, peer_block) = self.name();
         self.call(json!({
@@ -271,10 +271,10 @@ impl TypeScriptReplica<'_> {
         self.bridge.call(fields)
     }
 
-    /// Writes `client_document` as the operations between it and the
-    /// replica's current document.
-    pub fn replace(&self, client_document: &Value) {
-        self.call("replace", json!({ "document": client_document }));
+    /// Writes `document` as the operations between it and the replica's
+    /// current document.
+    pub fn replace(&self, document: &Value) {
+        self.call("replace", json!({ "document": document }));
     }
 
     pub fn import(&self, schema_version: u32, update_base64: &str) -> Result<(), String> {
@@ -303,7 +303,7 @@ impl TypeScriptReplica<'_> {
         string(self.call("frontier", json!({})))
     }
 
-    /// The replica's document in client naming, read at `revision`.
+    /// The replica's document, read at `revision`.
     pub fn materialize(&self, revision: &str) -> Value {
         self.call("materialize", json!({ "revision": revision }))
     }

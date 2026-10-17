@@ -794,6 +794,9 @@
         "size_bytes": {
           "type": "integer"
         },
+        "uploadedBy": {
+          "type": "string"
+        },
         "url": {
           "type": "string"
         }
@@ -801,6 +804,7 @@
       "required": [
         "file_name",
         "size_bytes",
+        "uploadedBy",
         "preview"
       ],
       "type": "object"

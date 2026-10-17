@@ -16,7 +16,7 @@ import {
 import { COLLABORATION_PLANS } from "../../../../crates/clerkenwell-notebook/generated/typescript/index.js";
 
 type Entity = keyof typeof COLLABORATION_PLANS;
-type ClientRecord = Record<string, unknown>;
+type DocumentRecord = Record<string, unknown>;
 
 const corpus = JSON.parse(
   await readFile(
@@ -26,38 +26,38 @@ const corpus = JSON.parse(
     ),
     "utf8"
   )
-) as { entities: { entity: Entity; clientDocument: ClientRecord }[] };
+) as { entities: { entity: Entity; wireDocument: DocumentRecord }[] };
 
-function sample(entity: Entity): ClientRecord {
+function sample(entity: Entity): DocumentRecord {
   const fixture = corpus.entities.find((candidate) => candidate.entity === entity);
   assert.ok(fixture, `a ${entity} fixture`);
-  return structuredClone(fixture.clientDocument);
+  return structuredClone(fixture.wireDocument);
 }
 
 function judge(
   entity: Entity,
-  client: ClientRecord,
-  current: ClientRecord,
+  client: DocumentRecord,
+  current: DocumentRecord,
   kind: CollaborationWriterKind = "human"
 ): string[] {
   return conflictingFieldPaths(COLLABORATION_PLANS[entity], sample(entity), client, current, kind);
 }
 
-function withNote(changes: ClientRecord): ClientRecord {
+function withNote(changes: DocumentRecord): DocumentRecord {
   return { ...sample("Note"), ...changes };
 }
 
 /** The board with its first column's title replaced. */
-function withFirstColumnTitle(title: string): ClientRecord {
+function withFirstColumnTitle(title: string): DocumentRecord {
   const board = sample("Board");
-  const columns = board["columns"] as ClientRecord[];
+  const columns = board["columns"] as DocumentRecord[];
   columns[0] = { ...columns[0], title };
   return board;
 }
 
 function firstColumnId(): string {
-  const columns = sample("Board")["columns"] as ClientRecord[];
-  const id = columns[0]?.["columnId"];
+  const columns = sample("Board")["columns"] as DocumentRecord[];
+  const id = columns[0]?.["column_id"];
   assert.equal(typeof id, "string");
   return id as string;
 }
@@ -79,7 +79,7 @@ test("an explicit field only one side changed does not conflict", () => {
 });
 
 test("an immutable field the edit changes conflicts even when nothing else changed it", () => {
-  assert.deepEqual(judge("Note", withNote({ createdAt: "rewritten" }), sample("Note")), ["created_at"]);
+  assert.deepEqual(judge("Note", withNote({ created_at: "rewritten" }), sample("Note")), ["created_at"]);
 });
 
 test("merged and last-writer-wins fields never conflict", () => {
@@ -94,7 +94,7 @@ test("merged and last-writer-wins fields never conflict", () => {
 });
 
 test("an explicit field of a nested group is named by its wire path", () => {
-  const meta = sample("Note")["meta"] as ClientRecord;
+  const meta = sample("Note")["meta"] as DocumentRecord;
   assert.deepEqual(
     judge("Note", withNote({ meta: { ...meta, owner: "Mine" } }), withNote({ meta: { ...meta, owner: "Theirs" } })),
     ["meta.owner"]

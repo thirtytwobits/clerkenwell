@@ -28,12 +28,12 @@ import {
 import {
   COLLABORATION_PLANS,
   type AuthoringState,
-  type CollaborationClientDocument,
+  type CollaborationDocument,
   type GeneratedProjectionModel
 } from "../examples/notes/generated/typescript/index.js";
 
 type Model = GeneratedProjectionModel;
-type Note = CollaborationClientDocument<"Note">;
+type Note = CollaborationDocument<"Note">;
 
 interface Held {
   readonly note_id: string;

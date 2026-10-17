@@ -110,6 +110,60 @@ fn variant_enum_owner(definition_name: &str, tag: &str) -> String {
     )
 }
 
+/// The `clerkenwell_schema` items the model re-exports.
+const SCHEMA_REEXPORTS: [&str; 19] = [
+    "ActorKind",
+    "AuthoringPeerBlock",
+    "AuthoringState",
+    "AuthoringStatePatch",
+    "AuthoringStatePatchKind",
+    "CollaborationExchangeMode",
+    "GeneratedAuthoringPolicyKind",
+    "GeneratedCollaborationConflict",
+    "GeneratedCollaborationEntitySpec",
+    "GeneratedCollaborationFieldSpec",
+    "GeneratedCollaborationStorageKind",
+    "GeneratedCollaborationValueCodec",
+    "GeneratedEntityAuthoringSpec",
+    "GeneratedMaterializationPlan",
+    "GeneratedMutationSpec",
+    "GeneratedProjectionSpec",
+    "GeneratedRemoveMode",
+    "GeneratedSnapshotMode",
+    "GeneratedWriterConflict",
+];
+
+/// The names the model's other imports bind, the last two only where its
+/// body uses them.
+const OTHER_IMPORTS: [&str; 4] = ["Deserialize", "Serialize", "JsonValue", "HashMap"];
+
+/// Every name the model's imports bind, which no `$defs` entry may generate.
+pub(crate) fn import_bindings() -> impl Iterator<Item = &'static str> {
+    SCHEMA_REEXPORTS.into_iter().chain(OTHER_IMPORTS)
+}
+
+/// `items`, each followed by a comma, filled into lines of at most `width`
+/// columns after `indent`, as rustfmt lays out a use list.
+fn filled(items: &[&str], indent: &str, width: usize) -> Vec<String> {
+    let mut lines = Vec::new();
+    let mut line = String::new();
+    for item in items {
+        let piece = format!("{item},");
+        if line.is_empty() {
+            line = format!("{indent}{piece}");
+        } else if line.len() + 1 + piece.len() <= width {
+            line.push(' ');
+            line.push_str(&piece);
+        } else {
+            lines.push(std::mem::replace(&mut line, format!("{indent}{piece}")));
+        }
+    }
+    if !line.is_empty() {
+        lines.push(line);
+    }
+    lines
+}
+
 /// The model crate's source.
 pub fn render_model_module(definition: &Definition, project: &Project) -> Result<String> {
     let mut lines: Vec<String> = Vec::new();
@@ -202,21 +256,11 @@ pub fn render_model_module(definition: &Definition, project: &Project) -> Result
             }
         })
         .collect();
-    header.extend(
-        [
-            "",
-            "pub use clerkenwell_schema::{",
-            "    ActorKind, AuthoringPeerBlock, AuthoringState, AuthoringStatePatch, AuthoringStatePatchKind,",
-            "    CollaborationExchangeMode, GeneratedAuthoringPolicyKind, GeneratedCollaborationConflict,",
-            "    GeneratedCollaborationEntitySpec, GeneratedCollaborationFieldSpec,",
-            "    GeneratedCollaborationStorageKind, GeneratedCollaborationValueCodec,",
-            "    GeneratedEntityAuthoringSpec, GeneratedMaterializationPlan, GeneratedMutationSpec,",
-            "    GeneratedProjectionSpec, GeneratedRemoveMode, GeneratedSnapshotMode, GeneratedWriterConflict,",
-            "};",
-            "use serde::{Deserialize, Serialize};",
-        ]
-        .map(str::to_owned),
-    );
+    header.push(String::new());
+    header.push("pub use clerkenwell_schema::{".to_owned());
+    header.extend(filled(&SCHEMA_REEXPORTS, "    ", 100));
+    header.push("};".to_owned());
+    header.push("use serde::{Deserialize, Serialize};".to_owned());
     // A model with no `json` field or record type imports neither.
     if body.contains("JsonValue") {
         header.push("use serde_json::Value as JsonValue;".to_owned());

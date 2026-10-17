@@ -20,7 +20,6 @@ import {
 } from "loro-crdt";
 import { base64ToBytes, bytesToBase64 } from "./binary.js";
 import {
-  clientSegment,
   resolveCollaborationContainer,
   type CollaborationEntityPlan,
   type CollaborationFieldPlan,
@@ -28,6 +27,7 @@ import {
   type CollaborationStorageKind
 } from "./plans.js";
 import { areJsonValuesEqual } from "./json-value-equality.js";
+import { defineMember, ownMember } from "./members.js";
 import type { AuthoringPeerBlock } from "./authoring-state.js";
 import type { AuthoringSessionController, AuthoringTextStageController } from "./authoring-session.js";
 import { validateTextEdits, type TextBinding, type TextBindingChange, type TextEdit, type TextSelection } from "./text-binding.js";
@@ -35,10 +35,10 @@ import { validateTextEdits, type TextBinding, type TextBindingChange, type TextE
 const STRUCTURED_MAP_PRESENCE_CONTAINER = "collaboration.structured_map_presence";
 const KEYED_SEQUENCE_PRESENCE_CONTAINER = "collaboration.keyed_sequence_presence";
 
-type ClientDocument = object;
-type ClientRecord = Record<string, unknown>;
+type DocumentObject = object;
+type DocumentRecord = Record<string, unknown>;
 /** Where a replica's initial state comes from. */
-export type CollaborationReplicaSource<TDocument extends ClientDocument> =
+export type CollaborationReplicaSource<TDocument extends DocumentObject> =
   | { kind: "document"; document: TDocument }
   | { kind: "update"; updateBase64: string }
   /** A view's snapshot of a replica held elsewhere: see {@link CollaborationReplica.attachView}. */
@@ -118,7 +118,7 @@ function requireRelatedHistory(entityName: string, doc: LoroDoc, update: Uint8Ar
 }
 
 /** An accepted update seeds the replica; otherwise the caller's initial content must. */
-export function collaborationReplicaSource<TDocument extends ClientDocument>(
+export function collaborationReplicaSource<TDocument extends DocumentObject>(
   entityName: string,
   document: TDocument | undefined,
   updateBase64: string | undefined
@@ -217,7 +217,7 @@ interface AttachedView {
  * generated entity plan. {@link CollaborationDrafts} reads and writes it as an
  * application's draft.
  */
-export class CollaborationReplica<TDocument extends ClientDocument> {
+export class CollaborationReplica<TDocument extends DocumentObject> {
   private documentDirty = false;
   private readonly textBindings = new Map<string, LoroFieldTextBinding>();
   private readonly views = new Set<AttachedView>();
@@ -238,7 +238,7 @@ export class CollaborationReplica<TDocument extends ClientDocument> {
    * A replica of an `entityName` document laid out by `plan`, seeded from
    * `source`, writing under peers of `peers`.
    */
-  static from<TDocument extends ClientDocument>(
+  static from<TDocument extends DocumentObject>(
     entityName: string,
     plan: CollaborationEntityPlan,
     source: CollaborationReplicaSource<TDocument>,
@@ -590,7 +590,7 @@ export function documentDraftMapping<TDocument>(): CollaborationDraftMapping<TDo
  * application's draft of it.
  */
 export class CollaborationDraftReplica<
-  TDocument extends ClientDocument,
+  TDocument extends DocumentObject,
   TDraft,
   TTextFieldPath extends string = string
 > {
@@ -715,7 +715,7 @@ export class CollaborationDraftReplica<
 /** One collaborative entity's replicas, read and written as an application's drafts. */
 export class CollaborationDrafts<
   TPlan extends CollaborationEntityPlan,
-  TDocument extends ClientDocument,
+  TDocument extends DocumentObject,
   TDraft
 > {
   constructor(
@@ -1017,7 +1017,7 @@ class LoroFieldTextBinding implements TextBinding {
   }
 }
 
-export function collaborationDocumentToLoroDoc<TDocument extends ClientDocument>(
+export function collaborationDocumentToLoroDoc<TDocument extends DocumentObject>(
   plan: CollaborationEntityPlan,
   document: TDocument
 ): LoroDoc {
@@ -1028,21 +1028,21 @@ export function collaborationDocumentToLoroDoc<TDocument extends ClientDocument>
 }
 
 export function materializeCollaborationDocumentFromLoroDoc<
-  TDocument extends ClientDocument
+  TDocument extends DocumentObject
 >(
   doc: LoroDoc,
   plan: CollaborationEntityPlan,
   revision: string | null = "replica:materialized"
 ): TDocument {
   const index = collaborationPlanIndex(plan);
-  const document: ClientRecord = {};
+  const document: DocumentRecord = {};
   for (const field of index.rootFields) {
     if (field.storage.kind === "derivedIdentity") {
       continue;
     }
     if (field.storage.kind === "derivedRevision") {
       if (revision !== null) {
-        setClientValueAtPath(document, field.path, revision);
+        setValueAtPath(document, field.path, revision);
       }
       continue;
     }
@@ -1055,14 +1055,14 @@ export function materializeCollaborationDocumentFromLoroDoc<
         && !isObjectStorageKind(field.storage.kind)
       )
     ) {
-      setClientValueAtPath(document, field.path, value);
+      setValueAtPath(document, field.path, value);
     }
   }
 
   for (const sequence of index.rootSequences) {
     const items = materializeCollaborationSequence(doc, index, sequence, {});
     if (sequence.required || items.length > 0 || isSequenceExplicitlyPresent(doc, sequence, {})) {
-      setClientValueAtPath(document, sequence.path, items);
+      setValueAtPath(document, sequence.path, items);
     }
   }
   completeRequiredMembers(
@@ -1083,23 +1083,23 @@ export function materializeCollaborationDocumentFromLoroDoc<
 function completeRequiredMembers(
   members: readonly CollaborationFieldPlan[],
   prefix: string,
-  node: ClientRecord
+  node: DocumentRecord
 ): void {
   for (const field of members) {
     if (field.required || !field.requiredInParent) {
       continue;
     }
     const path = field.path.slice(prefix.length);
-    if (clientValueAtPath(node, path) !== undefined) {
+    if (valueAtPath(node, path) !== undefined) {
       continue;
     }
     const separator = path.lastIndexOf(".");
-    if (separator >= 0 && clientValueAtPath(node, path.slice(0, separator)) === undefined) {
+    if (separator >= 0 && valueAtPath(node, path.slice(0, separator)) === undefined) {
       continue;
     }
     const empty = emptyMemberValue(field);
     if (empty !== undefined) {
-      setClientValueAtPath(node, path, empty);
+      setValueAtPath(node, path, empty);
     }
   }
 }
@@ -1129,11 +1129,11 @@ function isEmptyOptionalValue(value: unknown): boolean {
 
 /** Writes the changes from `previous` to `next`, which the caller has validated. */
 function writeCollaborationDocumentChangesToLoroDoc<
-  TDocument extends ClientDocument
+  TDocument extends DocumentObject
 >(
   doc: LoroDoc,
   plan: CollaborationEntityPlan,
-  previous: ClientDocument,
+  previous: DocumentObject,
   next: TDocument
 ): void {
   const index = collaborationPlanIndex(plan);
@@ -1141,8 +1141,8 @@ function writeCollaborationDocumentChangesToLoroDoc<
     if (isDerivedField(field)) {
       continue;
     }
-    const previousValue = clientValueAtPath(previous, field.path);
-    const nextValue = clientValueAtPath(next, field.path);
+    const previousValue = valueAtPath(previous, field.path);
+    const nextValue = valueAtPath(next, field.path);
     if (!areWireValuesEqual(previousValue, nextValue)) {
       writeCollaborationField(doc, field, previousValue, nextValue, {});
     }
@@ -1158,7 +1158,7 @@ function materializeCollaborationSequence(
   index: CollaborationPlanIndex,
   sequence: CollaborationFieldPlan,
   parentContext: Readonly<Record<string, string>>
-): ClientRecord[] {
+): DocumentRecord[] {
   const identityPath = requiredSequenceMetadata(sequence, "identityPath");
   const identityVariable = sequence.storage.identityVariable ?? identityPath;
   const orderContainer = resolveCollaborationContainer(
@@ -1171,7 +1171,7 @@ function materializeCollaborationSequence(
   const itemFields = index.itemFields(sequence);
   const childSequences = index.childSequences(sequence);
   return identities.map((identity) => {
-    const item: ClientRecord = {};
+    const item: DocumentRecord = {};
     const context = { ...parentContext, [identityVariable]: identity };
     for (const field of itemFields) {
       const itemPath = field.path.slice(`${sequence.path}.*.`.length);
@@ -1181,7 +1181,7 @@ function materializeCollaborationSequence(
         if (derivedIdentity === undefined) {
           throw new Error(`Collaboration identity ${variable} is missing for ${field.path}.`);
         }
-        setClientValueAtPath(item, itemPath, derivedIdentity);
+        setValueAtPath(item, itemPath, derivedIdentity);
         continue;
       }
       if (field.storage.kind === "derivedRevision") {
@@ -1196,14 +1196,14 @@ function materializeCollaborationSequence(
           && !isObjectStorageKind(field.storage.kind)
         )
       ) {
-        setClientValueAtPath(item, itemPath, value);
+        setValueAtPath(item, itemPath, value);
       }
     }
     for (const child of childSequences) {
       const childPath = child.path.slice(`${sequence.path}.*.`.length);
       const childItems = materializeCollaborationSequence(doc, index, child, context);
       if (child.required || childItems.length > 0 || isSequenceExplicitlyPresent(doc, child, context)) {
-        setClientValueAtPath(item, childPath, childItems);
+        setValueAtPath(item, childPath, childItems);
       }
     }
     completeRequiredMembers([...itemFields, ...childSequences], `${sequence.path}.*.`, item);
@@ -1220,17 +1220,17 @@ function writeCollaborationSequence(
   parentContext: Readonly<Record<string, string>>
 ): void {
   const relativePath = index.relativeSequencePath(sequence);
-  const nextValue = clientValueAtPath(nextParent, relativePath);
+  const nextValue = valueAtPath(nextParent, relativePath);
   const nextItems = isAbsent(nextValue) ? [] : nextValue;
   if (!Array.isArray(nextItems)) {
     throw new Error(`Collaboration field ${sequence.path} must be an array.`);
   }
-  const previousValue = clientValueAtPath(previousParent, relativePath);
+  const previousValue = valueAtPath(previousParent, relativePath);
   const previousItems = Array.isArray(previousValue) ? previousValue : [];
   const identityPath = requiredSequenceMetadata(sequence, "identityPath");
   const identityVariable = sequence.storage.identityVariable ?? identityPath;
-  const identities = nextItems.map((item) => requiredClientIdentity(item, identityPath));
-  const previousIdentities = previousItems.map((item) => requiredClientIdentity(item, identityPath));
+  const identities = nextItems.map((item) => requiredIdentity(item, identityPath));
+  const previousIdentities = previousItems.map((item) => requiredIdentity(item, identityPath));
   const orderContainer = resolveCollaborationContainer(
     requiredSequenceMetadata(sequence, "orderContainer"),
     parentContext
@@ -1245,7 +1245,7 @@ function writeCollaborationSequence(
     setStringList(doc.getList(orderContainer), identities);
   }
   const previousByIdentity = new Map(
-    previousItems.map((item) => [requiredClientIdentity(item, identityPath), item])
+    previousItems.map((item) => [requiredIdentity(item, identityPath), item])
   );
   const itemFields = index.itemFields(sequence);
   const childSequences = index.childSequences(sequence);
@@ -1264,8 +1264,8 @@ function writeCollaborationSequence(
         continue;
       }
       const itemPath = field.path.slice(`${sequence.path}.*.`.length);
-      const previousFieldValue = clientValueAtPath(previousItem, itemPath);
-      const nextFieldValue = clientValueAtPath(item, itemPath);
+      const previousFieldValue = valueAtPath(previousItem, itemPath);
+      const nextFieldValue = valueAtPath(item, itemPath);
       if (!areWireValuesEqual(previousFieldValue, nextFieldValue)) {
         writeCollaborationField(
           doc,
@@ -1433,7 +1433,7 @@ function readCollaborationField(
     case "orderedList":
       return doc.getList(container).toArray();
     case "structuredList":
-      return mapKeys(doc.getList(container).toArray(), clientSegment);
+      return doc.getList(container).toArray();
     case "structuredMap": {
       const value = doc.getMap(container).toJSON();
       const explicitlyPresent = doc.getMap(STRUCTURED_MAP_PRESENCE_CONTAINER).get(container) !== undefined;
@@ -1639,21 +1639,21 @@ function stringArray(field: CollaborationFieldPlan, value: unknown): string[] {
 function structuredArray(
   field: CollaborationFieldPlan,
   value: unknown
-): ReadonlyArray<ClientRecord> {
+): ReadonlyArray<DocumentRecord> {
   if (!Array.isArray(value) || !value.every(isRecord)) {
     throw new Error(`Collaboration field ${field.path} must be an object array.`);
   }
-  return value.map((entry) => mapObjectKeys(entry, camelToSnake));
+  return value;
 }
 
-function setStructuredList(list: LoroList, values: ReadonlyArray<ClientRecord>): void {
+function setStructuredList(list: LoroList, values: ReadonlyArray<DocumentRecord>): void {
   writeList(list, values);
 }
 
 function structuredRecord(
   field: CollaborationFieldPlan,
   value: unknown
-): ClientRecord {
+): DocumentRecord {
   if (!isRecord(value)) {
     throw new Error(`Collaboration field ${field.path} must be an object.`);
   }
@@ -1662,8 +1662,8 @@ function structuredRecord(
 
 function setStructuredMap(
   map: LoroMap,
-  previous: ClientRecord,
-  next: ClientRecord
+  previous: DocumentRecord,
+  next: DocumentRecord
 ): void {
   const nextKeys = new Set(Object.keys(next));
   for (const key of Object.keys(previous)) {
@@ -1726,8 +1726,8 @@ function keyedListIdentity(values: readonly unknown[]): string | undefined {
  */
 function setStructuredDocument(
   map: LoroMap,
-  previous: ClientRecord,
-  next: ClientRecord
+  previous: DocumentRecord,
+  next: DocumentRecord
 ): void {
   const nextKeys = new Set(Object.keys(next));
   for (const key of Object.keys(previous)) {
@@ -1783,15 +1783,15 @@ function setKeyedList(
   const previousByIdentity = listByIdentity(previous, identity);
   const nextByIdentity = listByIdentity(next, identity);
 
-  for (const key of Object.keys(previousByIdentity)) {
-    if (!(key in nextByIdentity)) {
+  for (const key of previousByIdentity.keys()) {
+    if (!nextByIdentity.has(key)) {
       items.delete(key);
     }
   }
-  for (const [key, value] of Object.entries(nextByIdentity)) {
+  for (const [key, value] of nextByIdentity) {
     setStructuredDocument(
       ensureStructuredMapChild(items, key),
-      previousByIdentity[key] ?? {},
+      previousByIdentity.get(key) ?? {},
       value
     );
   }
@@ -1799,7 +1799,7 @@ function setKeyedList(
   setStringList(
     map.ensureMergeableList(KEYED_LIST_ORDER) as LoroList,
     next
-      .map((value) => (isRecord(value) ? value[identity] : undefined))
+      .map((value) => (isRecord(value) ? ownMember(value, identity) : undefined))
       .filter((key): key is string => typeof key === "string")
   );
 }
@@ -1807,15 +1807,15 @@ function setKeyedList(
 function listByIdentity(
   values: readonly unknown[],
   identity: string
-): Record<string, ClientRecord> {
-  const byIdentity: Record<string, ClientRecord> = {};
+): Map<string, DocumentRecord> {
+  const byIdentity = new Map<string, DocumentRecord>();
   for (const value of values) {
     if (!isRecord(value)) {
       continue;
     }
-    const key = value[identity];
+    const key = ownMember(value, identity);
     if (typeof key === "string" && key.length > 0) {
-      byIdentity[key] = value;
+      byIdentity.set(key, value);
     }
   }
   return byIdentity;
@@ -1830,19 +1830,21 @@ function ensureStructuredDocumentText(map: LoroMap, key: string): LoroText {
 }
 
 /** Rebuilds one structured document level from its containers. */
-function readStructuredDocument(map: LoroMap): ClientRecord {
-  const values: ClientRecord = {};
+function readStructuredDocument(map: LoroMap): DocumentRecord {
+  const values: DocumentRecord = {};
   for (const [key, entry] of map.entries()) {
     if (entry instanceof LoroText) {
-      values[key] = entry.toString();
+      defineMember(values, key, entry.toString());
     } else if (entry instanceof LoroMap) {
-      values[key] = entry.get(KEYED_LIST_MARKER) !== undefined
-        ? readKeyedList(entry)
-        : readStructuredDocument(entry);
+      defineMember(
+        values,
+        key,
+        entry.get(KEYED_LIST_MARKER) !== undefined ? readKeyedList(entry) : readStructuredDocument(entry)
+      );
     } else if (entry instanceof LoroList || entry instanceof LoroMovableList) {
-      values[key] = entry.toJSON();
+      defineMember(values, key, entry.toJSON());
     } else {
-      values[key] = entry;
+      defineMember(values, key, entry);
     }
   }
   return values;
@@ -1890,44 +1892,45 @@ function ensureStructuredMapChild(map: LoroMap, key: string): LoroMap {
   return map.ensureMergeableMap(key);
 }
 
-/** Plan paths are a small fixed set, so their client-side segments are split once. */
-const CLIENT_PATH_SEGMENTS = new Map<string, readonly string[]>();
+/** Plan paths are a small fixed set, so each is split into its segments once. */
+const PATH_SEGMENTS = new Map<string, readonly string[]>();
 
-function clientPathSegments(path: string): readonly string[] {
-  let segments = CLIENT_PATH_SEGMENTS.get(path);
+function pathSegments(path: string): readonly string[] {
+  let segments = PATH_SEGMENTS.get(path);
   if (segments === undefined) {
-    segments = path.split(".").map(clientSegment);
-    CLIENT_PATH_SEGMENTS.set(path, segments);
+    segments = path.split(".");
+    PATH_SEGMENTS.set(path, segments);
   }
   return segments;
 }
 
-function clientValueAtPath(value: unknown, path: string): unknown {
+function valueAtPath(value: unknown, path: string): unknown {
   let current = value;
-  for (const segment of clientPathSegments(path)) {
+  for (const segment of pathSegments(path)) {
     if (!isRecord(current)) {
       return undefined;
     }
-    current = current[segment];
+    current = ownMember(current, segment);
   }
   return current;
 }
 
-function setClientValueAtPath(root: ClientRecord, path: string, value: unknown): void {
-  const segments = [...clientPathSegments(path)];
+function setValueAtPath(root: DocumentRecord, path: string, value: unknown): void {
+  const segments = [...pathSegments(path)];
   const last = segments.pop();
   if (last === undefined) {
     throw new Error("Collaboration field path must not be empty.");
   }
   let current = root;
   for (const segment of segments) {
-    const child = current[segment];
+    let child = ownMember(current, segment);
     if (!isRecord(child)) {
-      current[segment] = {};
+      child = {};
+      defineMember(current, segment, child);
     }
-    current = current[segment] as ClientRecord;
+    current = child as DocumentRecord;
   }
-  current[last] = value;
+  defineMember(current, last, value);
 }
 
 /**
@@ -1935,7 +1938,7 @@ function setClientValueAtPath(root: ClientRecord, path: string, value: unknown):
  * on a document it would have to refuse part-way through. Optional fields set
  * to null are dropped: the write removes them.
  */
-function validatedCollaborationDocument<TDocument extends ClientDocument>(
+function validatedCollaborationDocument<TDocument extends DocumentObject>(
   plan: CollaborationEntityPlan,
   document: TDocument
 ): TDocument {
@@ -1943,7 +1946,7 @@ function validatedCollaborationDocument<TDocument extends ClientDocument>(
   validateCollaborationDocument(plan, copy);
   const index = collaborationPlanIndex(plan);
   for (const field of index.rootFields) {
-    deleteNullAtClientPath(copy, field.path);
+    deleteNullAtPath(copy, field.path);
   }
   for (const sequence of index.rootSequences) {
     deleteNullSequenceFields(index, sequence, copy);
@@ -1957,14 +1960,14 @@ function deleteNullSequenceFields(
   parent: unknown
 ): void {
   const relativePath = index.relativeSequencePath(sequence);
-  const items = clientValueAtPath(parent, relativePath);
+  const items = valueAtPath(parent, relativePath);
   if (!Array.isArray(items)) {
-    deleteNullAtClientPath(parent, relativePath);
+    deleteNullAtPath(parent, relativePath);
     return;
   }
   for (const item of items) {
     for (const field of index.itemFields(sequence)) {
-      deleteNullAtClientPath(item, field.path.slice(`${sequence.path}.*.`.length));
+      deleteNullAtPath(item, field.path.slice(`${sequence.path}.*.`.length));
     }
     for (const child of index.childSequences(sequence)) {
       deleteNullSequenceFields(index, child, item);
@@ -1972,17 +1975,17 @@ function deleteNullSequenceFields(
   }
 }
 
-function deleteNullAtClientPath(root: unknown, path: string): void {
-  const segments = clientPathSegments(path);
+function deleteNullAtPath(root: unknown, path: string): void {
+  const segments = pathSegments(path);
   let parent = root;
   for (const segment of segments.slice(0, -1)) {
     if (!isRecord(parent)) {
       return;
     }
-    parent = parent[segment];
+    parent = ownMember(parent, segment);
   }
   const last = segments[segments.length - 1];
-  if (isRecord(parent) && last !== undefined && parent[last] === null) {
+  if (isRecord(parent) && last !== undefined && ownMember(parent, last) === null) {
     delete parent[last];
   }
 }
@@ -1997,22 +2000,22 @@ function validateCollaborationDocument(
   const index = collaborationPlanIndex(plan);
   for (const field of index.rootFields) {
     if (!isDerivedField(field)) {
-      validateClientFieldValue(field, clientValueAtPath(value, field.path));
+      validateFieldValue(field, valueAtPath(value, field.path));
     }
   }
   for (const sequence of index.rootSequences) {
-    validateClientSequence(index, sequence, value, {});
+    validateSequence(index, sequence, value, {});
   }
 }
 
-function validateClientSequence(
+function validateSequence(
   index: CollaborationPlanIndex,
   sequence: CollaborationFieldPlan,
   parent: unknown,
   context: Readonly<Record<string, string>>
 ): void {
   const relativePath = index.relativeSequencePath(sequence);
-  const items = clientValueAtPath(parent, relativePath);
+  const items = valueAtPath(parent, relativePath);
   if (isAbsent(items)) {
     if (sequence.required) {
       throw new Error(`Collaboration field ${sequence.path} is required.`);
@@ -2033,17 +2036,17 @@ function validateClientSequence(
     }));
   const childSequences = index.childSequences(sequence);
   for (const item of items) {
-    const identity = requiredClientIdentity(item, identityPath);
+    const identity = requiredIdentity(item, identityPath);
     if (identities.has(identity)) {
       throw new Error(`Collaboration field ${sequence.path} contains duplicate identity ${identity}.`);
     }
     identities.add(identity);
     const itemContext = { ...context, [identityVariable]: identity };
     for (const { field: itemField, itemPath } of itemFields) {
-      validateClientFieldValue(itemField, clientValueAtPath(item, itemPath));
+      validateFieldValue(itemField, valueAtPath(item, itemPath));
     }
     for (const child of childSequences) {
-      validateClientSequence(index, child, item, itemContext);
+      validateSequence(index, child, item, itemContext);
     }
   }
 }
@@ -2053,7 +2056,7 @@ function validateClientSequence(
  * may be absent or null, which removes it; a present value must satisfy its
  * codec.
  */
-function validateClientFieldValue(field: CollaborationFieldPlan, value: unknown): void {
+function validateFieldValue(field: CollaborationFieldPlan, value: unknown): void {
   if (isAbsent(value)) {
     if (field.required) {
       throw new Error(`Collaboration field ${field.path} is required.`);
@@ -2084,8 +2087,8 @@ function validateClientFieldValue(field: CollaborationFieldPlan, value: unknown)
   }
 }
 
-function requiredClientIdentity(value: unknown, identityPath: string): string {
-  const identity = clientValueAtPath(value, identityPath);
+function requiredIdentity(value: unknown, identityPath: string): string {
+  const identity = valueAtPath(value, identityPath);
   if (typeof identity !== "string" || identity.length === 0) {
     throw new Error(`Collaboration identity ${identityPath} must be a non-empty string.`);
   }
@@ -2101,27 +2104,6 @@ function uniqueStableIdentities(identities: readonly string[]): string[] {
     seen.add(identity);
     return true;
   });
-}
-
-function camelToSnake(value: string): string {
-  return value.replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`);
-}
-
-/** `value` with every object key, at any depth, spelled by `mapper`. */
-function mapKeys(value: unknown, mapper: (key: string) => string): unknown {
-  if (Array.isArray(value)) {
-    return value.map((entry) => mapKeys(entry, mapper));
-  }
-  return isRecord(value) ? mapObjectKeys(value, mapper) : value;
-}
-
-function mapObjectKeys(
-  value: ClientRecord,
-  mapper: (key: string) => string
-): ClientRecord {
-  return Object.fromEntries(
-    Object.entries(value).map(([key, child]) => [mapper(key), mapKeys(child, mapper)])
-  );
 }
 
 function setText(text: LoroText, value: string): void {
@@ -2203,6 +2185,6 @@ function areWireValuesEqual(left: unknown, right: unknown): boolean {
   return areJsonValuesEqual(left, right);
 }
 
-function isRecord(value: unknown): value is ClientRecord {
+function isRecord(value: unknown): value is DocumentRecord {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
