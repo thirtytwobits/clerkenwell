@@ -61,7 +61,7 @@ test("materialising a document with any optional fields left out settles on one 
         delete note[field];
       }
       if (omitAccent) {
-        delete note.style.accentColour;
+        delete note.style.accent_colour;
       }
       const once = roundTripNote(note);
       for (const field of omitted) {

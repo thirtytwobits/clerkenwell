@@ -24,12 +24,12 @@ import {
   COLLABORATION_PLANS,
   PROJECTION_COMPOSITION_PLANS,
   type AuthoringState,
-  type CollaborationClientDocument,
+  type CollaborationDocument,
   type GeneratedProjectionModel
 } from "../examples/notes/generated/typescript/index.js";
 
 type Model = GeneratedProjectionModel;
-type Note = CollaborationClientDocument<"Note">;
+type Note = CollaborationDocument<"Note">;
 
 const { values } = parseArgs({
   options: { url: { type: "string" }, body: { type: "string" }, reconnect: { type: "boolean" } }

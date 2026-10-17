@@ -42,16 +42,16 @@ type Request =
   | { readonly op: "readText"; readonly replica: string; readonly field: string; readonly identities: Identities }
   | { readonly op: "insertText"; readonly replica: string; readonly field: string; readonly identities: Identities; readonly offset: number; readonly text: string }
   | { readonly op: "policyConflicts"; readonly entity: string; readonly base: object; readonly client: object; readonly current: object; readonly kind: CollaborationWriterKind }
-  | { readonly op: "typeCheck"; readonly documents: readonly ClientDocument[]; readonly conditions: readonly string[] };
+  | { readonly op: "typeCheck"; readonly documents: readonly EntityDocument[]; readonly conditions: readonly string[] };
 
-/** A document in client spelling, and the collaborative entity it is of. */
-interface ClientDocument {
+/** A document, and the collaborative entity it is of. */
+interface EntityDocument {
   readonly entity: string;
   readonly document: object;
 }
 
 interface CollaborationFixtures {
-  readonly entities: readonly { readonly entity: string; readonly clientDocument: object }[];
+  readonly entities: readonly { readonly entity: string; readonly wireDocument: object }[];
 }
 
 type Replica = CollaborationReplica<object>;
@@ -123,11 +123,11 @@ function clientVersion(): string {
 
 /**
  * The TypeScript compiler's diagnostics for `documents`, each declared as a
- * value of its entity's `CollaborationClientDocument` in the generated plans
- * module, compiled under the export `conditions`.
+ * value of its entity's `CollaborationDocument` in the generated plans module,
+ * compiled under the export `conditions`.
  */
 async function typeCheck(
-  documents: readonly ClientDocument[],
+  documents: readonly EntityDocument[],
   conditions: readonly string[]
 ): Promise<string[]> {
   const ts = (await import("typescript")).default;
@@ -137,9 +137,9 @@ async function typeCheck(
   const relative = path.relative(directory, plansPath).split(path.sep).join("/").replace(/\.ts$/, ".js");
   const specifier = relative.startsWith(".") ? relative : `./${relative}`;
   writeFileSync(checked, [
-    `import type { CollaborationClientDocument } from ${JSON.stringify(specifier)};`,
+    `import type { CollaborationDocument } from ${JSON.stringify(specifier)};`,
     ...documents.map(({ entity, document }, index) =>
-      `export const document${index}: CollaborationClientDocument<${JSON.stringify(entity)}> = ${JSON.stringify(document, null, 2)};`)
+      `export const document${index}: CollaborationDocument<${JSON.stringify(entity)}> = ${JSON.stringify(document, null, 2)};`)
   ].join("\n"));
   try {
     const program = ts.createProgram([checked], {
@@ -193,7 +193,7 @@ function handle(request: Request): unknown {
       return create(request.replica, CollaborationReplica.from(
         request.entity,
         plan(request.entity),
-        { kind: "document", document: fixture.clientDocument },
+        { kind: "document", document: fixture.wireDocument },
         request.peerBlock
       ));
     }

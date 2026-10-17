@@ -2,7 +2,6 @@
 //! snapshot and one patch per patch kind for every projection, and one sample
 //! document with its operations for every collaborative entity.
 
-use crate::client::client_document;
 use crate::definition::{CollaborationEntity, CollaborationField, Definition, Materialization};
 use crate::error::{refuse, Result};
 use crate::json::{Json, Object};
@@ -119,9 +118,7 @@ fn collaboration_entity_fixture(
     let mut fixture = Object::new();
     fixture.insert("entity", entity.name.into());
     fixture.insert("schemaVersion", entity.schema_version().into());
-    let client_document = client_document(entity, &Json::Object(document.clone()));
     fixture.insert("wireDocument", document.into());
-    fixture.insert("clientDocument", client_document);
     fixture.insert("operations", operations.into());
     fixture.insert(
         "invalid",

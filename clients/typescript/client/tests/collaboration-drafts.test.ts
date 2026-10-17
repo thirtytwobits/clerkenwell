@@ -41,7 +41,7 @@ test("a replaced draft is written into the document, which keeps what the draft 
   const written = BOARDS.fromUpdate(replica.exportUpdateBase64(), peerBlock()).currentDraft();
   assert.deepEqual(written.columns, columns);
   assert.equal(written.title, board.title);
-  assert.equal(written.boardId, board.boardId);
+  assert.equal(written.board_id, board.board_id);
 });
 
 test("a mapped draft is read and written through both mappings", () => {
@@ -64,7 +64,7 @@ test("a draft whose document the plan refuses leaves the replica as it was", () 
   const replica = COLUMN_DRAFTS.fromDocument(board, peerBlock());
   const [first, ...rest] = board.columns;
   assert.ok(first);
-  const unidentified = { ...first, columnId: undefined } as unknown as BoardColumn;
+  const unidentified = { ...first, column_id: undefined } as unknown as BoardColumn;
 
   assert.throws(() => replica.replaceDraft([unidentified, ...rest]));
 
@@ -107,7 +107,7 @@ test("drafts refuse accepted state written under another schema version", () => 
 test("an authoring runtime records a mapped replica's pending work as its operations", async () => {
   const board = boardDocument();
   const accepted = BOARDS.fromDocument(board, peerBlock());
-  const resource = { entity: "Board", resourceKey: board.boardId } as const;
+  const resource = { entity: "Board", resourceKey: board.board_id } as const;
   const runtime = new AuthoringRuntime();
   runtime.open({
     resource,

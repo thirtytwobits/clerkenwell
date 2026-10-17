@@ -2,7 +2,7 @@
  * Copyright (c) 2026 Scott A Dixon
  *
  * Hand-written plans for a note and a task board, shaped as a generator emits
- * them, with the client documents they describe.
+ * them, with the documents they describe.
  */
 import type { CollaborationEntityPlan } from "@clerkenwell/client";
 
@@ -202,19 +202,19 @@ export const NOTE_PLAN = {
 } as const satisfies CollaborationEntityPlan<"notes.authoringState", "note.importUpdate">;
 
 export interface NoteLink {
-  targetId: string;
-  linkLabel: string;
+  target_id: string;
+  link_label: string;
 }
 
 export interface NoteDocument {
-  noteId: string;
+  note_id: string;
   title: string;
   pinned: boolean;
   priority: number;
   weight: number;
   rating?: number;
   subtitle?: string;
-  style: { fontFamily: string; accentColour?: string };
+  style: { font_family: string; accent_colour?: string };
   body: string;
   summary?: string;
   abstract: { "$mime": string; value: string };
@@ -232,19 +232,19 @@ export interface NoteDocument {
 
 export function noteDocument(): NoteDocument {
   return {
-    noteId: "note-1",
+    note_id: "note-1",
     title: "Minutes",
     pinned: true,
     priority: 3,
     weight: 0.75,
     rating: 4.5,
     subtitle: "Weekly",
-    style: { fontFamily: "Serif", accentColour: "teal" },
+    style: { font_family: "Serif", accent_colour: "teal" },
     body: "Agreed to move the stand-up. 🦊 Everyone nodded.",
     summary: "Stand-up moves.",
     abstract: { "$mime": "text/markdown", value: "# Minutes\nShort." },
     tags: ["meeting", "weekly"],
-    links: [{ targetId: "note-0", linkLabel: "Previous" }],
+    links: [{ target_id: "note-0", link_label: "Previous" }],
     attributes: { owner: "iris", reviewed: false, counts: { open: 2 } },
     outline: {
       heading: "Agenda",
@@ -254,7 +254,7 @@ export function noteDocument(): NoteDocument {
     footnote: "Minuted by Iris.",
     caption: { "$mime": "text/plain", value: "Friday's minutes" },
     aliases: ["stand-up notes"],
-    references: [{ targetId: "note-9", linkLabel: "Background" }]
+    references: [{ target_id: "note-9", link_label: "Background" }]
   };
 }
 
@@ -440,20 +440,20 @@ export const BOARD_PLAN = {
 export interface BoardTask {
   id: string;
   title: string;
-  estimateHours?: number;
+  estimate_hours?: number;
   notes: string;
   labels: string[];
 }
 
 export interface BoardColumn {
-  columnId: string;
+  column_id: string;
   name: string;
   brief: string;
   tasks: BoardTask[];
 }
 
 export interface BoardDocument {
-  boardId: string;
+  board_id: string;
   title: string;
   description?: string;
   columns: BoardColumn[];
@@ -463,21 +463,21 @@ export interface BoardDocument {
 
 export function boardDocument(): BoardDocument {
   return {
-    boardId: "board-1",
+    board_id: "board-1",
     title: "Launch",
     description: "Everything before the launch.",
     columns: [
       {
-        columnId: "todo",
+        column_id: "todo",
         name: "To do",
         brief: "Not started.",
         tasks: [
-          { id: "task-1", title: "Write copy", estimateHours: 3, notes: "Draft first.", labels: ["copy"] },
+          { id: "task-1", title: "Write copy", estimate_hours: 3, notes: "Draft first.", labels: ["copy"] },
           { id: "task-2", title: "Book venue", notes: "Near the station.", labels: [] }
         ]
       },
       {
-        columnId: "done",
+        column_id: "done",
         name: "Done",
         brief: "Shipped.",
         tasks: [{ id: "task-3", title: "Pick a date", notes: "Friday.", labels: ["planning"] }]
@@ -486,19 +486,14 @@ export function boardDocument(): BoardDocument {
   };
 }
 
-/** The client-side spelling of one wire path segment: snake_case becomes camelCase. */
-export function clientSegment(segment: string): string {
-  return segment.replace(/_([a-z0-9])/g, (_match, character: string) => character.toUpperCase());
-}
-
-/** The value a client document holds at a dotted wire path without `*`. */
-export function clientValueAt(document: unknown, wirePath: string): unknown {
+/** The value a document holds at a dotted path without `*`. */
+export function valueAt(document: unknown, path: string): unknown {
   let current: unknown = document;
-  for (const segment of wirePath.split(".")) {
+  for (const segment of path.split(".")) {
     if (current === null || typeof current !== "object") {
       return undefined;
     }
-    current = (current as Record<string, unknown>)[clientSegment(segment)];
+    current = (current as Record<string, unknown>)[segment];
   }
   return current;
 }

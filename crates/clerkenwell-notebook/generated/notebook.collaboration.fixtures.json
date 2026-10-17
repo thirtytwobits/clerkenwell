@@ -25,6 +25,7 @@
           {
             "file_name": "file-name-value",
             "size_bytes": 1,
+            "uploadedBy": "uploaded-by-value",
             "preview": {
               "mime_type": "mime-type-value"
             }
@@ -63,67 +64,6 @@
         },
         "cover_image": {
           "alt_text": "cover-image-alt-text-value"
-        }
-      },
-      "clientDocument": {
-        "title": "title-value",
-        "body": {
-          "$mime": "text/markdown",
-          "value": "body value"
-        },
-        "summary": "summary-value",
-        "tags": [
-          "tags-value"
-        ],
-        "pinned": true,
-        "priority": 1,
-        "weight": 1.5,
-        "estimate": 1.5,
-        "status": "draft",
-        "createdAt": "created-at-value",
-        "archivedAt": "archived-at-value",
-        "attachments": [
-          {
-            "fileName": "file-name-value",
-            "sizeBytes": 1,
-            "preview": {
-              "mimeType": "mime-type-value"
-            }
-          }
-        ],
-        "properties": {
-          "properties-key": "value-value"
-        },
-        "layout": {
-          "caption": "caption-value",
-          "columns": 1,
-          "grid": [
-            [
-              1
-            ]
-          ],
-          "mode": "list",
-          "panels": [
-            {
-              "id": "id-value",
-              "label": "label-value"
-            }
-          ],
-          "panel_gap": 1
-        },
-        "extras": {
-          "extras-key": "extras-value"
-        },
-        "meta": {
-          "owner": "meta-owner-value",
-          "reviewer": "meta-reviewer-value"
-        },
-        "source": {
-          "url": "source-url-value",
-          "excerpt": "source-excerpt-value"
-        },
-        "coverImage": {
-          "altText": "cover-image-alt-text-value"
         }
       },
       "operations": {
@@ -285,137 +225,6 @@
               },
               {
                 "card_id": "board-two",
-                "text": "archive-cards-text-two",
-                "done": true,
-                "note": {
-                  "$mime": "text/markdown",
-                  "value": "archive.*.cards.*.note two"
-                },
-                "labels": [
-                  "archive-cards-labels-two"
-                ]
-              }
-            ]
-          }
-        ]
-      },
-      "clientDocument": {
-        "name": "name-value",
-        "columns": [
-          {
-            "columnId": "board-one",
-            "title": "columns-title-one",
-            "wipLimit": 1.5,
-            "cards": [
-              {
-                "cardId": "board-one",
-                "text": "columns-cards-text-one",
-                "done": true,
-                "note": {
-                  "$mime": "text/markdown",
-                  "value": "columns.*.cards.*.note one"
-                },
-                "labels": [
-                  "columns-cards-labels-one"
-                ]
-              },
-              {
-                "cardId": "board-two",
-                "text": "columns-cards-text-two",
-                "done": true,
-                "note": {
-                  "$mime": "text/markdown",
-                  "value": "columns.*.cards.*.note two"
-                },
-                "labels": [
-                  "columns-cards-labels-two"
-                ]
-              }
-            ]
-          },
-          {
-            "columnId": "board-two",
-            "title": "columns-title-two",
-            "wipLimit": 1.5,
-            "cards": [
-              {
-                "cardId": "board-one",
-                "text": "columns-cards-text-one",
-                "done": true,
-                "note": {
-                  "$mime": "text/markdown",
-                  "value": "columns.*.cards.*.note one"
-                },
-                "labels": [
-                  "columns-cards-labels-one"
-                ]
-              },
-              {
-                "cardId": "board-two",
-                "text": "columns-cards-text-two",
-                "done": true,
-                "note": {
-                  "$mime": "text/markdown",
-                  "value": "columns.*.cards.*.note two"
-                },
-                "labels": [
-                  "columns-cards-labels-two"
-                ]
-              }
-            ]
-          }
-        ],
-        "archive": [
-          {
-            "columnId": "board-one",
-            "title": "archive-title-one",
-            "wipLimit": 1.5,
-            "cards": [
-              {
-                "cardId": "board-one",
-                "text": "archive-cards-text-one",
-                "done": true,
-                "note": {
-                  "$mime": "text/markdown",
-                  "value": "archive.*.cards.*.note one"
-                },
-                "labels": [
-                  "archive-cards-labels-one"
-                ]
-              },
-              {
-                "cardId": "board-two",
-                "text": "archive-cards-text-two",
-                "done": true,
-                "note": {
-                  "$mime": "text/markdown",
-                  "value": "archive.*.cards.*.note two"
-                },
-                "labels": [
-                  "archive-cards-labels-two"
-                ]
-              }
-            ]
-          },
-          {
-            "columnId": "board-two",
-            "title": "archive-title-two",
-            "wipLimit": 1.5,
-            "cards": [
-              {
-                "cardId": "board-one",
-                "text": "archive-cards-text-one",
-                "done": true,
-                "note": {
-                  "$mime": "text/markdown",
-                  "value": "archive.*.cards.*.note one"
-                },
-                "labels": [
-                  "archive-cards-labels-one"
-                ]
-              },
-              {
-                "cardId": "board-two",
                 "text": "archive-cards-text-two",
                 "done": true,
                 "note": {

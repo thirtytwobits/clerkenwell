@@ -4,6 +4,38 @@ Each release's section is the notes of its GitHub release. A release that change
 lists each change under **Breaking**; `cargo run -p clerkenwell-release -- breaking --help`
 names the contracts.
 
+## 0.7.0
+
+### Breaking
+
+- A TypeScript replica reads and writes a collaborative document as the application's schema
+  spells it, at every depth and in both directions (#77). `@clerkenwell/client` respelled each
+  member name a field path declares, and each key of a structured list's entries, from
+  snake_case to camelCase when it materialised a document, and back when it wrote one. The
+  documents a replica materialises, takes, validates and judges against conflict policy, and
+  the paths its errors name, are in the schema's spelling.
+- The generated TypeScript module declares `CollaborationDocument<TEntity>` in place of
+  `Client<Name>` and `CollaborationClientDocument<TEntity>` (#74). It names each collaborative
+  entity's document as a replica holds it: the entity's generated document type, through
+  `CollaborationReplicaDocument<TDocument, TPath>`, which `@clerkenwell/client` exports and
+  which makes the member at each dotted path of `TPath` optional. The paths are those at which
+  a replica may leave out a member the schema requires: a `derivedIdentity` member outside
+  keyed items, every `derivedRevision` member, and an object member no field beneath which is
+  in every document.
+- `clerkenwell-codegen` drops its refusals of an ambiguous client spelling, and refuses a
+  `$defs` entry named `CollaborationDocument`. The collaboration fixtures drop
+  `clientDocument`; both replicas take `wireDocument`.
+- `clerkenwell-conformance` removes `check_client_naming`. `Conformance::client_document_types`
+  is `Conformance::document_types`, which checks each document TypeScript materialises against
+  its entity's `CollaborationDocument`. `Conformance::seeding` and
+  `Conformance::fixture_operations` require each replica to materialise the fixture document,
+  and the document after each fixture edit, as the wire document a replica holds of it.
+
+### Fixed
+
+- A structured-list entry key spelled with an upper-case letter, such as `fileName`, is written
+  back as spelled. `@clerkenwell/client` wrote it back as `file_name`.
+
 ## 0.6.0
 
 ### Breaking

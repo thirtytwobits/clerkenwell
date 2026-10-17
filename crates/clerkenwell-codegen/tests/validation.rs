@@ -796,102 +796,16 @@ fn a_container_inside_a_keyed_sequence_must_name_every_enclosing_identity() {
 }
 
 #[test]
-fn two_members_a_client_document_spells_alike_are_refused() {
-    let mut document = notebook_document();
-    set(
-        &mut document,
-        "/$defs/Attachment/properties/fileName",
-        json(r#"{ "type": "string" }"#),
-    );
-    assert_mentions(
-        &refusal(document),
-        &[
-            "$defs.Attachment",
-            "\"file_name\"",
-            "\"fileName\"",
-            "client documents both spell",
-        ],
-    );
-}
-
-#[test]
-fn members_a_client_document_holds_in_wire_spelling_may_share_a_client_spelling() {
-    let mut document = notebook_document();
-    set(
-        &mut document,
-        "/$defs/NoteLayout/properties/panelGap",
-        json(r#"{ "type": "integer" }"#),
-    );
-    validate(document).expect("a structured document keeps its members' wire spelling");
-}
-
-/// The notebook with `Note.contact.details` stored whole as a structured
-/// document, and `Contact` also inside each attachment, which a structured
-/// list respells.
-fn contact_held_two_ways(details_member: &str) -> Json {
-    let mut document = with_defs(&format!(
-        r##"{{
-            "Contact": {{ "type": "object", "additionalProperties": false, "required": ["details"],
-                "properties": {{ "details": {{ "$ref": "#/$defs/ContactDetails" }} }} }},
-            "ContactDetails": {{ "type": "object", "additionalProperties": false,
-                "properties": {{ "{details_member}": {{ "type": "string" }} }} }}
-        }}"##
-    ));
-    set(
-        &mut document,
-        "/$defs/NoteDocument/properties/contact",
-        json(r##"{ "$ref": "#/$defs/Contact" }"##),
-    );
-    set(
-        &mut document,
-        "/$defs/Attachment/properties/contact",
-        json(r##"{ "$ref": "#/$defs/Contact" }"##),
-    );
-    set(
-        &mut document,
-        "/collaboration/entities/Note/fields/contact.details",
-        json(
-            r##"{
-                "storage": { "kind": "structuredDocument", "container": "contact_details" },
-                "value": { "codec": "structuredJson", "schema": { "$ref": "#/$defs/ContactDetails" } },
-                "required": false,
-                "requiredInParent": true,
-                "conflict": "merge"
-            }"##,
-        ),
-    );
-    document
-}
-
-#[test]
-fn a_member_held_in_wire_spelling_and_respelled_elsewhere_is_refused() {
-    assert_mentions(
-        &refusal(contact_held_two_ways("phone_number")),
-        &[
-            "collaboration.entities.Note.fields.contact.details",
-            "$defs.Contact.details",
-            "collaboration.entities.Note.fields.attachments",
-        ],
-    );
-}
-
-#[test]
-fn a_member_held_in_wire_spelling_and_respelled_elsewhere_is_accepted_when_the_spellings_agree() {
-    validate(contact_held_two_ways("phone"))
-        .expect("a member with no respellable name has one client spelling");
-}
-
-#[test]
-fn a_definition_named_as_a_client_document_type_is_refused() {
+fn a_definition_named_as_the_collaborative_document_types_is_refused() {
     assert_mentions(
         &refusal(with_defs(
-            r#"{ "ClientAttachment": { "type": "object", "additionalProperties": false,
+            r#"{ "CollaborationDocument": { "type": "object", "additionalProperties": false,
                 "properties": { "label": { "type": "string" } } } }"#,
         )),
         &[
-            "$defs.ClientAttachment",
-            "the client document type of $defs.Attachment",
-            "ClientAttachment",
+            "$defs.CollaborationDocument",
+            "the generated collaborative document types",
+            "CollaborationDocument",
         ],
     );
 }

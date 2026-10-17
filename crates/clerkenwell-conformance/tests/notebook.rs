@@ -2,7 +2,7 @@
 
 use std::path::{Path, PathBuf};
 
-use clerkenwell_conformance::{check_client_naming, Bindings, Conformance};
+use clerkenwell_conformance::{Bindings, Conformance};
 use clerkenwell_notebook::GENERATED_COLLABORATION_SPECS;
 
 fn notebook() -> PathBuf {
@@ -15,11 +15,6 @@ fn bindings() -> Bindings {
         typescript_plans: notebook().join("generated/typescript/index.ts"),
         collaboration_fixtures: notebook().join("generated/notebook.collaboration.fixtures.json"),
     }
-}
-
-#[test]
-fn every_fixture_client_document_is_its_wire_document_in_client_naming() {
-    check_client_naming(&bindings());
 }
 
 #[test]
@@ -53,6 +48,6 @@ fn both_languages_judge_concurrent_edits_alike_against_conflict_policy() {
 }
 
 #[test]
-fn every_document_typescript_materialises_is_a_value_of_its_client_document_type() {
-    Conformance::start(&bindings()).client_document_types();
+fn every_document_typescript_materialises_is_a_value_of_its_generated_document_type() {
+    Conformance::start(&bindings()).document_types();
 }

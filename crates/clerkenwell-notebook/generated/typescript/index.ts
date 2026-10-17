@@ -13,6 +13,7 @@ import type {
   CollaborationEntityPlan as ClerkenwellCollaborationEntityPlan,
   CollaborationExchangeMode,
   CollaborationPlanTextFieldPath,
+  CollaborationReplicaDocument,
   ProjectionCompositionPlan as ClerkenwellProjectionCompositionPlan
 } from "@clerkenwell/client";
 export type {
@@ -55,6 +56,7 @@ export type ReplicaUpdateResult = {
 export type Attachment = {
   "file_name": string;
   "size_bytes": number;
+  "uploadedBy": string;
   "url"?: string;
   "preview": AttachmentPreview;
 };
@@ -403,72 +405,6 @@ export type NoteAuthoringParams = {
 
 export type BoardAuthoringParams = {
   "board_id": string;
-};
-
-export type ClientAttachment = {
-  "fileName": string;
-  "sizeBytes": number;
-  "url"?: string;
-  "preview": ClientAttachmentPreview;
-};
-
-export type ClientAttachmentPreview = {
-  "mimeType": string;
-  "pageCount"?: number;
-};
-
-export type ClientNoteMeta = NoteMeta;
-
-export type ClientNoteSource = NoteSource;
-
-export type ClientNoteCoverImage = {
-  "altText": string;
-};
-
-export type ClientNoteDocument = {
-  "noteId"?: string;
-  "etag"?: string;
-  "title": string;
-  "body": MimeValue;
-  "summary"?: string;
-  "tags": string[];
-  "pinned": boolean;
-  "priority": number;
-  "weight": number;
-  "estimate"?: number;
-  "status": "draft" | "published" | "archived";
-  "createdAt": string;
-  "archivedAt"?: string;
-  "attachments": ClientAttachment[];
-  "properties": NoteProperties;
-  "layout": NoteLayout;
-  "extras": NoteExtras;
-  "meta": ClientNoteMeta;
-  "source"?: ClientNoteSource;
-  "coverImage"?: ClientNoteCoverImage;
-};
-
-export type ClientBoardCard = {
-  "cardId": string;
-  "text": string;
-  "done": boolean;
-  "note": MimeValue;
-  "labels"?: string[];
-};
-
-export type ClientBoardColumn = {
-  "columnId": string;
-  "title": string;
-  "wipLimit"?: number;
-  "cards": ClientBoardCard[];
-};
-
-export type ClientBoardDocument = {
-  "boardId"?: string;
-  "etag"?: string;
-  "name": string;
-  "columns": ClientBoardColumn[];
-  "archive"?: ClientBoardColumn[];
 };
 
 export const NOTE_ENTITY = "Note";
@@ -1541,9 +1477,9 @@ export type CollaborationEntityName = keyof typeof COLLABORATION_PLANS;
 export type CollaborationFieldPath<TEntity extends CollaborationEntityName> = keyof (typeof COLLABORATION_PLANS)[TEntity]["fields"] & string;
 export type CollaborationTextFieldPath<TEntity extends CollaborationEntityName> = CollaborationPlanTextFieldPath<(typeof COLLABORATION_PLANS)[TEntity]>;
 
-/** Each collaborative entity's document as a TypeScript replica holds it. */
-export type CollaborationClientDocument<TEntity extends CollaborationEntityName> = {
-  "Note": ClientNoteDocument;
-  "Board": ClientBoardDocument;
+/** Each collaborative entity's document as a replica holds it. */
+export type CollaborationDocument<TEntity extends CollaborationEntityName> = {
+  "Note": CollaborationReplicaDocument<NoteDocument, "note_id" | "etag">;
+  "Board": CollaborationReplicaDocument<BoardDocument, "board_id" | "etag">;
 }[TEntity];
 

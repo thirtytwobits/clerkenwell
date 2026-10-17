@@ -2,7 +2,7 @@
 
 use std::path::{Path, PathBuf};
 
-use clerkenwell_conformance::{check_client_naming, Bindings, Conformance};
+use clerkenwell_conformance::{Bindings, Conformance};
 use clerkenwell_example_notes::model::GENERATED_COLLABORATION_SPECS;
 
 fn example() -> PathBuf {
@@ -19,12 +19,11 @@ fn bindings() -> Bindings {
 
 #[test]
 fn rust_and_typescript_replicas_of_the_notes_example_converge() {
-    check_client_naming(&bindings());
     let conformance = Conformance::start(&bindings());
     conformance.seeding();
     conformance.fixture_operations();
     conformance.concurrent_edits();
     conformance.concurrent_typing();
     conformance.text_consumption();
-    conformance.client_document_types();
+    conformance.document_types();
 }

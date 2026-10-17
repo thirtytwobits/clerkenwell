@@ -124,7 +124,7 @@ fn a_consumer_drives_conformance_against_the_client_it_installed() {
 }
 
 #[test]
-fn a_consumer_checks_client_documents_against_the_declarations_of_the_client_it_installed() {
+fn a_consumer_checks_documents_against_the_declarations_of_the_client_it_installed() {
     let project = consumer();
     npm(
         &[
@@ -138,7 +138,7 @@ fn a_consumer_checks_client_documents_against_the_declarations_of_the_client_it_
     );
     std::fs::remove_dir_all(project.path().join("node_modules/@clerkenwell/client/src"))
         .expect("the package ships its source");
-    Conformance::start_in(&bindings(project.path()), project.path()).client_document_types();
+    Conformance::start_in(&bindings(project.path()), project.path()).document_types();
 }
 
 #[test]

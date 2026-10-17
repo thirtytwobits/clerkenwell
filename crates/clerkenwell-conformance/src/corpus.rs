@@ -1,6 +1,6 @@
 //! A generated collaboration fixture corpus: one sample document per
-//! collaborative entity, in wire and client naming, with the operations and
-//! invalid cases the generator derives from the entity's plan.
+//! collaborative entity, with the operations and invalid cases the generator
+//! derives from the entity's plan.
 
 use std::path::Path;
 
@@ -20,7 +20,6 @@ pub struct EntityFixture {
     pub entity: String,
     pub schema_version: u32,
     pub wire_document: Value,
-    pub client_document: Value,
     operations: Value,
     invalid: Vec<Value>,
 }
@@ -63,7 +62,6 @@ impl Corpus {
                     .and_then(|version| u32::try_from(version).ok())
                     .expect("a fixture schema version"),
                 wire_document: fixture["wireDocument"].clone(),
-                client_document: fixture["clientDocument"].clone(),
                 operations: fixture["operations"].clone(),
                 invalid: fixture["invalid"].as_array().cloned().unwrap_or_default(),
             })
@@ -215,7 +213,6 @@ mod tests {
             entity: "Note".to_string(),
             schema_version: 1,
             wire_document: json!({ "title": "Before" }),
-            client_document: json!({ "title": "Before" }),
             operations: json!({
                 "scalar": scalar,
                 "optionalAbsent": [],

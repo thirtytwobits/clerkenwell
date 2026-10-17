@@ -17,7 +17,6 @@ import { collaborationDocumentToLoroDoc } from "../src/collaboration-replica.js"
 import {
   BOARD_PLAN,
   boardDocument,
-  clientSegment,
   NOTE_PLAN,
   noteDocument,
   type BoardDocument,
@@ -26,8 +25,8 @@ import {
 
 const REMOVE = Symbol("remove");
 
-/** A copy of `document` with `value` at a dotted wire path; `*` applies to every item. */
-function withValueAt<TDocument>(document: TDocument, wirePath: string, value: unknown): TDocument {
+/** A copy of `document` with `value` at a dotted path; `*` applies to every item. */
+function withValueAt<TDocument>(document: TDocument, path: string, value: unknown): TDocument {
   const copy = structuredClone(document);
   const visit = (node: unknown, segments: readonly string[]): void => {
     const [head, ...rest] = segments;
@@ -39,31 +38,29 @@ function withValueAt<TDocument>(document: TDocument, wirePath: string, value: un
       return;
     }
     const record = node as Record<string, unknown>;
-    const key = clientSegment(head);
     if (rest.length > 0) {
-      visit(record[key], rest);
+      visit(record[head], rest);
     } else if (value === REMOVE) {
-      delete record[key];
+      delete record[head];
     } else {
-      record[key] = value;
+      record[head] = value;
     }
   };
-  visit(copy, wirePath.split("."));
+  visit(copy, path.split("."));
   return copy;
 }
 
-/** Every value at a dotted wire path, following `*` into every item. */
-function valuesAt(document: unknown, wirePath: string): unknown[] {
+/** Every value at a dotted path, following `*` into every item. */
+function valuesAt(document: unknown, path: string): unknown[] {
   const visit = (node: unknown, segments: readonly string[]): unknown[] => {
     const [head, ...rest] = segments;
     if (head === undefined) return [node];
     if (node === null || typeof node !== "object") return [];
     if (head === "*") return Array.isArray(node) ? node.flatMap((item) => visit(item, rest)) : [];
     const record = node as Record<string, unknown>;
-    const key = clientSegment(head);
-    return key in record ? visit(record[key], rest) : [];
+    return head in record ? visit(record[head], rest) : [];
   };
-  return visit(document, wirePath.split("."));
+  return visit(document, path.split("."));
 }
 
 function writtenFields(plan: CollaborationEntityPlan): CollaborationFieldPlan[] {
@@ -151,7 +148,7 @@ test("a required field must satisfy its codec", () => {
     [NOTE, "body", { text: "body" }],
     [NOTE, "abstract", { "$mime": "image/png", value: "" }],
     [NOTE, "tags", ["kept", 7]],
-    [NOTE, "links", [{ targetId: "a" }, "b"]],
+    [NOTE, "links", [{ target_id: "a" }, "b"]],
     [BOARD, "columns", { todo: [] }],
     [BOARD, "columns.*.name", false],
     [BOARD, "columns.*.tasks.*.notes", 3],

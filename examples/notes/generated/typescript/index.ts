@@ -13,6 +13,7 @@ import type {
   CollaborationEntityPlan as ClerkenwellCollaborationEntityPlan,
   CollaborationExchangeMode,
   CollaborationPlanTextFieldPath,
+  CollaborationReplicaDocument,
   ProjectionCompositionPlan as ClerkenwellProjectionCompositionPlan
 } from "@clerkenwell/client";
 export type {
@@ -65,14 +66,6 @@ export type ReplicaUpdateResult = {
 
 export type NoteAuthoringParams = {
   "note_id": string;
-};
-
-export type ClientNoteDocument = {
-  "noteId"?: string;
-  "etag"?: string;
-  "title": string;
-  "body": string;
-  "status": "draft" | "review" | "published";
 };
 
 export const NOTE_ENTITY = "Note";
@@ -274,8 +267,8 @@ export type CollaborationEntityName = keyof typeof COLLABORATION_PLANS;
 export type CollaborationFieldPath<TEntity extends CollaborationEntityName> = keyof (typeof COLLABORATION_PLANS)[TEntity]["fields"] & string;
 export type CollaborationTextFieldPath<TEntity extends CollaborationEntityName> = CollaborationPlanTextFieldPath<(typeof COLLABORATION_PLANS)[TEntity]>;
 
-/** Each collaborative entity's document as a TypeScript replica holds it. */
-export type CollaborationClientDocument<TEntity extends CollaborationEntityName> = {
-  "Note": ClientNoteDocument;
+/** Each collaborative entity's document as a replica holds it. */
+export type CollaborationDocument<TEntity extends CollaborationEntityName> = {
+  "Note": CollaborationReplicaDocument<NoteDocument, "note_id" | "etag">;
 }[TEntity];
 

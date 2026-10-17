@@ -9,11 +9,6 @@
         "body": "body-value",
         "status": "draft"
       },
-      "clientDocument": {
-        "title": "title-value",
-        "body": "body-value",
-        "status": "draft"
-      },
       "operations": {
         "scalar": {
           "path": "status",

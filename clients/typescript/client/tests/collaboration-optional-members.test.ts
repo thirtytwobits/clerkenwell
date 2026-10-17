@@ -14,7 +14,7 @@ import { CollaborationReplica } from "@clerkenwell/client/replica";
 import { COLLABORATION_PLANS } from "../../../../crates/clerkenwell-notebook/generated/typescript/index.js";
 
 type Entity = keyof typeof COLLABORATION_PLANS;
-type ClientRecord = Record<string, unknown>;
+type DocumentRecord = Record<string, unknown>;
 
 const corpus = JSON.parse(
   await readFile(
@@ -24,34 +24,34 @@ const corpus = JSON.parse(
     ),
     "utf8"
   )
-) as { entities: { entity: Entity; clientDocument: ClientRecord }[] };
+) as { entities: { entity: Entity; wireDocument: DocumentRecord }[] };
 
-function sample(entity: Entity): ClientRecord {
+function sample(entity: Entity): DocumentRecord {
   const fixture = corpus.entities.find((candidate) => candidate.entity === entity);
   assert.ok(fixture, `a ${entity} fixture`);
-  return structuredClone(fixture.clientDocument);
+  return structuredClone(fixture.wireDocument);
 }
 
-function roundTrip(entity: Entity, document: ClientRecord): ClientRecord {
+function roundTrip(entity: Entity, document: DocumentRecord): DocumentRecord {
   const plan = COLLABORATION_PLANS[entity];
   const written = CollaborationReplica.from(entity, plan, { kind: "document", document }, peerBlock());
-  return CollaborationReplica.from<ClientRecord>(entity, plan, {
+  return CollaborationReplica.from<DocumentRecord>(entity, plan, {
     kind: "update",
     updateBase64: written.exportUpdateBase64()
   }, peerBlock()).currentDocument();
 }
 
 /** A board whose one archived column holds `column`. */
-function archived(column: ClientRecord): ClientRecord {
+function archived(column: DocumentRecord): DocumentRecord {
   return { ...sample("Board"), archive: [column] };
 }
 
-function record(value: unknown): ClientRecord {
+function record(value: unknown): DocumentRecord {
   assert.ok(typeof value === "object" && value !== null && !Array.isArray(value), String(value));
-  return value as ClientRecord;
+  return value as DocumentRecord;
 }
 
-function firstArchived(board: ClientRecord): ClientRecord {
+function firstArchived(board: DocumentRecord): DocumentRecord {
   const archive = board["archive"];
   assert.ok(Array.isArray(archive), JSON.stringify(board));
   return record(archive[0]);
@@ -86,9 +86,9 @@ test("an optional group left out reads back absent", () => {
 
 test("a member an item requires reads back present when written empty", () => {
   const board = archived({
-    columnId: "archived-1",
+    column_id: "archived-1",
     title: "",
-    cards: [{ cardId: "card-1", text: "", done: false, note: { $mime: "text/plain", value: "Kept." } }]
+    cards: [{ card_id: "card-1", text: "", done: false, note: { $mime: "text/plain", value: "Kept." } }]
   });
 
   const column = firstArchived(roundTrip("Board", board));
@@ -100,15 +100,15 @@ test("a member an item requires reads back present when written empty", () => {
 });
 
 test("a sequence an item requires reads back empty when left out", () => {
-  const column = firstArchived(roundTrip("Board", archived({ columnId: "archived-1", title: "Old" })));
+  const column = firstArchived(roundTrip("Board", archived({ column_id: "archived-1", title: "Old" })));
 
   assert.deepEqual(column["cards"], []);
 });
 
 test("an optional member of an item left out reads back absent", () => {
-  const board = archived({ columnId: "archived-1", title: "Old", cards: [] });
+  const board = archived({ column_id: "archived-1", title: "Old", cards: [] });
 
   const column = firstArchived(roundTrip("Board", board));
 
-  assert.ok(!("wipLimit" in column), JSON.stringify(column));
+  assert.ok(!("wip_limit" in column), JSON.stringify(column));
 });

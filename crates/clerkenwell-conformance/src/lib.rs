@@ -4,7 +4,8 @@
 //! generated TypeScript plans and its collaboration fixture corpus. It drives
 //! `clerkenwell-doc` replicas in this process and `@clerkenwell/client/replica`
 //! replicas in a Node bridge, and requires every exchange to leave both
-//! languages holding the same history and materialising the same document.
+//! languages holding the same history and materialising the same document,
+//! which is the wire document a replica holds of what was written.
 //!
 //! The bridge runs in an npm project in which Node resolves `tsx` and
 //! `@clerkenwell/client` at this crate's version, and drives that installed
@@ -22,7 +23,7 @@ use serde_json::{json, Value};
 
 use bridge::{Bridge, TypeScriptReplica};
 use corpus::{Corpus, EntityFixture};
-use documents::{client_document, text_targets};
+use documents::{held_document, text_targets};
 
 /// The revision every materialisation is read at.
 const REVISION: &str = "replica:conformance";
@@ -78,21 +79,6 @@ pub struct Conformance {
     bridge: Bridge,
 }
 
-/// Requires every fixture's client document to be its wire document in
-/// client naming.
-pub fn check_client_naming(bindings: &Bindings) {
-    let corpus = Corpus::load(&bindings.collaboration_fixtures);
-    for fixture in corpus.entities() {
-        let plan = plan(bindings.plans, &fixture.entity);
-        assert_eq!(
-            client_document(plan, &fixture.wire_document),
-            fixture.client_document,
-            "{} client naming",
-            fixture.entity
-        );
-    }
-}
-
 fn plan(
     plans: &'static [GeneratedCollaborationEntitySpec],
     entity: &str,
@@ -146,7 +132,6 @@ impl Conformance {
     /// same document.
     fn assert_converged(
         &self,
-        plan: &'static GeneratedCollaborationEntitySpec,
         context: &str,
         rust: &CollaborationReplica,
         typescript: &TypeScriptReplica<'_>,
@@ -167,7 +152,7 @@ impl Conformance {
             .unwrap_or_else(|error| panic!("{context}: Rust materialises: {error}"));
         assert_eq!(
             typescript.materialize(REVISION),
-            client_document(plan, &rust_document),
+            rust_document,
             "{context}: TypeScript and Rust materialise different documents"
         );
     }
@@ -194,16 +179,26 @@ impl Conformance {
         }
     }
 
-    /// Each language hydrates the history the other seeded from the fixture
-    /// document, and both refuse the fixture's unsupported schema versions.
+    /// Each language seeds a replica from the fixture document and
+    /// materialises the wire document a replica holds of it, and hydrates the
+    /// history the other seeded. Both refuse the fixture's unsupported schema
+    /// versions.
     pub fn seeding(&self) {
         for (plan, fixture) in self.fixtures() {
-            let expected =
+            let expected = held_document(plan, &fixture.wire_document, REVISION);
+            let seeded =
                 CollaborationReplica::from_document(plan, &fixture.wire_document, RUST_PEER)
                     .and_then(|seeded| seeded.materialized_document(REVISION))
                     .unwrap_or_else(|error| panic!("{}: Rust seeds: {error}", plan.name));
+            assert_eq!(seeded, expected, "{} seeded in Rust", plan.name);
 
             let typescript = self.bridge.seed_fixture(plan.name);
+            assert_eq!(
+                typescript.materialize(REVISION),
+                expected,
+                "{} seeded in TypeScript",
+                plan.name
+            );
             let update = typescript.export();
             let rust = CollaborationReplica::from_versioned_update_base64(
                 plan,
@@ -217,17 +212,12 @@ impl Conformance {
                 expected,
                 "{context}"
             );
-            self.assert_converged(plan, &context, &rust, &typescript);
+            self.assert_converged(&context, &rust, &typescript);
 
             let Pair {
                 rust, typescript, ..
             } = self.pair(plan, fixture);
-            self.assert_converged(
-                plan,
-                &format!("{} seeded in Rust", plan.name),
-                &rust,
-                &typescript,
-            );
+            self.assert_converged(&format!("{} seeded in Rust", plan.name), &rust, &typescript);
 
             for version in fixture.unsupported_schema_versions() {
                 assert!(
@@ -251,8 +241,9 @@ impl Conformance {
     }
 
     /// Applies the fixture's edits one after another, alternating which
-    /// language writes each, and requires the other to read it back after an
-    /// incremental exchange. Runs once starting in each language.
+    /// language writes each, and requires both to materialise the wire
+    /// document a replica holds of each edited document after an incremental
+    /// exchange. Runs once starting in each language.
     pub fn fixture_operations(&self) {
         for (plan, fixture) in self.fixtures() {
             for rust_first in [true, false] {
@@ -279,7 +270,7 @@ impl Conformance {
                             });
                         format!("{} {} written in Rust", plan.name, edit.name)
                     } else {
-                        typescript.replace(&client_document(plan, &edited));
+                        typescript.replace(&edited);
                         let update = typescript.export_incremental(&frontier);
                         rust.adopt_versioned_update_base64(fixture.schema_version, &update)
                             .unwrap_or_else(|error| {
@@ -287,7 +278,12 @@ impl Conformance {
                             });
                         format!("{} {} written in TypeScript", plan.name, edit.name)
                     };
-                    self.assert_converged(plan, &context, &rust, &typescript);
+                    self.assert_converged(&context, &rust, &typescript);
+                    assert_eq!(
+                        typescript.materialize(REVISION),
+                        held_document(plan, &edited, REVISION),
+                        "{context}: TypeScript materialises the edited document"
+                    );
                     document = edited;
                 }
             }
@@ -319,8 +315,7 @@ impl Conformance {
                     pair.rust
                         .replace_document(&rust_edit.apply(base))
                         .unwrap_or_else(|error| panic!("{context}: Rust writes: {error}"));
-                    pair.typescript
-                        .replace(&client_document(plan, &typescript_edit.apply(base)));
+                    pair.typescript.replace(&typescript_edit.apply(base));
                     self.exchange(plan, fixture, &context, &mut pair);
                 }
             }
@@ -352,7 +347,7 @@ impl Conformance {
             .unwrap_or_else(|error| panic!("{context}: TypeScript imports: {error}"));
         rust.adopt_versioned_update_base64(fixture.schema_version, &from_typescript)
             .unwrap_or_else(|error| panic!("{context}: Rust imports: {error}"));
-        self.assert_converged(plan, context, rust, typescript);
+        self.assert_converged(context, rust, typescript);
 
         let mut observer = CollaborationReplica::from_versioned_update_base64(
             plan,
@@ -376,9 +371,9 @@ impl Conformance {
 
     /// TypeScript materialises each fixture document, and the document after
     /// each fixture edit Rust writes, as a value of its entity's generated
-    /// client document type. The project the bridge runs in resolves
+    /// `CollaborationDocument`. The project the bridge runs in resolves
     /// `typescript`.
-    pub fn client_document_types(&self) {
+    pub fn document_types(&self) {
         let mut documents = Vec::new();
         for (plan, fixture) in self.fixtures() {
             let Pair {
@@ -414,7 +409,7 @@ impl Conformance {
         let diagnostics = self.bridge.type_check(&documents);
         assert!(
             diagnostics.is_empty(),
-            "a document TypeScript materialised is not a value of its client document type:\n{}",
+            "a document TypeScript materialised is not a value of its CollaborationDocument:\n{}",
             diagnostics.join("\n")
         );
     }
@@ -524,7 +519,7 @@ impl Conformance {
                     expected,
                     "{context}: Rust"
                 );
-                self.assert_converged(plan, &context, &authority, &typescript);
+                self.assert_converged(&context, &authority, &typescript);
             }
         }
     }
@@ -550,16 +545,15 @@ impl Conformance {
                 .iter()
                 .map(|edit| (edit.name.clone(), edit.apply(base)))
                 .collect::<Vec<_>>();
-            let client_base = client_document(plan, base);
             for (client_name, client) in &documents {
                 for (current_name, current) in &documents {
                     for kind in WRITER_KINDS {
                         let rust = conflicting_field_paths(plan, base, client, current, kind);
                         let typescript = self.bridge.policy_conflicts(
                             &fixture.entity,
-                            &client_base,
-                            &client_document(plan, client),
-                            &client_document(plan, current),
+                            base,
+                            client,
+                            current,
                             kind,
                         );
                         assert_eq!(

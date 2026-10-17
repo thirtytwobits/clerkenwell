@@ -97,14 +97,41 @@ export interface CollaborationEntityPlan<
     readonly storeParams?: readonly string[];
   };
   readonly rootContainer: string;
-  /** Keyed by wire path, which is snake_case; client documents carry each path as camelCase. */
+  /** Keyed by path. */
   readonly fields: Readonly<Record<string, CollaborationFieldPlan>>;
 }
 
-/** A wire path segment as client documents spell it: snake_case becomes camelCase. */
-export function clientSegment(segment: string): string {
-  return segment.replace(/_([a-z])/g, (_match, letter: string) => letter.toUpperCase());
-}
+/**
+ * A collaborative document as a replica holds it: `TDocument`, the entity's
+ * generated document type, with the member at each dotted path of `TPath`
+ * optional. A `*` segment stands for every item of an array. Generated
+ * bindings name, for each entity, the paths at which a replica may leave out
+ * a member its schema requires.
+ */
+export type CollaborationReplicaDocument<TDocument, TPath extends string = never> =
+  [TPath] extends [never]
+    ? TDocument
+    : TDocument extends readonly (infer TItem)[]
+      ? CollaborationReplicaDocument<TItem, PathTail<TPath, "*">>[]
+      : TDocument extends object
+        ? MembersOptionalAt<TDocument, TPath>
+        : TDocument;
+
+/** The rest of each path of `TPath` whose first segment is `THead`. */
+type PathTail<TPath extends string, THead extends string> =
+  TPath extends `${THead}.${infer TTail}` ? TTail : never;
+
+/** `TDocument` with each member `TPath` names optional, and each member's own paths applied to it. */
+type MembersOptionalAt<TDocument, TPath extends string> = Flattened<{
+  [TKey in keyof TDocument as TKey extends TPath ? never : TKey]:
+    CollaborationReplicaDocument<TDocument[TKey], PathTail<TPath, TKey & string>>;
+} & {
+  [TKey in keyof TDocument as TKey extends TPath ? TKey : never]?:
+    CollaborationReplicaDocument<TDocument[TKey], PathTail<TPath, TKey & string>>;
+}>;
+
+/** An intersection of object types as one object type. */
+type Flattened<T> = { [TKey in keyof T]: T[TKey] };
 
 /** The paths of a plan's declared text fields. */
 export type CollaborationPlanTextFieldPath<TPlan extends CollaborationEntityPlan> = {

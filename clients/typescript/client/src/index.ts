@@ -56,6 +56,7 @@ export type {
   CollaborationFieldPlan,
   CollaborationFieldStorage,
   CollaborationPlanTextFieldPath,
+  CollaborationReplicaDocument,
   CollaborationStorageKind,
   CollaborationValueCodec,
   CollaborationWriterKind,
