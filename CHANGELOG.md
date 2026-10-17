@@ -18,7 +18,7 @@ names the contracts.
 - `clerkenwell_session::AuthoringState` and `clerkenwell_session::AuthoringPeerBlock` are
   removed; the session delivers `clerkenwell_schema`'s types. Its wire record adds the
   authoring-state patch, and the authoring state and its peer block refuse members they do not
-  declare.
+  declare. A patch's `state` is absent or an authoring state, never `null`.
 - `clerkenwell_store::CollaborationExchangeMode` is removed; `CollaborationImportRequest` takes
   `clerkenwell_schema`'s. `CollaborationAuthoringState::into_authoring_state` gives a read as an
   authoring state delivers it to the writer of a `PeerBlock`.
@@ -46,7 +46,8 @@ names the contracts.
   for each collaborative entity's document (#74). A member stored whole as a structured map, a
   structured document or property text has its wire type. A `derivedIdentity` member at the
   document root, and every `derivedRevision` member, is optional: a replica does not always
-  materialise them.
+  materialise them. So is an object member no field beneath which is in every document, since a
+  replica writes an object only beneath a field it writes.
 
 ### Fixed
 

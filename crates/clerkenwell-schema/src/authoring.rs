@@ -47,9 +47,24 @@ pub struct AuthoringPeerBlock {
 #[serde(deny_unknown_fields)]
 pub struct AuthoringStatePatch {
     pub kind: AuthoringStatePatchKind,
-    /// The state a replacement delivers.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    /// The state a replacement delivers. A removal has none, and no patch
+    /// holds `null`.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "present"
+    )]
+    #[schemars(with = "AuthoringState")]
     pub state: Option<AuthoringState>,
+}
+
+/// A member that is absent or holds a value, never `null`.
+fn present<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    T::deserialize(deserializer).map(Some)
 }
 
 impl AuthoringStatePatch {

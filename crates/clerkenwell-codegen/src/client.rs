@@ -6,7 +6,9 @@
 //! a structured map, a structured document or property text keeps its wire
 //! spelling. A replica never materialises a `derivedIdentity` field at the
 //! document root, and materialises a `derivedRevision` field only when its
-//! caller names a revision.
+//! caller names a revision. It writes an object only beneath a field it
+//! writes, so it leaves out an object no field beneath which is in every
+//! document.
 //!
 //! The generator renders client document types and the fixtures' client
 //! documents from this module alone.
@@ -445,6 +447,12 @@ impl<'d> Walk<'d> {
                 }
             }
         }
+        // A replica writes an object only beneath a field it writes, so an
+        // object member no field beneath it is in every document of may be
+        // left out.
+        if !plan_path.is_empty() && !plan_path.ends_with('*') && !self.always_beneath(plan_path) {
+            self.optional.insert(position.clone());
+        }
         self.respelled.entry(position).or_insert(context);
         let (name, path, schema) = self.follow(name, path, schema);
         if let Some(properties) = object_at(schema, "properties") {
@@ -460,6 +468,15 @@ impl<'d> Walk<'d> {
             }
         }
         Ok(())
+    }
+
+    /// Whether a field beneath `plan_path` is in every document a replica
+    /// materialises.
+    fn always_beneath(&self, plan_path: &str) -> bool {
+        let prefix = format!("{plan_path}.");
+        self.fields.values().any(|field| {
+            field.path.starts_with(&prefix) && field.required() && !materialised_optionally(field)
+        })
     }
 
     /// A node inside a structured list's entries, at `path` within the entry

@@ -116,9 +116,6 @@ pub(crate) fn expand(mut document: Object) -> Result<Object> {
                 .collect()
         })
         .unwrap_or_default();
-    if collaborative.is_empty() {
-        return Ok(document);
-    }
 
     let mut defs = section(&document, "$defs");
     for reserved in SHARED {

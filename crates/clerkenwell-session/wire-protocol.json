@@ -91,14 +91,7 @@
           "$ref": "#/$defs/AuthoringStatePatchKind"
         },
         "state": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/AuthoringState"
-            },
-            {
-              "type": "null"
-            }
-          ]
+          "$ref": "#/$defs/AuthoringState"
         }
       },
       "required": [

@@ -163,6 +163,20 @@ fn clerkenwells_types_refuse_what_the_shared_schemas_refuse() {
             "the type refuses {value}"
         );
     }
+
+    let patch_schema = shared_schema("AuthoringStatePatch");
+    for value in [
+        json(r#"{ "kind": "remove", "state": null }"#),
+        json(r#"{ "kind": "replace", "state": null }"#),
+        json(r#"{ "kind": "remove", "undeclared": true }"#),
+    ] {
+        let value = value.to_serde();
+        assert!(!patch_schema.is_valid(&value), "the schema refuses {value}");
+        assert!(
+            read::<AuthoringStatePatch>(&value).is_none(),
+            "the type refuses {value}"
+        );
+    }
 }
 
 /// The names `pub use clerkenwell_schema::{..};` re-exports.
