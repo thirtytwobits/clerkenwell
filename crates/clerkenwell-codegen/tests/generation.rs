@@ -161,6 +161,107 @@ fn every_string_enum_a_tagged_union_variant_declares_is_emitted_under_its_varian
     }
 }
 
+#[test]
+fn each_collaborative_entity_names_the_client_document_type_of_its_schema() {
+    let document = notebook_document();
+    let definition = validate(document.clone()).expect("valid");
+    let typescript = build_outputs(&definition, &notebook_config())
+        .expect("renders")
+        .typescript_model;
+    let by_entity = typescript
+        .split("export type CollaborationClientDocument<")
+        .nth(1)
+        .and_then(|rest| rest.split("}[TEntity];").next())
+        .expect("the client document type of each entity");
+    let schema_of = |entity: &str| {
+        document
+            .pointer(&format!("/entities/{entity}/schema/$ref"))
+            .and_then(Json::as_str)
+            .and_then(|reference| reference.strip_prefix("#/$defs/"))
+            .expect("an entity schema")
+            .to_owned()
+    };
+    let collaborative = document
+        .pointer("/collaboration/entities")
+        .and_then(Json::as_object)
+        .expect("collaborative entities");
+    assert!(!collaborative.is_empty());
+    for entity in collaborative.keys() {
+        let client = format!("Client{}", schema_of(entity));
+        assert!(
+            by_entity.contains(&format!("\"{entity}\": {client};")),
+            "{entity}: {by_entity}"
+        );
+        assert!(
+            typescript.contains(&format!("export type {client} = ")),
+            "{client} is declared"
+        );
+    }
+    let entities = document
+        .pointer("/entities")
+        .and_then(Json::as_object)
+        .expect("entities");
+    for entity in entities
+        .keys()
+        .filter(|entity| !collaborative.contains_key(entity))
+    {
+        let client = format!("Client{}", schema_of(entity));
+        assert!(
+            !typescript.contains(&format!("export type {client} ")),
+            "{entity} is not collaborative, so no client document holds {client}"
+        );
+    }
+}
+
+/// The declaration of `member` in the generated TypeScript type `type_name`.
+fn typescript_member(document: Json, type_name: &str, member: &str) -> String {
+    let definition = validate(document).expect("valid");
+    let typescript = build_outputs(&definition, &notebook_config())
+        .expect("renders")
+        .typescript_model;
+    let declared = typescript
+        .split(&format!("export type {type_name} = {{"))
+        .nth(1)
+        .and_then(|rest| rest.split("\n};").next())
+        .unwrap_or_else(|| panic!("{type_name} is declared:\n{typescript}"));
+    declared
+        .lines()
+        .map(str::trim)
+        .find(|line| line.starts_with(&format!("\"{member}\"")))
+        .unwrap_or_else(|| panic!("{type_name} declares {member}:\n{declared}"))
+        .to_owned()
+}
+
+/// A replica writes an object only beneath a field it writes, so an object the
+/// schema requires is optional in client documents unless a field beneath it is
+/// in every document.
+#[test]
+fn a_required_object_is_optional_for_a_client_unless_a_field_beneath_it_always_is() {
+    let kept = typescript_member(notebook_document(), "ClientNoteDocument", "meta");
+    assert!(
+        kept.starts_with("\"meta\":"),
+        "meta.owner is in every document: {kept}"
+    );
+
+    let mut document = notebook_document();
+    set(&mut document, "/$defs/NoteMeta/required", json("[]"));
+    set(
+        &mut document,
+        "/collaboration/entities/Note/fields/meta.owner/required",
+        json("false"),
+    );
+    let left_out = typescript_member(document.clone(), "ClientNoteDocument", "meta");
+    assert!(
+        left_out.starts_with("\"meta\"?:"),
+        "no field beneath meta is in every document: {left_out}"
+    );
+    let wire = typescript_member(document, "NoteDocument", "meta");
+    assert!(
+        wire.starts_with("\"meta\":"),
+        "the wire document still requires meta: {wire}"
+    );
+}
+
 /// A configuration pointing every output into `directory`, over the example
 /// definition.
 fn config_writing_into(directory: &Path) -> Config {

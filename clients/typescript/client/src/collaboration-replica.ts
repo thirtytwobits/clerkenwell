@@ -28,6 +28,7 @@ import {
   type CollaborationStorageKind
 } from "./plans.js";
 import { areJsonValuesEqual } from "./json-value-equality.js";
+import type { AuthoringPeerBlock } from "./authoring-state.js";
 import type { AuthoringSessionController, AuthoringTextStageController } from "./authoring-session.js";
 import { validateTextEdits, type TextBinding, type TextBindingChange, type TextEdit, type TextSelection } from "./text-binding.js";
 
@@ -44,33 +45,21 @@ export type CollaborationReplicaSource<TDocument extends ClientDocument> =
   | { kind: "snapshot"; snapshot: Uint8Array };
 
 /**
- * A block of peers the server allocated a writer, as an authoring state
- * delivers it: every peer whose bits above the low `index_bits` are `base`'s.
- * An import names the block by its nonce.
- */
-export interface CollaborationPeerBlock {
-  readonly nonce: string;
-  /** The block's first peer, in decimal. */
-  readonly base: string;
-  readonly index_bits: number;
-}
-
-/**
  * The peers a replica and everything forked from it write under: each takes
  * the next untaken peer of the newest block the replica adopted, so no two
  * write under one peer, however often a block is adopted.
  */
 class PeerAllocator {
-  #block: CollaborationPeerBlock;
+  #block: AuthoringPeerBlock;
   /** The next untaken index of each block adopted, by nonce. */
   readonly #next = new Map<string, bigint>();
   readonly #nonces = new Set<string>();
 
-  constructor(block: CollaborationPeerBlock) {
+  constructor(block: AuthoringPeerBlock) {
     this.#block = block;
   }
 
-  adopt(block: CollaborationPeerBlock): void {
+  adopt(block: AuthoringPeerBlock): void {
     this.#block = block;
   }
 
@@ -253,7 +242,7 @@ export class CollaborationReplica<TDocument extends ClientDocument> {
     entityName: string,
     plan: CollaborationEntityPlan,
     source: CollaborationReplicaSource<TDocument>,
-    peers: CollaborationPeerBlock
+    peers: AuthoringPeerBlock
   ): CollaborationReplica<TDocument> {
     const allocator = new PeerAllocator(peers);
     const doc = new LoroDoc();
@@ -276,7 +265,7 @@ export class CollaborationReplica<TDocument extends ClientDocument> {
   }
 
   /** Later forks, bindings and views write under peers of `block`. */
-  adoptPeerBlock(block: CollaborationPeerBlock): void {
+  adoptPeerBlock(block: AuthoringPeerBlock): void {
     this.peers.adopt(block);
   }
 
@@ -648,7 +637,7 @@ export class CollaborationDraftReplica<
   }
 
   /** Later forks, bindings and views write under peers of `block`. */
-  adoptPeerBlock(block: CollaborationPeerBlock): void {
+  adoptPeerBlock(block: AuthoringPeerBlock): void {
     this.replica.adoptPeerBlock(block);
   }
 
@@ -755,7 +744,7 @@ export class CollaborationDrafts<
   /** A new replica holding `document`, written under peers of `peers`. */
   fromDocument(
     document: TDocument,
-    peers: CollaborationPeerBlock
+    peers: AuthoringPeerBlock
   ): CollaborationDraftReplica<TDocument, TDraft, CollaborationPlanTextFieldPath<TPlan>> {
     return this.replica({ kind: "document", document }, peers);
   }
@@ -763,7 +752,7 @@ export class CollaborationDrafts<
   /** A replica holding what a view's snapshot of another replica holds, writing under peers of `peers`. */
   fromSnapshot(
     snapshot: Uint8Array,
-    peers: CollaborationPeerBlock
+    peers: AuthoringPeerBlock
   ): CollaborationDraftReplica<TDocument, TDraft, CollaborationPlanTextFieldPath<TPlan>> {
     return this.replica({ kind: "snapshot", snapshot }, peers);
   }
@@ -771,14 +760,14 @@ export class CollaborationDrafts<
   /** A replica holding the history an update carries, writing under peers of `peers`. */
   fromUpdate(
     updateBase64: string,
-    peers: CollaborationPeerBlock
+    peers: AuthoringPeerBlock
   ): CollaborationDraftReplica<TDocument, TDraft, CollaborationPlanTextFieldPath<TPlan>> {
     return this.replica({ kind: "update", updateBase64 }, peers);
   }
 
   private replica(
     source: CollaborationReplicaSource<TDocument>,
-    peers: CollaborationPeerBlock
+    peers: AuthoringPeerBlock
   ): CollaborationDraftReplica<TDocument, TDraft, CollaborationPlanTextFieldPath<TPlan>> {
     return new CollaborationDraftReplica(
       CollaborationReplica.from<TDocument>(this.entity, this.plan, source, peers),
@@ -1444,11 +1433,7 @@ function readCollaborationField(
     case "orderedList":
       return doc.getList(container).toArray();
     case "structuredList":
-      return doc.getList(container).toArray().map((entry) =>
-        typeof entry === "object" && entry !== null
-          ? mapObjectKeys(entry as ClientRecord, clientSegment)
-          : entry
-      );
+      return mapKeys(doc.getList(container).toArray(), clientSegment);
     case "structuredMap": {
       const value = doc.getMap(container).toJSON();
       const explicitlyPresent = doc.getMap(STRUCTURED_MAP_PRESENCE_CONTAINER).get(container) !== undefined;
@@ -2122,19 +2107,20 @@ function camelToSnake(value: string): string {
   return value.replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`);
 }
 
+/** `value` with every object key, at any depth, spelled by `mapper`. */
+function mapKeys(value: unknown, mapper: (key: string) => string): unknown {
+  if (Array.isArray(value)) {
+    return value.map((entry) => mapKeys(entry, mapper));
+  }
+  return isRecord(value) ? mapObjectKeys(value, mapper) : value;
+}
+
 function mapObjectKeys(
   value: ClientRecord,
   mapper: (key: string) => string
 ): ClientRecord {
   return Object.fromEntries(
-    Object.entries(value).map(([key, child]) => [
-      mapper(key),
-      Array.isArray(child)
-        ? child.map((entry) => isRecord(entry) ? mapObjectKeys(entry, mapper) : entry)
-        : isRecord(child)
-          ? mapObjectKeys(child, mapper)
-          : child
-    ])
+    Object.entries(value).map(([key, child]) => [mapper(key), mapKeys(child, mapper)])
   );
 }
 

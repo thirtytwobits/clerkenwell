@@ -1,8 +1,18 @@
-//! The plan types generated bindings instantiate.
+//! The plan types generated bindings instantiate, and the authoring-state
+//! wire types they name.
 //!
-//! `clerkenwell-codegen` turns a definition into `static` values of these
-//! types. Projections and mutations are named by their wire names.
+//! `clerkenwell-codegen` turns a definition into `static` values of the plan
+//! types. Projections and mutations are named by their wire names. Every
+//! collaborative entity's authoring state delivers the same snapshot and
+//! patch, so generated bindings name [`AuthoringState`] and
+//! [`AuthoringStatePatch`] rather than declaring their own.
 
+mod authoring;
+
+pub use authoring::{
+    AuthoringPeerBlock, AuthoringState, AuthoringStatePatch, AuthoringStatePatchKind,
+    CollaborationExchangeMode,
+};
 pub use clerkenwell_events::ActorKind;
 
 /// How an entity's content is authored.

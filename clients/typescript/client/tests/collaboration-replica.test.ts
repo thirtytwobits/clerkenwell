@@ -245,6 +245,20 @@ test("a structured list stores its entries by wire name and reads them back by c
   assert.deepEqual(roundTripNote(note).links, note.links);
 });
 
+test("a structured list respells the keys of its entries at every depth", () => {
+  const links = [{
+    targetId: "note-0",
+    linkLabel: "Previous",
+    anchorRange: { startOffset: 1, endOffset: 2 },
+    spanGroups: [[{ spanStart: 0 }], [{ spanStart: 3 }]]
+  }];
+  const note = { ...noteDocument(), links };
+  const doc = collaborationDocumentToLoroDoc(NOTE_PLAN, note);
+
+  assert.deepEqual(doc.getList(NOTE_PLAN.fields.links.storage.container).toArray(), wireKeys(links));
+  assert.deepEqual(roundTripNote(note).links, links);
+});
+
 test("a structured document keeps nested strings, identity-keyed lists and plain values", () => {
   const outline = {
     heading: "Agenda",

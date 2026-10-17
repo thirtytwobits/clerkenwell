@@ -4,7 +4,7 @@
 
 | Crate | Owns |
 |---|---|
-| `clerkenwell-schema` | the plan types generated bindings instantiate |
+| `clerkenwell-schema` | the plan types generated bindings instantiate, and the authoring state every collaborative entity's projection delivers, which generated bindings re-export |
 | `clerkenwell-doc` | plan-driven Loro replicas: whole-document edits written as operations under a given peer, text edits at a captured frontier, forks, the peers an update holds operations of, and field conflict policy judged by the writer's kind |
 | `clerkenwell-session` | the projection session protocol: wire contracts, registry, per-connection subscriptions, the principal each connection is authenticated as, and what each update left its client holding, resuming a subscription from that, and serving each command against an application's host as that principal; it answers every collaborative entity's authoring state from the store keeping the document, with a block of peers allocated to the subscriber, and delivers each change a store announces to the subscriptions following it |
 | `clerkenwell-axum` | a reference transport: the session protocol as JSON-RPC 2.0 over axum WebSocket connections, each authenticated as a principal by the application, each mutation published to every connection's subscriptions and each store change to its authoring-state subscriptions |
@@ -12,7 +12,7 @@
 | `clerkenwell-store` | durable single-authority storage: a set of named stores over whatever storage ports the application registers, accepted documents held in memory and written through, envelopes, a replaceable storage port, fenced compare-and-swap commits, the peer blocks writers write under and the principal each peer is bound to, quarantine, repair, and an audit of every recovery request and refused import; each commit, repair and deletion is announced on the store's change feed |
 | `clerkenwell-codegen` | the definition language, the authoring-state projection it declares for each collaborative entity, its validation, and the Rust, TypeScript and fixture generator |
 | `clerkenwell-notebook` | the example definition the tests share, and its generated bindings |
-| `clerkenwell-conformance` | cross-language conformance: Rust and TypeScript replicas of one definition's entities exchange the generated fixture operations, concurrent edits and text consumption, and must converge; TypeScript clients sync a note through the Rust notes server. An application runs it in its npm project, against the `@clerkenwell/client` installed there |
+| `clerkenwell-conformance` | cross-language conformance: Rust and TypeScript replicas of one definition's entities exchange the generated fixture operations, concurrent edits and text consumption, and must converge; the TypeScript compiler checks each document TypeScript materialises against its generated client document type; TypeScript clients sync a note through the Rust notes server. An application runs it in its npm project, against the `@clerkenwell/client` installed there |
 
 ## Other directories
 
@@ -39,7 +39,7 @@ root.
 
 | Package | Owns |
 |---|---|
-| `@clerkenwell/client` | plan types, projection materialisation and subscriptions, the projection protocol over a JSON-RPC WebSocket with reconnection, the authoring runtime and its persisted form, text bindings, field conflict policy |
+| `@clerkenwell/client` | plan types, the authoring state generated bindings re-export, projection materialisation and subscriptions, the projection protocol over a JSON-RPC WebSocket with reconnection, the authoring runtime and its persisted form, text bindings, field conflict policy |
 | `@clerkenwell/client/replica` | plan-driven Loro replicas, read and written as an application's drafts; the package's only importer of `loro-crdt` |
 | `@clerkenwell/react` | React stores, edit overlays, text-binding hooks, autosync and the authoring runtime provider |
 
@@ -49,3 +49,10 @@ Supported imports include closed objects, typed maps, arrays, named string enums
 references, tagged object unions, numeric bounds and opaque JSON extension fields. Unsupported
 constraints fail generation. The projection definition supplies collaboration and transport
 semantics for these imported types.
+
+A TypeScript replica holds a collaborative document in client spelling: each member name a
+field path declares, and each key of a structured list's entries, is camelCase; a value stored
+whole as a structured map, a structured document or property text keeps its wire spelling. The
+generated TypeScript module declares `Client<Name>` for each `$defs` entry a collaborative
+document holds in client spelling, and `CollaborationClientDocument<TEntity>` for each
+collaborative entity's document.

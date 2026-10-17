@@ -4,6 +4,7 @@
 use crate::config::Project;
 use crate::definition::{Definition, Materialization};
 use crate::error::{refuse, Result};
+use crate::expand::SHARED;
 use crate::json::{number_to_string, string_literal, Json, Object};
 use crate::layout::{self, Expr};
 use crate::names::{
@@ -18,6 +19,8 @@ use crate::schema::{
 /// A helper enum generated for a string-enum property.
 pub(crate) struct RustPropertyEnum {
     pub name: String,
+    /// The `$defs` entry declaring the property.
+    pub def: String,
     pub source: String,
     pub values: Vec<String>,
 }
@@ -60,6 +63,7 @@ pub(crate) fn collect_rust_property_enums(definition: &Definition) -> Vec<RustPr
                 };
                 enums.push(RustPropertyEnum {
                     name: rust_property_enum_name(&owner, property_name),
+                    def: definition_name.to_owned(),
                     source: format!("{path}.{property_name}"),
                     values,
                 });
@@ -111,13 +115,17 @@ pub fn render_model_module(definition: &Definition, project: &Project) -> Result
     let mut lines: Vec<String> = Vec::new();
 
     // TypeScript inlines literal unions; Rust names an enum for each, before
-    // the structs that use them.
-    for property_enum in collect_rust_property_enums(definition) {
+    // the structs that use them. The authoring states' types, enums included,
+    // are `clerkenwell_schema`'s.
+    for property_enum in collect_rust_property_enums(definition)
+        .into_iter()
+        .filter(|property_enum| !SHARED.contains(&property_enum.def.as_str()))
+    {
         lines.push(render_enum(&property_enum.name, &property_enum.values));
         lines.push(String::new());
     }
 
-    for (definition_name, schema) in definition.def_entries() {
+    for (definition_name, schema) in definition.declared_def_entries() {
         lines.push(render_definition(definition_name, schema)?);
         lines.push(String::new());
     }
@@ -198,7 +206,8 @@ pub fn render_model_module(definition: &Definition, project: &Project) -> Result
         [
             "",
             "pub use clerkenwell_schema::{",
-            "    ActorKind, GeneratedAuthoringPolicyKind, GeneratedCollaborationConflict,",
+            "    ActorKind, AuthoringPeerBlock, AuthoringState, AuthoringStatePatch, AuthoringStatePatchKind,",
+            "    CollaborationExchangeMode, GeneratedAuthoringPolicyKind, GeneratedCollaborationConflict,",
             "    GeneratedCollaborationEntitySpec, GeneratedCollaborationFieldSpec,",
             "    GeneratedCollaborationStorageKind, GeneratedCollaborationValueCodec,",
             "    GeneratedEntityAuthoringSpec, GeneratedMaterializationPlan, GeneratedMutationSpec,",

@@ -9,6 +9,7 @@
 //! exactly, and refuses a definition that would need a wider or ambiguous
 //! generated type.
 
+mod client;
 mod collate;
 mod config;
 mod definition;

@@ -13,7 +13,6 @@ clerkenwell-doc = { path = "../clerkenwell-doc" }
 clerkenwell-events = { path = "../clerkenwell-events" }
 clerkenwell-schema = { path = "../clerkenwell-schema" }
 hmac = "0.13.0"
-schemars.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sha2 = "0.11.0"

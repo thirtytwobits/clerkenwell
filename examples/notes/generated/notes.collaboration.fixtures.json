@@ -17,7 +17,7 @@
       "operations": {
         "scalar": {
           "path": "status",
-          "value": "updated-value"
+          "value": "review"
         },
         "reorder": [],
         "delete": [],

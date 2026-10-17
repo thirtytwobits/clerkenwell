@@ -11,6 +11,7 @@ use std::time::Duration;
 use clerkenwell_doc::CollaborationReplica;
 use clerkenwell_events::{ActorKind, ChangeEvent, Principal};
 use clerkenwell_schema::{
+    AuthoringState, AuthoringStatePatch, AuthoringStatePatchKind, CollaborationExchangeMode,
     GeneratedCollaborationConflict, GeneratedCollaborationEntitySpec,
     GeneratedCollaborationFieldSpec, GeneratedCollaborationStorageKind,
     GeneratedCollaborationValueCodec, GeneratedMaterializationPlan, GeneratedMutationSpec,
@@ -22,14 +23,14 @@ use clerkenwell_session::transport::{
     ProjectionTransportEvent,
 };
 use clerkenwell_session::{
-    deliver_change, serve, AuthoringHeld, AuthoringState, AuthoringStates, Held, ProjectionCommand,
+    deliver_change, serve, AuthoringHeld, AuthoringStates, Held, ProjectionCommand,
     ProjectionFailure, ProjectionHost, ProjectionRefusal, ProjectionRegistry,
     ProjectionSubscription, ProjectionSubscriptions,
 };
 use clerkenwell_store::testing::MemoryStorage;
 use clerkenwell_store::{
-    CollaborationDocumentId, CollaborationExchangeMode, CollaborationImportRequest,
-    CollaborationService, CollaborationStores, CommitPolicy, ImportFence, PeerKey, StoreResult,
+    CollaborationDocumentId, CollaborationImportRequest, CollaborationService, CollaborationStores,
+    CommitPolicy, ImportFence, PeerKey, StoreResult,
 };
 use serde_json::{json, Value};
 
@@ -411,11 +412,11 @@ fn snapshot_state(event: &ProjectionTransportEvent<Value, Value>) -> (AuthoringS
 }
 
 /// The patch an authoring-state delivery sends.
-fn patch_value(event: &ProjectionTransportEvent<Value, Value>) -> &Value {
+fn authoring_patch(event: &ProjectionTransportEvent<Value, Value>) -> AuthoringStatePatch {
     let ProjectionTransportEvent::Patch { patch, .. } = event else {
         panic!("a patch: {event:?}");
     };
-    &patch["value"]
+    serde_json::from_value(patch["value"].clone()).expect("an authoring-state patch")
 }
 
 /// A replica built from `state`, as a client that held nothing builds it.
@@ -629,10 +630,9 @@ fn a_commit_sends_each_subscription_following_the_document_the_operations_its_cl
     };
     assert_eq!(*subscription_id, first.subscription_id);
     assert_eq!(*from_revision, first.revision);
-    let patch = patch_value(&events[0]);
-    assert_eq!(patch["kind"], "replace");
-    let state: AuthoringState =
-        serde_json::from_value(patch["state"].clone()).expect("an authoring state");
+    let patch = authoring_patch(&events[0]);
+    assert_eq!(patch.kind, AuthoringStatePatchKind::Replace);
+    let state = patch.state.expect("a replacement's state");
     let mut held = replica(NOTE, &snapshot);
     held.adopt_versioned_update_base64(state.schema_version, &state.update_base64)
         .expect("the operations the client lacks");
@@ -692,7 +692,7 @@ fn a_deleted_document_is_removed_from_every_subscription_following_it() {
     ));
 
     assert_eq!(events.len(), 1, "{events:?}");
-    assert_eq!(patch_value(&events[0])["kind"], "remove");
+    assert_eq!(authoring_patch(&events[0]), AuthoringStatePatch::remove());
     assert!(connection
         .lock()
         .unwrap()
@@ -762,7 +762,10 @@ fn an_entity_with_one_document_is_followed_without_naming_it() {
     let events = block_on(deliver_change(&library, &connection, &change));
 
     assert_eq!(events.len(), 1, "{events:?}");
-    assert_eq!(patch_value(&events[0])["kind"], "replace");
+    assert_eq!(
+        authoring_patch(&events[0]).kind,
+        AuthoringStatePatchKind::Replace
+    );
 }
 
 #[test]

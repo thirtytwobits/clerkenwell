@@ -24,7 +24,10 @@
         "attachments": [
           {
             "file_name": "file-name-value",
-            "size_bytes": 1
+            "size_bytes": 1,
+            "preview": {
+              "mime_type": "mime-type-value"
+            }
           }
         ],
         "properties": {
@@ -38,13 +41,14 @@
               1
             ]
           ],
-          "mode": "mode-value",
+          "mode": "list",
           "panels": [
             {
               "id": "id-value",
               "label": "label-value"
             }
-          ]
+          ],
+          "panel_gap": 1
         },
         "extras": {
           "extras-key": "extras-value"
@@ -56,6 +60,9 @@
         "source": {
           "url": "source-url-value",
           "excerpt": "source-excerpt-value"
+        },
+        "cover_image": {
+          "alt_text": "cover-image-alt-text-value"
         }
       },
       "clientDocument": {
@@ -78,7 +85,10 @@
         "attachments": [
           {
             "fileName": "file-name-value",
-            "sizeBytes": 1
+            "sizeBytes": 1,
+            "preview": {
+              "mimeType": "mime-type-value"
+            }
           }
         ],
         "properties": {
@@ -92,13 +102,14 @@
               1
             ]
           ],
-          "mode": "mode-value",
+          "mode": "list",
           "panels": [
             {
               "id": "id-value",
               "label": "label-value"
             }
-          ]
+          ],
+          "panel_gap": 1
         },
         "extras": {
           "extras-key": "extras-value"
@@ -110,6 +121,9 @@
         "source": {
           "url": "source-url-value",
           "excerpt": "source-excerpt-value"
+        },
+        "coverImage": {
+          "altText": "cover-image-alt-text-value"
         }
       },
       "operations": {
@@ -125,7 +139,8 @@
           "archived_at",
           "meta.reviewer",
           "source",
-          "source.excerpt"
+          "source.excerpt",
+          "cover_image"
         ],
         "optionalAbsent": [
           "summary",
@@ -133,7 +148,8 @@
           "archived_at",
           "meta.reviewer",
           "source",
-          "source.excerpt"
+          "source.excerpt",
+          "cover_image"
         ]
       },
       "invalid": [

@@ -6,8 +6,12 @@
  */
 
 import type {
+  AuthoringPeerBlock,
   AuthoringPlan,
+  AuthoringState,
+  AuthoringStatePatch,
   CollaborationEntityPlan as ClerkenwellCollaborationEntityPlan,
+  CollaborationExchangeMode,
   CollaborationPlanTextFieldPath,
   ProjectionCompositionPlan as ClerkenwellProjectionCompositionPlan
 } from "@clerkenwell/client";
@@ -17,6 +21,12 @@ export type {
   CollaborationStorageKind,
   CollaborationValueCodec
 } from "@clerkenwell/client";
+export type {
+  AuthoringPeerBlock,
+  AuthoringState,
+  AuthoringStatePatch,
+  CollaborationExchangeMode
+};
 export { resolveCollaborationContainer } from "@clerkenwell/client";
 
 export type MimeValue = {
@@ -46,6 +56,12 @@ export type Attachment = {
   "file_name": string;
   "size_bytes": number;
   "url"?: string;
+  "preview": AttachmentPreview;
+};
+
+export type AttachmentPreview = {
+  "mime_type": string;
+  "page_count"?: number;
 };
 
 export type NoteProperties = Record<string, string>;
@@ -58,6 +74,7 @@ export type NoteLayout = {
   "grid": number[][];
   "mode": "list" | "grid";
   "panels": NoteLayoutPanel[];
+  "panel_gap": number;
 };
 
 export type NoteLayoutPanel = {
@@ -73,6 +90,10 @@ export type NoteMeta = {
 export type NoteSource = {
   "url": string;
   "excerpt"?: string;
+};
+
+export type NoteCoverImage = {
+  "alt_text": string;
 };
 
 export type NoteDocument = {
@@ -95,6 +116,7 @@ export type NoteDocument = {
   "extras": NoteExtras;
   "meta": NoteMeta;
   "source"?: NoteSource;
+  "cover_image"?: NoteCoverImage;
 };
 
 export type NoteSummary = {
@@ -375,33 +397,78 @@ export type SyncResetParams = {
   "peer"?: string;
 };
 
-export type AuthoringState = {
-  "schema_version": number;
-  "accepted_frontier_base64": string;
-  "update_base64": string;
-  "etag": string;
-  "exchange_modes": ("incremental" | "bootstrap")[];
-  "peer_block": AuthoringPeerBlock;
-  "replaces_held": boolean;
-};
-
-export type AuthoringStatePatch = {
-  "kind": "replace" | "remove";
-  "state"?: AuthoringState;
-};
-
-export type AuthoringPeerBlock = {
-  "nonce": string;
-  "base": string;
-  "index_bits": number;
-};
-
 export type NoteAuthoringParams = {
   "note_id": string;
 };
 
 export type BoardAuthoringParams = {
   "board_id": string;
+};
+
+export type ClientAttachment = {
+  "fileName": string;
+  "sizeBytes": number;
+  "url"?: string;
+  "preview": ClientAttachmentPreview;
+};
+
+export type ClientAttachmentPreview = {
+  "mimeType": string;
+  "pageCount"?: number;
+};
+
+export type ClientNoteMeta = NoteMeta;
+
+export type ClientNoteSource = NoteSource;
+
+export type ClientNoteCoverImage = {
+  "altText": string;
+};
+
+export type ClientNoteDocument = {
+  "noteId"?: string;
+  "etag"?: string;
+  "title": string;
+  "body": MimeValue;
+  "summary"?: string;
+  "tags": string[];
+  "pinned": boolean;
+  "priority": number;
+  "weight": number;
+  "estimate"?: number;
+  "status": "draft" | "published" | "archived";
+  "createdAt": string;
+  "archivedAt"?: string;
+  "attachments": ClientAttachment[];
+  "properties": NoteProperties;
+  "layout": NoteLayout;
+  "extras": NoteExtras;
+  "meta": ClientNoteMeta;
+  "source"?: ClientNoteSource;
+  "coverImage"?: ClientNoteCoverImage;
+};
+
+export type ClientBoardCard = {
+  "cardId": string;
+  "text": string;
+  "done": boolean;
+  "note": MimeValue;
+  "labels"?: string[];
+};
+
+export type ClientBoardColumn = {
+  "columnId": string;
+  "title": string;
+  "wipLimit"?: number;
+  "cards": ClientBoardCard[];
+};
+
+export type ClientBoardDocument = {
+  "boardId"?: string;
+  "etag"?: string;
+  "name": string;
+  "columns": ClientBoardColumn[];
+  "archive"?: ClientBoardColumn[];
 };
 
 export const NOTE_ENTITY = "Note";
@@ -1122,6 +1189,20 @@ export const COLLABORATION_PLANS = {
         "required": false,
         "conflict": "merge",
         "requiredInParent": false
+      },
+      "cover_image.alt_text": {
+        "path": "cover_image.alt_text",
+        "storage": {
+          "kind": "scalar",
+          "container": "note",
+          "key": "cover_image.alt_text"
+        },
+        "value": {
+          "codec": "optionalString"
+        },
+        "required": false,
+        "requiredInParent": true,
+        "conflict": "explicit"
       }
     }
   },
@@ -1459,4 +1540,10 @@ export const COLLABORATION_PLANS = {
 export type CollaborationEntityName = keyof typeof COLLABORATION_PLANS;
 export type CollaborationFieldPath<TEntity extends CollaborationEntityName> = keyof (typeof COLLABORATION_PLANS)[TEntity]["fields"] & string;
 export type CollaborationTextFieldPath<TEntity extends CollaborationEntityName> = CollaborationPlanTextFieldPath<(typeof COLLABORATION_PLANS)[TEntity]>;
+
+/** Each collaborative entity's document as a TypeScript replica holds it. */
+export type CollaborationClientDocument<TEntity extends CollaborationEntityName> = {
+  "Note": ClientNoteDocument;
+  "Board": ClientBoardDocument;
+}[TEntity];
 

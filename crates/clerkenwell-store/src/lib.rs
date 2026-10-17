@@ -32,10 +32,11 @@ mod residency;
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use clerkenwell_doc::{CollaborationReplica, CollaborationReplicaError};
 use clerkenwell_events::{ActorKind, ChangeData, ChangeEvent, ChangeFeed, ChangeKind, Principal};
-use clerkenwell_schema::GeneratedCollaborationEntitySpec;
+use clerkenwell_schema::{
+    AuthoringPeerBlock, AuthoringState, CollaborationExchangeMode, GeneratedCollaborationEntitySpec,
+};
 pub use error::{StoreError, StoreErrorKind, StoreResult};
 pub use peers::{PeerBlock, PeerKey, PEER_INDEX_BITS, PEER_KEY_MIN_BYTES};
-use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -197,13 +198,6 @@ enum CollaborationCommitOutcome {
     Stale,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "lowercase")]
-pub enum CollaborationExchangeMode {
-    Incremental,
-    Bootstrap,
-}
-
 /// A document's accepted state as one peer receives it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CollaborationAuthoringState {
@@ -218,6 +212,30 @@ pub struct CollaborationAuthoringState {
     /// the peer named is not this document's: the peer replaces what it holds
     /// with the update rather than adding the update to it.
     pub replaces_held: bool,
+}
+
+impl CollaborationAuthoringState {
+    /// The state as an authoring state delivers it to a writer that writes
+    /// the document under `peers`. The store accepts an import of the
+    /// document in either exchange mode.
+    pub fn into_authoring_state(self, peers: PeerBlock) -> AuthoringState {
+        AuthoringState {
+            schema_version: self.schema_version,
+            accepted_frontier_base64: self.accepted_frontier_base64,
+            update_base64: self.update_base64,
+            etag: self.etag,
+            exchange_modes: vec![
+                CollaborationExchangeMode::Incremental,
+                CollaborationExchangeMode::Bootstrap,
+            ],
+            peer_block: AuthoringPeerBlock {
+                nonce: peers.nonce,
+                base: peers.base.to_string(),
+                index_bits: PEER_INDEX_BITS,
+            },
+            replaces_held: self.replaces_held,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]

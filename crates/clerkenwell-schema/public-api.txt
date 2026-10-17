@@ -2,6 +2,34 @@
 # Types named from: clerkenwell_events
 
 use clerkenwell_schema::ActorKind = clerkenwell_events::ActorKind
+struct clerkenwell_schema::AuthoringPeerBlock
+derive clerkenwell_schema::AuthoringPeerBlock: Clone, Debug, Deserialize, Eq, JsonSchema, PartialEq, Serialize
+field clerkenwell_schema::AuthoringPeerBlock::base: String
+field clerkenwell_schema::AuthoringPeerBlock::index_bits: u32
+field clerkenwell_schema::AuthoringPeerBlock::nonce: String
+struct clerkenwell_schema::AuthoringState
+derive clerkenwell_schema::AuthoringState: Clone, Debug, Deserialize, Eq, JsonSchema, PartialEq, Serialize
+field clerkenwell_schema::AuthoringState::accepted_frontier_base64: String
+field clerkenwell_schema::AuthoringState::etag: String
+field clerkenwell_schema::AuthoringState::exchange_modes: Vec<CollaborationExchangeMode>
+field clerkenwell_schema::AuthoringState::peer_block: AuthoringPeerBlock
+field clerkenwell_schema::AuthoringState::replaces_held: bool
+field clerkenwell_schema::AuthoringState::schema_version: u32
+field clerkenwell_schema::AuthoringState::update_base64: String
+struct clerkenwell_schema::AuthoringStatePatch
+derive clerkenwell_schema::AuthoringStatePatch: Clone, Debug, Deserialize, Eq, JsonSchema, PartialEq, Serialize
+field clerkenwell_schema::AuthoringStatePatch::kind: AuthoringStatePatchKind
+fn clerkenwell_schema::AuthoringStatePatch::remove() -> Self
+fn clerkenwell_schema::AuthoringStatePatch::replace(state: AuthoringState) -> Self
+field clerkenwell_schema::AuthoringStatePatch::state: Option<AuthoringState>
+enum clerkenwell_schema::AuthoringStatePatchKind
+derive clerkenwell_schema::AuthoringStatePatchKind: Clone, Copy, Debug, Deserialize, Eq, JsonSchema, PartialEq, Serialize
+variant clerkenwell_schema::AuthoringStatePatchKind::Remove
+variant clerkenwell_schema::AuthoringStatePatchKind::Replace
+enum clerkenwell_schema::CollaborationExchangeMode
+derive clerkenwell_schema::CollaborationExchangeMode: Clone, Copy, Debug, Deserialize, Eq, JsonSchema, PartialEq, Serialize
+variant clerkenwell_schema::CollaborationExchangeMode::Bootstrap
+variant clerkenwell_schema::CollaborationExchangeMode::Incremental
 enum clerkenwell_schema::GeneratedAuthoringPolicyKind
 derive clerkenwell_schema::GeneratedAuthoringPolicyKind: Clone, Copy, Debug, Eq, PartialEq
 variant clerkenwell_schema::GeneratedAuthoringPolicyKind::Collaborative

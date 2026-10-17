@@ -6,8 +6,12 @@
  */
 
 import type {
+  AuthoringPeerBlock,
   AuthoringPlan,
+  AuthoringState,
+  AuthoringStatePatch,
   CollaborationEntityPlan as ClerkenwellCollaborationEntityPlan,
+  CollaborationExchangeMode,
   CollaborationPlanTextFieldPath,
   ProjectionCompositionPlan as ClerkenwellProjectionCompositionPlan
 } from "@clerkenwell/client";
@@ -17,6 +21,12 @@ export type {
   CollaborationStorageKind,
   CollaborationValueCodec
 } from "@clerkenwell/client";
+export type {
+  AuthoringPeerBlock,
+  AuthoringState,
+  AuthoringStatePatch,
+  CollaborationExchangeMode
+};
 export { resolveCollaborationContainer } from "@clerkenwell/client";
 
 export type NoteDocument = {
@@ -39,7 +49,7 @@ export type NoteMutationResult = {
 export type ReplicaUpdateParams = {
   "note_id": string;
   "operation_id": string;
-  "exchange_mode": "incremental" | "bootstrap";
+  "exchange_mode": CollaborationExchangeMode;
   "base_frontier_base64"?: string;
   "update_base64": string;
   "peer_nonces": string[];
@@ -53,29 +63,16 @@ export type ReplicaUpdateResult = {
   "missing_update_base64": string;
 };
 
-export type AuthoringState = {
-  "schema_version": number;
-  "accepted_frontier_base64": string;
-  "update_base64": string;
-  "etag": string;
-  "exchange_modes": ("incremental" | "bootstrap")[];
-  "peer_block": AuthoringPeerBlock;
-  "replaces_held": boolean;
-};
-
-export type AuthoringStatePatch = {
-  "kind": "replace" | "remove";
-  "state"?: AuthoringState;
-};
-
-export type AuthoringPeerBlock = {
-  "nonce": string;
-  "base": string;
-  "index_bits": number;
-};
-
 export type NoteAuthoringParams = {
   "note_id": string;
+};
+
+export type ClientNoteDocument = {
+  "noteId"?: string;
+  "etag"?: string;
+  "title": string;
+  "body": string;
+  "status": "draft" | "review" | "published";
 };
 
 export const NOTE_ENTITY = "Note";
@@ -276,4 +273,9 @@ export const COLLABORATION_PLANS = {
 export type CollaborationEntityName = keyof typeof COLLABORATION_PLANS;
 export type CollaborationFieldPath<TEntity extends CollaborationEntityName> = keyof (typeof COLLABORATION_PLANS)[TEntity]["fields"] & string;
 export type CollaborationTextFieldPath<TEntity extends CollaborationEntityName> = CollaborationPlanTextFieldPath<(typeof COLLABORATION_PLANS)[TEntity]>;
+
+/** Each collaborative entity's document as a TypeScript replica holds it. */
+export type CollaborationClientDocument<TEntity extends CollaborationEntityName> = {
+  "Note": ClientNoteDocument;
+}[TEntity];
 

@@ -51,3 +51,8 @@ fn typing_survives_the_consumption_of_captured_text() {
 fn both_languages_judge_concurrent_edits_alike_against_conflict_policy() {
     Conformance::start(&bindings()).conflict_policy();
 }
+
+#[test]
+fn every_document_typescript_materialises_is_a_value_of_its_client_document_type() {
+    Conformance::start(&bindings()).client_document_types();
+}

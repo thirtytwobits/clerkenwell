@@ -365,6 +365,20 @@
             }
           },
           {
+            "conflict": "explicit",
+            "path": "cover_image.alt_text",
+            "required": false,
+            "requiredInParent": true,
+            "storage": {
+              "container": "note",
+              "key": "cover_image.alt_text",
+              "kind": "scalar"
+            },
+            "value": {
+              "codec": "optionalString"
+            }
+          },
+          {
             "conflict": "immutable",
             "path": "created_at",
             "required": true,
@@ -774,6 +788,9 @@
         "file_name": {
           "type": "string"
         },
+        "preview": {
+          "$ref": "#/$defs/AttachmentPreview"
+        },
         "size_bytes": {
           "type": "integer"
         },
@@ -783,7 +800,24 @@
       },
       "required": [
         "file_name",
-        "size_bytes"
+        "size_bytes",
+        "preview"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "name": "AttachmentPreview",
+      "properties": {
+        "mime_type": {
+          "type": "string"
+        },
+        "page_count": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "mime_type"
       ],
       "type": "object"
     },
@@ -797,6 +831,8 @@
           "type": "string"
         },
         "index_bits": {
+          "maximum": 4294967295,
+          "minimum": 0,
           "type": "integer"
         },
         "nonce": {
@@ -825,11 +861,7 @@
         "exchange_modes": {
           "description": "How the store accepts an import of this document.",
           "items": {
-            "enum": [
-              "incremental",
-              "bootstrap"
-            ],
-            "type": "string"
+            "$ref": "#/$defs/CollaborationExchangeMode"
           },
           "type": "array"
         },
@@ -842,6 +874,8 @@
         },
         "schema_version": {
           "description": "The layout version the document's operations are written in.",
+          "maximum": 4294967295,
+          "minimum": 0,
           "type": "integer"
         },
         "update_base64": {
@@ -1029,6 +1063,15 @@
       "type": "object"
     },
     {
+      "description": "Whether an import creates a document (bootstrap) or edits one (incremental).",
+      "enum": [
+        "incremental",
+        "bootstrap"
+      ],
+      "name": "CollaborationExchangeMode",
+      "type": "string"
+    },
+    {
       "$ref": "#/$defs/TaskRecord",
       "name": "CurrentTask"
     },
@@ -1090,6 +1133,19 @@
       "required": [
         "title",
         "tags"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "name": "NoteCoverImage",
+      "properties": {
+        "alt_text": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "alt_text"
       ],
       "type": "object"
     },
@@ -1187,6 +1243,9 @@
         },
         "body": {
           "$ref": "#/$defs/MimeValue"
+        },
+        "cover_image": {
+          "$ref": "#/$defs/NoteCoverImage"
         },
         "created_at": {
           "type": "string"
@@ -1313,6 +1372,9 @@
           ],
           "type": "string"
         },
+        "panel_gap": {
+          "type": "integer"
+        },
         "panels": {
           "items": {
             "$ref": "#/$defs/NoteLayoutPanel"
@@ -1325,7 +1387,8 @@
         "columns",
         "grid",
         "mode",
-        "panels"
+        "panels",
+        "panel_gap"
       ],
       "type": "object"
     },

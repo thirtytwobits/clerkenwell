@@ -8,7 +8,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { CollaborationReplica, type CollaborationPeerBlock } from "@clerkenwell/client/replica";
+import type { AuthoringPeerBlock } from "@clerkenwell/client";
+import { CollaborationReplica } from "@clerkenwell/client/replica";
 import { decodeImportBlobMeta } from "loro-crdt";
 
 import { base64ToBytes } from "../src/binary.js";
@@ -22,11 +23,11 @@ function peersIn(updateBase64: string): string[] {
   return [...meta.partialEndVersionVector.toJSON().keys()].sort();
 }
 
-function peer(block: CollaborationPeerBlock, index: number): string {
+function peer(block: AuthoringPeerBlock, index: number): string {
   return (BigInt(block.base) + BigInt(index)).toString();
 }
 
-function noteReplica(block: CollaborationPeerBlock): CollaborationReplica<NoteDocument> {
+function noteReplica(block: AuthoringPeerBlock): CollaborationReplica<NoteDocument> {
   return CollaborationReplica.from("Note", NOTE_PLAN, { kind: "document", document: noteDocument() }, block);
 }
 
@@ -94,7 +95,7 @@ test("a block adopted again goes on from the peers it has given", () => {
 });
 
 test("a view the block has no peer left for is not attached", () => {
-  const block: CollaborationPeerBlock = { ...peerBlock(), index_bits: 0 };
+  const block: AuthoringPeerBlock = { ...peerBlock(), index_bits: 0 };
   const replica = noteReplica(block);
   let sent = 0;
 
@@ -105,7 +106,7 @@ test("a view the block has no peer left for is not attached", () => {
 });
 
 test("a replica refuses to write under more peers than its block holds", () => {
-  const block: CollaborationPeerBlock = { ...peerBlock(), index_bits: 1 };
+  const block: AuthoringPeerBlock = { ...peerBlock(), index_bits: 1 };
   const replica = noteReplica(block);
 
   replica.fork();

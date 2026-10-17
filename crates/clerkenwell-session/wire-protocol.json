@@ -22,6 +22,7 @@
       "type": "object"
     },
     "AuthoringPeerBlock": {
+      "additionalProperties": false,
       "properties": {
         "base": {
           "type": "string"
@@ -43,6 +44,7 @@
       "type": "object"
     },
     "AuthoringState": {
+      "additionalProperties": false,
       "properties": {
         "accepted_frontier_base64": {
           "type": "string"
@@ -81,6 +83,28 @@
         "replaces_held"
       ],
       "type": "object"
+    },
+    "AuthoringStatePatch": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "$ref": "#/$defs/AuthoringStatePatchKind"
+        },
+        "state": {
+          "$ref": "#/$defs/AuthoringState"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "type": "object"
+    },
+    "AuthoringStatePatchKind": {
+      "enum": [
+        "replace",
+        "remove"
+      ],
+      "type": "string"
     },
     "CollaborationExchangeMode": {
       "enum": [
@@ -378,6 +402,9 @@
   "authoring": {
     "held": {
       "$ref": "#/$defs/AuthoringHeld"
+    },
+    "patch": {
+      "$ref": "#/$defs/AuthoringStatePatch"
     },
     "state": {
       "$ref": "#/$defs/AuthoringState"

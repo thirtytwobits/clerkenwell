@@ -22,5 +22,6 @@ testing = []
 [dev-dependencies]
 clerkenwell-codegen = { path = ".", features = ["testing"] }
 clerkenwell-notebook = { path = "../clerkenwell-notebook" }
+clerkenwell-schema = { path = "../clerkenwell-schema" }
 schemars.workspace = true
 tempfile.workspace = true

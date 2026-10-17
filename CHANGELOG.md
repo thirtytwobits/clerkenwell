@@ -4,6 +4,61 @@ Each release's section is the notes of its GitHub release. A release that change
 lists each change under **Breaking**; `cargo run -p clerkenwell-release -- breaking --help`
 names the contracts.
 
+## 0.6.0
+
+### Breaking
+
+- `clerkenwell-schema` owns the authoring state's wire types: `AuthoringState`,
+  `AuthoringStatePatch`, `AuthoringStatePatchKind`, `AuthoringPeerBlock` and
+  `CollaborationExchangeMode` (#73). It depends on serde and schemars. Generated Rust
+  re-exports these types, where it declared `AuthoringState`, `AuthoringStatePatch`,
+  `AuthoringPeerBlock`, `AuthoringStateExchangeModes` and `AuthoringStatePatchKind` of its own:
+  `schema_version` and `index_bits` are `u32`, and `exchange_modes` holds
+  `CollaborationExchangeMode` values.
+- `clerkenwell_session::AuthoringState` and `clerkenwell_session::AuthoringPeerBlock` are
+  removed; the session delivers `clerkenwell_schema`'s types. Its wire record adds the
+  authoring-state patch, and the authoring state and its peer block refuse members they do not
+  declare. A patch's `state` is absent or an authoring state, never `null`.
+- `clerkenwell_store::CollaborationExchangeMode` is removed; `CollaborationImportRequest` takes
+  `clerkenwell_schema`'s. `CollaborationAuthoringState::into_authoring_state` gives a read as an
+  authoring state delivers it to the writer of a `PeerBlock`.
+- The generator declares `CollaborationExchangeMode` beside the authoring state, and a
+  definition may reference it but not declare it. The authoring state's `schema_version` and
+  `index_bits` carry the bounds of `u32`.
+- `@clerkenwell/client` exports `AuthoringState`, `AuthoringStatePatch`, `AuthoringPeerBlock` and
+  `CollaborationExchangeMode`, and generated TypeScript re-exports them where it declared its
+  own. Replicas take an `AuthoringPeerBlock`, and `@clerkenwell/client/replica`'s
+  `CollaborationPeerBlock` is removed. `AuthoringExchangeMode` is a `CollaborationExchangeMode`
+  or `optimisticDocument`.
+- `clerkenwell-codegen` refuses a definition whose client spelling is ambiguous: an object two
+  of whose members client documents spell alike, or a member one field holds in wire spelling
+  while another respells it differently. It refuses a `$defs` entry named as a client document
+  type.
+- `clerkenwell-conformance` adds `Conformance::client_document_types`: TypeScript materialises
+  each fixture document, and the document after each fixture edit, and the TypeScript compiler
+  checks each against its entity's client document type. It needs `typescript` installed in the
+  project it runs in.
+
+### Added
+
+- The generated TypeScript module declares `Client<Name>` for each `$defs` entry a
+  collaborative document holds in client spelling, and `CollaborationClientDocument<TEntity>`
+  for each collaborative entity's document (#74). A member stored whole as a structured map, a
+  structured document or property text has its wire type. A `derivedIdentity` member at the
+  document root, and every `derivedRevision` member, is optional: a replica does not always
+  materialise them. So is an object member no field beneath which is in every document, since a
+  replica writes an object only beneath a field it writes.
+
+### Fixed
+
+- `@clerkenwell/client` respells the keys of a structured list's entries at every depth. An
+  object in an array nested in an array kept its wire spelling.
+- The collaboration fixtures' `clientDocument` keeps the wire spelling of structured maps,
+  structured documents and property text, as a replica does, and `clerkenwell-conformance`
+  respells a structured list's entries at every depth.
+- The collaboration fixtures keep the enum values and union tags inside structured values, and
+  the fixture scalar edit writes a value of its field's type.
+
 ## 0.5.0
 
 ### Breaking

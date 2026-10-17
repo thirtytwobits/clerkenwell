@@ -5,6 +5,7 @@
  * the controllers an application edits a session through.
  */
 
+import type { CollaborationExchangeMode } from "./authoring-state.js";
 import type { TextBinding } from "./text-binding.js";
 
 export type AuthoringSessionStatus =
@@ -23,10 +24,8 @@ export type AuthoringSessionStatus =
   | "resyncRequired"
   | "recoveryRequired";
 
-export type AuthoringExchangeMode =
-  | "incremental"
-  | "bootstrap"
-  | "optimisticDocument";
+/** A collaborative exchange mode, or `optimisticDocument` for a session of an optimistic document. */
+export type AuthoringExchangeMode = CollaborationExchangeMode | "optimisticDocument";
 
 export interface AuthoringResourceIdentity {
   entity: string;

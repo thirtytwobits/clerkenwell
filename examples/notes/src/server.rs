@@ -12,14 +12,15 @@ use axum::http::request::Parts;
 use clerkenwell_axum::RpcFailure;
 use clerkenwell_doc::CollaborationReplica;
 use clerkenwell_events::{ActorKind, Principal};
+use clerkenwell_schema::CollaborationExchangeMode;
 use clerkenwell_session::transport::ProjectionErrorCode;
 use clerkenwell_session::{
     AuthoringStates, Held, ProjectionFailure, ProjectionHost, ProjectionRefusal,
     ProjectionRegistry, ProjectionSubscription,
 };
 use clerkenwell_store::{
-    CollaborationDocumentId, CollaborationExchangeMode, CollaborationImportRequest,
-    CollaborationService, CollaborationStores, ImportFence, StoreError,
+    CollaborationDocumentId, CollaborationImportRequest, CollaborationService, CollaborationStores,
+    ImportFence, StoreError,
 };
 use serde::de::DeserializeOwned;
 use serde_json::{json, Value};
@@ -27,9 +28,9 @@ use serde_json::{json, Value};
 use crate::model::{
     NoteCreateParams, NoteMutationResult, ProjectionTransportMutationResult,
     ProjectionTransportPatch, ProjectionTransportSnapshot, ReplicaUpdateParams,
-    ReplicaUpdateParamsExchangeMode, ReplicaUpdateResult, GENERATED_COLLABORATION_SPECS,
-    GENERATED_ENTITY_AUTHORING_SPECS, GENERATED_MUTATION_SPECS, GENERATED_PROJECTION_SPECS,
-    NOTE_CREATE_MUTATION, NOTE_IMPORT_UPDATE_MUTATION,
+    ReplicaUpdateResult, GENERATED_COLLABORATION_SPECS, GENERATED_ENTITY_AUTHORING_SPECS,
+    GENERATED_MUTATION_SPECS, GENERATED_PROJECTION_SPECS, NOTE_CREATE_MUTATION,
+    NOTE_IMPORT_UPDATE_MUTATION,
 };
 use crate::storage::MemoryStorage;
 use crate::{peer_key, validate, COMMIT_POLICY, NOTE};
@@ -128,20 +129,17 @@ impl NotesServer {
         principal: &Principal,
         params: ReplicaUpdateParams,
     ) -> Result<ReplicaUpdateResult, RpcFailure> {
-        let (exchange_mode, base_frontier_base64) = match params.exchange_mode {
-            ReplicaUpdateParamsExchangeMode::Bootstrap => {
-                (CollaborationExchangeMode::Bootstrap, String::new())
-            }
-            ReplicaUpdateParamsExchangeMode::Incremental => (
-                CollaborationExchangeMode::Incremental,
+        let base_frontier_base64 = match params.exchange_mode {
+            CollaborationExchangeMode::Bootstrap => String::new(),
+            CollaborationExchangeMode::Incremental => {
                 params.base_frontier_base64.ok_or_else(|| {
                     RpcFailure::new(
                         ProjectionErrorCode::InvalidParams,
                         "An incremental update names the frontier it extends.",
                         None,
                     )
-                })?,
-            ),
+                })?
+            }
         };
         let imported = self
             .service
@@ -151,7 +149,7 @@ impl NotesServer {
                     document: note(&params.note_id),
                     schema_version: NOTE.schema_version,
                     operation_id: params.operation_id,
-                    exchange_mode,
+                    exchange_mode: params.exchange_mode,
                     base_frontier_base64,
                     update_base64: params.update_base64,
                     fence: ImportFence::Frontier,
