@@ -19,9 +19,9 @@ use clerkenwell_session::transport::{
     PROJECTION_MUTATE_METHOD, PROJECTION_SUBSCRIBE_METHOD,
 };
 use clerkenwell_session::{
-    publish, resync_all, serve, serve_request, Accepted, Held, ProjectionFailure, ProjectionHost,
-    ProjectionRefusal, ProjectionRegistry, ProjectionReply, ProjectionRequest,
-    ProjectionSubscription, ProjectionSubscriptions,
+    answer_command, decode_request, publish, resync_all, run_command, serve, serve_request,
+    Accepted, Held, ProjectionFailure, ProjectionHost, ProjectionRefusal, ProjectionRegistry,
+    ProjectionReply, ProjectionRequest, ProjectionSubscription, ProjectionSubscriptions,
 };
 use serde_json::{json, Value};
 
@@ -992,4 +992,80 @@ fn resyncing_a_connection_sends_every_subscription_a_snapshot() {
         diagnostics.last_resync_reason.as_deref(),
         Some("broadcastLag")
     );
+}
+
+#[test]
+fn a_command_runs_without_touching_a_subscription_and_is_answered_once_run() {
+    let host = Notes::new();
+    let (notes, _) = subscribe(&host, "notes.list", None);
+    let writer = Principal::new("writer", ActorKind::Human);
+
+    let ran = block_on(run_command(
+        &host,
+        &writer,
+        ProjectionCommandRequest {
+            command: "note.archive".to_owned(),
+            operation_id: Some("archive-op".to_owned()),
+            params: json!({}),
+        },
+    ))
+    .expect("archive");
+
+    assert_eq!(*host.commanded_by.lock().expect("principals"), [writer]);
+    assert!(host.command_patches_asked().is_empty());
+    assert_eq!(
+        host.subscription(notes.subscription_id).revision,
+        notes.revision
+    );
+
+    let reply = block_on(answer_command(&host, &host.subscriptions, ran)).expect("answer");
+    let accepted: ProjectionCommandAccepted<Value> =
+        serde_json::from_value(reply.result).expect("an accepted command");
+    assert_eq!(accepted.operation_id.as_deref(), Some("archive-op"));
+    assert_eq!(
+        patch_spans(&reply.events),
+        [(notes.subscription_id, notes.revision, accepted.revision)]
+    );
+    assert!(matches!(reply.accepted, Some(Accepted::Command { .. })));
+}
+
+#[test]
+fn a_command_run_apart_from_its_connection_is_refused_addressed_to_it() {
+    let host = Notes::new();
+
+    let failure = block_on(run_command(
+        &host,
+        &Principal::new("writer", ActorKind::Human),
+        ProjectionCommandRequest {
+            command: "note.explode".to_owned(),
+            operation_id: None,
+            params: json!({}),
+        },
+    ))
+    .expect_err("an unknown command");
+
+    let envelope = envelope(&failure);
+    assert_eq!(envelope.code, ProjectionErrorCode::UnknownCommand);
+    assert_eq!(envelope.operation, ProjectionOperation::Command);
+    assert_eq!(envelope.name.as_deref(), Some("note.explode"));
+}
+
+#[test]
+fn a_decoded_request_is_refused_addressed_to_its_operation_when_its_params_do_not_decode() {
+    assert!(decode_request::<Failure>("session.list", Some(json!({}))).is_none());
+
+    let decoded = decode_request::<Failure>(
+        PROJECTION_COMMAND_METHOD,
+        Some(json!({ "command": "note.count", "params": {} })),
+    )
+    .expect("a protocol method")
+    .expect("valid params");
+    assert_eq!(decoded.name(), Some("note.count"));
+
+    let failure = decode_request::<Failure>(PROJECTION_COMMAND_METHOD, None)
+        .expect("a protocol method")
+        .expect_err("missing params");
+    let envelope = envelope(&failure);
+    assert_eq!(envelope.code, ProjectionErrorCode::InvalidParams);
+    assert_eq!(envelope.operation, ProjectionOperation::Command);
 }

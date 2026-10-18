@@ -6,6 +6,11 @@
 //! `projection.update` notification. A mutation the reply accepted, or a
 //! command it served, reaches the subscriptions of every other connection
 //! through [`publish`].
+//!
+//! A transport that serves a connection's commands while it serves the
+//! connection's other requests decodes each request with [`decode_request`],
+//! runs each command with [`run_command`], which reads and changes no
+//! subscription, and answers it with [`answer_command`] once it has run.
 
 use std::future::Future;
 use std::sync::{Mutex, PoisonError};
@@ -261,11 +266,65 @@ where
     H: ProjectionHost,
     C: ProjectionConnection<H::Patch, Held<H::Delivery>>,
 {
-    let operation = ProjectionOperation::for_method(method)?;
-    Some(match ProjectionRequest::decode(method, params)? {
+    Some(match decode_request(method, params)? {
         Ok(request) => serve(host, connection, request).await,
-        Err(refusal) => Err(addressed(H::Failure::refused(refusal), operation, None)),
+        Err(failure) => Err(failure),
     })
+}
+
+/// The request `method` names with `params`, or `None` when the method is
+/// not part of the protocol. A request whose params do not decode is refused,
+/// addressed to its operation.
+pub fn decode_request<F: ProjectionFailure>(
+    method: &str,
+    params: Option<Value>,
+) -> Option<Result<ProjectionRequest, F>> {
+    let operation = ProjectionOperation::for_method(method)?;
+    Some(
+        ProjectionRequest::decode(method, params)?
+            .map_err(|refusal| addressed(F::refused(refusal), operation, None)),
+    )
+}
+
+/// A command its host ran, for its connection to answer.
+#[derive(Debug, Clone, PartialEq)]
+pub struct RanCommand<C> {
+    pub command: String,
+    pub operation_id: Option<String>,
+    pub result: C,
+}
+
+/// Runs the command `request` names as `principal`, the principal the host
+/// authenticated the request's connection as. It reads and changes no
+/// subscription. A failure reaches its client described by a
+/// [`ProjectionErrorEnvelope`] addressed to the command.
+pub async fn run_command<H: ProjectionHost>(
+    host: &H,
+    principal: &Principal,
+    request: ProjectionCommandRequest,
+) -> Result<RanCommand<H::CommandResult>, H::Failure> {
+    let name = request.command.clone();
+    execute_command(host, principal, request)
+        .await
+        .map_err(|failure| addressed(failure, ProjectionOperation::Command, Some(&name)))
+}
+
+/// Sends the subscriptions on `connection` the patches the command `ran`
+/// brings them, and answers it. A failure reaches its client described by a
+/// [`ProjectionErrorEnvelope`] addressed to the command.
+pub async fn answer_command<H, C>(
+    host: &H,
+    connection: &C,
+    ran: RanCommand<H::CommandResult>,
+) -> Result<Reply<H>, H::Failure>
+where
+    H: ProjectionHost,
+    C: ProjectionConnection<H::Patch, Held<H::Delivery>>,
+{
+    let name = ran.command.clone();
+    reply_to_command(host, connection, ran)
+        .await
+        .map_err(|failure| addressed(failure, ProjectionOperation::Command, Some(&name)))
 }
 
 /// Serves one request on `connection`. A failure reaches its client described
@@ -287,7 +346,13 @@ where
         ProjectionRequest::Resync(request) => resync(host, connection, request).await,
         ProjectionRequest::Unsubscribe(request) => unsubscribe::<H, C>(connection, request).await,
         ProjectionRequest::Mutate(request) => mutate(host, connection, request).await,
-        ProjectionRequest::Command(request) => command(host, connection, request).await,
+        ProjectionRequest::Command(request) => {
+            let principal = principal_of(connection).await;
+            match execute_command(host, &principal, request).await {
+                Ok(ran) => reply_to_command(host, connection, ran).await,
+                Err(failure) => Err(failure),
+            }
+        }
     };
     let outcome = outcome.map_err(|failure| addressed(failure, operation, name.as_deref()));
     if operation == ProjectionOperation::Mutate {
@@ -717,15 +782,11 @@ where
     })
 }
 
-async fn command<H, C>(
+async fn execute_command<H: ProjectionHost>(
     host: &H,
-    connection: &C,
+    principal: &Principal,
     request: ProjectionCommandRequest,
-) -> Result<Reply<H>, H::Failure>
-where
-    H: ProjectionHost,
-    C: ProjectionConnection<H::Patch, Held<H::Delivery>>,
-{
+) -> Result<RanCommand<H::CommandResult>, H::Failure> {
     let command = request.command;
     if host.registry().command(&command).is_none() {
         return Err(H::Failure::refused(ProjectionRefusal::new(
@@ -734,13 +795,31 @@ where
             Some(json!({ "command": command })),
         )));
     }
-    let principal = principal_of(connection).await;
-    let result = host.command(&principal, &command, request.params).await?;
-    let encoded = encode::<H, _>(&result)?;
-    let accepted = Accepted::Command { command, result };
+    let result = host.command(principal, &command, request.params).await?;
+    Ok(RanCommand {
+        command,
+        operation_id: request.operation_id,
+        result,
+    })
+}
+
+async fn reply_to_command<H, C>(
+    host: &H,
+    connection: &C,
+    ran: RanCommand<H::CommandResult>,
+) -> Result<Reply<H>, H::Failure>
+where
+    H: ProjectionHost,
+    C: ProjectionConnection<H::Patch, Held<H::Delivery>>,
+{
+    let encoded = encode::<H, _>(&ran.result)?;
+    let accepted = Accepted::Command {
+        command: ran.command,
+        result: ran.result,
+    };
     let (revision, events) = publish(host, connection, &accepted).await;
     let reply = ProjectionCommandAccepted {
-        operation_id: request.operation_id,
+        operation_id: ran.operation_id,
         revision,
         result: encoded,
     };

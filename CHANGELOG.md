@@ -43,6 +43,15 @@ names the contracts.
   `ProjectionCommandAccepted`, `CommandContract`, `CommandName`, `CommandParams`,
   `CommandResult` and `ProjectionTransportCommandResult`. `ProjectionErrorCode` and
   `ProjectionErrorEnvelope.operation` take the command refusals and operation.
+- `clerkenwell-axum` runs each command while its connection serves the connection's other
+  requests and updates. It answers the command by its id once it has run, followed by the
+  updates the command sends its own connection; every other request is served in the order it
+  arrives. A command still running when its connection closes runs on, and its change reaches
+  every other connection. A command whose run ends without a result is refused with
+  `internal_error`.
+- `clerkenwell-session` exports `decode_request`, `run_command`, `answer_command` and
+  `RanCommand`, for a transport that runs a connection's commands alongside its other requests.
+  `run_command` reads and changes no subscription.
 
 ## 0.7.0
 

@@ -2,7 +2,7 @@
 
 use std::collections::HashMap;
 use std::num::NonZeroUsize;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use clerkenwell_axum::{ProjectionServer, RpcFailure};
@@ -44,10 +44,12 @@ static COMMANDS: &[GeneratedCommandSpec] = &[GeneratedCommandSpec {
 static REGISTRY: ProjectionRegistry =
     ProjectionRegistry::new(PROJECTIONS, MUTATIONS, COMMANDS, &[]);
 
-/// Counters by id, and a projection whose snapshot waits to be released.
+/// Counters by id, a projection whose snapshot waits to be released, and
+/// gates a command waits at until the test opens them.
 struct Counters {
     values: Mutex<HashMap<String, u64>>,
     released: Semaphore,
+    gates: Mutex<HashMap<String, Arc<Semaphore>>>,
 }
 
 impl Default for Counters {
@@ -55,7 +57,25 @@ impl Default for Counters {
         Self {
             values: Mutex::default(),
             released: Semaphore::new(0),
+            gates: Mutex::default(),
         }
+    }
+}
+
+impl Counters {
+    /// The gate `name`, closed until it is opened.
+    fn gate(&self, name: &str) -> Arc<Semaphore> {
+        Arc::clone(
+            self.gates
+                .lock()
+                .expect("gates")
+                .entry(name.to_owned())
+                .or_insert_with(|| Arc::new(Semaphore::new(0))),
+        )
+    }
+
+    fn open(&self, name: &str) {
+        self.gate(name).add_permits(1);
     }
 }
 
@@ -143,6 +163,10 @@ impl ProjectionHost for Counters {
         _command: &str,
         params: Value,
     ) -> Result<Value, RpcFailure> {
+        if let Some(gate) = params["gate"].as_str() {
+            let _opened = self.gate(gate).acquire_owned().await.expect("the gate");
+        }
+        assert!(params.get("fail").is_none(), "the command failed");
         let id = counter_id(&params)?;
         self.values.lock().expect("values").insert(id.clone(), 0);
         Ok(json!({ "counter_id": id, "value": 0, "by": principal.id }))
@@ -274,6 +298,19 @@ async fn reset(socket: &mut Socket, id: u64, counter: &str) -> Value {
     let response = next(socket).await;
     assert_eq!(response["id"], json!(id), "{response}");
     response["result"].clone()
+}
+
+async fn reset_at_gate(socket: &mut Socket, id: u64, counter: &str, gate: &str) {
+    request(
+        socket,
+        id,
+        "projection.command",
+        json!({
+            "command": "counter.reset",
+            "params": { "counter_id": counter, "gate": gate },
+        }),
+    )
+    .await;
 }
 
 fn update(frame: &Value) -> &Value {
@@ -441,6 +478,107 @@ async fn a_command_on_one_connection_patches_a_subscription_on_another() {
     assert_eq!(patch["subscription_id"], accepted["subscription_id"]);
     assert_eq!(patch["from_revision"], incremented["to_revision"]);
     assert_eq!(patch["patch"]["value"], reset["result"]["value"]);
+}
+
+#[tokio::test]
+async fn a_running_command_holds_back_none_of_its_connections_requests_or_updates() {
+    let (url, server) = start(8).await;
+    let mut socket = connect(&url).await;
+    let mut other = connect(&url).await;
+    subscribe(
+        &mut socket,
+        1,
+        "counters.value",
+        json!({ "counter_id": "a" }),
+    )
+    .await;
+    next(&mut socket).await;
+    reset_at_gate(&mut socket, 2, "a", "reset").await;
+
+    let incremented = increment(&mut socket, 3, "a").await;
+    let own = next(&mut socket).await;
+    assert_eq!(update(&own)["to_revision"], incremented["revision"]);
+    increment(&mut other, 1, "a").await;
+    let theirs = next(&mut socket).await;
+    let theirs = update(&theirs);
+    server.application().open("reset");
+
+    let response = next(&mut socket).await;
+    assert_eq!(response["id"], json!(2), "{response}");
+    let patch = next(&mut socket).await;
+    let patch = update(&patch);
+    assert_eq!(patch["from_revision"], theirs["to_revision"]);
+    assert_eq!(patch["to_revision"], response["result"]["revision"]);
+    assert_eq!(
+        patch["patch"]["value"],
+        response["result"]["result"]["value"]
+    );
+}
+
+#[tokio::test]
+async fn commands_are_answered_by_their_ids_in_the_order_they_finish() {
+    let (url, server) = start(8).await;
+    let mut socket = connect(&url).await;
+    reset_at_gate(&mut socket, 1, "x", "first").await;
+    reset_at_gate(&mut socket, 2, "y", "second").await;
+
+    server.application().open("second");
+    let second = next(&mut socket).await;
+    server.application().open("first");
+    let first = next(&mut socket).await;
+
+    assert_eq!(second["id"], json!(2), "{second}");
+    assert_eq!(second["result"]["result"]["counter_id"], "y");
+    assert_eq!(first["id"], json!(1), "{first}");
+    assert_eq!(first["result"]["result"]["counter_id"], "x");
+}
+
+#[tokio::test]
+async fn a_command_running_when_its_connection_closes_still_reaches_other_connections() {
+    let (url, server) = start(8).await;
+    let mut reader = connect(&url).await;
+    let mut writer = connect(&url).await;
+    subscribe(
+        &mut reader,
+        1,
+        "counters.value",
+        json!({ "counter_id": "a" }),
+    )
+    .await;
+    next(&mut reader).await;
+    increment(&mut writer, 1, "a").await;
+    let incremented = next(&mut reader).await;
+    let incremented = update(&incremented);
+
+    reset_at_gate(&mut writer, 2, "a", "reset").await;
+    writer.close(None).await.expect("close");
+    server.application().open("reset");
+
+    let patch = next(&mut reader).await;
+    let patch = update(&patch);
+    assert_eq!(patch["from_revision"], incremented["to_revision"]);
+    assert_ne!(patch["patch"]["value"], incremented["patch"]["value"]);
+}
+
+#[tokio::test]
+async fn a_command_whose_run_ends_without_a_result_is_refused_addressed_to_it() {
+    let (url, _) = start(8).await;
+    let mut socket = connect(&url).await;
+
+    request(
+        &mut socket,
+        1,
+        "projection.command",
+        json!({ "command": "counter.reset", "params": { "counter_id": "a", "fail": true } }),
+    )
+    .await;
+
+    let response = next(&mut socket).await;
+    assert_eq!(response["id"], json!(1));
+    let data = &response["error"]["data"];
+    assert_eq!(data["code"], "internal_error");
+    assert_eq!(data["projection_error"]["operation"], "command");
+    assert_eq!(data["projection_error"]["name"], "counter.reset");
 }
 
 #[tokio::test]

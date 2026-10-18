@@ -3,12 +3,17 @@
 //!
 //! The application authenticates each connection as a principal; every
 //! request on it is made as that principal. Each connection keeps its own
-//! subscriptions. A mutation one connection
-//! makes, or a command it runs, reaches the subscriptions of every other
-//! connection, and each change
-//! a store announces reaches every connection's authoring-state
-//! subscriptions. A connection that falls behind takes a snapshot for each of
-//! its subscriptions.
+//! subscriptions. A mutation one connection makes, or a command it runs,
+//! reaches the subscriptions of every other connection, and each change a
+//! store announces reaches every connection's authoring-state subscriptions.
+//! A connection that falls behind takes a snapshot for each of its
+//! subscriptions.
+//!
+//! A connection serves every request in the order it arrives, except that a
+//! command runs while the connection serves its other requests and updates.
+//! A command's response, and the updates it sends its own connection, follow
+//! once it has run. A command still running when its connection closes runs
+//! on, and its change reaches every other connection.
 
 use std::num::NonZeroUsize;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -22,13 +27,15 @@ use axum::routing::get;
 use axum::Router;
 use clerkenwell_events::{ChangeEvent, Principal};
 use clerkenwell_session::transport::{
-    ProjectionErrorCode, ProjectionErrorEnvelope, ProjectionTransportEvent,
-    PROJECTION_UPDATE_NOTIFICATION,
+    ProjectionCommandRequest, ProjectionErrorCode, ProjectionErrorEnvelope, ProjectionOperation,
+    ProjectionTransportEvent, PROJECTION_UPDATE_NOTIFICATION,
 };
 use clerkenwell_session::{
-    deliver_change, publish, resync_all, serve_request, Accepted, Held, ProjectionFailure,
-    ProjectionHost, ProjectionRefusal, ProjectionSubscriptions,
+    answer_command, decode_request, deliver_change, publish, resync_all, run_command, serve,
+    Accepted, Held, ProjectionFailure, ProjectionHost, ProjectionRefusal, ProjectionReply,
+    ProjectionRequest, ProjectionSubscriptions,
 };
+use futures_util::stream::FuturesUnordered;
 use futures_util::{SinkExt, StreamExt};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -195,6 +202,25 @@ type Subscriptions<A> = Mutex<
     ProjectionSubscriptions<<A as ProjectionHost>::Patch, Held<<A as ProjectionHost>::Delivery>>,
 >;
 
+type Reply<A> = ProjectionReply<
+    <A as ProjectionHost>::Snapshot,
+    <A as ProjectionHost>::Patch,
+    <A as ProjectionHost>::MutationResult,
+    <A as ProjectionHost>::CommandResult,
+>;
+
+/// What a request frame asks of its connection.
+enum Received {
+    /// The frames that answer it.
+    Answered(Vec<String>),
+    /// A command to run while the connection serves its other requests, and
+    /// the id its response answers.
+    Command {
+        id: Option<Value>,
+        request: ProjectionCommandRequest,
+    },
+}
+
 /// Serves an application's projections to every connection.
 pub struct ProjectionServer<A: ProjectionHost> {
     application: A,
@@ -268,19 +294,41 @@ where
     /// Serves one WebSocket, authenticated as `principal`, until it closes.
     pub async fn serve_socket(self: Arc<Self>, socket: WebSocket, principal: Principal) {
         let origin = self.connections.fetch_add(1, Ordering::Relaxed);
-        let subscriptions: Subscriptions<A> = Mutex::new(ProjectionSubscriptions::new(principal));
+        let subscriptions: Subscriptions<A> =
+            Mutex::new(ProjectionSubscriptions::new(principal.clone()));
         let mut published = self.published.subscribe();
         let mut changes = self.changes.subscribe();
+        let mut running = FuturesUnordered::new();
         let (mut sink, mut stream) = socket.split();
-        loop {
+        'serving: loop {
             let frames = tokio::select! {
                 message = stream.next() => match message {
                     Some(Ok(Message::Text(text))) => {
-                        self.answer(origin, &subscriptions, text.as_str()).await
+                        match self.receive(origin, &subscriptions, text.as_str()).await {
+                            Received::Answered(frames) => frames,
+                            Received::Command { id, request } => {
+                                let name = request.command.clone();
+                                let server = Arc::clone(&self);
+                                let principal = principal.clone();
+                                let command = tokio::spawn(async move {
+                                    run_command(&server.application, &principal, request).await
+                                });
+                                running.push(async move { (id, name, command.await) });
+                                continue;
+                            }
+                        }
                     }
                     Some(Ok(Message::Close(_))) | Some(Err(_)) | None => break,
                     Some(Ok(_)) => continue,
                 },
+                Some((id, name, ran)) = running.next(), if !running.is_empty() => {
+                    let answered = match ran {
+                        Ok(Ok(ran)) => answer_command(&self.application, &subscriptions, ran).await,
+                        Ok(Err(failure)) => Err(failure),
+                        Err(_) => Err(unfinished(&name)),
+                    };
+                    self.respond(origin, id, answered)
+                }
                 publication = published.recv() => {
                     let events = match publication {
                         Ok(publication) if publication.origin == origin => continue,
@@ -315,56 +363,78 @@ where
             };
             for frame in frames {
                 if sink.send(Message::Text(frame.into())).await.is_err() {
-                    return;
+                    break 'serving;
                 }
             }
         }
+        if !running.is_empty() {
+            let published = self.published.clone();
+            tokio::spawn(async move {
+                while let Some((_, _, ran)) = running.next().await {
+                    if let Ok(Ok(ran)) = ran {
+                        let change = Accepted::Command {
+                            command: ran.command,
+                            result: ran.result,
+                        };
+                        // No other connection is listening when the send fails.
+                        let _ = published.send(Arc::new(Publication { origin, change }));
+                    }
+                }
+            });
+        }
     }
 
-    /// The frames that answer one request: its response, when it has an id,
-    /// then the updates it sends.
-    async fn answer(
-        &self,
-        origin: u64,
-        subscriptions: &Subscriptions<A>,
-        text: &str,
-    ) -> Vec<String> {
+    /// What one request frame asks of its connection.
+    async fn receive(&self, origin: u64, subscriptions: &Subscriptions<A>, text: &str) -> Received {
         let request = match serde_json::from_str::<Request>(text) {
             Ok(request) => request,
             Err(error) => {
-                return vec![frame(
+                return Received::Answered(vec![frame(
                     Value::Null,
                     Err::<Value, _>(ErrorObject::framing(PARSE_ERROR, error.to_string())),
-                )]
+                )])
             }
         };
         let id = request.id.clone();
         if request.jsonrpc != "2.0" {
-            return vec![frame(
+            return Received::Answered(vec![frame(
                 id.unwrap_or(Value::Null),
                 Err::<Value, _>(ErrorObject::framing(
                     INVALID_REQUEST,
                     "Only JSON-RPC 2.0 requests are served.",
                 )),
-            )];
+            )]);
         }
-        let served = serve_request(
-            &self.application,
-            subscriptions,
-            &request.method,
-            request.params,
-        )
-        .await;
-        let (response, events) = match served {
-            None => (
-                Err(ErrorObject::framing(
+        let served = match decode_request::<RpcFailure>(&request.method, request.params) {
+            None => {
+                let error = ErrorObject::framing(
                     METHOD_NOT_FOUND,
                     format!("Unknown method \"{}\".", request.method),
-                )),
-                Vec::new(),
-            ),
-            Some(Err(failure)) => (Err(failure.error_object()), Vec::new()),
-            Some(Ok(reply)) => {
+                );
+                let response = id.map(|id| frame(id, Err::<Value, _>(error)));
+                return Received::Answered(response.into_iter().collect());
+            }
+            Some(Ok(ProjectionRequest::Command(request))) => {
+                return Received::Command { id, request };
+            }
+            Some(Ok(request)) => serve(&self.application, subscriptions, request).await,
+            Some(Err(failure)) => Err(failure),
+        };
+        Received::Answered(self.respond(origin, id, served))
+    }
+
+    /// The frames that answer a served request: its response, when it has an
+    /// id, then the updates it sends. The mutation it accepted, or the
+    /// command it ran, goes to every other connection.
+    fn respond(
+        &self,
+        origin: u64,
+        id: Option<Value>,
+        served: Result<Reply<A>, RpcFailure>,
+    ) -> Vec<String> {
+        let (response, events) = match served {
+            Err(failure) => (Err(failure.error_object()), Vec::new()),
+            Ok(reply) => {
                 if let Some(change) = reply.accepted {
                     // No other connection is listening when the send fails.
                     let _ = self
@@ -381,6 +451,20 @@ where
         frames.extend(events.iter().filter_map(notification));
         frames
     }
+}
+
+/// The refusal of a command whose run ended without a result.
+fn unfinished(command: &str) -> RpcFailure {
+    let message = format!("The command \"{command}\" ended without a result.");
+    RpcFailure::new(ProjectionErrorCode::InternalError, message.clone(), None).described(
+        ProjectionErrorEnvelope::new(
+            ProjectionErrorCode::InternalError,
+            message,
+            ProjectionOperation::Command,
+            Some(command),
+            None,
+        ),
+    )
 }
 
 /// The response frame that answers the request `id`.
