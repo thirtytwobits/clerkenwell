@@ -4,15 +4,16 @@
 //! The application authenticates each connection as a principal; every
 //! request on it is made as that principal. Each connection keeps its own
 //! subscriptions. A mutation one connection makes, or a command it runs,
-//! reaches the subscriptions of every other connection, and each change a
-//! store announces reaches every connection's authoring-state subscriptions.
+//! reaches the subscriptions of every other connection; each change the
+//! application announces reaches every connection's subscriptions, and each
+//! change a store announces every connection's authoring-state subscriptions.
 //! A connection that falls behind takes a snapshot for each of its
 //! subscriptions.
 //!
 //! A connection serves every request in the order it arrives, except that a
 //! command runs while the connection serves its other requests and updates.
 //! A command's response, and the updates it sends its own connection, follow
-//! once it has run. A command still running when its connection closes runs
+//! once it has run, after the changes it announced while it ran. A command still running when its connection closes runs
 //! on, and its change reaches every other connection.
 
 use std::num::NonZeroUsize;
@@ -31,17 +32,19 @@ use clerkenwell_session::transport::{
     ProjectionTransportEvent, PROJECTION_UPDATE_NOTIFICATION,
 };
 use clerkenwell_session::{
-    answer_command, decode_request, deliver_change, publish, resync_all, run_command, serve,
-    Accepted, Held, ProjectionFailure, ProjectionHost, ProjectionRefusal, ProjectionReply,
-    ProjectionRequest, ProjectionSubscriptions,
+    answer_command, decode_request, deliver_announcement, deliver_change, publish, resync_all,
+    run_command, serve, Accepted, Announced, Held, ProjectionFailure, ProjectionHost,
+    ProjectionRefusal, ProjectionReply, ProjectionRequest, ProjectionSubscriptions, RanCommand,
 };
+use futures_util::future::BoxFuture;
 use futures_util::stream::FuturesUnordered;
-use futures_util::{SinkExt, StreamExt};
+use futures_util::{FutureExt, SinkExt, StreamExt};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use tokio::sync::broadcast;
 use tokio::sync::broadcast::error::RecvError;
+use tokio::task::JoinError;
 
 const PARSE_ERROR: i64 = -32700;
 const INVALID_REQUEST: i64 = -32600;
@@ -191,11 +194,12 @@ struct Notification<'a, T> {
     params: &'a T,
 }
 
-/// A mutation one connection accepted, or a command it ran, for every other
-/// connection.
-struct Publication<M, C> {
-    origin: u64,
-    change: Accepted<M, C>,
+/// What reaches every connection: a mutation one connection accepted or a
+/// command it ran, which reaches every other connection, or a change the
+/// application announced.
+enum Publication<M, C, N> {
+    Request { origin: u64, change: Accepted<M, C> },
+    Announced(Arc<Announced<N>>),
 }
 
 type Subscriptions<A> = Mutex<
@@ -208,6 +212,14 @@ type Reply<A> = ProjectionReply<
     <A as ProjectionHost>::MutationResult,
     <A as ProjectionHost>::CommandResult,
 >;
+
+/// A command that has run: the id its response answers, its name, and its
+/// result, or why its run ended without one.
+type Ran<A> = (
+    Option<Value>,
+    String,
+    Result<Result<RanCommand<<A as ProjectionHost>::CommandResult>, RpcFailure>, JoinError>,
+);
 
 /// What a request frame asks of its connection.
 enum Received {
@@ -224,7 +236,8 @@ enum Received {
 /// Serves an application's projections to every connection.
 pub struct ProjectionServer<A: ProjectionHost> {
     application: A,
-    published: broadcast::Sender<Arc<Publication<A::MutationResult, A::CommandResult>>>,
+    published:
+        broadcast::Sender<Arc<Publication<A::MutationResult, A::CommandResult, A::Announcement>>>,
     changes: broadcast::Sender<Arc<ChangeEvent>>,
     connections: AtomicU64,
 }
@@ -237,13 +250,21 @@ where
     A::Delivery: Sync + 'static,
     A::MutationResult: 'static,
     A::CommandResult: 'static,
+    A::Announcement: 'static,
 {
     /// A server whose connections resynchronise once they fall more than
-    /// `publication_window` mutations and commands, or changes to the
-    /// application's stores, behind.
+    /// `publication_window` mutations, commands and announcements, or changes
+    /// to the application's stores, behind.
     pub fn new(application: A, publication_window: NonZeroUsize) -> Arc<Self> {
         let (published, _) = broadcast::channel(publication_window.get());
         let (changes, _) = broadcast::channel(publication_window.get());
+        if let Some(announcements) = application.announcements() {
+            let published = published.clone();
+            announcements.listen(move |announced| {
+                // No connection is listening when the send fails.
+                let _ = published.send(Arc::new(Publication::Announced(Arc::clone(announced))));
+            });
+        }
         if let Some(authoring) = application.authoring_states() {
             let changes = changes.clone();
             authoring.stores().changes().listen(move |change| {
@@ -298,48 +319,27 @@ where
             Mutex::new(ProjectionSubscriptions::new(principal.clone()));
         let mut published = self.published.subscribe();
         let mut changes = self.changes.subscribe();
-        let mut running = FuturesUnordered::new();
+        let mut running: FuturesUnordered<BoxFuture<'static, Ran<A>>> = FuturesUnordered::new();
         let (mut sink, mut stream) = socket.split();
         'serving: loop {
             let frames = tokio::select! {
-                message = stream.next() => match message {
-                    Some(Ok(Message::Text(text))) => {
-                        match self.receive(origin, &subscriptions, text.as_str()).await {
-                            Received::Answered(frames) => frames,
-                            Received::Command { id, request } => {
-                                let name = request.command.clone();
-                                let server = Arc::clone(&self);
-                                let principal = principal.clone();
-                                let command = tokio::spawn(async move {
-                                    run_command(&server.application, &principal, request).await
-                                });
-                                running.push(async move { (id, name, command.await) });
-                                continue;
-                            }
-                        }
-                    }
-                    Some(Ok(Message::Close(_))) | Some(Err(_)) | None => break,
-                    Some(Ok(_)) => continue,
-                },
-                Some((id, name, ran)) = running.next(), if !running.is_empty() => {
-                    let answered = match ran {
-                        Ok(Ok(ran)) => answer_command(&self.application, &subscriptions, ran).await,
-                        Ok(Err(failure)) => Err(failure),
-                        Err(_) => Err(unfinished(&name)),
-                    };
-                    self.respond(origin, id, answered)
-                }
+                // Updates first, so a command's own announcements and store
+                // changes reach its caller before its response.
+                biased;
                 publication = published.recv() => {
-                    let events = match publication {
-                        Ok(publication) if publication.origin == origin => continue,
-                        Ok(publication) => {
-                            publish(&self.application, &subscriptions, &publication.change).await.1
+                    let events = match publication.as_deref() {
+                        Ok(Publication::Request { origin: from, .. }) if *from == origin => continue,
+                        Ok(Publication::Request { change, .. }) => {
+                            publish(&self.application, &subscriptions, change).await.1
+                        }
+                        Ok(Publication::Announced(announced)) => {
+                            deliver_announcement(&self.application, &subscriptions, announced).await
                         }
                         Err(RecvError::Lagged(missed)) => {
                             subscriptions
                                 .lock()
                                 .unwrap_or_else(std::sync::PoisonError::into_inner)
-                                .record_dropped_updates(missed);
+                                .record_dropped_updates(*missed);
                             resync_all(&self.application, &subscriptions, "broadcastLag").await
                         }
                         Err(RecvError::Closed) => break,
@@ -360,6 +360,33 @@ where
                     };
                     events.iter().filter_map(notification).collect()
                 }
+                Some((id, name, ran)) = running.next(), if !running.is_empty() => {
+                    let answered = match ran {
+                        Ok(Ok(ran)) => answer_command(&self.application, &subscriptions, ran).await,
+                        Ok(Err(failure)) => Err(failure),
+                        Err(_) => Err(unfinished(&name)),
+                    };
+                    self.respond(origin, id, answered)
+                }
+                message = stream.next() => match message {
+                    Some(Ok(Message::Text(text))) => {
+                        match self.receive(origin, &subscriptions, text.as_str()).await {
+                            Received::Answered(frames) => frames,
+                            Received::Command { id, request } => {
+                                let name = request.command.clone();
+                                let server = Arc::clone(&self);
+                                let principal = principal.clone();
+                                let command = tokio::spawn(async move {
+                                    run_command(&server.application, &principal, request).await
+                                });
+                                running.push(async move { (id, name, command.await) }.boxed());
+                                continue;
+                            }
+                        }
+                    }
+                    Some(Ok(Message::Close(_))) | Some(Err(_)) | None => break,
+                    Some(Ok(_)) => continue,
+                },
             };
             for frame in frames {
                 if sink.send(Message::Text(frame.into())).await.is_err() {
@@ -377,7 +404,7 @@ where
                             result: ran.result,
                         };
                         // No other connection is listening when the send fails.
-                        let _ = published.send(Arc::new(Publication { origin, change }));
+                        let _ = published.send(Arc::new(Publication::Request { origin, change }));
                     }
                 }
             });
@@ -439,7 +466,7 @@ where
                     // No other connection is listening when the send fails.
                     let _ = self
                         .published
-                        .send(Arc::new(Publication { origin, change }));
+                        .send(Arc::new(Publication::Request { origin, change }));
                 }
                 (Ok(reply.result), reply.events)
             }

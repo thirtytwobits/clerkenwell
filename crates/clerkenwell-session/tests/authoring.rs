@@ -314,6 +314,7 @@ impl ProjectionHost for Library {
     type Delivery = ();
     type MutationResult = Value;
     type CommandResult = Value;
+    type Announcement = Value;
     type Failure = Failure;
 
     fn registry(&self) -> &ProjectionRegistry {
@@ -379,6 +380,17 @@ impl ProjectionHost for Library {
     ) -> Option<Value> {
         panic!(
             "the session asked the host to patch {} after {command}",
+            subscription.projection
+        )
+    }
+
+    async fn announcement_patch(
+        &self,
+        _announcement: &Value,
+        subscription: &ProjectionSubscription<Held<()>>,
+    ) -> Option<Value> {
+        panic!(
+            "the session asked the host to patch {} after an announcement",
             subscription.projection
         )
     }

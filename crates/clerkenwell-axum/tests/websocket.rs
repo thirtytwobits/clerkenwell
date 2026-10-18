@@ -12,7 +12,9 @@ use clerkenwell_schema::{
     GeneratedProjectionSpec,
 };
 use clerkenwell_session::transport::ProjectionErrorCode;
-use clerkenwell_session::{Held, ProjectionHost, ProjectionRegistry, ProjectionSubscription};
+use clerkenwell_session::{
+    AnnouncementFeed, Held, ProjectionHost, ProjectionRegistry, ProjectionSubscription,
+};
 use futures_util::{SinkExt, StreamExt};
 use serde_json::{json, Value};
 use tokio::net::TcpStream;
@@ -37,19 +39,27 @@ static MUTATIONS: &[GeneratedMutationSpec] = &[GeneratedMutationSpec {
     name: "counter.increment",
     touches: &["Counter"],
 }];
-static COMMANDS: &[GeneratedCommandSpec] = &[GeneratedCommandSpec {
-    name: "counter.reset",
-    touches: &["Counter"],
-}];
+static COMMANDS: &[GeneratedCommandSpec] = &[
+    GeneratedCommandSpec {
+        name: "counter.reset",
+        touches: &["Counter"],
+    },
+    GeneratedCommandSpec {
+        name: "counter.countTo",
+        touches: &["Counter"],
+    },
+];
 static REGISTRY: ProjectionRegistry =
     ProjectionRegistry::new(PROJECTIONS, MUTATIONS, COMMANDS, &[]);
 
-/// Counters by id, a projection whose snapshot waits to be released, and
-/// gates a command waits at until the test opens them.
+/// Counters by id, a projection whose snapshot waits to be released, gates a
+/// command waits at until the test opens them, and the feed the counters
+/// announce each value a count reaches on.
 struct Counters {
     values: Mutex<HashMap<String, u64>>,
     released: Semaphore,
     gates: Mutex<HashMap<String, Arc<Semaphore>>>,
+    announcements: AnnouncementFeed<Value>,
 }
 
 impl Default for Counters {
@@ -58,6 +68,7 @@ impl Default for Counters {
             values: Mutex::default(),
             released: Semaphore::new(0),
             gates: Mutex::default(),
+            announcements: AnnouncementFeed::default(),
         }
     }
 }
@@ -92,10 +103,15 @@ impl ProjectionHost for Counters {
     type Delivery = ();
     type MutationResult = Value;
     type CommandResult = Value;
+    type Announcement = Value;
     type Failure = RpcFailure;
 
     fn registry(&self) -> &ProjectionRegistry {
         &REGISTRY
+    }
+
+    fn announcements(&self) -> Option<&AnnouncementFeed<Value>> {
+        Some(&self.announcements)
     }
 
     async fn snapshot(
@@ -160,7 +176,7 @@ impl ProjectionHost for Counters {
     async fn command(
         &self,
         principal: &Principal,
-        _command: &str,
+        command: &str,
         params: Value,
     ) -> Result<Value, RpcFailure> {
         if let Some(gate) = params["gate"].as_str() {
@@ -168,18 +184,40 @@ impl ProjectionHost for Counters {
         }
         assert!(params.get("fail").is_none(), "the command failed");
         let id = counter_id(&params)?;
+        if command == "counter.countTo" {
+            let to = params["to"].as_u64().expect("a count");
+            for value in 1..=to {
+                self.values
+                    .lock()
+                    .expect("values")
+                    .insert(id.clone(), value);
+                self.announcements
+                    .announce(&["Counter"], json!({ "counter_id": id, "value": value }));
+            }
+            return Ok(json!({ "counter_id": id, "value": to, "by": principal.id }));
+        }
         self.values.lock().expect("values").insert(id.clone(), 0);
         Ok(json!({ "counter_id": id, "value": 0, "by": principal.id }))
     }
 
     async fn command_patch(
         &self,
-        _command: &str,
+        command: &str,
         result: &Value,
         subscription: &ProjectionSubscription<Held<()>>,
     ) -> Option<Value> {
-        (subscription.params["counter_id"] == result["counter_id"])
+        // A count's announcements carry each value it reaches.
+        (command != "counter.countTo" && subscription.params["counter_id"] == result["counter_id"])
             .then(|| json!({ "value": result["value"] }))
+    }
+
+    async fn announcement_patch(
+        &self,
+        announcement: &Value,
+        subscription: &ProjectionSubscription<Held<()>>,
+    ) -> Option<Value> {
+        (subscription.params["counter_id"] == announcement["counter_id"])
+            .then(|| json!({ "value": announcement["value"] }))
     }
 }
 
@@ -579,6 +617,77 @@ async fn a_command_whose_run_ends_without_a_result_is_refused_addressed_to_it() 
     assert_eq!(data["code"], "internal_error");
     assert_eq!(data["projection_error"]["operation"], "command");
     assert_eq!(data["projection_error"]["name"], "counter.reset");
+}
+
+#[tokio::test]
+async fn a_command_s_announcements_reach_its_caller_before_its_response() {
+    let (url, _) = start(8).await;
+    let mut socket = connect(&url).await;
+    let accepted = subscribe(
+        &mut socket,
+        1,
+        "counters.value",
+        json!({ "counter_id": "a" }),
+    )
+    .await;
+    next(&mut socket).await;
+    let count = 3;
+
+    request(
+        &mut socket,
+        2,
+        "projection.command",
+        json!({ "command": "counter.countTo", "params": { "counter_id": "a", "to": count } }),
+    )
+    .await;
+
+    let mut held = accepted["revision"].clone();
+    for value in 1..=count {
+        let patch = next(&mut socket).await;
+        let patch = update(&patch);
+        assert_eq!(patch["subscription_id"], accepted["subscription_id"]);
+        assert_eq!(patch["from_revision"], held);
+        assert_eq!(patch["patch"]["value"], json!(value));
+        held = patch["to_revision"].clone();
+    }
+    let response = next(&mut socket).await;
+    assert_eq!(response["id"], json!(2), "{response}");
+    assert_eq!(response["result"]["result"]["value"], json!(count));
+}
+
+#[tokio::test]
+async fn an_announcement_reaches_every_connection_subscribed_to_what_it_changed_and_no_other() {
+    let (url, server) = start(8).await;
+    let mut first = connect(&url).await;
+    let mut second = connect(&url).await;
+    let mut elsewhere = connect(&url).await;
+    for socket in [&mut first, &mut second] {
+        subscribe(socket, 1, "counters.value", json!({ "counter_id": "a" })).await;
+        next(socket).await;
+    }
+    subscribe(
+        &mut elsewhere,
+        1,
+        "counters.value",
+        json!({ "counter_id": "b" }),
+    )
+    .await;
+    next(&mut elsewhere).await;
+
+    let announcements = &server.application().announcements;
+    announcements.announce(&["Counter"], json!({ "counter_id": "a", "value": 7 }));
+    announcements.announce(&["Counter"], json!({ "counter_id": "b", "value": 9 }));
+
+    for socket in [&mut first, &mut second] {
+        let patch = next(socket).await;
+        assert_eq!(update(&patch)["patch"], json!({ "value": 7 }));
+    }
+    let patch = next(&mut elsewhere).await;
+    assert_eq!(
+        update(&patch)["patch"],
+        json!({ "value": 9 }),
+        "the first update another counter's subscriber takes is its own counter's"
+    );
 }
 
 #[tokio::test]

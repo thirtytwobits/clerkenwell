@@ -19,9 +19,10 @@ use clerkenwell_session::transport::{
     PROJECTION_MUTATE_METHOD, PROJECTION_SUBSCRIBE_METHOD,
 };
 use clerkenwell_session::{
-    answer_command, decode_request, publish, resync_all, run_command, serve, serve_request,
-    Accepted, Held, ProjectionFailure, ProjectionHost, ProjectionRefusal, ProjectionRegistry,
-    ProjectionReply, ProjectionRequest, ProjectionSubscription, ProjectionSubscriptions,
+    answer_command, decode_request, deliver_announcement, publish, resync_all, run_command, serve,
+    serve_request, Accepted, Announced, Held, ProjectionFailure, ProjectionHost, ProjectionRefusal,
+    ProjectionRegistry, ProjectionReply, ProjectionRequest, ProjectionSubscription,
+    ProjectionSubscriptions,
 };
 use serde_json::{json, Value};
 
@@ -112,6 +113,9 @@ struct Notes {
     /// The projection of each subscription the session asked a command's
     /// patch for, in order.
     command_patches_asked: Mutex<Vec<String>>,
+    /// The projection of each subscription the session asked an
+    /// announcement's patch for, in order.
+    announcement_patches_asked: Mutex<Vec<String>>,
 }
 
 /// The connection the host authenticated as `id`.
@@ -132,7 +136,15 @@ impl Notes {
             mutated_by: Mutex::new(Vec::new()),
             commanded_by: Mutex::new(Vec::new()),
             command_patches_asked: Mutex::new(Vec::new()),
+            announcement_patches_asked: Mutex::new(Vec::new()),
         }
+    }
+
+    fn announcement_patches_asked(&self) -> Vec<String> {
+        self.announcement_patches_asked
+            .lock()
+            .expect("announcement patches")
+            .clone()
     }
 
     fn command_patches_asked(&self) -> Vec<String> {
@@ -162,6 +174,7 @@ impl ProjectionHost for Notes {
     type Delivery = String;
     type MutationResult = Value;
     type CommandResult = Value;
+    type Announcement = Value;
     type Failure = Failure;
 
     fn registry(&self) -> &ProjectionRegistry {
@@ -260,6 +273,23 @@ impl ProjectionHost for Notes {
         // The authoring state reaches its subscribers another way.
         let patch = match subscription.projection.as_str() {
             "notes.list" => Some(json!({ "archived": result["archived"] })),
+            _ => None,
+        };
+        async move { patch }
+    }
+
+    fn announcement_patch(
+        &self,
+        announcement: &Value,
+        subscription: &ProjectionSubscription<Held<String>>,
+    ) -> impl Future<Output = Option<Value>> + Send {
+        self.announcement_patches_asked
+            .lock()
+            .expect("announcement patches")
+            .push(subscription.projection.clone());
+        // The authoring state reaches its subscribers another way.
+        let patch = match subscription.projection.as_str() {
+            "notes.list" => Some(json!({ "announced": announcement })),
             _ => None,
         };
         async move { patch }
@@ -1068,4 +1098,76 @@ fn a_decoded_request_is_refused_addressed_to_its_operation_when_its_params_do_no
     let envelope = envelope(&failure);
     assert_eq!(envelope.code, ProjectionErrorCode::InvalidParams);
     assert_eq!(envelope.operation, ProjectionOperation::Command);
+}
+
+#[test]
+fn an_announced_change_patches_every_subscription_reading_an_entity_it_touches_and_no_other() {
+    let host = Notes::new();
+    let (notes, _) = subscribe(&host, "notes.list", None);
+    let (_boards, _) = subscribe(&host, "boards.list", None);
+    let announced = Announced {
+        touches: &["Note"],
+        announcement: json!({ "progress": 1 }),
+    };
+
+    let events = block_on(deliver_announcement(&host, &host.subscriptions, &announced));
+
+    let [(subscription_id, from_revision, to_revision)] = patch_spans(&events)[..] else {
+        panic!("one patch: {events:?}");
+    };
+    assert_eq!(subscription_id, notes.subscription_id);
+    assert_eq!(from_revision, notes.revision);
+    assert!(to_revision > from_revision);
+    assert_eq!(host.announcement_patches_asked(), ["notes.list"]);
+    assert_eq!(
+        host.subscription(notes.subscription_id).revision,
+        to_revision
+    );
+}
+
+#[test]
+fn an_announcement_touching_no_entity_a_projection_reads_patches_nothing() {
+    let host = Notes::new();
+    let (notes, _) = subscribe(&host, "notes.list", None);
+
+    for touches in [&[][..], &["Clock"][..]] {
+        let announced = Announced {
+            touches,
+            announcement: json!({}),
+        };
+
+        let events = block_on(deliver_announcement(&host, &host.subscriptions, &announced));
+
+        assert!(events.is_empty(), "{events:?}");
+    }
+    assert!(host.announcement_patches_asked().is_empty());
+    assert_eq!(
+        host.subscription(notes.subscription_id).revision,
+        notes.revision
+    );
+}
+
+#[test]
+fn successive_announcements_patch_a_subscription_in_the_order_they_were_made() {
+    let host = Notes::new();
+    let (notes, _) = subscribe(&host, "notes.list", None);
+
+    let mut spans = Vec::new();
+    for progress in 1..=3 {
+        let announced = Announced {
+            touches: &["Note"],
+            announcement: json!({ "progress": progress }),
+        };
+        spans.extend(patch_spans(&block_on(deliver_announcement(
+            &host,
+            &host.subscriptions,
+            &announced,
+        ))));
+    }
+
+    assert_eq!(spans.len(), 3);
+    assert_eq!(spans[0].1, notes.revision);
+    for pair in spans.windows(2) {
+        assert_eq!(pair[1].1, pair[0].2, "{spans:?}");
+    }
 }

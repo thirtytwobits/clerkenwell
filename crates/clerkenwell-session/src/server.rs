@@ -5,7 +5,8 @@
 //! request with the reply's result and sends each of the reply's events as a
 //! `projection.update` notification. A mutation the reply accepted, or a
 //! command it served, reaches the subscriptions of every other connection
-//! through [`publish`].
+//! through [`publish`]. A change the application announces reaches every
+//! connection's subscriptions through [`deliver_announcement`].
 //!
 //! A transport that serves a connection's commands while it serves the
 //! connection's other requests decodes each request with [`decode_request`],
@@ -23,6 +24,7 @@ use serde_json::{json, Value};
 use clerkenwell_events::{ChangeEvent, ChangeKind, Principal};
 use clerkenwell_schema::AuthoringStatePatch;
 
+use crate::announcements::{Announced, AnnouncementFeed};
 use crate::authoring::{AuthoringHeld, AuthoringStates, Held};
 use crate::registry::ProjectionRegistry;
 use crate::subscriptions::{ProjectionSubscription, ProjectionSubscriptions};
@@ -134,6 +136,8 @@ pub trait ProjectionHost: Sync {
     type Delivery: Clone + PartialEq + Serialize + DeserializeOwned + Send;
     type MutationResult: Serialize + Send + Sync;
     type CommandResult: Serialize + Send + Sync;
+    /// The application's account of a change it makes outside any request.
+    type Announcement: Send + Sync;
     type Failure: ProjectionFailure + Send;
 
     /// The projections, mutations and commands served.
@@ -142,6 +146,12 @@ pub trait ProjectionHost: Sync {
     /// The authoring states of the collaborative documents served, which the
     /// session answers and delivers itself; `None` when none are served.
     fn authoring_states(&self) -> Option<&AuthoringStates> {
+        None
+    }
+
+    /// The feed the application announces the changes it makes outside any
+    /// request on; `None` when it announces none.
+    fn announcements(&self) -> Option<&AnnouncementFeed<Self::Announcement>> {
         None
     }
 
@@ -200,6 +210,16 @@ pub trait ProjectionHost: Sync {
         result: &Self::CommandResult,
         subscription: &ProjectionSubscription<Held<Self::Delivery>>,
     ) -> impl Future<Output = Option<Self::Patch>> + Send;
+
+    /// The patch an announced change sends `subscription`, or `None` when its
+    /// change reaches that subscription some other way. The session asks only
+    /// for subscriptions to a projection that reads an entity the change
+    /// touches, and for no authoring state.
+    fn announcement_patch(
+        &self,
+        announcement: &Self::Announcement,
+        subscription: &ProjectionSubscription<Held<Self::Delivery>>,
+    ) -> impl Future<Output = Option<Self::Patch>> + Send;
 }
 
 /// A connection's subscriptions, which the session changes one transition at
@@ -250,6 +270,13 @@ type Reply<H> = ProjectionReply<
 >;
 type Change<H> =
     Accepted<<H as ProjectionHost>::MutationResult, <H as ProjectionHost>::CommandResult>;
+
+/// What a delivery brings a connection's subscriptions: a request's change, or
+/// one the application announced.
+enum Source<'a, H: ProjectionHost> {
+    Accepted(&'a Change<H>),
+    Announced(&'a Announced<H::Announcement>),
+}
 type Event<H> =
     ProjectionTransportEvent<<H as ProjectionHost>::Snapshot, <H as ProjectionHost>::Patch>;
 
@@ -378,19 +405,50 @@ where
     H: ProjectionHost,
     C: ProjectionConnection<H::Patch, Held<H::Delivery>>,
 {
+    deliver(host, connection, Source::Accepted(accepted)).await
+}
+
+/// Sends the subscriptions on `connection` the patches a change the
+/// application announced brings them, in order.
+pub async fn deliver_announcement<H, C>(
+    host: &H,
+    connection: &C,
+    announced: &Announced<H::Announcement>,
+) -> Vec<Event<H>>
+where
+    H: ProjectionHost,
+    C: ProjectionConnection<H::Patch, Held<H::Delivery>>,
+{
+    deliver(host, connection, Source::Announced(announced))
+        .await
+        .1
+}
+
+/// Sends the subscriptions on `connection` the patches `source` brings them.
+/// Returns the revision its effects reach there and the updates to send, in
+/// order.
+async fn deliver<H, C>(host: &H, connection: &C, source: Source<'_, H>) -> (u64, Vec<Event<H>>)
+where
+    H: ProjectionHost,
+    C: ProjectionConnection<H::Patch, Held<H::Delivery>>,
+{
     let registry = host.registry();
-    let publishes = match accepted {
-        Accepted::Mutation { mutation, .. } => !registry.plans_only(mutation),
-        Accepted::Command { command, .. } => registry
+    let publishes = match &source {
+        Source::Accepted(Accepted::Mutation { mutation, .. }) => !registry.plans_only(mutation),
+        Source::Accepted(Accepted::Command { command, .. }) => registry
             .command(command)
             .is_some_and(|spec| !spec.touches.is_empty()),
+        Source::Announced(announced) => !announced.touches.is_empty(),
     };
-    let affects = |projection: &str| match accepted {
-        Accepted::Mutation { mutation, .. } => {
+    let affects = |projection: &str| match &source {
+        Source::Accepted(Accepted::Mutation { mutation, .. }) => {
             registry.mutation_affects_projection(mutation, projection)
         }
-        Accepted::Command { command, .. } => {
+        Source::Accepted(Accepted::Command { command, .. }) => {
             registry.command_affects_projection(command, projection)
+        }
+        Source::Announced(announced) => {
+            registry.entities_affect_projection(announced.touches, projection)
         }
     };
     let revision = connection
@@ -416,12 +474,16 @@ where
         })
         .await;
     for (subscription_id, subscription) in affected {
-        let patch = match accepted {
-            Accepted::Mutation { mutation, result } => {
+        let patch = match &source {
+            Source::Accepted(Accepted::Mutation { mutation, result }) => {
                 host.mutation_patch(mutation, result, &subscription).await
             }
-            Accepted::Command { command, result } => {
+            Source::Accepted(Accepted::Command { command, result }) => {
                 host.command_patch(command, result, &subscription).await
+            }
+            Source::Announced(announced) => {
+                host.announcement_patch(&announced.announcement, &subscription)
+                    .await
             }
         };
         let Some(patch) = patch else {

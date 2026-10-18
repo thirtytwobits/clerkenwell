@@ -52,6 +52,16 @@ names the contracts.
 - `clerkenwell-session` exports `decode_request`, `run_command`, `answer_command` and
   `RanCommand`, for a transport that runs a connection's commands alongside its other requests.
   `run_command` reads and changes no subscription.
+- An application announces a change it makes outside any request, such as a command's progress
+  while it runs, on an `AnnouncementFeed` it owns, naming the entities the change touches.
+  `ProjectionHost` requires `Announcement` and `announcement_patch`, and names its feed through
+  `announcements`. Every subscription to a projection that reads a touched entity, on every
+  connection, takes the patch `announcement_patch` returns. `clerkenwell-session` exports
+  `AnnouncementFeed`, `Announced`, `deliver_announcement` and
+  `ProjectionRegistry::entities_affect_projection`.
+- `clerkenwell-axum` sends a connection the changes announced, and those its stores made, before
+  it answers a command that has run, so a command's caller takes its progress before its
+  response.
 
 ## 0.7.0
 

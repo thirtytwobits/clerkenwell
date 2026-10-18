@@ -86,7 +86,7 @@ impl ProjectionRegistry {
         let Some(mutation) = self.mutation(mutation) else {
             return false;
         };
-        self.touches_projection(mutation.touches, projection)
+        self.entities_affect_projection(mutation.touches, projection)
     }
 
     /// Whether a command can change a projection: whether it touches an
@@ -95,10 +95,13 @@ impl ProjectionRegistry {
         let Some(command) = self.command(command) else {
             return false;
         };
-        self.touches_projection(command.touches, projection)
+        self.entities_affect_projection(command.touches, projection)
     }
 
-    fn touches_projection(&self, touches: &[&str], projection: &str) -> bool {
+    /// Whether a change to the entities `touches` names can change a
+    /// projection: whether the projection reads one of them. Unknown names
+    /// affect nothing.
+    pub fn entities_affect_projection(&self, touches: &[&str], projection: &str) -> bool {
         self.projection(projection).is_some_and(|projection| {
             projection
                 .depends_on

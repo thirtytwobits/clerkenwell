@@ -5,6 +5,7 @@
 //! authoring state from the store, and every subscriber to a note takes its
 //! new authoring state when any client's operations are accepted.
 
+use std::convert::Infallible;
 use std::num::NonZeroUsize;
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -176,6 +177,7 @@ impl ProjectionHost for NotesServer {
     type Delivery = ();
     type MutationResult = ProjectionTransportMutationResult;
     type CommandResult = ProjectionTransportCommandResult;
+    type Announcement = Infallible;
     type Failure = RpcFailure;
 
     fn registry(&self) -> &ProjectionRegistry {
@@ -259,6 +261,15 @@ impl ProjectionHost for NotesServer {
         _subscription: &ProjectionSubscription<Held<()>>,
     ) -> Option<ProjectionTransportPatch> {
         match *result {}
+    }
+
+    /// The notes server announces no change of its own.
+    async fn announcement_patch(
+        &self,
+        announcement: &Infallible,
+        _subscription: &ProjectionSubscription<Held<()>>,
+    ) -> Option<ProjectionTransportPatch> {
+        match *announcement {}
     }
 }
 
