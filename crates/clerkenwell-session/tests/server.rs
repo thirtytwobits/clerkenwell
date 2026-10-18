@@ -1,4 +1,4 @@
-//! One connection's projection commands served against an application host.
+//! One connection's projection requests served against an application host.
 
 use std::future::Future;
 use std::pin::pin;
@@ -12,14 +12,14 @@ use clerkenwell_schema::{
 };
 use clerkenwell_session::transport::{
     ProjectionErrorCode, ProjectionErrorEnvelope, ProjectionMutationAccepted,
-    ProjectionMutationCommand, ProjectionOperation, ProjectionResyncAccepted,
-    ProjectionResyncCommand, ProjectionSubscribeAccepted, ProjectionSubscribeCommand,
-    ProjectionTransportEvent, ProjectionUnsubscribeAccepted, ProjectionUnsubscribeCommand,
+    ProjectionMutationRequest, ProjectionOperation, ProjectionResyncAccepted,
+    ProjectionResyncRequest, ProjectionSubscribeAccepted, ProjectionSubscribeRequest,
+    ProjectionTransportEvent, ProjectionUnsubscribeAccepted, ProjectionUnsubscribeRequest,
     PROJECTION_MUTATE_METHOD, PROJECTION_SUBSCRIBE_METHOD,
 };
 use clerkenwell_session::{
-    publish, resync_all, serve, serve_request, AcceptedMutation, Held, ProjectionCommand,
-    ProjectionFailure, ProjectionHost, ProjectionRefusal, ProjectionRegistry, ProjectionReply,
+    publish, resync_all, serve, serve_request, AcceptedMutation, Held, ProjectionFailure,
+    ProjectionHost, ProjectionRefusal, ProjectionRegistry, ProjectionReply, ProjectionRequest,
     ProjectionSubscription, ProjectionSubscriptions,
 };
 use serde_json::{json, Value};
@@ -223,7 +223,7 @@ fn subscribe(
     let reply = block_on(serve(
         host,
         &host.subscriptions,
-        ProjectionCommand::Subscribe(ProjectionSubscribeCommand {
+        ProjectionRequest::Subscribe(ProjectionSubscribeRequest {
             projection: projection.to_owned(),
             params: Some(json!({})),
             held,
@@ -244,7 +244,7 @@ fn mutate(
     let reply = block_on(serve(
         host,
         &host.subscriptions,
-        ProjectionCommand::Mutate(ProjectionMutationCommand {
+        ProjectionRequest::Mutate(ProjectionMutationRequest {
             mutation: mutation.to_owned(),
             operation_id: Some(format!("{mutation}-op")),
             base_revision: None,
@@ -418,7 +418,7 @@ fn an_unknown_projection_is_refused_before_the_host_builds_anything() {
     let failure = block_on(serve(
         &host,
         &host.subscriptions,
-        ProjectionCommand::Subscribe(ProjectionSubscribeCommand {
+        ProjectionRequest::Subscribe(ProjectionSubscribeRequest {
             projection: "notes.missing".to_owned(),
             params: None,
             held: None,
@@ -446,7 +446,7 @@ fn a_resync_sends_a_snapshot_past_the_revision_the_client_holds() {
     let reply = block_on(serve(
         &host,
         &host.subscriptions,
-        ProjectionCommand::Resync(ProjectionResyncCommand {
+        ProjectionRequest::Resync(ProjectionResyncRequest {
             subscription_id: accepted.subscription_id,
         }),
     ))
@@ -474,7 +474,7 @@ fn resyncing_a_subscription_that_does_not_exist_is_refused_as_not_found() {
     let failure = block_on(serve(
         &host,
         &host.subscriptions,
-        ProjectionCommand::Resync(ProjectionResyncCommand { subscription_id: 9 }),
+        ProjectionRequest::Resync(ProjectionResyncRequest { subscription_id: 9 }),
     ))
     .expect_err("no such subscription");
 
@@ -491,7 +491,7 @@ fn unsubscribing_reports_whether_the_subscription_was_there() {
         let reply = block_on(serve(
             &host,
             &host.subscriptions,
-            ProjectionCommand::Unsubscribe(ProjectionUnsubscribeCommand { subscription_id }),
+            ProjectionRequest::Unsubscribe(ProjectionUnsubscribeRequest { subscription_id }),
         ))
         .expect("unsubscribe");
         serde_json::from_value::<ProjectionUnsubscribeAccepted>(reply.result)
@@ -619,10 +619,10 @@ fn a_patch_starts_from_the_revision_its_client_holds_when_it_is_delivered() {
 }
 
 #[test]
-fn only_the_protocols_methods_decode_as_commands() {
-    assert!(ProjectionCommand::decode("session.list", Some(json!({}))).is_none());
+fn only_the_protocols_methods_decode_as_requests() {
+    assert!(ProjectionRequest::decode("session.list", Some(json!({}))).is_none());
 
-    let decoded = ProjectionCommand::decode(
+    let decoded = ProjectionRequest::decode(
         PROJECTION_SUBSCRIBE_METHOD,
         Some(json!({ "projection": "notes.list" })),
     )
@@ -633,9 +633,9 @@ fn only_the_protocols_methods_decode_as_commands() {
 }
 
 #[test]
-fn a_command_without_valid_params_is_refused_as_invalid_params() {
+fn a_request_without_valid_params_is_refused_as_invalid_params() {
     for params in [None, Some(json!({ "mutation": 7 }))] {
-        let refusal = ProjectionCommand::decode(PROJECTION_MUTATE_METHOD, params)
+        let refusal = ProjectionRequest::decode(PROJECTION_MUTATE_METHOD, params)
             .expect("a protocol method")
             .expect_err("invalid params");
         assert_eq!(refusal.code, ProjectionErrorCode::InvalidParams);
@@ -674,7 +674,7 @@ fn a_request_whose_params_do_not_decode_is_refused_addressed_to_its_operation() 
 }
 
 #[test]
-fn a_request_is_served_as_the_command_it_names() {
+fn a_method_is_served_as_the_request_it_names() {
     let host = Notes::new();
 
     let reply = block_on(serve_request(
@@ -704,7 +704,7 @@ fn a_mutation_accepted_elsewhere_patches_the_subscriptions_it_affects() {
     let reply = block_on(serve(
         &host,
         &elsewhere,
-        ProjectionCommand::Mutate(ProjectionMutationCommand {
+        ProjectionRequest::Mutate(ProjectionMutationRequest {
             mutation: "note.rename".to_owned(),
             operation_id: None,
             base_revision: None,

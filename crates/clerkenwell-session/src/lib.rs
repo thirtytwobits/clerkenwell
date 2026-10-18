@@ -19,8 +19,9 @@ pub mod transport;
 pub use authoring::{AuthoringHeld, AuthoringStates, Held};
 pub use registry::ProjectionRegistry;
 pub use server::{
-    deliver_change, publish, resync_all, serve, serve_request, AcceptedMutation, ProjectionCommand,
+    deliver_change, publish, resync_all, serve, serve_request, AcceptedMutation,
     ProjectionConnection, ProjectionFailure, ProjectionHost, ProjectionRefusal, ProjectionReply,
+    ProjectionRequest,
 };
 pub use subscriptions::{
     FollowingDelivery, ProjectionRuntimeDiagnostics, ProjectionSubscription,

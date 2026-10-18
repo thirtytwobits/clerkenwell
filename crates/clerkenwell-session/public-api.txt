@@ -26,15 +26,6 @@ derive clerkenwell_session::Held: Clone, Debug, Eq, JsonSchema, PartialEq, Seria
 variant clerkenwell_session::Held::Authoring(AuthoringHeld)
 variant clerkenwell_session::Held::Host(D)
 impl<D> fn clerkenwell_session::Held::authoring(&self) -> Option<&AuthoringHeld>
-enum clerkenwell_session::ProjectionCommand
-derive clerkenwell_session::ProjectionCommand: Clone, Debug, PartialEq
-variant clerkenwell_session::ProjectionCommand::Mutate(ProjectionMutationCommand)
-variant clerkenwell_session::ProjectionCommand::Resync(ProjectionResyncCommand)
-variant clerkenwell_session::ProjectionCommand::Subscribe(ProjectionSubscribeCommand)
-variant clerkenwell_session::ProjectionCommand::Unsubscribe(ProjectionUnsubscribeCommand)
-fn clerkenwell_session::ProjectionCommand::decode(method: &str, params: Option<Value>) -> Option<Result<Self, ProjectionRefusal>>
-fn clerkenwell_session::ProjectionCommand::name(&self) -> Option<&str>
-fn clerkenwell_session::ProjectionCommand::operation(&self) -> ProjectionOperation
 trait clerkenwell_session::ProjectionConnection<P, D>: Sync
 fn clerkenwell_session::ProjectionConnection::with_subscriptions<R: Send>(&self, transition: impl FnOnce(&mut ProjectionSubscriptions<P, D>) -> R + Send) -> impl Future<Output = R> + Send
 trait clerkenwell_session::ProjectionFailure: Sized
@@ -77,6 +68,15 @@ derive clerkenwell_session::ProjectionReply: Clone, Debug, PartialEq
 field clerkenwell_session::ProjectionReply::accepted: Option<AcceptedMutation<M>>
 field clerkenwell_session::ProjectionReply::events: Vec<ProjectionTransportEvent<S, P>>
 field clerkenwell_session::ProjectionReply::result: Value
+enum clerkenwell_session::ProjectionRequest
+derive clerkenwell_session::ProjectionRequest: Clone, Debug, PartialEq
+variant clerkenwell_session::ProjectionRequest::Mutate(ProjectionMutationRequest)
+variant clerkenwell_session::ProjectionRequest::Resync(ProjectionResyncRequest)
+variant clerkenwell_session::ProjectionRequest::Subscribe(ProjectionSubscribeRequest)
+variant clerkenwell_session::ProjectionRequest::Unsubscribe(ProjectionUnsubscribeRequest)
+fn clerkenwell_session::ProjectionRequest::decode(method: &str, params: Option<Value>) -> Option<Result<Self, ProjectionRefusal>>
+fn clerkenwell_session::ProjectionRequest::name(&self) -> Option<&str>
+fn clerkenwell_session::ProjectionRequest::operation(&self) -> ProjectionOperation
 struct clerkenwell_session::ProjectionRuntimeDiagnostics
 derive clerkenwell_session::ProjectionRuntimeDiagnostics: Clone, Debug, Eq, PartialEq
 field clerkenwell_session::ProjectionRuntimeDiagnostics::current_revision: u64
@@ -124,18 +124,12 @@ impl<P, D: Serialize> fn clerkenwell_session::ProjectionSubscriptions::resync<S>
 async fn clerkenwell_session::deliver_change<H, C>(host: &H, connection: &C, change: &ChangeEvent) -> Vec<Event<H>> where H: ProjectionHost, C: ProjectionConnection<H::Patch, Held<H::Delivery>>,
 async fn clerkenwell_session::publish<H, C>(host: &H, connection: &C, accepted: &AcceptedMutation<H::MutationResult>) -> (u64, Vec<Event<H>>) where H: ProjectionHost, C: ProjectionConnection<H::Patch, Held<H::Delivery>>,
 async fn clerkenwell_session::resync_all<H, C>(host: &H, connection: &C, reason: &str) -> Vec<Event<H>> where H: ProjectionHost, C: ProjectionConnection<H::Patch, Held<H::Delivery>>,
-async fn clerkenwell_session::serve<H, C>(host: &H, connection: &C, command: ProjectionCommand) -> Result<Reply<H>, H::Failure> where H: ProjectionHost, C: ProjectionConnection<H::Patch, Held<H::Delivery>>,
+async fn clerkenwell_session::serve<H, C>(host: &H, connection: &C, request: ProjectionRequest) -> Result<Reply<H>, H::Failure> where H: ProjectionHost, C: ProjectionConnection<H::Patch, Held<H::Delivery>>,
 async fn clerkenwell_session::serve_request<H, C>(host: &H, connection: &C, method: &str, params: Option<Value>) -> Option<Result<Reply<H>, H::Failure>> where H: ProjectionHost, C: ProjectionConnection<H::Patch, Held<H::Delivery>>,
 struct clerkenwell_session::server::AcceptedMutation<M>
 derive clerkenwell_session::server::AcceptedMutation: Clone, Debug, PartialEq
 field clerkenwell_session::server::AcceptedMutation::mutation: String
 field clerkenwell_session::server::AcceptedMutation::result: M
-enum clerkenwell_session::server::ProjectionCommand
-derive clerkenwell_session::server::ProjectionCommand: Clone, Debug, PartialEq
-variant clerkenwell_session::server::ProjectionCommand::Mutate(ProjectionMutationCommand)
-variant clerkenwell_session::server::ProjectionCommand::Resync(ProjectionResyncCommand)
-variant clerkenwell_session::server::ProjectionCommand::Subscribe(ProjectionSubscribeCommand)
-variant clerkenwell_session::server::ProjectionCommand::Unsubscribe(ProjectionUnsubscribeCommand)
 trait clerkenwell_session::server::ProjectionConnection<P, D>: Sync
 fn clerkenwell_session::server::ProjectionConnection::with_subscriptions<R: Send>(&self, transition: impl FnOnce(&mut ProjectionSubscriptions<P, D>) -> R + Send) -> impl Future<Output = R> + Send
 trait clerkenwell_session::server::ProjectionFailure: Sized
@@ -165,10 +159,16 @@ derive clerkenwell_session::server::ProjectionReply: Clone, Debug, PartialEq
 field clerkenwell_session::server::ProjectionReply::accepted: Option<AcceptedMutation<M>>
 field clerkenwell_session::server::ProjectionReply::events: Vec<ProjectionTransportEvent<S, P>>
 field clerkenwell_session::server::ProjectionReply::result: Value
+enum clerkenwell_session::server::ProjectionRequest
+derive clerkenwell_session::server::ProjectionRequest: Clone, Debug, PartialEq
+variant clerkenwell_session::server::ProjectionRequest::Mutate(ProjectionMutationRequest)
+variant clerkenwell_session::server::ProjectionRequest::Resync(ProjectionResyncRequest)
+variant clerkenwell_session::server::ProjectionRequest::Subscribe(ProjectionSubscribeRequest)
+variant clerkenwell_session::server::ProjectionRequest::Unsubscribe(ProjectionUnsubscribeRequest)
 async fn clerkenwell_session::server::deliver_change<H, C>(host: &H, connection: &C, change: &ChangeEvent) -> Vec<Event<H>> where H: ProjectionHost, C: ProjectionConnection<H::Patch, Held<H::Delivery>>,
 async fn clerkenwell_session::server::publish<H, C>(host: &H, connection: &C, accepted: &AcceptedMutation<H::MutationResult>) -> (u64, Vec<Event<H>>) where H: ProjectionHost, C: ProjectionConnection<H::Patch, Held<H::Delivery>>,
 async fn clerkenwell_session::server::resync_all<H, C>(host: &H, connection: &C, reason: &str) -> Vec<Event<H>> where H: ProjectionHost, C: ProjectionConnection<H::Patch, Held<H::Delivery>>,
-async fn clerkenwell_session::server::serve<H, C>(host: &H, connection: &C, command: ProjectionCommand) -> Result<Reply<H>, H::Failure> where H: ProjectionHost, C: ProjectionConnection<H::Patch, Held<H::Delivery>>,
+async fn clerkenwell_session::server::serve<H, C>(host: &H, connection: &C, request: ProjectionRequest) -> Result<Reply<H>, H::Failure> where H: ProjectionHost, C: ProjectionConnection<H::Patch, Held<H::Delivery>>,
 async fn clerkenwell_session::server::serve_request<H, C>(host: &H, connection: &C, method: &str, params: Option<Value>) -> Option<Result<Reply<H>, H::Failure>> where H: ProjectionHost, C: ProjectionConnection<H::Patch, Held<H::Delivery>>,
 #[cfg(feature = "testing")] const clerkenwell_session::testing::WIRE_PROTOCOL_RECORD: &str
 #[cfg(feature = "testing")] fn clerkenwell_session::testing::strip_annotations(schema: &mut Value)
@@ -211,12 +211,12 @@ field clerkenwell_session::transport::ProjectionMutationAccepted::base_revision:
 field clerkenwell_session::transport::ProjectionMutationAccepted::operation_id: Option<String>
 field clerkenwell_session::transport::ProjectionMutationAccepted::result: R
 field clerkenwell_session::transport::ProjectionMutationAccepted::revision: u64
-struct clerkenwell_session::transport::ProjectionMutationCommand
-derive clerkenwell_session::transport::ProjectionMutationCommand: Clone, Debug, Deserialize, JsonSchema, PartialEq, Serialize
-field clerkenwell_session::transport::ProjectionMutationCommand::base_revision: Option<u64>
-field clerkenwell_session::transport::ProjectionMutationCommand::mutation: String
-field clerkenwell_session::transport::ProjectionMutationCommand::operation_id: Option<String>
-field clerkenwell_session::transport::ProjectionMutationCommand::params: Value
+struct clerkenwell_session::transport::ProjectionMutationRequest
+derive clerkenwell_session::transport::ProjectionMutationRequest: Clone, Debug, Deserialize, JsonSchema, PartialEq, Serialize
+field clerkenwell_session::transport::ProjectionMutationRequest::base_revision: Option<u64>
+field clerkenwell_session::transport::ProjectionMutationRequest::mutation: String
+field clerkenwell_session::transport::ProjectionMutationRequest::operation_id: Option<String>
+field clerkenwell_session::transport::ProjectionMutationRequest::params: Value
 enum clerkenwell_session::transport::ProjectionOperation
 derive clerkenwell_session::transport::ProjectionOperation: Clone, Copy, Debug, Deserialize, Eq, JsonSchema, PartialEq, Serialize
 variant clerkenwell_session::transport::ProjectionOperation::Mutate
@@ -229,19 +229,19 @@ derive clerkenwell_session::transport::ProjectionResyncAccepted: Clone, Debug, D
 field clerkenwell_session::transport::ProjectionResyncAccepted::from_revision: u64
 field clerkenwell_session::transport::ProjectionResyncAccepted::revision: u64
 field clerkenwell_session::transport::ProjectionResyncAccepted::subscription_id: u64
-struct clerkenwell_session::transport::ProjectionResyncCommand
-derive clerkenwell_session::transport::ProjectionResyncCommand: Clone, Debug, Deserialize, Eq, JsonSchema, PartialEq, Serialize
-field clerkenwell_session::transport::ProjectionResyncCommand::subscription_id: u64
+struct clerkenwell_session::transport::ProjectionResyncRequest
+derive clerkenwell_session::transport::ProjectionResyncRequest: Clone, Debug, Deserialize, Eq, JsonSchema, PartialEq, Serialize
+field clerkenwell_session::transport::ProjectionResyncRequest::subscription_id: u64
 struct clerkenwell_session::transport::ProjectionSubscribeAccepted
 derive clerkenwell_session::transport::ProjectionSubscribeAccepted: Clone, Debug, Deserialize, Eq, JsonSchema, PartialEq, Serialize
 field clerkenwell_session::transport::ProjectionSubscribeAccepted::revision: u64
 field clerkenwell_session::transport::ProjectionSubscribeAccepted::subscription_id: u64
 field clerkenwell_session::transport::ProjectionSubscribeAccepted::up_to_date: bool
-struct clerkenwell_session::transport::ProjectionSubscribeCommand
-derive clerkenwell_session::transport::ProjectionSubscribeCommand: Clone, Debug, Deserialize, JsonSchema, PartialEq, Serialize
-field clerkenwell_session::transport::ProjectionSubscribeCommand::held: Option<Value>
-field clerkenwell_session::transport::ProjectionSubscribeCommand::params: Option<Value>
-field clerkenwell_session::transport::ProjectionSubscribeCommand::projection: String
+struct clerkenwell_session::transport::ProjectionSubscribeRequest
+derive clerkenwell_session::transport::ProjectionSubscribeRequest: Clone, Debug, Deserialize, JsonSchema, PartialEq, Serialize
+field clerkenwell_session::transport::ProjectionSubscribeRequest::held: Option<Value>
+field clerkenwell_session::transport::ProjectionSubscribeRequest::params: Option<Value>
+field clerkenwell_session::transport::ProjectionSubscribeRequest::projection: String
 enum clerkenwell_session::transport::ProjectionTransportEvent<S, P>
 derive clerkenwell_session::transport::ProjectionTransportEvent: Clone, Debug, Deserialize, JsonSchema, PartialEq, Serialize
 variant clerkenwell_session::transport::ProjectionTransportEvent::Patch { subscription_id: u64, from_revision: u64, to_revision: u64, patch: P, #[serde(default, skip_serializing_if = "Option::is_none")] held: Option<Value> }
@@ -249,6 +249,6 @@ variant clerkenwell_session::transport::ProjectionTransportEvent::Snapshot { sub
 struct clerkenwell_session::transport::ProjectionUnsubscribeAccepted
 derive clerkenwell_session::transport::ProjectionUnsubscribeAccepted: Clone, Debug, Deserialize, Eq, JsonSchema, PartialEq, Serialize
 field clerkenwell_session::transport::ProjectionUnsubscribeAccepted::removed: bool
-struct clerkenwell_session::transport::ProjectionUnsubscribeCommand
-derive clerkenwell_session::transport::ProjectionUnsubscribeCommand: Clone, Debug, Deserialize, Eq, JsonSchema, PartialEq, Serialize
-field clerkenwell_session::transport::ProjectionUnsubscribeCommand::subscription_id: u64
+struct clerkenwell_session::transport::ProjectionUnsubscribeRequest
+derive clerkenwell_session::transport::ProjectionUnsubscribeRequest: Clone, Debug, Deserialize, Eq, JsonSchema, PartialEq, Serialize
+field clerkenwell_session::transport::ProjectionUnsubscribeRequest::subscription_id: u64

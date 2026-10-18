@@ -22,22 +22,22 @@ use crate::registry::ProjectionRegistry;
 use crate::subscriptions::{ProjectionSubscription, ProjectionSubscriptions};
 use crate::transport::{
     ProjectionErrorCode, ProjectionErrorEnvelope, ProjectionMutationAccepted,
-    ProjectionMutationCommand, ProjectionOperation, ProjectionResyncCommand,
-    ProjectionSubscribeCommand, ProjectionTransportEvent, ProjectionUnsubscribeAccepted,
-    ProjectionUnsubscribeCommand,
+    ProjectionMutationRequest, ProjectionOperation, ProjectionResyncRequest,
+    ProjectionSubscribeRequest, ProjectionTransportEvent, ProjectionUnsubscribeAccepted,
+    ProjectionUnsubscribeRequest,
 };
 
 /// A projection protocol request.
 #[derive(Debug, Clone, PartialEq)]
-pub enum ProjectionCommand {
-    Subscribe(ProjectionSubscribeCommand),
-    Resync(ProjectionResyncCommand),
-    Unsubscribe(ProjectionUnsubscribeCommand),
-    Mutate(ProjectionMutationCommand),
+pub enum ProjectionRequest {
+    Subscribe(ProjectionSubscribeRequest),
+    Resync(ProjectionResyncRequest),
+    Unsubscribe(ProjectionUnsubscribeRequest),
+    Mutate(ProjectionMutationRequest),
 }
 
-impl ProjectionCommand {
-    /// The command `method` names with `params`, or `None` when the method is
+impl ProjectionRequest {
+    /// The request `method` names with `params`, or `None` when the method is
     /// not part of the protocol.
     pub fn decode(method: &str, params: Option<Value>) -> Option<Result<Self, ProjectionRefusal>> {
         Some(match ProjectionOperation::for_method(method)? {
@@ -57,11 +57,11 @@ impl ProjectionCommand {
         }
     }
 
-    /// The projection or mutation the command names.
+    /// The projection or mutation the request names.
     pub fn name(&self) -> Option<&str> {
         match self {
-            Self::Subscribe(command) => Some(&command.projection),
-            Self::Mutate(command) => Some(&command.mutation),
+            Self::Subscribe(request) => Some(&request.projection),
+            Self::Mutate(request) => Some(&request.mutation),
             Self::Resync(_) | Self::Unsubscribe(_) => None,
         }
     }
@@ -80,7 +80,7 @@ fn decode_params<T: DeserializeOwned>(params: Option<Value>) -> Result<T, Projec
     })
 }
 
-/// Why a command was refused, before the refusal is addressed to the command.
+/// Why a request was refused, before the refusal is addressed to the request.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ProjectionRefusal {
     pub code: ProjectionErrorCode,
@@ -102,7 +102,7 @@ impl ProjectionRefusal {
     }
 }
 
-/// A host's failure, which the session describes to the client whose command
+/// A host's failure, which the session describes to the client whose request
 /// it answers.
 pub trait ProjectionFailure: Sized {
     /// The failure for a refusal the session raises itself.
@@ -152,7 +152,7 @@ pub trait ProjectionHost: Sync {
     fn delivered_by_patch(&self, patch: &Self::Patch) -> Option<Self::Delivery>;
 
     /// Makes `mutation` as `principal`, the principal the host authenticated
-    /// the command's connection as.
+    /// the request's connection as.
     fn mutate(
         &self,
         principal: &Principal,
@@ -198,14 +198,14 @@ pub struct AcceptedMutation<M> {
     pub result: M,
 }
 
-/// A served command's result and the updates it sends.
+/// A served request's result and the updates it sends.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ProjectionReply<S, P, M> {
-    /// The accepted command, as the protocol encodes it.
+    /// The accepted request, as the protocol encodes it.
     pub result: Value,
     /// The updates to send the connection's subscriptions, in order.
     pub events: Vec<ProjectionTransportEvent<S, P>>,
-    /// The mutation the command made, for the other connections to publish.
+    /// The mutation the request made, for the other connections to publish.
     pub accepted: Option<AcceptedMutation<M>>,
 }
 
@@ -219,7 +219,7 @@ type Event<H> =
 
 /// Serves the request `method` names with `params` on `connection`, or
 /// returns `None` when the method is not part of the protocol. A request
-/// whose params do not decode is refused like a command that fails.
+/// whose params do not decode is refused like a request that fails.
 pub async fn serve_request<H, C>(
     host: &H,
     connection: &C,
@@ -231,31 +231,31 @@ where
     C: ProjectionConnection<H::Patch, Held<H::Delivery>>,
 {
     let operation = ProjectionOperation::for_method(method)?;
-    Some(match ProjectionCommand::decode(method, params)? {
-        Ok(command) => serve(host, connection, command).await,
+    Some(match ProjectionRequest::decode(method, params)? {
+        Ok(request) => serve(host, connection, request).await,
         Err(refusal) => Err(addressed(H::Failure::refused(refusal), operation, None)),
     })
 }
 
-/// Serves one command on `connection`. A failure reaches its client described
-/// by a [`ProjectionErrorEnvelope`] addressed to the command.
+/// Serves one request on `connection`. A failure reaches its client described
+/// by a [`ProjectionErrorEnvelope`] addressed to the request.
 pub async fn serve<H, C>(
     host: &H,
     connection: &C,
-    command: ProjectionCommand,
+    request: ProjectionRequest,
 ) -> Result<Reply<H>, H::Failure>
 where
     H: ProjectionHost,
     C: ProjectionConnection<H::Patch, Held<H::Delivery>>,
 {
-    let operation = command.operation();
-    let name = command.name().map(str::to_owned);
+    let operation = request.operation();
+    let name = request.name().map(str::to_owned);
     let started = Instant::now();
-    let outcome = match command {
-        ProjectionCommand::Subscribe(command) => subscribe(host, connection, command).await,
-        ProjectionCommand::Resync(command) => resync(host, connection, command).await,
-        ProjectionCommand::Unsubscribe(command) => unsubscribe::<H, C>(connection, command).await,
-        ProjectionCommand::Mutate(command) => mutate(host, connection, command).await,
+    let outcome = match request {
+        ProjectionRequest::Subscribe(request) => subscribe(host, connection, request).await,
+        ProjectionRequest::Resync(request) => resync(host, connection, request).await,
+        ProjectionRequest::Unsubscribe(request) => unsubscribe::<H, C>(connection, request).await,
+        ProjectionRequest::Mutate(request) => mutate(host, connection, request).await,
     };
     let outcome = outcome.map_err(|failure| addressed(failure, operation, name.as_deref()));
     if operation == ProjectionOperation::Mutate {
@@ -513,7 +513,7 @@ fn typed<H: ProjectionHost, T: DeserializeOwned>(value: Value) -> Result<T, H::F
     })
 }
 
-/// `failure` described to the client of the command it answers.
+/// `failure` described to the client of the request it answers.
 fn addressed<F: ProjectionFailure>(
     failure: F,
     operation: ProjectionOperation,
@@ -532,22 +532,22 @@ fn addressed<F: ProjectionFailure>(
 async fn subscribe<H, C>(
     host: &H,
     connection: &C,
-    command: ProjectionSubscribeCommand,
+    request: ProjectionSubscribeRequest,
 ) -> Result<Reply<H>, H::Failure>
 where
     H: ProjectionHost,
     C: ProjectionConnection<H::Patch, Held<H::Delivery>>,
 {
-    if host.registry().projection(&command.projection).is_none() {
+    if host.registry().projection(&request.projection).is_none() {
         return Err(H::Failure::refused(ProjectionRefusal::new(
             ProjectionErrorCode::UnknownProjection,
-            format!("Unknown projection \"{}\".", command.projection),
-            Some(json!({ "projection": command.projection })),
+            format!("Unknown projection \"{}\".", request.projection),
+            Some(json!({ "projection": request.projection })),
         )));
     }
-    let params = command.params.unwrap_or_else(|| json!({}));
-    let held = command.held.and_then(|held| {
-        if is_authoring(host, &command.projection) {
+    let params = request.params.unwrap_or_else(|| json!({}));
+    let held = request.held.and_then(|held| {
+        if is_authoring(host, &request.projection) {
             serde_json::from_value(held).ok().map(Held::Authoring)
         } else {
             serde_json::from_value(held).ok().map(Held::Host)
@@ -557,12 +557,12 @@ where
     let (snapshot, delivered) = snapshot_for(
         host,
         &principal,
-        &command.projection,
+        &request.projection,
         &params,
         held.as_ref(),
     )
     .await?;
-    let projection = command.projection;
+    let projection = request.projection;
     let (accepted, events) = connection
         .with_subscriptions(move |subscriptions| {
             subscriptions.accept_subscription(projection, params, held, snapshot, delivered)
@@ -578,13 +578,13 @@ where
 async fn resync<H, C>(
     host: &H,
     connection: &C,
-    command: ProjectionResyncCommand,
+    request: ProjectionResyncRequest,
 ) -> Result<Reply<H>, H::Failure>
 where
     H: ProjectionHost,
     C: ProjectionConnection<H::Patch, Held<H::Delivery>>,
 {
-    let subscription_id = command.subscription_id;
+    let subscription_id = request.subscription_id;
     let subscription = connection
         .with_subscriptions(move |subscriptions| subscriptions.get(subscription_id).cloned())
         .await
@@ -621,14 +621,14 @@ fn subscription_not_found<H: ProjectionHost>(subscription_id: u64) -> H::Failure
 
 async fn unsubscribe<H, C>(
     connection: &C,
-    command: ProjectionUnsubscribeCommand,
+    request: ProjectionUnsubscribeRequest,
 ) -> Result<Reply<H>, H::Failure>
 where
     H: ProjectionHost,
     C: ProjectionConnection<H::Patch, Held<H::Delivery>>,
 {
     let removed = connection
-        .with_subscriptions(move |subscriptions| subscriptions.remove(command.subscription_id))
+        .with_subscriptions(move |subscriptions| subscriptions.remove(request.subscription_id))
         .await;
     Ok(ProjectionReply {
         result: encode::<H, _>(&ProjectionUnsubscribeAccepted { removed })?,
@@ -640,13 +640,13 @@ where
 async fn mutate<H, C>(
     host: &H,
     connection: &C,
-    command: ProjectionMutationCommand,
+    request: ProjectionMutationRequest,
 ) -> Result<Reply<H>, H::Failure>
 where
     H: ProjectionHost,
     C: ProjectionConnection<H::Patch, Held<H::Delivery>>,
 {
-    let mutation = command.mutation;
+    let mutation = request.mutation;
     if host.registry().mutation(&mutation).is_none() {
         return Err(H::Failure::refused(ProjectionRefusal::new(
             ProjectionErrorCode::UnknownMutation,
@@ -655,12 +655,12 @@ where
         )));
     }
     let principal = principal_of(connection).await;
-    let result = host.mutate(&principal, &mutation, command.params).await?;
+    let result = host.mutate(&principal, &mutation, request.params).await?;
     let accepted = AcceptedMutation { mutation, result };
     let (revision, events) = publish(host, connection, &accepted).await;
     let reply = ProjectionMutationAccepted {
-        operation_id: command.operation_id,
-        base_revision: command.base_revision,
+        operation_id: request.operation_id,
+        base_revision: request.base_revision,
         revision,
         result: &accepted.result,
     };

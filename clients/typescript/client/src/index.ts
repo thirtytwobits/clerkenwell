@@ -88,14 +88,14 @@ export type {
   ProjectionErrorCode,
   ProjectionErrorEnvelope,
   ProjectionMutationAccepted,
-  ProjectionMutationCommand,
+  ProjectionMutationRequest,
   ProjectionResyncAccepted,
-  ProjectionResyncCommand,
+  ProjectionResyncRequest,
   ProjectionSubscribeAccepted,
-  ProjectionSubscribeCommand,
+  ProjectionSubscribeRequest,
   ProjectionTransportEvent,
   ProjectionUnsubscribeAccepted,
-  ProjectionUnsubscribeCommand
+  ProjectionUnsubscribeRequest
 } from "./protocol.js";
 export {
   PROJECTION_MUTATE_METHOD,

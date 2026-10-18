@@ -18,14 +18,14 @@ use clerkenwell_schema::{
     GeneratedProjectionSpec,
 };
 use clerkenwell_session::transport::{
-    ProjectionErrorCode, ProjectionErrorEnvelope, ProjectionMutationCommand,
-    ProjectionResyncCommand, ProjectionSubscribeAccepted, ProjectionSubscribeCommand,
+    ProjectionErrorCode, ProjectionErrorEnvelope, ProjectionMutationRequest,
+    ProjectionResyncRequest, ProjectionSubscribeAccepted, ProjectionSubscribeRequest,
     ProjectionTransportEvent,
 };
 use clerkenwell_session::{
-    deliver_change, serve, AuthoringHeld, AuthoringStates, Held, ProjectionCommand,
-    ProjectionFailure, ProjectionHost, ProjectionRefusal, ProjectionRegistry,
-    ProjectionSubscription, ProjectionSubscriptions,
+    deliver_change, serve, AuthoringHeld, AuthoringStates, Held, ProjectionFailure, ProjectionHost,
+    ProjectionRefusal, ProjectionRegistry, ProjectionRequest, ProjectionSubscription,
+    ProjectionSubscriptions,
 };
 use clerkenwell_store::testing::MemoryStorage;
 use clerkenwell_store::{
@@ -388,7 +388,7 @@ fn subscribe(
     let reply = block_on(serve(
         library,
         connection,
-        ProjectionCommand::Subscribe(ProjectionSubscribeCommand {
+        ProjectionRequest::Subscribe(ProjectionSubscribeRequest {
             projection: projection.to_owned(),
             params: Some(params),
             held,
@@ -818,7 +818,7 @@ fn a_mutation_sends_authoring_state_subscriptions_nothing() {
     let reply = block_on(serve(
         &library,
         &connection,
-        ProjectionCommand::Mutate(ProjectionMutationCommand {
+        ProjectionRequest::Mutate(ProjectionMutationRequest {
             mutation: "note.touch".to_owned(),
             operation_id: None,
             base_revision: None,
@@ -848,7 +848,7 @@ fn a_resynchronised_subscription_takes_the_whole_accepted_state() {
     let reply = block_on(serve(
         &library,
         &connection,
-        ProjectionCommand::Resync(ProjectionResyncCommand {
+        ProjectionRequest::Resync(ProjectionResyncRequest {
             subscription_id: accepted.subscription_id,
         }),
     ))

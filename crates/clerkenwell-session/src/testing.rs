@@ -8,10 +8,10 @@ use clerkenwell_schema::{AuthoringState, AuthoringStatePatch};
 
 use crate::authoring::AuthoringHeld;
 use crate::transport::{
-    ProjectionErrorEnvelope, ProjectionMutationAccepted, ProjectionMutationCommand,
-    ProjectionResyncAccepted, ProjectionResyncCommand, ProjectionSubscribeAccepted,
-    ProjectionSubscribeCommand, ProjectionTransportEvent, ProjectionUnsubscribeAccepted,
-    ProjectionUnsubscribeCommand, PROJECTION_MUTATE_METHOD, PROJECTION_RESYNC_METHOD,
+    ProjectionErrorEnvelope, ProjectionMutationAccepted, ProjectionMutationRequest,
+    ProjectionResyncAccepted, ProjectionResyncRequest, ProjectionSubscribeAccepted,
+    ProjectionSubscribeRequest, ProjectionTransportEvent, ProjectionUnsubscribeAccepted,
+    ProjectionUnsubscribeRequest, PROJECTION_MUTATE_METHOD, PROJECTION_RESYNC_METHOD,
     PROJECTION_SUBSCRIBE_METHOD, PROJECTION_UNSUBSCRIBE_METHOD, PROJECTION_UPDATE_NOTIFICATION,
 };
 
@@ -35,22 +35,22 @@ pub fn wire_protocol() -> Value {
     };
     method(
         PROJECTION_SUBSCRIBE_METHOD,
-        schema::<ProjectionSubscribeCommand>(&mut generator),
+        schema::<ProjectionSubscribeRequest>(&mut generator),
         schema::<ProjectionSubscribeAccepted>(&mut generator),
     );
     method(
         PROJECTION_RESYNC_METHOD,
-        schema::<ProjectionResyncCommand>(&mut generator),
+        schema::<ProjectionResyncRequest>(&mut generator),
         schema::<ProjectionResyncAccepted>(&mut generator),
     );
     method(
         PROJECTION_UNSUBSCRIBE_METHOD,
-        schema::<ProjectionUnsubscribeCommand>(&mut generator),
+        schema::<ProjectionUnsubscribeRequest>(&mut generator),
         schema::<ProjectionUnsubscribeAccepted>(&mut generator),
     );
     method(
         PROJECTION_MUTATE_METHOD,
-        schema::<ProjectionMutationCommand>(&mut generator),
+        schema::<ProjectionMutationRequest>(&mut generator),
         schema::<ProjectionMutationAccepted<Value>>(&mut generator),
     );
     let mut notifications = Map::new();

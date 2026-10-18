@@ -2,7 +2,7 @@
 //! over an axum WebSocket.
 //!
 //! The application authenticates each connection as a principal; every
-//! command on it is made as that principal. Each connection keeps its own
+//! request on it is made as that principal. Each connection keeps its own
 //! subscriptions. A mutation one connection
 //! makes reaches the subscriptions of every other connection, and each change
 //! a store announces reaches every connection's authoring-state
@@ -39,7 +39,7 @@ const PARSE_ERROR: i64 = -32700;
 const INVALID_REQUEST: i64 = -32600;
 const METHOD_NOT_FOUND: i64 = -32601;
 
-/// A refused command, as a JSON-RPC error answers it.
+/// A refused request, as a JSON-RPC error answers it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct RpcFailure {
     refusal: ProjectionRefusal,
@@ -154,7 +154,7 @@ struct ErrorObject {
 }
 
 impl ErrorObject {
-    /// An error the protocol layer raises before any command is served.
+    /// An error the protocol layer raises before any request is served.
     fn framing(code: i64, message: impl Into<String>) -> Self {
         Self {
             code,

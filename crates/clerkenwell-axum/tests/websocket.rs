@@ -250,7 +250,7 @@ async fn an_upgrade_the_application_authenticates_as_no_principal_is_refused() {
 }
 
 #[tokio::test]
-async fn each_command_is_made_as_the_principal_its_connection_authenticated_as() {
+async fn each_request_is_made_as_the_principal_its_connection_authenticated_as() {
     let (url, _) = start(8).await;
     let mut alice = connect_as(&url, "alice").await;
     let mut bob = connect_as(&url, "bob").await;
@@ -388,7 +388,7 @@ async fn a_connection_that_falls_behind_takes_a_snapshot_of_each_subscription() 
 }
 
 #[tokio::test]
-async fn a_refused_command_answers_with_its_error_and_envelope() {
+async fn a_refused_request_answers_with_its_error_and_envelope() {
     let (url, _) = start(8).await;
     let mut socket = connect(&url).await;
 

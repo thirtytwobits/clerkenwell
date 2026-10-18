@@ -2,7 +2,7 @@
  * Copyright (c) 2026 Scott A Dixon
  *
  * Projection session protocol: subscribe, resync, unsubscribe and mutate
- * commands, their accepted results, pushed events and typed rejections.
+ * requests, their accepted results, pushed events and typed rejections.
  */
 import type {
   MutationName,
@@ -19,7 +19,7 @@ export const PROJECTION_UNSUBSCRIBE_METHOD = "projection.unsubscribe";
 export const PROJECTION_MUTATE_METHOD = "projection.mutate";
 export const PROJECTION_UPDATE_NOTIFICATION = "projection.update";
 
-export interface ProjectionSubscribeCommand {
+export interface ProjectionSubscribeRequest {
   projection: string;
   params?: unknown;
   /**
@@ -29,15 +29,15 @@ export interface ProjectionSubscribeCommand {
   held?: unknown;
 }
 
-export interface ProjectionResyncCommand {
+export interface ProjectionResyncRequest {
   subscription_id: number;
 }
 
-export interface ProjectionUnsubscribeCommand {
+export interface ProjectionUnsubscribeRequest {
   subscription_id: number;
 }
 
-export interface ProjectionMutationCommand<
+export interface ProjectionMutationRequest<
   M extends ProjectionModel = ProjectionModel,
   TMutation extends MutationName<M> = MutationName<M>
 > {

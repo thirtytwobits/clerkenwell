@@ -25,7 +25,7 @@ const CLOSED = 3;
 export class RpcError extends Error {
   readonly code: number;
   readonly data: unknown;
-  /** How the projection protocol describes the refusal, when it answered a projection command. */
+  /** How the projection protocol describes the refusal, when it answered a projection request. */
   readonly projectionError: ProjectionErrorEnvelope | null;
 
   constructor(error: { code: number; message: string; data?: unknown }) {

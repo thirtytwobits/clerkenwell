@@ -191,7 +191,7 @@
       ],
       "type": "object"
     },
-    "ProjectionMutationCommand": {
+    "ProjectionMutationRequest": {
       "additionalProperties": false,
       "properties": {
         "base_revision": {
@@ -254,7 +254,7 @@
       ],
       "type": "object"
     },
-    "ProjectionResyncCommand": {
+    "ProjectionResyncRequest": {
       "additionalProperties": false,
       "properties": {
         "subscription_id": {
@@ -291,7 +291,7 @@
       ],
       "type": "object"
     },
-    "ProjectionSubscribeCommand": {
+    "ProjectionSubscribeRequest": {
       "additionalProperties": false,
       "properties": {
         "held": {},
@@ -383,7 +383,7 @@
       ],
       "type": "object"
     },
-    "ProjectionUnsubscribeCommand": {
+    "ProjectionUnsubscribeRequest": {
       "additionalProperties": false,
       "properties": {
         "subscription_id": {
@@ -413,7 +413,7 @@
   "methods": {
     "projection.mutate": {
       "params": {
-        "$ref": "#/$defs/ProjectionMutationCommand"
+        "$ref": "#/$defs/ProjectionMutationRequest"
       },
       "result": {
         "$ref": "#/$defs/ProjectionMutationAccepted"
@@ -421,7 +421,7 @@
     },
     "projection.resync": {
       "params": {
-        "$ref": "#/$defs/ProjectionResyncCommand"
+        "$ref": "#/$defs/ProjectionResyncRequest"
       },
       "result": {
         "$ref": "#/$defs/ProjectionResyncAccepted"
@@ -429,7 +429,7 @@
     },
     "projection.subscribe": {
       "params": {
-        "$ref": "#/$defs/ProjectionSubscribeCommand"
+        "$ref": "#/$defs/ProjectionSubscribeRequest"
       },
       "result": {
         "$ref": "#/$defs/ProjectionSubscribeAccepted"
@@ -437,7 +437,7 @@
     },
     "projection.unsubscribe": {
       "params": {
-        "$ref": "#/$defs/ProjectionUnsubscribeCommand"
+        "$ref": "#/$defs/ProjectionUnsubscribeRequest"
       },
       "result": {
         "$ref": "#/$defs/ProjectionUnsubscribeAccepted"

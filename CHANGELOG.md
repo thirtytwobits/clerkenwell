@@ -20,6 +20,11 @@ names the contracts.
   constant for each command, `CommandParamsByName`, `CommandResultByName`,
   `ProjectionTransportCommandResult` and `COMMAND_EFFECT_PLANS`. `GeneratedProjectionModel`
   gains `commands`.
+- The session protocol's requests are named as requests, in Rust, in `@clerkenwell/client` and
+  in the wire record's schema titles. `ProjectionCommand` is `ProjectionRequest`, and
+  `ProjectionSubscribeCommand`, `ProjectionResyncCommand`, `ProjectionUnsubscribeCommand` and
+  `ProjectionMutationCommand` are `ProjectionSubscribeRequest`, `ProjectionResyncRequest`,
+  `ProjectionUnsubscribeRequest` and `ProjectionMutationRequest`. No field on the wire changes.
 
 ## 0.7.0
 

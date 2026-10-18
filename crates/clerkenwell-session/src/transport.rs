@@ -15,7 +15,7 @@ pub const PROJECTION_UPDATE_NOTIFICATION: &str = "projection.update";
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, JsonSchema)]
 #[serde(deny_unknown_fields)]
-pub struct ProjectionSubscribeCommand {
+pub struct ProjectionSubscribeRequest {
     pub projection: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub params: Option<Value>,
@@ -28,19 +28,19 @@ pub struct ProjectionSubscribeCommand {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, JsonSchema)]
 #[serde(deny_unknown_fields)]
-pub struct ProjectionUnsubscribeCommand {
+pub struct ProjectionUnsubscribeRequest {
     pub subscription_id: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, JsonSchema)]
 #[serde(deny_unknown_fields)]
-pub struct ProjectionResyncCommand {
+pub struct ProjectionResyncRequest {
     pub subscription_id: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, JsonSchema)]
 #[serde(deny_unknown_fields)]
-pub struct ProjectionMutationCommand {
+pub struct ProjectionMutationRequest {
     pub mutation: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub operation_id: Option<String>,
@@ -111,7 +111,7 @@ pub enum ProjectionTransportEvent<S, P> {
     },
 }
 
-/// Why a command was refused.
+/// Why a request was refused.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum ProjectionErrorCode {
@@ -168,13 +168,13 @@ impl ProjectionErrorCode {
             .find(|candidate| candidate.as_str() == code)
     }
 
-    /// Whether the same command may succeed if sent again unchanged.
+    /// Whether the same request may succeed if sent again unchanged.
     pub fn retryable(self) -> bool {
         matches!(self, Self::BaseRevisionInFuture | Self::RateLimit)
     }
 }
 
-/// The command a refusal answers.
+/// The request a refusal answers.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum ProjectionOperation {
@@ -198,7 +198,7 @@ impl ProjectionOperation {
     }
 }
 
-/// A refused command as its client reads it.
+/// A refused request as its client reads it.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct ProjectionErrorEnvelope {
@@ -206,7 +206,7 @@ pub struct ProjectionErrorEnvelope {
     pub message: String,
     pub operation: ProjectionOperation,
     pub retryable: bool,
-    /// The projection or mutation the command named.
+    /// The projection or mutation the request named.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

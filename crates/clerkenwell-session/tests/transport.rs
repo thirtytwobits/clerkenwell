@@ -1,24 +1,24 @@
 use clerkenwell_session::transport::{
-    ProjectionMutationAccepted, ProjectionMutationCommand, ProjectionSubscribeAccepted,
-    ProjectionSubscribeCommand, ProjectionTransportEvent,
+    ProjectionMutationAccepted, ProjectionMutationRequest, ProjectionSubscribeAccepted,
+    ProjectionSubscribeRequest, ProjectionTransportEvent,
 };
 use serde_json::{json, Value};
 
 #[test]
-fn commands_round_trip_without_hidden_defaults() {
-    let subscribe = ProjectionSubscribeCommand {
+fn requests_round_trip_without_hidden_defaults() {
+    let subscribe = ProjectionSubscribeRequest {
         projection: "notes.list".to_owned(),
         params: Some(json!({})),
         held: Some(json!({ "frontier_base64": "AAE=", "etag": "loro:1" })),
     };
     let subscribe_json = serde_json::to_value(&subscribe).expect("encode subscribe");
     assert_eq!(
-        serde_json::from_value::<ProjectionSubscribeCommand>(subscribe_json)
+        serde_json::from_value::<ProjectionSubscribeRequest>(subscribe_json)
             .expect("decode subscribe"),
         subscribe
     );
 
-    let mutation = ProjectionMutationCommand {
+    let mutation = ProjectionMutationRequest {
         mutation: "note.delete".to_owned(),
         operation_id: Some("op-delete".to_owned()),
         base_revision: Some(42),
@@ -26,7 +26,7 @@ fn commands_round_trip_without_hidden_defaults() {
     };
     let mutation_json = serde_json::to_value(&mutation).expect("encode mutation");
     assert_eq!(
-        serde_json::from_value::<ProjectionMutationCommand>(mutation_json)
+        serde_json::from_value::<ProjectionMutationRequest>(mutation_json)
             .expect("decode mutation"),
         mutation
     );

@@ -106,7 +106,7 @@ impl<P, D> ProjectionSubscriptions<P, D> {
         }
     }
 
-    /// The principal every command on the connection is made by.
+    /// The principal every request on the connection is made by.
     pub fn principal(&self) -> &Principal {
         &self.principal
     }
