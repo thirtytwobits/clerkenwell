@@ -113,10 +113,54 @@
       ],
       "type": "string"
     },
+    "ProjectionCommandAccepted": {
+      "additionalProperties": false,
+      "properties": {
+        "operation_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "result": true,
+        "revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "revision",
+        "result"
+      ],
+      "type": "object"
+    },
+    "ProjectionCommandRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "command": {
+          "type": "string"
+        },
+        "operation_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "params": true
+      },
+      "required": [
+        "command",
+        "params"
+      ],
+      "type": "object"
+    },
     "ProjectionErrorCode": {
       "enum": [
         "unknown_mutation",
         "unsupported_mutation",
+        "unknown_command",
+        "unsupported_command",
         "unknown_projection",
         "unsupported_projection",
         "invalid_params",
@@ -224,7 +268,8 @@
         "subscribe",
         "resync",
         "unsubscribe",
-        "mutate"
+        "mutate",
+        "command"
       ],
       "type": "string"
     },
@@ -411,6 +456,14 @@
     }
   },
   "methods": {
+    "projection.command": {
+      "params": {
+        "$ref": "#/$defs/ProjectionCommandRequest"
+      },
+      "result": {
+        "$ref": "#/$defs/ProjectionCommandAccepted"
+      }
+    },
     "projection.mutate": {
       "params": {
         "$ref": "#/$defs/ProjectionMutationRequest"

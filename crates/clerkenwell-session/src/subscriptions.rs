@@ -157,10 +157,10 @@ impl<P, D> ProjectionSubscriptions<P, D> {
             .unwrap_or(0)
     }
 
-    /// The revision a mutation's effects reach: past every revision this
-    /// connection has sent when it publishes a change, and where they stand
-    /// when it changes nothing.
-    pub fn mutation_revision(&self, publishes: bool) -> u64 {
+    /// The revision a mutation's or a command's effects reach: past every
+    /// revision this connection has sent when it publishes a change, and where
+    /// they stand when it changes nothing.
+    pub fn change_revision(&self, publishes: bool) -> u64 {
         let current = self.current_revision().max(1);
         if publishes {
             current + 1

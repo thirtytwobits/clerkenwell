@@ -1,7 +1,8 @@
 //! The projection session protocol.
 //!
 //! A client subscribes to a projection with optional parameters, receives a
-//! snapshot and then patches, and mutates with a client-minted operation id.
+//! snapshot and then patches, and mutates and runs commands with a
+//! client-minted operation id.
 //! Every update names what it leaves the client holding; a client that
 //! subscribes again with that is sent only what it lacks. This crate holds the
 //! wire contracts, the projection registry, and the per-connection
@@ -19,9 +20,8 @@ pub mod transport;
 pub use authoring::{AuthoringHeld, AuthoringStates, Held};
 pub use registry::ProjectionRegistry;
 pub use server::{
-    deliver_change, publish, resync_all, serve, serve_request, AcceptedMutation,
-    ProjectionConnection, ProjectionFailure, ProjectionHost, ProjectionRefusal, ProjectionReply,
-    ProjectionRequest,
+    deliver_change, publish, resync_all, serve, serve_request, Accepted, ProjectionConnection,
+    ProjectionFailure, ProjectionHost, ProjectionRefusal, ProjectionReply, ProjectionRequest,
 };
 pub use subscriptions::{
     FollowingDelivery, ProjectionRuntimeDiagnostics, ProjectionSubscription,

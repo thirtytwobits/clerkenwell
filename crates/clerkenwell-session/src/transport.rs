@@ -1,7 +1,8 @@
-//! Wire contracts for projection subscriptions and mutations.
+//! Wire contracts for projection subscriptions, mutations and commands.
 //!
-//! Snapshot, patch and mutation-result payloads are the application's own
-//! types, so the accepted-mutation and event contracts are generic over them.
+//! Snapshot, patch, mutation-result and command-result payloads are the
+//! application's own types, so the accepted-mutation, accepted-command and
+//! event contracts are generic over them.
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -11,6 +12,7 @@ pub const PROJECTION_SUBSCRIBE_METHOD: &str = "projection.subscribe";
 pub const PROJECTION_RESYNC_METHOD: &str = "projection.resync";
 pub const PROJECTION_UNSUBSCRIBE_METHOD: &str = "projection.unsubscribe";
 pub const PROJECTION_MUTATE_METHOD: &str = "projection.mutate";
+pub const PROJECTION_COMMAND_METHOD: &str = "projection.command";
 pub const PROJECTION_UPDATE_NOTIFICATION: &str = "projection.update";
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, JsonSchema)]
@@ -46,6 +48,15 @@ pub struct ProjectionMutationRequest {
     pub operation_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub base_revision: Option<u64>,
+    pub params: Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ProjectionCommandRequest {
+    pub command: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub operation_id: Option<String>,
     pub params: Value,
 }
 
@@ -90,6 +101,16 @@ pub struct ProjectionMutationAccepted<R> {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ProjectionCommandAccepted<R> {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub operation_id: Option<String>,
+    /// The revision the command's effects reach on its connection.
+    pub revision: u64,
+    pub result: R,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, JsonSchema)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ProjectionTransportEvent<S, P> {
     Snapshot {
@@ -117,6 +138,8 @@ pub enum ProjectionTransportEvent<S, P> {
 pub enum ProjectionErrorCode {
     UnknownMutation,
     UnsupportedMutation,
+    UnknownCommand,
+    UnsupportedCommand,
     UnknownProjection,
     UnsupportedProjection,
     InvalidParams,
@@ -130,9 +153,11 @@ pub enum ProjectionErrorCode {
 }
 
 impl ProjectionErrorCode {
-    pub const ALL: [Self; 12] = [
+    pub const ALL: [Self; 14] = [
         Self::UnknownMutation,
         Self::UnsupportedMutation,
+        Self::UnknownCommand,
+        Self::UnsupportedCommand,
         Self::UnknownProjection,
         Self::UnsupportedProjection,
         Self::InvalidParams,
@@ -149,6 +174,8 @@ impl ProjectionErrorCode {
         match self {
             Self::UnknownMutation => "unknown_mutation",
             Self::UnsupportedMutation => "unsupported_mutation",
+            Self::UnknownCommand => "unknown_command",
+            Self::UnsupportedCommand => "unsupported_command",
             Self::UnknownProjection => "unknown_projection",
             Self::UnsupportedProjection => "unsupported_projection",
             Self::InvalidParams => "invalid_params",
@@ -182,6 +209,7 @@ pub enum ProjectionOperation {
     Resync,
     Unsubscribe,
     Mutate,
+    Command,
 }
 
 impl ProjectionOperation {
@@ -193,6 +221,7 @@ impl ProjectionOperation {
             PROJECTION_RESYNC_METHOD => Some(Self::Resync),
             PROJECTION_UNSUBSCRIBE_METHOD => Some(Self::Unsubscribe),
             PROJECTION_MUTATE_METHOD => Some(Self::Mutate),
+            PROJECTION_COMMAND_METHOD => Some(Self::Command),
             _ => None,
         }
     }
@@ -206,7 +235,7 @@ pub struct ProjectionErrorEnvelope {
     pub message: String,
     pub operation: ProjectionOperation,
     pub retryable: bool,
-    /// The projection or mutation the request named.
+    /// The projection, mutation or command the request named.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

@@ -1,5 +1,6 @@
 use clerkenwell_schema::{
-    GeneratedMaterializationPlan, GeneratedMutationSpec, GeneratedProjectionSpec,
+    GeneratedCommandSpec, GeneratedMaterializationPlan, GeneratedMutationSpec,
+    GeneratedProjectionSpec,
 };
 use clerkenwell_session::ProjectionRegistry;
 
@@ -25,7 +26,18 @@ static MUTATIONS: &[GeneratedMutationSpec] = &[
         touches: &["Board", "Note"],
     },
 ];
-static REGISTRY: ProjectionRegistry = ProjectionRegistry::new(PROJECTIONS, MUTATIONS, &[]);
+static COMMANDS: &[GeneratedCommandSpec] = &[
+    GeneratedCommandSpec {
+        name: "note.archiveAll",
+        touches: &["Note"],
+    },
+    GeneratedCommandSpec {
+        name: "board.preview",
+        touches: &[],
+    },
+];
+static REGISTRY: ProjectionRegistry =
+    ProjectionRegistry::new(PROJECTIONS, MUTATIONS, COMMANDS, &[]);
 
 #[test]
 fn every_registered_name_resolves_to_its_spec() {
@@ -35,8 +47,12 @@ fn every_registered_name_resolves_to_its_spec() {
     for mutation in MUTATIONS {
         assert_eq!(REGISTRY.mutation(mutation.name), Some(mutation));
     }
+    for command in COMMANDS {
+        assert_eq!(REGISTRY.command(command.name), Some(command));
+    }
     assert_eq!(REGISTRY.projection_names().len(), PROJECTIONS.len());
     assert_eq!(REGISTRY.mutation_names().len(), MUTATIONS.len());
+    assert_eq!(REGISTRY.command_names().len(), COMMANDS.len());
 }
 
 #[test]
@@ -49,8 +65,11 @@ fn arbitrary_names_never_resolve() {
         let candidate = format!("unknown.{state:016x}");
         assert!(REGISTRY.projection(&candidate).is_none());
         assert!(REGISTRY.mutation(&candidate).is_none());
+        assert!(REGISTRY.command(&candidate).is_none());
         assert!(!REGISTRY.mutation_affects_projection(&candidate, "notes.list"));
         assert!(!REGISTRY.mutation_affects_projection("note.delete", &candidate));
+        assert!(!REGISTRY.command_affects_projection(&candidate, "notes.list"));
+        assert!(!REGISTRY.command_affects_projection("note.archiveAll", &candidate));
     }
 }
 
@@ -70,5 +89,34 @@ fn a_mutation_affects_exactly_the_projections_that_read_an_entity_it_writes() {
                 projection.name
             );
         }
+    }
+}
+
+#[test]
+fn a_command_affects_exactly_the_projections_that_read_an_entity_it_touches() {
+    for command in COMMANDS {
+        for projection in PROJECTIONS {
+            let shares_an_entity = projection
+                .depends_on
+                .iter()
+                .any(|entity| command.touches.contains(entity));
+            assert_eq!(
+                REGISTRY.command_affects_projection(command.name, projection.name),
+                shares_an_entity,
+                "{} against {}",
+                command.name,
+                projection.name
+            );
+        }
+    }
+}
+
+#[test]
+fn a_mutation_name_is_not_a_command_and_a_command_name_is_not_a_mutation() {
+    for mutation in MUTATIONS {
+        assert!(REGISTRY.command(mutation.name).is_none());
+    }
+    for command in COMMANDS {
+        assert!(REGISTRY.mutation(command.name).is_none());
     }
 }

@@ -8,10 +8,11 @@ use clerkenwell_schema::{AuthoringState, AuthoringStatePatch};
 
 use crate::authoring::AuthoringHeld;
 use crate::transport::{
-    ProjectionErrorEnvelope, ProjectionMutationAccepted, ProjectionMutationRequest,
-    ProjectionResyncAccepted, ProjectionResyncRequest, ProjectionSubscribeAccepted,
-    ProjectionSubscribeRequest, ProjectionTransportEvent, ProjectionUnsubscribeAccepted,
-    ProjectionUnsubscribeRequest, PROJECTION_MUTATE_METHOD, PROJECTION_RESYNC_METHOD,
+    ProjectionCommandAccepted, ProjectionCommandRequest, ProjectionErrorEnvelope,
+    ProjectionMutationAccepted, ProjectionMutationRequest, ProjectionResyncAccepted,
+    ProjectionResyncRequest, ProjectionSubscribeAccepted, ProjectionSubscribeRequest,
+    ProjectionTransportEvent, ProjectionUnsubscribeAccepted, ProjectionUnsubscribeRequest,
+    PROJECTION_COMMAND_METHOD, PROJECTION_MUTATE_METHOD, PROJECTION_RESYNC_METHOD,
     PROJECTION_SUBSCRIBE_METHOD, PROJECTION_UNSUBSCRIBE_METHOD, PROJECTION_UPDATE_NOTIFICATION,
 };
 
@@ -20,8 +21,9 @@ pub const WIRE_PROTOCOL_RECORD: &str = "wire-protocol.json";
 
 /// The JSON Schema of every message the protocol exchanges: each method's
 /// parameters and result, each notification's parameters, the refusal
-/// envelope, and the authoring state and its patch. Other snapshots, patches
-/// and mutation results are the application's, so any value stands for them.
+/// envelope, and the authoring state and its patch. Other snapshots, patches,
+/// mutation results and command results are the application's, so any value
+/// stands for them.
 /// The schema carries no annotations, so documentation can change without
 /// changing the record.
 pub fn wire_protocol() -> Value {
@@ -52,6 +54,11 @@ pub fn wire_protocol() -> Value {
         PROJECTION_MUTATE_METHOD,
         schema::<ProjectionMutationRequest>(&mut generator),
         schema::<ProjectionMutationAccepted<Value>>(&mut generator),
+    );
+    method(
+        PROJECTION_COMMAND_METHOD,
+        schema::<ProjectionCommandRequest>(&mut generator),
+        schema::<ProjectionCommandAccepted<Value>>(&mut generator),
     );
     let mut notifications = Map::new();
     notifications.insert(

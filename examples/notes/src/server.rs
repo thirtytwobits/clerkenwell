@@ -26,11 +26,11 @@ use serde::de::DeserializeOwned;
 use serde_json::{json, Value};
 
 use crate::model::{
-    NoteCreateParams, NoteMutationResult, ProjectionTransportMutationResult,
-    ProjectionTransportPatch, ProjectionTransportSnapshot, ReplicaUpdateParams,
-    ReplicaUpdateResult, GENERATED_COLLABORATION_SPECS, GENERATED_ENTITY_AUTHORING_SPECS,
-    GENERATED_MUTATION_SPECS, GENERATED_PROJECTION_SPECS, NOTE_CREATE_MUTATION,
-    NOTE_IMPORT_UPDATE_MUTATION,
+    NoteCreateParams, NoteMutationResult, ProjectionTransportCommandResult,
+    ProjectionTransportMutationResult, ProjectionTransportPatch, ProjectionTransportSnapshot,
+    ReplicaUpdateParams, ReplicaUpdateResult, GENERATED_COLLABORATION_SPECS,
+    GENERATED_COMMAND_SPECS, GENERATED_ENTITY_AUTHORING_SPECS, GENERATED_MUTATION_SPECS,
+    GENERATED_PROJECTION_SPECS, NOTE_CREATE_MUTATION, NOTE_IMPORT_UPDATE_MUTATION,
 };
 use crate::storage::MemoryStorage;
 use crate::{peer_key, validate, COMMIT_POLICY, NOTE};
@@ -48,6 +48,7 @@ pub const NOTES_STORE: &str = "notes";
 static REGISTRY: ProjectionRegistry = ProjectionRegistry::new(
     GENERATED_PROJECTION_SPECS,
     GENERATED_MUTATION_SPECS,
+    GENERATED_COMMAND_SPECS,
     GENERATED_ENTITY_AUTHORING_SPECS,
 );
 
@@ -174,6 +175,7 @@ impl ProjectionHost for NotesServer {
     type Patch = ProjectionTransportPatch;
     type Delivery = ();
     type MutationResult = ProjectionTransportMutationResult;
+    type CommandResult = ProjectionTransportCommandResult;
     type Failure = RpcFailure;
 
     fn registry(&self) -> &ProjectionRegistry {
@@ -234,6 +236,29 @@ impl ProjectionHost for NotesServer {
         _subscription: &ProjectionSubscription<Held<()>>,
     ) -> Option<ProjectionTransportPatch> {
         None
+    }
+
+    /// The notes definition declares no commands.
+    async fn command(
+        &self,
+        _principal: &Principal,
+        command: &str,
+        _params: Value,
+    ) -> Result<ProjectionTransportCommandResult, RpcFailure> {
+        Err(RpcFailure::new(
+            ProjectionErrorCode::UnsupportedCommand,
+            format!("The notes server does not run \"{command}\"."),
+            None,
+        ))
+    }
+
+    async fn command_patch(
+        &self,
+        _command: &str,
+        result: &ProjectionTransportCommandResult,
+        _subscription: &ProjectionSubscription<Held<()>>,
+    ) -> Option<ProjectionTransportPatch> {
+        match *result {}
     }
 }
 

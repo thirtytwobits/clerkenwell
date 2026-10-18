@@ -8,7 +8,8 @@ use std::time::Duration;
 use clerkenwell_axum::{ProjectionServer, RpcFailure};
 use clerkenwell_events::{ActorKind, Principal};
 use clerkenwell_schema::{
-    GeneratedMaterializationPlan, GeneratedMutationSpec, GeneratedProjectionSpec,
+    GeneratedCommandSpec, GeneratedMaterializationPlan, GeneratedMutationSpec,
+    GeneratedProjectionSpec,
 };
 use clerkenwell_session::transport::ProjectionErrorCode;
 use clerkenwell_session::{Held, ProjectionHost, ProjectionRegistry, ProjectionSubscription};
@@ -36,7 +37,12 @@ static MUTATIONS: &[GeneratedMutationSpec] = &[GeneratedMutationSpec {
     name: "counter.increment",
     touches: &["Counter"],
 }];
-static REGISTRY: ProjectionRegistry = ProjectionRegistry::new(PROJECTIONS, MUTATIONS, &[]);
+static COMMANDS: &[GeneratedCommandSpec] = &[GeneratedCommandSpec {
+    name: "counter.reset",
+    touches: &["Counter"],
+}];
+static REGISTRY: ProjectionRegistry =
+    ProjectionRegistry::new(PROJECTIONS, MUTATIONS, COMMANDS, &[]);
 
 /// Counters by id, and a projection whose snapshot waits to be released.
 struct Counters {
@@ -65,6 +71,7 @@ impl ProjectionHost for Counters {
     type Patch = Value;
     type Delivery = ();
     type MutationResult = Value;
+    type CommandResult = Value;
     type Failure = RpcFailure;
 
     fn registry(&self) -> &ProjectionRegistry {
@@ -123,6 +130,27 @@ impl ProjectionHost for Counters {
     async fn mutation_patch(
         &self,
         _mutation: &str,
+        result: &Value,
+        subscription: &ProjectionSubscription<Held<()>>,
+    ) -> Option<Value> {
+        (subscription.params["counter_id"] == result["counter_id"])
+            .then(|| json!({ "value": result["value"] }))
+    }
+
+    async fn command(
+        &self,
+        principal: &Principal,
+        _command: &str,
+        params: Value,
+    ) -> Result<Value, RpcFailure> {
+        let id = counter_id(&params)?;
+        self.values.lock().expect("values").insert(id.clone(), 0);
+        Ok(json!({ "counter_id": id, "value": 0, "by": principal.id }))
+    }
+
+    async fn command_patch(
+        &self,
+        _command: &str,
         result: &Value,
         subscription: &ProjectionSubscription<Held<()>>,
     ) -> Option<Value> {

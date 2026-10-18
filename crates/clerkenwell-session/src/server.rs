@@ -3,8 +3,9 @@
 //! A transport hands each request to [`serve_request`] with the application's
 //! [`ProjectionHost`] and the connection's subscriptions. It answers the
 //! request with the reply's result and sends each of the reply's events as a
-//! `projection.update` notification. A mutation the reply accepted reaches the
-//! subscriptions of every other connection through [`publish`].
+//! `projection.update` notification. A mutation the reply accepted, or a
+//! command it served, reaches the subscriptions of every other connection
+//! through [`publish`].
 
 use std::future::Future;
 use std::sync::{Mutex, PoisonError};
@@ -21,10 +22,10 @@ use crate::authoring::{AuthoringHeld, AuthoringStates, Held};
 use crate::registry::ProjectionRegistry;
 use crate::subscriptions::{ProjectionSubscription, ProjectionSubscriptions};
 use crate::transport::{
-    ProjectionErrorCode, ProjectionErrorEnvelope, ProjectionMutationAccepted,
-    ProjectionMutationRequest, ProjectionOperation, ProjectionResyncRequest,
-    ProjectionSubscribeRequest, ProjectionTransportEvent, ProjectionUnsubscribeAccepted,
-    ProjectionUnsubscribeRequest,
+    ProjectionCommandAccepted, ProjectionCommandRequest, ProjectionErrorCode,
+    ProjectionErrorEnvelope, ProjectionMutationAccepted, ProjectionMutationRequest,
+    ProjectionOperation, ProjectionResyncRequest, ProjectionSubscribeRequest,
+    ProjectionTransportEvent, ProjectionUnsubscribeAccepted, ProjectionUnsubscribeRequest,
 };
 
 /// A projection protocol request.
@@ -34,6 +35,7 @@ pub enum ProjectionRequest {
     Resync(ProjectionResyncRequest),
     Unsubscribe(ProjectionUnsubscribeRequest),
     Mutate(ProjectionMutationRequest),
+    Command(ProjectionCommandRequest),
 }
 
 impl ProjectionRequest {
@@ -45,6 +47,7 @@ impl ProjectionRequest {
             ProjectionOperation::Resync => decode_params(params).map(Self::Resync),
             ProjectionOperation::Unsubscribe => decode_params(params).map(Self::Unsubscribe),
             ProjectionOperation::Mutate => decode_params(params).map(Self::Mutate),
+            ProjectionOperation::Command => decode_params(params).map(Self::Command),
         })
     }
 
@@ -54,14 +57,16 @@ impl ProjectionRequest {
             Self::Resync(_) => ProjectionOperation::Resync,
             Self::Unsubscribe(_) => ProjectionOperation::Unsubscribe,
             Self::Mutate(_) => ProjectionOperation::Mutate,
+            Self::Command(_) => ProjectionOperation::Command,
         }
     }
 
-    /// The projection or mutation the request names.
+    /// The projection, mutation or command the request names.
     pub fn name(&self) -> Option<&str> {
         match self {
             Self::Subscribe(request) => Some(&request.projection),
             Self::Mutate(request) => Some(&request.mutation),
+            Self::Command(request) => Some(&request.command),
             Self::Resync(_) | Self::Unsubscribe(_) => None,
         }
     }
@@ -123,9 +128,10 @@ pub trait ProjectionHost: Sync {
     /// it subscribes again, and is sent only what it lacks.
     type Delivery: Clone + PartialEq + Serialize + DeserializeOwned + Send;
     type MutationResult: Serialize + Send + Sync;
+    type CommandResult: Serialize + Send + Sync;
     type Failure: ProjectionFailure + Send;
 
-    /// The projections and mutations served.
+    /// The projections, mutations and commands served.
     fn registry(&self) -> &ProjectionRegistry;
 
     /// The authoring states of the collaborative documents served, which the
@@ -169,6 +175,26 @@ pub trait ProjectionHost: Sync {
         result: &Self::MutationResult,
         subscription: &ProjectionSubscription<Held<Self::Delivery>>,
     ) -> impl Future<Output = Option<Self::Patch>> + Send;
+
+    /// Runs `command` as `principal`, the principal the host authenticated
+    /// the request's connection as.
+    fn command(
+        &self,
+        principal: &Principal,
+        command: &str,
+        params: Value,
+    ) -> impl Future<Output = Result<Self::CommandResult, Self::Failure>> + Send;
+
+    /// The patch a served command sends `subscription`, or `None` when its
+    /// change reaches that subscription some other way. The session asks only
+    /// for subscriptions to a projection that reads an entity the command
+    /// touches, and for no authoring state.
+    fn command_patch(
+        &self,
+        command: &str,
+        result: &Self::CommandResult,
+        subscription: &ProjectionSubscription<Held<Self::Delivery>>,
+    ) -> impl Future<Output = Option<Self::Patch>> + Send;
 }
 
 /// A connection's subscriptions, which the session changes one transition at
@@ -191,29 +217,34 @@ impl<P: Send, D: Send> ProjectionConnection<P, D> for Mutex<ProjectionSubscripti
     }
 }
 
-/// A mutation one connection accepted, as every connection publishes it.
+/// A mutation one connection accepted, or a command it served, as every
+/// connection publishes it.
 #[derive(Debug, Clone, PartialEq)]
-pub struct AcceptedMutation<M> {
-    pub mutation: String,
-    pub result: M,
+pub enum Accepted<M, C> {
+    Mutation { mutation: String, result: M },
+    Command { command: String, result: C },
 }
 
 /// A served request's result and the updates it sends.
 #[derive(Debug, Clone, PartialEq)]
-pub struct ProjectionReply<S, P, M> {
+pub struct ProjectionReply<S, P, M, C> {
     /// The accepted request, as the protocol encodes it.
     pub result: Value,
     /// The updates to send the connection's subscriptions, in order.
     pub events: Vec<ProjectionTransportEvent<S, P>>,
-    /// The mutation the request made, for the other connections to publish.
-    pub accepted: Option<AcceptedMutation<M>>,
+    /// The mutation the request made, or the command it ran, for the other
+    /// connections to publish.
+    pub accepted: Option<Accepted<M, C>>,
 }
 
 type Reply<H> = ProjectionReply<
     <H as ProjectionHost>::Snapshot,
     <H as ProjectionHost>::Patch,
     <H as ProjectionHost>::MutationResult,
+    <H as ProjectionHost>::CommandResult,
 >;
+type Change<H> =
+    Accepted<<H as ProjectionHost>::MutationResult, <H as ProjectionHost>::CommandResult>;
 type Event<H> =
     ProjectionTransportEvent<<H as ProjectionHost>::Snapshot, <H as ProjectionHost>::Patch>;
 
@@ -256,6 +287,7 @@ where
         ProjectionRequest::Resync(request) => resync(host, connection, request).await,
         ProjectionRequest::Unsubscribe(request) => unsubscribe::<H, C>(connection, request).await,
         ProjectionRequest::Mutate(request) => mutate(host, connection, request).await,
+        ProjectionRequest::Command(request) => command(host, connection, request).await,
     };
     let outcome = outcome.map_err(|failure| addressed(failure, operation, name.as_deref()));
     if operation == ProjectionOperation::Mutate {
@@ -273,23 +305,31 @@ where
     outcome
 }
 
-/// Sends the subscriptions on `connection` the patches an accepted mutation
-/// brings them. Returns the revision the mutation's effects reach there and
-/// the updates to send, in order.
-pub async fn publish<H, C>(
-    host: &H,
-    connection: &C,
-    accepted: &AcceptedMutation<H::MutationResult>,
-) -> (u64, Vec<Event<H>>)
+/// Sends the subscriptions on `connection` the patches an accepted mutation,
+/// or a served command, brings them. Returns the revision its effects reach
+/// there and the updates to send, in order.
+pub async fn publish<H, C>(host: &H, connection: &C, accepted: &Change<H>) -> (u64, Vec<Event<H>>)
 where
     H: ProjectionHost,
     C: ProjectionConnection<H::Patch, Held<H::Delivery>>,
 {
     let registry = host.registry();
-    let mutation = accepted.mutation.as_str();
-    let publishes = !registry.plans_only(mutation);
+    let publishes = match accepted {
+        Accepted::Mutation { mutation, .. } => !registry.plans_only(mutation),
+        Accepted::Command { command, .. } => registry
+            .command(command)
+            .is_some_and(|spec| !spec.touches.is_empty()),
+    };
+    let affects = |projection: &str| match accepted {
+        Accepted::Mutation { mutation, .. } => {
+            registry.mutation_affects_projection(mutation, projection)
+        }
+        Accepted::Command { command, .. } => {
+            registry.command_affects_projection(command, projection)
+        }
+    };
     let revision = connection
-        .with_subscriptions(move |subscriptions| subscriptions.mutation_revision(publishes))
+        .with_subscriptions(move |subscriptions| subscriptions.change_revision(publishes))
         .await;
     let mut events = Vec::new();
     if !publishes {
@@ -301,7 +341,7 @@ where
                 .all()
                 .iter()
                 .filter(|(_, subscription)| {
-                    registry.mutation_affects_projection(mutation, &subscription.projection)
+                    affects(&subscription.projection)
                         && !is_authoring(host, &subscription.projection)
                 })
                 .map(|(subscription_id, subscription)| (*subscription_id, subscription.clone()))
@@ -311,10 +351,15 @@ where
         })
         .await;
     for (subscription_id, subscription) in affected {
-        let Some(patch) = host
-            .mutation_patch(mutation, &accepted.result, &subscription)
-            .await
-        else {
+        let patch = match accepted {
+            Accepted::Mutation { mutation, result } => {
+                host.mutation_patch(mutation, result, &subscription).await
+            }
+            Accepted::Command { command, result } => {
+                host.command_patch(command, result, &subscription).await
+            }
+        };
+        let Some(patch) = patch else {
             continue;
         };
         let delivered = host.delivered_by_patch(&patch).map(Held::Host);
@@ -656,13 +701,48 @@ where
     }
     let principal = principal_of(connection).await;
     let result = host.mutate(&principal, &mutation, request.params).await?;
-    let accepted = AcceptedMutation { mutation, result };
+    let encoded = encode::<H, _>(&result)?;
+    let accepted = Accepted::Mutation { mutation, result };
     let (revision, events) = publish(host, connection, &accepted).await;
     let reply = ProjectionMutationAccepted {
         operation_id: request.operation_id,
         base_revision: request.base_revision,
         revision,
-        result: &accepted.result,
+        result: encoded,
+    };
+    Ok(ProjectionReply {
+        result: encode::<H, _>(&reply)?,
+        events,
+        accepted: Some(accepted),
+    })
+}
+
+async fn command<H, C>(
+    host: &H,
+    connection: &C,
+    request: ProjectionCommandRequest,
+) -> Result<Reply<H>, H::Failure>
+where
+    H: ProjectionHost,
+    C: ProjectionConnection<H::Patch, Held<H::Delivery>>,
+{
+    let command = request.command;
+    if host.registry().command(&command).is_none() {
+        return Err(H::Failure::refused(ProjectionRefusal::new(
+            ProjectionErrorCode::UnknownCommand,
+            format!("Unknown command \"{command}\"."),
+            Some(json!({ "command": command })),
+        )));
+    }
+    let principal = principal_of(connection).await;
+    let result = host.command(&principal, &command, request.params).await?;
+    let encoded = encode::<H, _>(&result)?;
+    let accepted = Accepted::Command { command, result };
+    let (revision, events) = publish(host, connection, &accepted).await;
+    let reply = ProjectionCommandAccepted {
+        operation_id: request.operation_id,
+        revision,
+        result: encoded,
     };
     Ok(ProjectionReply {
         result: encode::<H, _>(&reply)?,

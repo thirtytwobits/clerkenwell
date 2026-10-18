@@ -4,7 +4,8 @@
 //! The application authenticates each connection as a principal; every
 //! request on it is made as that principal. Each connection keeps its own
 //! subscriptions. A mutation one connection
-//! makes reaches the subscriptions of every other connection, and each change
+//! makes, or a command it runs, reaches the subscriptions of every other
+//! connection, and each change
 //! a store announces reaches every connection's authoring-state
 //! subscriptions. A connection that falls behind takes a snapshot for each of
 //! its subscriptions.
@@ -25,7 +26,7 @@ use clerkenwell_session::transport::{
     PROJECTION_UPDATE_NOTIFICATION,
 };
 use clerkenwell_session::{
-    deliver_change, publish, resync_all, serve_request, AcceptedMutation, Held, ProjectionFailure,
+    deliver_change, publish, resync_all, serve_request, Accepted, Held, ProjectionFailure,
     ProjectionHost, ProjectionRefusal, ProjectionSubscriptions,
 };
 use futures_util::{SinkExt, StreamExt};
@@ -100,6 +101,8 @@ fn rpc_code(code: ProjectionErrorCode) -> i64 {
     match code {
         ProjectionErrorCode::UnknownMutation
         | ProjectionErrorCode::UnsupportedMutation
+        | ProjectionErrorCode::UnknownCommand
+        | ProjectionErrorCode::UnsupportedCommand
         | ProjectionErrorCode::UnknownProjection
         | ProjectionErrorCode::UnsupportedProjection
         | ProjectionErrorCode::InvalidParams
@@ -181,10 +184,11 @@ struct Notification<'a, T> {
     params: &'a T,
 }
 
-/// A mutation one connection accepted, for every other connection.
-struct Publication<M> {
+/// A mutation one connection accepted, or a command it ran, for every other
+/// connection.
+struct Publication<M, C> {
     origin: u64,
-    mutation: AcceptedMutation<M>,
+    change: Accepted<M, C>,
 }
 
 type Subscriptions<A> = Mutex<
@@ -194,7 +198,7 @@ type Subscriptions<A> = Mutex<
 /// Serves an application's projections to every connection.
 pub struct ProjectionServer<A: ProjectionHost> {
     application: A,
-    published: broadcast::Sender<Arc<Publication<A::MutationResult>>>,
+    published: broadcast::Sender<Arc<Publication<A::MutationResult, A::CommandResult>>>,
     changes: broadcast::Sender<Arc<ChangeEvent>>,
     connections: AtomicU64,
 }
@@ -206,10 +210,11 @@ where
     A::Patch: Sync + 'static,
     A::Delivery: Sync + 'static,
     A::MutationResult: 'static,
+    A::CommandResult: 'static,
 {
     /// A server whose connections resynchronise once they fall more than
-    /// `publication_window` mutations, or changes to the application's
-    /// stores, behind.
+    /// `publication_window` mutations and commands, or changes to the
+    /// application's stores, behind.
     pub fn new(application: A, publication_window: NonZeroUsize) -> Arc<Self> {
         let (published, _) = broadcast::channel(publication_window.get());
         let (changes, _) = broadcast::channel(publication_window.get());
@@ -280,7 +285,7 @@ where
                     let events = match publication {
                         Ok(publication) if publication.origin == origin => continue,
                         Ok(publication) => {
-                            publish(&self.application, &subscriptions, &publication.mutation).await.1
+                            publish(&self.application, &subscriptions, &publication.change).await.1
                         }
                         Err(RecvError::Lagged(missed)) => {
                             subscriptions
@@ -360,11 +365,11 @@ where
             ),
             Some(Err(failure)) => (Err(failure.error_object()), Vec::new()),
             Some(Ok(reply)) => {
-                if let Some(mutation) = reply.accepted {
+                if let Some(change) = reply.accepted {
                     // No other connection is listening when the send fails.
                     let _ = self
                         .published
-                        .send(Arc::new(Publication { origin, mutation }));
+                        .send(Arc::new(Publication { origin, change }));
                 }
                 (Ok(reply.result), reply.events)
             }

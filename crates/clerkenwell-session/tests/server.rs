@@ -7,19 +7,20 @@ use std::task::{Context, Poll, Waker};
 
 use clerkenwell_events::{ActorKind, Principal};
 use clerkenwell_schema::{
-    GeneratedAuthoringPolicyKind, GeneratedEntityAuthoringSpec, GeneratedMaterializationPlan,
-    GeneratedMutationSpec, GeneratedProjectionSpec,
+    GeneratedAuthoringPolicyKind, GeneratedCommandSpec, GeneratedEntityAuthoringSpec,
+    GeneratedMaterializationPlan, GeneratedMutationSpec, GeneratedProjectionSpec,
 };
 use clerkenwell_session::transport::{
-    ProjectionErrorCode, ProjectionErrorEnvelope, ProjectionMutationAccepted,
-    ProjectionMutationRequest, ProjectionOperation, ProjectionResyncAccepted,
-    ProjectionResyncRequest, ProjectionSubscribeAccepted, ProjectionSubscribeRequest,
-    ProjectionTransportEvent, ProjectionUnsubscribeAccepted, ProjectionUnsubscribeRequest,
+    ProjectionCommandAccepted, ProjectionCommandRequest, ProjectionErrorCode,
+    ProjectionErrorEnvelope, ProjectionMutationAccepted, ProjectionMutationRequest,
+    ProjectionOperation, ProjectionResyncAccepted, ProjectionResyncRequest,
+    ProjectionSubscribeAccepted, ProjectionSubscribeRequest, ProjectionTransportEvent,
+    ProjectionUnsubscribeAccepted, ProjectionUnsubscribeRequest, PROJECTION_COMMAND_METHOD,
     PROJECTION_MUTATE_METHOD, PROJECTION_SUBSCRIBE_METHOD,
 };
 use clerkenwell_session::{
-    publish, resync_all, serve, serve_request, AcceptedMutation, Held, ProjectionFailure,
-    ProjectionHost, ProjectionRefusal, ProjectionRegistry, ProjectionReply, ProjectionRequest,
+    publish, resync_all, serve, serve_request, Accepted, Held, ProjectionFailure, ProjectionHost,
+    ProjectionRefusal, ProjectionRegistry, ProjectionReply, ProjectionRequest,
     ProjectionSubscription, ProjectionSubscriptions,
 };
 use serde_json::{json, Value};
@@ -61,7 +62,18 @@ static AUTHORING: &[GeneratedEntityAuthoringSpec] = &[GeneratedEntityAuthoringSp
     mutations: &["note.rename", "note.preview"],
     planning_mutations: &["note.preview"],
 }];
-static REGISTRY: ProjectionRegistry = ProjectionRegistry::new(PROJECTIONS, MUTATIONS, AUTHORING);
+static COMMANDS: &[GeneratedCommandSpec] = &[
+    GeneratedCommandSpec {
+        name: "note.archive",
+        touches: &["Note"],
+    },
+    GeneratedCommandSpec {
+        name: "note.count",
+        touches: &[],
+    },
+];
+static REGISTRY: ProjectionRegistry =
+    ProjectionRegistry::new(PROJECTIONS, MUTATIONS, COMMANDS, AUTHORING);
 
 #[derive(Debug)]
 struct Failure {
@@ -95,6 +107,11 @@ struct Notes {
     mutations_run: Mutex<usize>,
     /// The principal each mutation was made as, in order.
     mutated_by: Mutex<Vec<Principal>>,
+    /// The principal each command was run as, in order.
+    commanded_by: Mutex<Vec<Principal>>,
+    /// The projection of each subscription the session asked a command's
+    /// patch for, in order.
+    command_patches_asked: Mutex<Vec<String>>,
 }
 
 /// The connection the host authenticated as `id`.
@@ -113,7 +130,16 @@ impl Notes {
             refusal: None,
             mutations_run: Mutex::new(0),
             mutated_by: Mutex::new(Vec::new()),
+            commanded_by: Mutex::new(Vec::new()),
+            command_patches_asked: Mutex::new(Vec::new()),
         }
+    }
+
+    fn command_patches_asked(&self) -> Vec<String> {
+        self.command_patches_asked
+            .lock()
+            .expect("command patches")
+            .clone()
     }
 
     fn title(&self) -> String {
@@ -135,6 +161,7 @@ impl ProjectionHost for Notes {
     type Patch = Value;
     type Delivery = String;
     type MutationResult = Value;
+    type CommandResult = Value;
     type Failure = Failure;
 
     fn registry(&self) -> &ProjectionRegistry {
@@ -201,6 +228,42 @@ impl ProjectionHost for Notes {
         };
         async move { patch }
     }
+
+    fn command(
+        &self,
+        principal: &Principal,
+        command: &str,
+        _params: Value,
+    ) -> impl Future<Output = Result<Value, Failure>> + Send {
+        self.commanded_by
+            .lock()
+            .expect("principals")
+            .push(principal.clone());
+        let outcome = match (&self.refusal, command) {
+            (Some(refusal), _) => Err(Failure::refused(refusal.clone())),
+            (None, "note.archive") => Ok(json!({ "archived": self.title() })),
+            (None, _) => Ok(json!({ "words": self.title().split_whitespace().count() })),
+        };
+        async move { outcome }
+    }
+
+    fn command_patch(
+        &self,
+        _command: &str,
+        result: &Value,
+        subscription: &ProjectionSubscription<Held<String>>,
+    ) -> impl Future<Output = Option<Value>> + Send {
+        self.command_patches_asked
+            .lock()
+            .expect("command patches")
+            .push(subscription.projection.clone());
+        // The authoring state reaches its subscribers another way.
+        let patch = match subscription.projection.as_str() {
+            "notes.list" => Some(json!({ "archived": result["archived"] })),
+            _ => None,
+        };
+        async move { patch }
+    }
 }
 
 fn block_on<F: Future>(future: F) -> F::Output {
@@ -213,7 +276,7 @@ fn block_on<F: Future>(future: F) -> F::Output {
     }
 }
 
-type Reply = ProjectionReply<Value, Value, Value>;
+type Reply = ProjectionReply<Value, Value, Value, Value>;
 
 fn subscribe(
     host: &Notes,
@@ -253,6 +316,26 @@ fn mutate(
     ))?;
     Ok((
         serde_json::from_value(reply.result.clone()).expect("an accepted mutation"),
+        reply,
+    ))
+}
+
+fn run(
+    host: &Notes,
+    connection: &Mutex<ProjectionSubscriptions<Value, Held<String>>>,
+    command: &str,
+) -> Result<(ProjectionCommandAccepted<Value>, Reply), Failure> {
+    let reply = block_on(serve(
+        host,
+        connection,
+        ProjectionRequest::Command(ProjectionCommandRequest {
+            command: command.to_owned(),
+            operation_id: Some(format!("{command}-op")),
+            params: json!({}),
+        }),
+    ))?;
+    Ok((
+        serde_json::from_value(reply.result.clone()).expect("an accepted command"),
         reply,
     ))
 }
@@ -731,16 +814,149 @@ fn a_mutation_accepted_elsewhere_patches_the_subscriptions_it_affects() {
 }
 
 #[test]
-fn only_a_mutation_is_offered_to_other_connections() {
+fn only_a_mutation_or_a_command_is_offered_to_other_connections() {
     let host = Notes::new();
 
     let (_, subscribed) = subscribe(&host, "notes.list", None);
     let (_, renamed) = rename(&host, "Errands");
+    let (counted, count) = run(&host, &host.subscriptions, "note.count").expect("count");
 
     assert!(subscribed.accepted.is_none());
-    let accepted: AcceptedMutation<Value> = renamed.accepted.expect("an accepted mutation");
-    assert_eq!(accepted.mutation, "note.rename");
-    assert_eq!(accepted.result, json!({ "title": "Errands" }));
+    let Some(Accepted::Mutation { mutation, result }) = renamed.accepted else {
+        panic!("an accepted mutation: {:?}", renamed.accepted);
+    };
+    assert_eq!(mutation, "note.rename");
+    assert_eq!(result, json!({ "title": "Errands" }));
+    let Some(Accepted::Command { command, result }) = count.accepted else {
+        panic!("a served command: {:?}", count.accepted);
+    };
+    assert_eq!(command, "note.count");
+    assert_eq!(
+        result, counted.result,
+        "the reply carries the host's result"
+    );
+}
+
+#[test]
+fn a_command_patches_every_subscription_reading_an_entity_it_touches_and_no_other() {
+    let host = Notes::new();
+    let (notes, _) = subscribe(&host, "notes.list", None);
+    let (_boards, _) = subscribe(&host, "boards.list", None);
+
+    let (accepted, reply) = run(&host, &host.subscriptions, "note.archive").expect("archive");
+
+    assert_eq!(accepted.operation_id.as_deref(), Some("note.archive-op"));
+    assert!(accepted.revision > notes.revision);
+    assert_eq!(
+        patch_spans(&reply.events),
+        [(notes.subscription_id, notes.revision, accepted.revision)]
+    );
+    assert_eq!(host.command_patches_asked(), ["notes.list"]);
+    assert_eq!(
+        host.subscription(notes.subscription_id).revision,
+        accepted.revision
+    );
+}
+
+#[test]
+fn a_command_that_touches_nothing_patches_nothing_and_leaves_the_revision() {
+    let host = Notes::new();
+    let (notes, _) = subscribe(&host, "notes.list", None);
+
+    let (accepted, reply) = run(&host, &host.subscriptions, "note.count").expect("count");
+
+    assert!(reply.events.is_empty(), "{:?}", reply.events);
+    assert_eq!(accepted.revision, notes.revision);
+    assert!(host.command_patches_asked().is_empty());
+}
+
+#[test]
+fn a_command_run_elsewhere_patches_the_subscriptions_it_affects() {
+    let host = Notes::new();
+    let elsewhere = connection("other");
+    let (notes, _) = subscribe(&host, "notes.list", None);
+    let (_, reply) = run(&host, &elsewhere, "note.archive").expect("archive elsewhere");
+    assert_eq!(
+        *host.commanded_by.lock().expect("principals"),
+        [Principal::new("other", ActorKind::Human)],
+        "the host runs a command as the connection that sent it"
+    );
+    let accepted = reply.accepted.expect("the reply names the command it ran");
+
+    let (revision, events) = block_on(publish(&host, &host.subscriptions, &accepted));
+
+    assert_eq!(
+        patch_spans(&events),
+        [(notes.subscription_id, notes.revision, revision)]
+    );
+    assert_eq!(host.subscription(notes.subscription_id).revision, revision);
+}
+
+#[test]
+fn an_unknown_command_is_refused_before_the_host_runs_anything() {
+    let host = Notes::new();
+
+    for unknown in ["note.explode", "note.rename", "notes.list"] {
+        let failure = run(&host, &host.subscriptions, unknown).expect_err("an unknown command");
+
+        let envelope = envelope(&failure);
+        assert_eq!(envelope.code, ProjectionErrorCode::UnknownCommand);
+        assert_eq!(envelope.operation, ProjectionOperation::Command);
+        assert_eq!(envelope.name.as_deref(), Some(unknown));
+    }
+    assert!(host.commanded_by.lock().expect("principals").is_empty());
+    assert_eq!(*host.mutations_run.lock().expect("count"), 0);
+}
+
+#[test]
+fn a_command_the_host_refuses_reaches_its_client_addressed_to_the_command() {
+    let refusal = ProjectionRefusal::new(
+        ProjectionErrorCode::ValidationFailed,
+        "The note cannot be archived.",
+        Some(json!({ "reason": "pinned" })),
+    );
+    let host = Notes {
+        refusal: Some(refusal.clone()),
+        ..Notes::new()
+    };
+    let (notes, _) = subscribe(&host, "notes.list", None);
+
+    let failure = run(&host, &host.subscriptions, "note.archive").expect_err("refused");
+
+    let envelope = envelope(&failure);
+    assert_eq!(envelope.code, refusal.code);
+    assert_eq!(envelope.message, refusal.message);
+    assert_eq!(envelope.details, refusal.details);
+    assert_eq!(envelope.operation, ProjectionOperation::Command);
+    assert_eq!(envelope.name.as_deref(), Some("note.archive"));
+    assert!(host.command_patches_asked().is_empty());
+    assert_eq!(
+        host.subscription(notes.subscription_id).revision,
+        notes.revision
+    );
+}
+
+#[test]
+fn a_command_request_decodes_as_the_command_it_names() {
+    let decoded = ProjectionRequest::decode(
+        PROJECTION_COMMAND_METHOD,
+        Some(json!({ "command": "note.count", "params": {} })),
+    )
+    .expect("a protocol method")
+    .expect("valid params");
+
+    assert_eq!(decoded.operation(), ProjectionOperation::Command);
+    assert_eq!(decoded.name(), Some("note.count"));
+    for params in [
+        None,
+        Some(json!({ "command": 7, "params": {} })),
+        Some(json!({ "command": "note.count" })),
+    ] {
+        let refusal = ProjectionRequest::decode(PROJECTION_COMMAND_METHOD, params)
+            .expect("a protocol method")
+            .expect_err("invalid params");
+        assert_eq!(refusal.code, ProjectionErrorCode::InvalidParams);
+    }
 }
 
 #[test]

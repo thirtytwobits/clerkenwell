@@ -25,6 +25,18 @@ names the contracts.
   `ProjectionSubscribeCommand`, `ProjectionResyncCommand`, `ProjectionUnsubscribeCommand` and
   `ProjectionMutationCommand` are `ProjectionSubscribeRequest`, `ProjectionResyncRequest`,
   `ProjectionUnsubscribeRequest` and `ProjectionMutationRequest`. No field on the wire changes.
+- The session protocol serves `projection.command`. Its params are `ProjectionCommandRequest`:
+  `command`, `params` and an optional `operation_id`. Its result is `ProjectionCommandAccepted`:
+  the `operation_id`, the `revision` the command's effects reach on its connection, and the
+  host's `result`. A refusal is addressed to the operation `command`. `ProjectionErrorCode`
+  gains `unknown_command` and `unsupported_command`, which `clerkenwell-axum` answers with
+  JSON-RPC error `-32602`.
+- `ProjectionHost` requires `CommandResult`, `command` and `command_patch`. After a command,
+  every subscription to a projection that reads an entity the command touches, on every
+  connection, takes the patch `command_patch` returns. `ProjectionRegistry::new` takes the
+  commands after the mutations. `Accepted` replaces `AcceptedMutation`, so
+  `ProjectionReply::accepted`, `publish` and `clerkenwell-axum`'s publications carry a mutation
+  or a command. `ProjectionSubscriptions::mutation_revision` is `change_revision`.
 
 ## 0.7.0
 

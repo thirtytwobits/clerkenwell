@@ -69,6 +69,8 @@
       "enum": [
         "unknown_mutation",
         "unsupported_mutation",
+        "unknown_command",
+        "unsupported_command",
         "unknown_projection",
         "unsupported_projection",
         "invalid_params",
@@ -118,7 +120,8 @@
         "subscribe",
         "resync",
         "unsubscribe",
-        "mutate"
+        "mutate",
+        "command"
       ],
       "type": "string"
     },
@@ -198,8 +201,10 @@
       "not_found": -32004,
       "rate_limit": -32000,
       "stale_write": -32009,
+      "unknown_command": -32602,
       "unknown_mutation": -32602,
       "unknown_projection": -32602,
+      "unsupported_command": -32602,
       "unsupported_mutation": -32602,
       "unsupported_projection": -32602,
       "validation_failed": -32602

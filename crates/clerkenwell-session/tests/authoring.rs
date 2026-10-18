@@ -154,7 +154,7 @@ static MUTATIONS: &[GeneratedMutationSpec] = &[GeneratedMutationSpec {
     name: "note.touch",
     touches: &["Note"],
 }];
-static REGISTRY: ProjectionRegistry = ProjectionRegistry::new(PROJECTIONS, MUTATIONS, &[]);
+static REGISTRY: ProjectionRegistry = ProjectionRegistry::new(PROJECTIONS, MUTATIONS, &[], &[]);
 
 const POLICY: CommitPolicy = CommitPolicy {
     retained_operations: 8,
@@ -313,6 +313,7 @@ impl ProjectionHost for Library {
     type Patch = Value;
     type Delivery = ();
     type MutationResult = Value;
+    type CommandResult = Value;
     type Failure = Failure;
 
     fn registry(&self) -> &ProjectionRegistry {
@@ -357,6 +358,27 @@ impl ProjectionHost for Library {
     ) -> Option<Value> {
         panic!(
             "the session asked the host to patch {}",
+            subscription.projection
+        )
+    }
+
+    async fn command(
+        &self,
+        _principal: &Principal,
+        command: &str,
+        _params: Value,
+    ) -> Result<Value, Failure> {
+        panic!("the session asked the host to run {command}")
+    }
+
+    async fn command_patch(
+        &self,
+        command: &str,
+        _result: &Value,
+        subscription: &ProjectionSubscription<Held<()>>,
+    ) -> Option<Value> {
+        panic!(
+            "the session asked the host to patch {} after {command}",
             subscription.projection
         )
     }
