@@ -4,11 +4,12 @@ use std::fmt;
 use std::sync::{Arc, RwLock};
 
 /// A change the application made outside any request: the entities it
-/// touches, and the application's account of it, from which its host builds
-/// each subscription's patch.
+/// touches, the number of the modification it saved, and the application's
+/// account of it, from which its host builds each subscription's patch.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Announced<N> {
     pub touches: &'static [&'static str],
+    pub modification: u64,
     pub announcement: N,
 }
 
@@ -41,10 +42,12 @@ impl<N> AnnouncementFeed<N> {
     }
 
     /// Tells every listener that the application changed the entities
-    /// `touches` names, as `announcement` describes.
-    pub fn announce(&self, touches: &'static [&'static str], announcement: N) {
+    /// `touches` names, saving the modification numbered `modification`, as
+    /// `announcement` describes.
+    pub fn announce(&self, touches: &'static [&'static str], modification: u64, announcement: N) {
         let announced = Arc::new(Announced {
             touches,
+            modification,
             announcement,
         });
         let listeners = self

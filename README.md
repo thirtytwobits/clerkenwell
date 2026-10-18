@@ -36,6 +36,7 @@ Conflict: The Note edit by grace conflicts with the policy of: status.
 | plan | what the generator emits from a definition for each collaborative entity; replicas execute it to read and write fields |
 | replica | one writer's copy of a document, which records its edits as operations |
 | projection | a named view of application state that clients subscribe to |
+| modification number | the place of a modification behind a projection among all those the server saves; a subscription is sent each modification numbered after its snapshot, once |
 | authoring state | the projection each collaborative entity declares: the accepted document as operations a replica takes |
 | frontier | the version of a document a replica has seen, named by its latest operations |
 | etag | a digest of a document's accepted state |

@@ -16,8 +16,8 @@ use clerkenwell_events::{ActorKind, Principal};
 use clerkenwell_schema::CollaborationExchangeMode;
 use clerkenwell_session::transport::ProjectionErrorCode;
 use clerkenwell_session::{
-    AuthoringStates, Held, ProjectionFailure, ProjectionHost, ProjectionRefusal,
-    ProjectionRegistry, ProjectionSubscription,
+    AuthoringStates, Held, ModificationCounter, Modified, NumberedSnapshot, ProjectionFailure,
+    ProjectionHost, ProjectionRefusal, ProjectionRegistry, ProjectionSubscription,
 };
 use clerkenwell_store::{
     CollaborationDocumentId, CollaborationImportRequest, CollaborationService, CollaborationStores,
@@ -63,6 +63,7 @@ static REGISTRY: ProjectionRegistry = ProjectionRegistry::new(
 pub struct NotesServer {
     service: CollaborationService,
     authoring: AuthoringStates,
+    modifications: ModificationCounter,
     created: AtomicU64,
 }
 
@@ -79,6 +80,7 @@ impl Default for NotesServer {
             authoring: AuthoringStates::new(stores, GENERATED_COLLABORATION_SPECS, |_, _| {
                 Some(NOTES_STORE.to_owned())
             }),
+            modifications: ModificationCounter::default(),
             created: AtomicU64::new(1),
         }
     }
@@ -194,13 +196,19 @@ impl ProjectionHost for NotesServer {
         Some(&self.authoring)
     }
 
+    /// Every modification the notes server saves is to a note, which its
+    /// authoring state's subscribers take from the store.
+    fn modifications(&self) -> &ModificationCounter {
+        &self.modifications
+    }
+
     /// Every projection the notes definition declares is an authoring state.
     async fn snapshot(
         &self,
         projection: &str,
         _params: &Value,
         _held: Option<&()>,
-    ) -> Result<ProjectionTransportSnapshot, RpcFailure> {
+    ) -> Result<NumberedSnapshot<ProjectionTransportSnapshot>, RpcFailure> {
         Err(RpcFailure::new(
             ProjectionErrorCode::UnsupportedProjection,
             format!("The notes server does not serve \"{projection}\"."),
@@ -221,8 +229,8 @@ impl ProjectionHost for NotesServer {
         principal: &Principal,
         mutation: &str,
         params: Value,
-    ) -> Result<ProjectionTransportMutationResult, RpcFailure> {
-        match mutation {
+    ) -> Result<Modified<ProjectionTransportMutationResult>, RpcFailure> {
+        let result = match mutation {
             NOTE_CREATE_MUTATION => self
                 .create(principal, decode(params)?)
                 .map(ProjectionTransportMutationResult::NoteCreate),
@@ -234,7 +242,11 @@ impl ProjectionHost for NotesServer {
                 format!("The notes server does not run \"{other}\"."),
                 None,
             )),
-        }
+        }?;
+        Ok(Modified {
+            result,
+            modification: None,
+        })
     }
 
     async fn mutation_patch(
@@ -252,7 +264,7 @@ impl ProjectionHost for NotesServer {
         _principal: &Principal,
         command: &str,
         _params: Value,
-    ) -> Result<ProjectionTransportCommandResult, RpcFailure> {
+    ) -> Result<Modified<ProjectionTransportCommandResult>, RpcFailure> {
         Err(RpcFailure::new(
             ProjectionErrorCode::UnsupportedCommand,
             format!("The notes server does not run \"{command}\"."),

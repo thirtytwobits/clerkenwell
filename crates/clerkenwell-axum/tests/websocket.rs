@@ -13,7 +13,8 @@ use clerkenwell_schema::{
 };
 use clerkenwell_session::transport::ProjectionErrorCode;
 use clerkenwell_session::{
-    AnnouncementFeed, Held, ProjectionHost, ProjectionRegistry, ProjectionSubscription,
+    AnnouncementFeed, Held, ModificationCounter, Modified, NumberedSnapshot, ProjectionHost,
+    ProjectionRegistry, ProjectionSubscription,
 };
 use futures_util::{SinkExt, StreamExt};
 use serde_json::{json, Value};
@@ -60,6 +61,8 @@ struct Counters {
     released: Semaphore,
     gates: Mutex<HashMap<String, Arc<Semaphore>>>,
     announcements: AnnouncementFeed<Value>,
+    /// Numbered while the values' lock is held, as each value is saved.
+    modifications: ModificationCounter,
 }
 
 impl Default for Counters {
@@ -69,6 +72,7 @@ impl Default for Counters {
             released: Semaphore::new(0),
             gates: Mutex::default(),
             announcements: AnnouncementFeed::default(),
+            modifications: ModificationCounter::default(),
         }
     }
 }
@@ -87,6 +91,14 @@ impl Counters {
 
     fn open(&self, name: &str) {
         self.gate(name).add_permits(1);
+    }
+
+    /// Saves `value` as counter `id`, and returns the modification's number.
+    fn set(&self, id: &str, value: u64) -> u64 {
+        let mut values = self.values.lock().expect("values");
+        let modification = self.modifications.take();
+        values.insert(id.to_owned(), value);
+        modification
     }
 }
 
@@ -114,25 +126,29 @@ impl ProjectionHost for Counters {
         Some(&self.announcements)
     }
 
+    fn modifications(&self) -> &ModificationCounter {
+        &self.modifications
+    }
+
     async fn snapshot(
         &self,
         projection: &str,
         params: &Value,
         _held: Option<&()>,
-    ) -> Result<Value, RpcFailure> {
+    ) -> Result<NumberedSnapshot<Value>, RpcFailure> {
         if projection == "clock.held" {
             let _released = self.released.acquire().await.expect("the release");
-            return Ok(json!({ "held": false }));
+            return Ok(NumberedSnapshot {
+                snapshot: json!({ "held": false }),
+                through: self.modifications.last(),
+            });
         }
         let id = counter_id(params)?;
-        let value = self
-            .values
-            .lock()
-            .expect("values")
-            .get(&id)
-            .copied()
-            .unwrap_or(0);
-        Ok(json!({ "value": value }))
+        let values = self.values.lock().expect("values");
+        Ok(NumberedSnapshot {
+            snapshot: json!({ "value": values.get(&id).copied().unwrap_or(0) }),
+            through: self.modifications.last(),
+        })
     }
 
     fn delivered(&self, _snapshot: &Value) -> Option<()> {
@@ -148,7 +164,7 @@ impl ProjectionHost for Counters {
         principal: &Principal,
         _mutation: &str,
         params: Value,
-    ) -> Result<Value, RpcFailure> {
+    ) -> Result<Modified<Value>, RpcFailure> {
         if let Some(details) = params.get("refuse") {
             return Err(RpcFailure::new(
                 ProjectionErrorCode::Conflict,
@@ -158,9 +174,13 @@ impl ProjectionHost for Counters {
         }
         let id = counter_id(&params)?;
         let mut values = self.values.lock().expect("values");
+        let modification = self.modifications.take();
         let value = values.entry(id.clone()).or_default();
         *value += 1;
-        Ok(json!({ "counter_id": id, "value": *value, "by": principal.id }))
+        Ok(Modified {
+            result: json!({ "counter_id": id, "value": *value, "by": principal.id }),
+            modification: Some(modification),
+        })
     }
 
     async fn mutation_patch(
@@ -178,7 +198,7 @@ impl ProjectionHost for Counters {
         principal: &Principal,
         command: &str,
         params: Value,
-    ) -> Result<Value, RpcFailure> {
+    ) -> Result<Modified<Value>, RpcFailure> {
         if let Some(gate) = params["gate"].as_str() {
             let _opened = self.gate(gate).acquire_owned().await.expect("the gate");
         }
@@ -187,27 +207,39 @@ impl ProjectionHost for Counters {
         if command == "counter.countTo" {
             let to = params["to"].as_u64().expect("a count");
             for value in 1..=to {
-                self.values
-                    .lock()
-                    .expect("values")
-                    .insert(id.clone(), value);
-                self.announcements
-                    .announce(&["Counter"], json!({ "counter_id": id, "value": value }));
+                let modification = self.set(&id, value);
+                self.announcements.announce(
+                    &["Counter"],
+                    modification,
+                    json!({ "counter_id": id, "value": value }),
+                );
             }
-            return Ok(json!({ "counter_id": id, "value": to, "by": principal.id }));
+            // Each value the count reaches was announced.
+            return Ok(Modified {
+                result: json!({ "counter_id": id, "value": to, "by": principal.id }),
+                modification: None,
+            });
         }
-        self.values.lock().expect("values").insert(id.clone(), 0);
-        Ok(json!({ "counter_id": id, "value": 0, "by": principal.id }))
+        let modification = self.set(&id, 0);
+        if let Some(saved) = params["saved"].as_str() {
+            self.open(saved);
+        }
+        if let Some(gate) = params["then_gate"].as_str() {
+            let _opened = self.gate(gate).acquire_owned().await.expect("the gate");
+        }
+        Ok(Modified {
+            result: json!({ "counter_id": id, "value": 0, "by": principal.id }),
+            modification: Some(modification),
+        })
     }
 
     async fn command_patch(
         &self,
-        command: &str,
+        _command: &str,
         result: &Value,
         subscription: &ProjectionSubscription<Held<()>>,
     ) -> Option<Value> {
-        // A count's announcements carry each value it reaches.
-        (command != "counter.countTo" && subscription.params["counter_id"] == result["counter_id"])
+        (subscription.params["counter_id"] == result["counter_id"])
             .then(|| json!({ "value": result["value"] }))
     }
 
@@ -683,9 +715,14 @@ async fn an_announcement_reaches_every_connection_subscribed_to_what_it_changed_
     .await;
     next(&mut elsewhere).await;
 
-    let announcements = &server.application().announcements;
-    announcements.announce(&["Counter"], json!({ "counter_id": "a", "value": 7 }));
-    announcements.announce(&["Counter"], json!({ "counter_id": "b", "value": 9 }));
+    let counters = server.application();
+    for (id, value) in [("a", 7), ("b", 9)] {
+        counters.announcements.announce(
+            &["Counter"],
+            counters.set(id, value),
+            json!({ "counter_id": id, "value": value }),
+        );
+    }
 
     for socket in [&mut first, &mut second] {
         let patch = next(socket).await;
@@ -779,6 +816,49 @@ async fn a_connection_that_falls_behind_skips_every_publication_its_snapshots_ho
     assert_eq!(patch["kind"], "patch");
     assert_eq!(patch["from_revision"], resynced["revision"]);
     assert_ne!(patch["patch"]["value"], resynced["snapshot"]["value"]);
+}
+
+#[tokio::test]
+async fn a_subscription_whose_snapshot_holds_a_running_command_s_modification_is_not_sent_it() {
+    let (url, server) = start(8).await;
+    let mut socket = connect(&url).await;
+    increment(&mut socket, 1, "a").await;
+    request(
+        &mut socket,
+        2,
+        "projection.command",
+        json!({
+            "command": "counter.reset",
+            "params": { "counter_id": "a", "saved": "reset saved", "then_gate": "reset" },
+        }),
+    )
+    .await;
+    let saved = server.application().gate("reset saved");
+    let _saved = saved.acquire().await.expect("the reset is saved");
+
+    let accepted = subscribe(
+        &mut socket,
+        3,
+        "counters.value",
+        json!({ "counter_id": "a" }),
+    )
+    .await;
+    let snapshot = next(&mut socket).await;
+    server.application().open("reset");
+    let response = next(&mut socket).await;
+    assert_eq!(response["id"], json!(2), "{response}");
+    assert_eq!(
+        update(&snapshot)["snapshot"]["value"],
+        response["result"]["result"]["value"],
+        "the snapshot holds the reset"
+    );
+
+    // Nothing is sent between the command's response and the next request's.
+    let incremented = increment(&mut socket, 4, "a").await;
+    let patch = next(&mut socket).await;
+    let patch = update(&patch);
+    assert_eq!(patch["from_revision"], accepted["revision"]);
+    assert_eq!(patch["patch"]["value"], incremented["result"]["value"]);
 }
 
 #[tokio::test]

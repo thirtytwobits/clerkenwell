@@ -66,9 +66,21 @@ names the contracts.
   `ProjectionRegistry::entities_affect_projection`.
 - A command's caller takes every change the command announced, and every change its stores
   made, before the command's response.
+- A host numbers each modification behind its projections from the `ModificationCounter` it
+  names through `ProjectionHost::modifications`, taking the number while holding whatever keeps
+  a snapshot from reading the data it saves (#84). `snapshot` returns a `NumberedSnapshot`: the
+  snapshot and the number of the last modification it holds. `mutate` and `command` return
+  `Modified`: the result and the number of the modification its updates describe, or `None`.
+  `AnnouncementFeed::announce` takes the announced modification's number. `Accepted`,
+  `RanCommand` and `Announced` carry the number, and `ProjectionSubscription` carries `through`,
+  the number of the last modification its snapshot holds. `ProjectionSubscriptions::insert`,
+  `accept_subscription` and `resync` take it.
 
 ### Fixed
 
+- A subscription to a projection its host serves is sent each modification once: none its
+  snapshot already holds (#84). A mutation, command or announcement could reach a subscription
+  whose snapshot was read after the modification was saved, and apply it twice.
 - A `clerkenwell-axum` connection that falls behind skips every publication it missed once it
   has been resent its snapshots. It delivered the publications still queued after the
   snapshots, which could regress a projection or apply a patch twice.

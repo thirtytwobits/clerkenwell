@@ -7,6 +7,7 @@ use serde::Serialize;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
+use crate::modifications::NumberedSnapshot;
 use crate::transport::{
     ProjectionResyncAccepted, ProjectionSubscribeAccepted, ProjectionTransportEvent,
 };
@@ -21,6 +22,9 @@ pub struct ProjectionSubscription<D> {
     /// host names it. `None` until such an update, or after one the host
     /// could not name.
     pub delivered: Option<D>,
+    /// The number of the last modification its snapshot holds. It is sent
+    /// each modification numbered after this once, and none up to it.
+    pub through: u64,
 }
 
 /// Why a delivery that follows the one its client held is not sent.
@@ -111,8 +115,15 @@ impl<P, D> ProjectionSubscriptions<P, D> {
         &self.principal
     }
 
-    /// Registers a subscription at `revision`.
-    pub fn insert(&mut self, projection: String, params: Value, revision: u64) -> u64 {
+    /// Registers a subscription at `revision`, whose snapshot holds every
+    /// modification through `through`.
+    pub fn insert(
+        &mut self,
+        projection: String,
+        params: Value,
+        revision: u64,
+        through: u64,
+    ) -> u64 {
         let subscription_id = self.next_subscription_id;
         self.next_subscription_id += 1;
         self.subscriptions.insert(
@@ -122,6 +133,7 @@ impl<P, D> ProjectionSubscriptions<P, D> {
                 params,
                 revision,
                 delivered: None,
+                through,
             },
         );
         subscription_id
@@ -266,11 +278,14 @@ impl<P, D: Serialize> ProjectionSubscriptions<P, D> {
     pub fn resync<S>(
         &mut self,
         subscription_id: u64,
-        snapshot: S,
+        snapshot: NumberedSnapshot<S>,
         delivered: Option<D>,
         reason: &str,
     ) -> Option<(ProjectionResyncAccepted, ProjectionTransportEvent<S, P>)> {
-        let from_revision = self.subscriptions.get(&subscription_id)?.revision;
+        let NumberedSnapshot { snapshot, through } = snapshot;
+        let subscription = self.subscriptions.get_mut(&subscription_id)?;
+        subscription.through = through;
+        let from_revision = subscription.revision;
         let revision = from_revision + 1;
         let held = held_token(delivered.as_ref());
         self.record_delivery(subscription_id, revision, delivered);
@@ -292,22 +307,24 @@ impl<P, D: Serialize> ProjectionSubscriptions<P, D> {
 }
 
 impl<P, D: PartialEq + Serialize> ProjectionSubscriptions<P, D> {
-    /// Accepts a subscription and sends its client `snapshot`, which leaves it
-    /// holding `delivered`, unless the client already holds that: `held` is
-    /// what an earlier subscription's last update left it holding.
+    /// Accepts a subscription and sends its client `snapshot`, which holds
+    /// every modification through `through` and leaves it holding
+    /// `delivered`, unless the client already holds that: `held` is what an
+    /// earlier subscription's last update left it holding.
     pub fn accept_subscription<S>(
         &mut self,
         projection: String,
         params: Value,
         held: Option<D>,
-        snapshot: S,
+        snapshot: NumberedSnapshot<S>,
         delivered: Option<D>,
     ) -> (
         ProjectionSubscribeAccepted,
         Vec<ProjectionTransportEvent<S, P>>,
     ) {
+        let NumberedSnapshot { snapshot, through } = snapshot;
         let revision = self.current_revision().max(1);
-        let subscription_id = self.insert(projection, params, revision);
+        let subscription_id = self.insert(projection, params, revision, through);
         let up_to_date = held.is_some() && held == delivered;
         if held.is_some() {
             let count = if up_to_date {

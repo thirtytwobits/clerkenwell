@@ -28,6 +28,7 @@ use clerkenwell_schema::AuthoringStatePatch;
 
 use crate::announcements::{Announced, AnnouncementFeed};
 use crate::authoring::{AuthoringHeld, AuthoringStates, Held};
+use crate::modifications::{ModificationCounter, Modified, NumberedSnapshot};
 use crate::registry::ProjectionRegistry;
 use crate::subscriptions::{ProjectionSubscription, ProjectionSubscriptions};
 use crate::transport::{
@@ -145,6 +146,10 @@ pub trait ProjectionHost: Sync {
     /// The projections, mutations and commands served.
     fn registry(&self) -> &ProjectionRegistry;
 
+    /// The counter the host numbers each modification behind its projections
+    /// from, in the order it saves them.
+    fn modifications(&self) -> &ModificationCounter;
+
     /// The authoring states of the collaborative documents served, which the
     /// session answers and delivers itself; `None` when none are served.
     fn authoring_states(&self) -> Option<&AuthoringStates> {
@@ -159,12 +164,16 @@ pub trait ProjectionHost: Sync {
 
     /// `projection`'s state for a client that holds `held`, which may carry
     /// only what that client lacks. The session asks for no authoring state.
+    ///
+    /// The snapshot reports the number of the last modification it holds,
+    /// read from [`Self::modifications`] while holding whatever keeps a
+    /// modification from saving the data it reads.
     fn snapshot(
         &self,
         projection: &str,
         params: &Value,
         held: Option<&Self::Delivery>,
-    ) -> impl Future<Output = Result<Self::Snapshot, Self::Failure>> + Send;
+    ) -> impl Future<Output = Result<NumberedSnapshot<Self::Snapshot>, Self::Failure>> + Send;
 
     /// What `snapshot` leaves its client holding, for a projection that names
     /// it.
@@ -176,21 +185,22 @@ pub trait ProjectionHost: Sync {
 
     /// Makes `mutation` as `principal`, the principal the host authenticated
     /// the request's connection as.
+    /// The result names the number of the modification the mutation saved,
+    /// taken from [`Self::modifications`] while holding whatever keeps a
+    /// snapshot from reading the data it saves.
     fn mutate(
         &self,
         principal: &Principal,
         mutation: &str,
         params: Value,
-    ) -> impl Future<Output = Result<Self::MutationResult, Self::Failure>> + Send;
+    ) -> impl Future<Output = Result<Modified<Self::MutationResult>, Self::Failure>> + Send;
 
     /// The patch an accepted mutation sends `subscription`, or `None` when its
     /// change reaches that subscription some other way. The session asks for
     /// no authoring state: those take each change their store announces.
     ///
-    /// This and the other patch hooks may be asked for a subscription whose
-    /// snapshot already holds the change: one accepted, or resent, while the
-    /// change was being made. `subscription.delivered` is what its client
-    /// holds, for the host to judge by.
+    /// This and the other patch hooks are asked only for a subscription whose
+    /// snapshot does not hold the modification.
     fn mutation_patch(
         &self,
         mutation: &str,
@@ -200,12 +210,14 @@ pub trait ProjectionHost: Sync {
 
     /// Runs `command` as `principal`, the principal the host authenticated
     /// the request's connection as.
+    /// The result names the number of the modification the command saved, as
+    /// a mutation's does.
     fn command(
         &self,
         principal: &Principal,
         command: &str,
         params: Value,
-    ) -> impl Future<Output = Result<Self::CommandResult, Self::Failure>> + Send;
+    ) -> impl Future<Output = Result<Modified<Self::CommandResult>, Self::Failure>> + Send;
 
     /// The patch a served command sends `subscription`, or `None` when its
     /// change reaches that subscription some other way. The session asks only
@@ -253,8 +265,16 @@ impl<P: Send, D: Send> ProjectionConnection<P, D> for Mutex<ProjectionSubscripti
 /// connection publishes it.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Accepted<M, C> {
-    Mutation { mutation: String, result: M },
-    Command { command: String, result: C },
+    Mutation {
+        mutation: String,
+        result: M,
+        modification: Option<u64>,
+    },
+    Command {
+        command: String,
+        result: C,
+        modification: Option<u64>,
+    },
 }
 
 /// A served request's result and the updates it sends.
@@ -284,10 +304,12 @@ enum Source<'a, H: ProjectionHost> {
     Mutation {
         mutation: &'a str,
         result: &'a H::MutationResult,
+        modification: Option<u64>,
     },
     Command {
         command: &'a str,
         result: &'a H::CommandResult,
+        modification: Option<u64>,
     },
     Announced(&'a Announced<H::Announcement>),
 }
@@ -295,8 +317,35 @@ enum Source<'a, H: ProjectionHost> {
 impl<'a, H: ProjectionHost> Source<'a, H> {
     fn accepted(accepted: &'a Change<H>) -> Self {
         match accepted {
-            Accepted::Mutation { mutation, result } => Self::Mutation { mutation, result },
-            Accepted::Command { command, result } => Self::Command { command, result },
+            Accepted::Mutation {
+                mutation,
+                result,
+                modification,
+            } => Self::Mutation {
+                mutation,
+                result,
+                modification: *modification,
+            },
+            Accepted::Command {
+                command,
+                result,
+                modification,
+            } => Self::Command {
+                command,
+                result,
+                modification: *modification,
+            },
+        }
+    }
+
+    /// The number of the modification the change saved; `None` when it saved
+    /// none.
+    fn modification(&self) -> Option<u64> {
+        match self {
+            Self::Mutation { modification, .. } | Self::Command { modification, .. } => {
+                *modification
+            }
+            Self::Announced(announced) => Some(announced.modification),
         }
     }
 }
@@ -342,6 +391,9 @@ pub struct RanCommand<C> {
     pub command: String,
     pub operation_id: Option<String>,
     pub result: C,
+    /// The number of the modification the command's updates describe; `None`
+    /// when they describe none.
+    pub modification: Option<u64>,
 }
 
 /// Runs the command `request` names as `principal`, the principal the host
@@ -374,6 +426,7 @@ where
     let source = Source::Command {
         command: &ran.command,
         result: &ran.result,
+        modification: ran.modification,
     };
     deliver(host, connection, source).await
 }
@@ -472,13 +525,15 @@ where
     C: ProjectionConnection<H::Patch, Held<H::Delivery>>,
 {
     let registry = host.registry();
-    let publishes = match &source {
-        Source::Mutation { mutation, .. } => !registry.plans_only(mutation),
-        Source::Command { command, .. } => registry
-            .command(command)
-            .is_some_and(|spec| !spec.touches.is_empty()),
-        Source::Announced(announced) => !announced.touches.is_empty(),
-    };
+    let modification = source.modification();
+    let publishes = modification.is_some()
+        && match &source {
+            Source::Mutation { mutation, .. } => !registry.plans_only(mutation),
+            Source::Command { command, .. } => registry
+                .command(command)
+                .is_some_and(|spec| !spec.touches.is_empty()),
+            Source::Announced(announced) => !announced.touches.is_empty(),
+        };
     let affects = |projection: &str| match &source {
         Source::Mutation { mutation, .. } => {
             registry.mutation_affects_projection(mutation, projection)
@@ -503,6 +558,7 @@ where
                 .filter(|(_, subscription)| {
                     affects(&subscription.projection)
                         && !is_authoring(host, &subscription.projection)
+                        && modification.is_some_and(|number| number > subscription.through)
                 })
                 .map(|(subscription_id, subscription)| (*subscription_id, subscription.clone()))
                 .collect::<Vec<_>>();
@@ -512,12 +568,12 @@ where
         .await;
     for (subscription_id, subscription) in affected {
         let patch = match &source {
-            Source::Mutation { mutation, result } => {
-                host.mutation_patch(mutation, result, &subscription).await
-            }
-            Source::Command { command, result } => {
-                host.command_patch(command, result, &subscription).await
-            }
+            Source::Mutation {
+                mutation, result, ..
+            } => host.mutation_patch(mutation, result, &subscription).await,
+            Source::Command {
+                command, result, ..
+            } => host.command_patch(command, result, &subscription).await,
             Source::Announced(announced) => {
                 host.announcement_patch(&announced.announcement, &subscription)
                     .await
@@ -680,7 +736,7 @@ async fn snapshot_for<H: ProjectionHost>(
     projection: &str,
     params: &Value,
     held: Option<&Held<H::Delivery>>,
-) -> Result<(H::Snapshot, Option<Held<H::Delivery>>), H::Failure> {
+) -> Result<(NumberedSnapshot<H::Snapshot>, Option<Held<H::Delivery>>), H::Failure> {
     let authoring = host.authoring_states();
     if let Some(document) = authoring.and_then(|authoring| authoring.follow(projection, params)) {
         let document = document.map_err(H::Failure::refused)?;
@@ -689,17 +745,20 @@ async fn snapshot_for<H: ProjectionHost>(
             .state(&document, held.and_then(Held::authoring), principal)
             .map_err(H::Failure::refused)?;
         let delivered = Held::Authoring(AuthoringHeld::from(&state));
-        return Ok((
-            typed::<H, _>(json!({ "projection": projection, "value": state }))?,
-            Some(delivered),
-        ));
+        // An authoring state takes the operations its store announces, judged
+        // by the frontier its client holds, so no modification is numbered.
+        let snapshot = NumberedSnapshot {
+            snapshot: typed::<H, H::Snapshot>(json!({ "projection": projection, "value": state }))?,
+            through: 0,
+        };
+        return Ok((snapshot, Some(delivered)));
     }
     let held = match held {
         Some(Held::Host(held)) => Some(held),
         _ => None,
     };
     let snapshot = host.snapshot(projection, params, held).await?;
-    let delivered = host.delivered(&snapshot).map(Held::Host);
+    let delivered = host.delivered(&snapshot.snapshot).map(Held::Host);
     Ok((snapshot, delivered))
 }
 
@@ -864,9 +923,16 @@ where
         )));
     }
     let principal = principal_of(connection).await;
-    let result = host.mutate(&principal, &mutation, request.params).await?;
+    let Modified {
+        result,
+        modification,
+    } = host.mutate(&principal, &mutation, request.params).await?;
     let encoded = encode::<H, _>(&result)?;
-    let accepted = Accepted::Mutation { mutation, result };
+    let accepted = Accepted::Mutation {
+        mutation,
+        result,
+        modification,
+    };
     let (revision, events) = publish(host, connection, &accepted).await;
     let reply = ProjectionMutationAccepted {
         operation_id: request.operation_id,
@@ -894,11 +960,15 @@ async fn execute_command<H: ProjectionHost>(
             Some(json!({ "command": command })),
         )));
     }
-    let result = host.command(principal, &command, request.params).await?;
+    let Modified {
+        result,
+        modification,
+    } = host.command(principal, &command, request.params).await?;
     Ok(RanCommand {
         command,
         operation_id: request.operation_id,
         result,
+        modification,
     })
 }
 
@@ -923,6 +993,7 @@ where
         accepted: Some(Accepted::Command {
             command: ran.command,
             result: ran.result,
+            modification: ran.modification,
         }),
     })
 }

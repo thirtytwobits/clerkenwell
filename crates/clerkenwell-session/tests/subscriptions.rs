@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use clerkenwell_events::{ActorKind, Principal};
 use clerkenwell_session::transport::ProjectionTransportEvent;
-use clerkenwell_session::{FollowingDelivery, ProjectionSubscriptions};
+use clerkenwell_session::{FollowingDelivery, NumberedSnapshot, ProjectionSubscriptions};
 use serde_json::{json, Value};
 
 type Patch = Value;
@@ -20,6 +20,14 @@ fn held(event: &Event) -> Option<&Value> {
     }
 }
 
+/// `snapshot`, holding no modification.
+fn numbered(snapshot: Value) -> NumberedSnapshot<Value> {
+    NumberedSnapshot {
+        snapshot,
+        through: 0,
+    }
+}
+
 #[test]
 fn a_subscriber_that_holds_nothing_is_sent_a_snapshot_naming_what_it_leaves_it_holding() {
     let mut subscriptions = subscriptions_of_a_client();
@@ -29,7 +37,7 @@ fn a_subscriber_that_holds_nothing_is_sent_a_snapshot_naming_what_it_leaves_it_h
         "notes.authoringState".to_string(),
         json!({}),
         None,
-        json!({ "note": "snapshot" }),
+        numbered(json!({ "note": "snapshot" })),
         Some(state.clone()),
     );
 
@@ -58,7 +66,7 @@ fn a_subscriber_that_already_holds_what_it_would_be_sent_is_sent_nothing() {
         "notes.authoringState".to_string(),
         json!({}),
         Some(state.clone()),
-        json!({ "note": "unsent" }),
+        numbered(json!({ "note": "unsent" })),
         Some(state.clone()),
     );
 
@@ -82,7 +90,7 @@ fn a_subscriber_that_holds_an_earlier_state_is_sent_a_snapshot() {
         "notes.authoringState".to_string(),
         json!({}),
         Some("earlier-state".to_string()),
-        json!({ "note": "what the subscriber lacks" }),
+        numbered(json!({ "note": "what the subscriber lacks" })),
         Some(current.clone()),
     );
 
@@ -99,7 +107,7 @@ fn an_update_the_host_cannot_name_leaves_its_client_holding_nothing_named() {
         "notes.list".to_string(),
         json!({}),
         None,
-        json!([]),
+        numbered(json!([])),
         Some("named".to_string()),
     );
     assert!(held(&events[0]).is_some());
@@ -125,7 +133,7 @@ fn an_update_the_host_cannot_name_leaves_its_client_holding_nothing_named() {
 #[test]
 fn a_patch_takes_its_client_from_the_revision_it_holds_and_names_what_it_leaves() {
     let mut subscriptions = subscriptions_of_a_client();
-    let id = subscriptions.insert("notes.byId".to_string(), json!({}), 3);
+    let id = subscriptions.insert("notes.byId".to_string(), json!({}), 3, 0);
     let after = "after-patch".to_string();
 
     let patched: Event = subscriptions
@@ -145,13 +153,13 @@ fn a_patch_takes_its_client_from_the_revision_it_holds_and_names_what_it_leaves(
 #[test]
 fn a_resync_names_what_its_snapshot_leaves_the_client_holding() {
     let mut subscriptions = subscriptions_of_a_client();
-    let id = subscriptions.insert("notes.byId".to_string(), json!({}), 3);
+    let id = subscriptions.insert("notes.byId".to_string(), json!({}), 3, 0);
     let state = "resynced".to_string();
 
     let (accepted, event) = subscriptions
         .resync(
             id,
-            json!({ "note": "snapshot" }),
+            numbered(json!({ "note": "snapshot" })),
             Some(state.clone()),
             "clientRequested",
         )
@@ -175,7 +183,7 @@ fn diagnostics_count_resumes_resyncs_and_mutations_and_hash_params() {
         "notes.byId".to_string(),
         json!({ "note_id": "private-note", "body": secret }),
         Some(state.clone()),
-        json!({}),
+        numbered(json!({})),
         Some(state),
     );
     subscriptions.record_dropped_updates(3);
@@ -222,7 +230,7 @@ fn diagnostics_count_resumes_resyncs_and_mutations_and_hash_params() {
 #[test]
 fn a_subscription_remembers_where_its_last_delivery_left_the_client() {
     let mut subscriptions = subscriptions_of_a_client();
-    let id = subscriptions.insert("notes.authoringState".to_string(), json!({}), 3);
+    let id = subscriptions.insert("notes.authoringState".to_string(), json!({}), 3, 0);
     assert_eq!(
         subscriptions.get(id).and_then(|s| s.delivered.clone()),
         None
@@ -237,7 +245,7 @@ fn a_subscription_remembers_where_its_last_delivery_left_the_client() {
 #[test]
 fn a_delivery_built_on_a_superseded_one_is_not_sent() {
     let mut subscriptions = subscriptions_of_a_client();
-    let id = subscriptions.insert("notes.authoringState".to_string(), json!({}), 3);
+    let id = subscriptions.insert("notes.authoringState".to_string(), json!({}), 3, 0);
     let built_at = subscriptions.get(id).expect("subscribed").revision;
 
     // A resync delivers a snapshot while the patch is being built.
@@ -280,7 +288,7 @@ fn a_delivery_built_on_a_superseded_one_is_not_sent() {
 #[test]
 fn a_delivery_that_leaves_the_client_where_the_last_one_did_is_not_sent() {
     let mut subscriptions = subscriptions_of_a_client();
-    let id = subscriptions.insert("notes.authoringState".to_string(), json!({}), 3);
+    let id = subscriptions.insert("notes.authoringState".to_string(), json!({}), 3, 0);
     subscriptions.record_delivery(id, 4, Some("held-state".to_string()));
 
     assert_eq!(
@@ -293,4 +301,47 @@ fn a_delivery_that_leaves_the_client_where_the_last_one_did_is_not_sent() {
     assert!(subscriptions
         .deliver_following::<Snapshot>(id, 4, json!({}), "newer-state".to_string())
         .is_ok());
+}
+
+#[test]
+fn a_subscription_holds_the_modifications_its_snapshot_holds_until_it_is_resent_one() {
+    let mut subscriptions = subscriptions_of_a_client();
+    let (subscribed_through, resynced_through) = (4, 9);
+    let (accepted, _) = subscriptions.accept_subscription(
+        "notes.list".to_string(),
+        json!({}),
+        None,
+        NumberedSnapshot {
+            snapshot: json!([]),
+            through: subscribed_through,
+        },
+        None,
+    );
+    let through = |subscriptions: &Subscriptions| {
+        subscriptions
+            .get(accepted.subscription_id)
+            .expect("the subscription")
+            .through
+    };
+    assert_eq!(through(&subscriptions), subscribed_through);
+
+    subscriptions.deliver_patch::<Value>(accepted.subscription_id, 0, json!({}), None);
+    assert_eq!(
+        through(&subscriptions),
+        subscribed_through,
+        "a patch leaves the snapshot's number"
+    );
+
+    subscriptions
+        .resync(
+            accepted.subscription_id,
+            NumberedSnapshot {
+                snapshot: json!([]),
+                through: resynced_through,
+            },
+            None,
+            "clientRequested",
+        )
+        .expect("the subscription exists");
+    assert_eq!(through(&subscriptions), resynced_through);
 }

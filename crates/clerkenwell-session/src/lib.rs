@@ -13,6 +13,7 @@
 
 mod announcements;
 mod authoring;
+mod modifications;
 mod registry;
 pub mod server;
 mod subscriptions;
@@ -22,6 +23,7 @@ pub mod transport;
 
 pub use announcements::{Announced, AnnouncementFeed};
 pub use authoring::{AuthoringHeld, AuthoringStates, Held};
+pub use modifications::{ModificationCounter, Modified, NumberedSnapshot};
 pub use registry::ProjectionRegistry;
 pub use server::{
     command_reply, decode_request, deliver_announcement, deliver_change, publish, publish_command,

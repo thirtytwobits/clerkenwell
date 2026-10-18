@@ -22,12 +22,12 @@ fn every_listener_hears_every_announcement_in_the_order_it_was_made() {
     }
 
     let announcements = [
-        (&["Note"][..], 1),
-        (&["Note", "Board"][..], 2),
-        (&[][..], 3),
+        (&["Note"][..], 1, 10),
+        (&["Note", "Board"][..], 2, 20),
+        (&[][..], 3, 30),
     ];
-    for (touches, announcement) in announcements {
-        feed.announce(touches, announcement);
+    for (touches, modification, announcement) in announcements {
+        feed.announce(touches, modification, announcement);
     }
 
     let heard = heard.lock().expect("heard");
@@ -35,7 +35,13 @@ fn every_listener_hears_every_announcement_in_the_order_it_was_made() {
         let by_listener: Vec<_> = heard
             .iter()
             .filter(|(by, _)| *by == listener)
-            .map(|(_, announced)| (announced.touches, announced.announcement))
+            .map(|(_, announced)| {
+                (
+                    announced.touches,
+                    announced.modification,
+                    announced.announcement,
+                )
+            })
             .collect();
         assert_eq!(by_listener, announcements);
     }
@@ -44,12 +50,12 @@ fn every_listener_hears_every_announcement_in_the_order_it_was_made() {
 #[test]
 fn an_announcement_made_before_a_listener_listens_is_not_heard_by_it() {
     let feed = AnnouncementFeed::<u32>::default();
-    feed.announce(&["Note"], 1);
+    feed.announce(&["Note"], 1, 10);
     let heard: Arc<Mutex<Vec<u32>>> = Arc::default();
     let recorder = Arc::clone(&heard);
     feed.listen(move |announced| recorder.lock().expect("heard").push(announced.announcement));
 
-    feed.announce(&["Note"], 2);
+    feed.announce(&["Note"], 2, 20);
 
-    assert_eq!(*heard.lock().expect("heard"), [2]);
+    assert_eq!(*heard.lock().expect("heard"), [20]);
 }

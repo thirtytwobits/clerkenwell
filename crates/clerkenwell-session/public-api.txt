@@ -3,16 +3,17 @@
 
 enum clerkenwell_session::Accepted<M, C>
 derive clerkenwell_session::Accepted: Clone, Debug, PartialEq
-variant clerkenwell_session::Accepted::Command { command: String, result: C }
-variant clerkenwell_session::Accepted::Mutation { mutation: String, result: M }
+variant clerkenwell_session::Accepted::Command { command: String, result: C, modification: Option<u64> }
+variant clerkenwell_session::Accepted::Mutation { mutation: String, result: M, modification: Option<u64> }
 struct clerkenwell_session::Announced<N>
 derive clerkenwell_session::Announced: Clone, Debug, PartialEq
 field clerkenwell_session::Announced::announcement: N
+field clerkenwell_session::Announced::modification: u64
 field clerkenwell_session::Announced::touches: &'static [&'static str]
 struct clerkenwell_session::AnnouncementFeed<N> { .. }
 impl<N> impl Default for clerkenwell_session::AnnouncementFeed<N>
 impl<N> impl fmt::Debug for clerkenwell_session::AnnouncementFeed<N>
-impl<N> fn clerkenwell_session::AnnouncementFeed::announce(&self, touches: &'static [&'static str], announcement: N)
+impl<N> fn clerkenwell_session::AnnouncementFeed::announce(&self, touches: &'static [&'static str], modification: u64, announcement: N)
 impl<N> fn clerkenwell_session::AnnouncementFeed::listen(&self, listener: impl Fn(&Arc<Announced<N>>) + Send + Sync + 'static)
 struct clerkenwell_session::AuthoringHeld
 derive clerkenwell_session::AuthoringHeld: Clone, Debug, Deserialize, Eq, JsonSchema, PartialEq, Serialize
@@ -35,6 +36,18 @@ derive clerkenwell_session::Held: Clone, Debug, Eq, JsonSchema, PartialEq, Seria
 variant clerkenwell_session::Held::Authoring(AuthoringHeld)
 variant clerkenwell_session::Held::Host(D)
 impl<D> fn clerkenwell_session::Held::authoring(&self) -> Option<&AuthoringHeld>
+struct clerkenwell_session::ModificationCounter { .. }
+derive clerkenwell_session::ModificationCounter: Debug, Default
+fn clerkenwell_session::ModificationCounter::last(&self) -> u64
+fn clerkenwell_session::ModificationCounter::take(&self) -> u64
+struct clerkenwell_session::Modified<R>
+derive clerkenwell_session::Modified: Clone, Debug, PartialEq
+field clerkenwell_session::Modified::modification: Option<u64>
+field clerkenwell_session::Modified::result: R
+struct clerkenwell_session::NumberedSnapshot<S>
+derive clerkenwell_session::NumberedSnapshot: Clone, Debug, PartialEq
+field clerkenwell_session::NumberedSnapshot::snapshot: S
+field clerkenwell_session::NumberedSnapshot::through: u64
 trait clerkenwell_session::ProjectionConnection<P, D>: Sync
 fn clerkenwell_session::ProjectionConnection::with_subscriptions<R: Send>(&self, transition: impl FnOnce(&mut ProjectionSubscriptions<P, D>) -> R + Send) -> impl Future<Output = R> + Send
 trait clerkenwell_session::ProjectionFailure: Sized
@@ -52,14 +65,15 @@ type clerkenwell_session::ProjectionHost::Snapshot: Serialize + DeserializeOwned
 fn clerkenwell_session::ProjectionHost::announcement_patch(&self, announcement: &Self::Announcement, subscription: &ProjectionSubscription<Held<Self::Delivery>>) -> impl Future<Output = Option<Self::Patch>> + Send
 fn clerkenwell_session::ProjectionHost::announcements(&self) -> Option<&AnnouncementFeed<Self::Announcement>> { .. }
 fn clerkenwell_session::ProjectionHost::authoring_states(&self) -> Option<&AuthoringStates> { .. }
-fn clerkenwell_session::ProjectionHost::command(&self, principal: &Principal, command: &str, params: Value) -> impl Future<Output = Result<Self::CommandResult, Self::Failure>> + Send
+fn clerkenwell_session::ProjectionHost::command(&self, principal: &Principal, command: &str, params: Value) -> impl Future<Output = Result<Modified<Self::CommandResult>, Self::Failure>> + Send
 fn clerkenwell_session::ProjectionHost::command_patch(&self, command: &str, result: &Self::CommandResult, subscription: &ProjectionSubscription<Held<Self::Delivery>>) -> impl Future<Output = Option<Self::Patch>> + Send
 fn clerkenwell_session::ProjectionHost::delivered(&self, snapshot: &Self::Snapshot) -> Option<Self::Delivery>
 fn clerkenwell_session::ProjectionHost::delivered_by_patch(&self, patch: &Self::Patch) -> Option<Self::Delivery>
-fn clerkenwell_session::ProjectionHost::mutate(&self, principal: &Principal, mutation: &str, params: Value) -> impl Future<Output = Result<Self::MutationResult, Self::Failure>> + Send
+fn clerkenwell_session::ProjectionHost::modifications(&self) -> &ModificationCounter
+fn clerkenwell_session::ProjectionHost::mutate(&self, principal: &Principal, mutation: &str, params: Value) -> impl Future<Output = Result<Modified<Self::MutationResult>, Self::Failure>> + Send
 fn clerkenwell_session::ProjectionHost::mutation_patch(&self, mutation: &str, result: &Self::MutationResult, subscription: &ProjectionSubscription<Held<Self::Delivery>>) -> impl Future<Output = Option<Self::Patch>> + Send
 fn clerkenwell_session::ProjectionHost::registry(&self) -> &ProjectionRegistry
-fn clerkenwell_session::ProjectionHost::snapshot(&self, projection: &str, params: &Value, held: Option<&Self::Delivery>) -> impl Future<Output = Result<Self::Snapshot, Self::Failure>> + Send
+fn clerkenwell_session::ProjectionHost::snapshot(&self, projection: &str, params: &Value, held: Option<&Self::Delivery>) -> impl Future<Output = Result<NumberedSnapshot<Self::Snapshot>, Self::Failure>> + Send
 struct clerkenwell_session::ProjectionRefusal
 derive clerkenwell_session::ProjectionRefusal: Clone, Debug, PartialEq
 impl From<StoreError> for clerkenwell_session::ProjectionRefusal
@@ -118,6 +132,7 @@ field clerkenwell_session::ProjectionSubscription::delivered: Option<D>
 field clerkenwell_session::ProjectionSubscription::params: Value
 field clerkenwell_session::ProjectionSubscription::projection: String
 field clerkenwell_session::ProjectionSubscription::revision: u64
+field clerkenwell_session::ProjectionSubscription::through: u64
 struct clerkenwell_session::ProjectionSubscriptionDiagnostics
 derive clerkenwell_session::ProjectionSubscriptionDiagnostics: Clone, Debug, Eq, PartialEq
 field clerkenwell_session::ProjectionSubscriptionDiagnostics::client_revision: u64
@@ -125,7 +140,7 @@ field clerkenwell_session::ProjectionSubscriptionDiagnostics::params_sha256: Str
 field clerkenwell_session::ProjectionSubscriptionDiagnostics::projection: String
 struct clerkenwell_session::ProjectionSubscriptions<P, D> { .. }
 derive clerkenwell_session::ProjectionSubscriptions: Debug
-impl<P, D: PartialEq + Serialize> fn clerkenwell_session::ProjectionSubscriptions::accept_subscription<S>(&mut self, projection: String, params: Value, held: Option<D>, snapshot: S, delivered: Option<D>) -> (ProjectionSubscribeAccepted, Vec<ProjectionTransportEvent<S, P>>,)
+impl<P, D: PartialEq + Serialize> fn clerkenwell_session::ProjectionSubscriptions::accept_subscription<S>(&mut self, projection: String, params: Value, held: Option<D>, snapshot: NumberedSnapshot<S>, delivered: Option<D>) -> (ProjectionSubscribeAccepted, Vec<ProjectionTransportEvent<S, P>>,)
 impl<P, D> fn clerkenwell_session::ProjectionSubscriptions::all(&self) -> &HashMap<u64, ProjectionSubscription<D>>
 impl<P, D> fn clerkenwell_session::ProjectionSubscriptions::change_revision(&self, publishes: bool) -> u64
 impl<P, D> fn clerkenwell_session::ProjectionSubscriptions::current_revision(&self) -> u64
@@ -133,7 +148,7 @@ impl<P, D: PartialEq + Serialize> fn clerkenwell_session::ProjectionSubscription
 impl<P, D: Serialize> fn clerkenwell_session::ProjectionSubscriptions::deliver_patch<S>(&mut self, subscription_id: u64, to_revision: u64, patch: P, delivered: Option<D>) -> Option<ProjectionTransportEvent<S, P>>
 impl<P, D> fn clerkenwell_session::ProjectionSubscriptions::diagnostics(&self) -> ProjectionRuntimeDiagnostics
 impl<P, D> fn clerkenwell_session::ProjectionSubscriptions::get(&self, subscription_id: u64) -> Option<&ProjectionSubscription<D>>
-impl<P, D> fn clerkenwell_session::ProjectionSubscriptions::insert(&mut self, projection: String, params: Value, revision: u64) -> u64
+impl<P, D> fn clerkenwell_session::ProjectionSubscriptions::insert(&mut self, projection: String, params: Value, revision: u64, through: u64) -> u64
 impl<P, D> fn clerkenwell_session::ProjectionSubscriptions::new(principal: Principal) -> Self
 impl<P, D> fn clerkenwell_session::ProjectionSubscriptions::principal(&self) -> &Principal
 impl<P, D> fn clerkenwell_session::ProjectionSubscriptions::record_delivery(&mut self, subscription_id: u64, revision: u64, delivered: Option<D>)
@@ -141,10 +156,11 @@ impl<P, D> fn clerkenwell_session::ProjectionSubscriptions::record_dropped_updat
 impl<P, D> fn clerkenwell_session::ProjectionSubscriptions::record_mutation(&mut self, latency: Duration, rejection: Option<&str>)
 impl<P, D> fn clerkenwell_session::ProjectionSubscriptions::record_resync(&mut self, reason: &str)
 impl<P, D> fn clerkenwell_session::ProjectionSubscriptions::remove(&mut self, subscription_id: u64) -> bool
-impl<P, D: Serialize> fn clerkenwell_session::ProjectionSubscriptions::resync<S>(&mut self, subscription_id: u64, snapshot: S, delivered: Option<D>, reason: &str) -> Option<(ProjectionResyncAccepted, ProjectionTransportEvent<S, P>)>
+impl<P, D: Serialize> fn clerkenwell_session::ProjectionSubscriptions::resync<S>(&mut self, subscription_id: u64, snapshot: NumberedSnapshot<S>, delivered: Option<D>, reason: &str) -> Option<(ProjectionResyncAccepted, ProjectionTransportEvent<S, P>)>
 struct clerkenwell_session::RanCommand<C>
 derive clerkenwell_session::RanCommand: Clone, Debug, PartialEq
 field clerkenwell_session::RanCommand::command: String
+field clerkenwell_session::RanCommand::modification: Option<u64>
 field clerkenwell_session::RanCommand::operation_id: Option<String>
 field clerkenwell_session::RanCommand::result: C
 fn clerkenwell_session::command_reply<H: ProjectionHost>(ran: &RanCommand<H::CommandResult>, revision: u64) -> Result<Value, H::Failure>
@@ -159,8 +175,8 @@ async fn clerkenwell_session::serve<H, C>(host: &H, connection: &C, request: Pro
 async fn clerkenwell_session::serve_request<H, C>(host: &H, connection: &C, method: &str, params: Option<Value>) -> Option<Result<Reply<H>, H::Failure>> where H: ProjectionHost, C: ProjectionConnection<H::Patch, Held<H::Delivery>>,
 enum clerkenwell_session::server::Accepted<M, C>
 derive clerkenwell_session::server::Accepted: Clone, Debug, PartialEq
-variant clerkenwell_session::server::Accepted::Command { command: String, result: C }
-variant clerkenwell_session::server::Accepted::Mutation { mutation: String, result: M }
+variant clerkenwell_session::server::Accepted::Command { command: String, result: C, modification: Option<u64> }
+variant clerkenwell_session::server::Accepted::Mutation { mutation: String, result: M, modification: Option<u64> }
 trait clerkenwell_session::server::ProjectionConnection<P, D>: Sync
 fn clerkenwell_session::server::ProjectionConnection::with_subscriptions<R: Send>(&self, transition: impl FnOnce(&mut ProjectionSubscriptions<P, D>) -> R + Send) -> impl Future<Output = R> + Send
 trait clerkenwell_session::server::ProjectionFailure: Sized
@@ -178,14 +194,15 @@ type clerkenwell_session::server::ProjectionHost::Snapshot: Serialize + Deserial
 fn clerkenwell_session::server::ProjectionHost::announcement_patch(&self, announcement: &Self::Announcement, subscription: &ProjectionSubscription<Held<Self::Delivery>>) -> impl Future<Output = Option<Self::Patch>> + Send
 fn clerkenwell_session::server::ProjectionHost::announcements(&self) -> Option<&AnnouncementFeed<Self::Announcement>> { .. }
 fn clerkenwell_session::server::ProjectionHost::authoring_states(&self) -> Option<&AuthoringStates> { .. }
-fn clerkenwell_session::server::ProjectionHost::command(&self, principal: &Principal, command: &str, params: Value) -> impl Future<Output = Result<Self::CommandResult, Self::Failure>> + Send
+fn clerkenwell_session::server::ProjectionHost::command(&self, principal: &Principal, command: &str, params: Value) -> impl Future<Output = Result<Modified<Self::CommandResult>, Self::Failure>> + Send
 fn clerkenwell_session::server::ProjectionHost::command_patch(&self, command: &str, result: &Self::CommandResult, subscription: &ProjectionSubscription<Held<Self::Delivery>>) -> impl Future<Output = Option<Self::Patch>> + Send
 fn clerkenwell_session::server::ProjectionHost::delivered(&self, snapshot: &Self::Snapshot) -> Option<Self::Delivery>
 fn clerkenwell_session::server::ProjectionHost::delivered_by_patch(&self, patch: &Self::Patch) -> Option<Self::Delivery>
-fn clerkenwell_session::server::ProjectionHost::mutate(&self, principal: &Principal, mutation: &str, params: Value) -> impl Future<Output = Result<Self::MutationResult, Self::Failure>> + Send
+fn clerkenwell_session::server::ProjectionHost::modifications(&self) -> &ModificationCounter
+fn clerkenwell_session::server::ProjectionHost::mutate(&self, principal: &Principal, mutation: &str, params: Value) -> impl Future<Output = Result<Modified<Self::MutationResult>, Self::Failure>> + Send
 fn clerkenwell_session::server::ProjectionHost::mutation_patch(&self, mutation: &str, result: &Self::MutationResult, subscription: &ProjectionSubscription<Held<Self::Delivery>>) -> impl Future<Output = Option<Self::Patch>> + Send
 fn clerkenwell_session::server::ProjectionHost::registry(&self) -> &ProjectionRegistry
-fn clerkenwell_session::server::ProjectionHost::snapshot(&self, projection: &str, params: &Value, held: Option<&Self::Delivery>) -> impl Future<Output = Result<Self::Snapshot, Self::Failure>> + Send
+fn clerkenwell_session::server::ProjectionHost::snapshot(&self, projection: &str, params: &Value, held: Option<&Self::Delivery>) -> impl Future<Output = Result<NumberedSnapshot<Self::Snapshot>, Self::Failure>> + Send
 struct clerkenwell_session::server::ProjectionRefusal
 derive clerkenwell_session::server::ProjectionRefusal: Clone, Debug, PartialEq
 field clerkenwell_session::server::ProjectionRefusal::code: ProjectionErrorCode
@@ -206,6 +223,7 @@ variant clerkenwell_session::server::ProjectionRequest::Unsubscribe(ProjectionUn
 struct clerkenwell_session::server::RanCommand<C>
 derive clerkenwell_session::server::RanCommand: Clone, Debug, PartialEq
 field clerkenwell_session::server::RanCommand::command: String
+field clerkenwell_session::server::RanCommand::modification: Option<u64>
 field clerkenwell_session::server::RanCommand::operation_id: Option<String>
 field clerkenwell_session::server::RanCommand::result: C
 fn clerkenwell_session::server::command_reply<H: ProjectionHost>(ran: &RanCommand<H::CommandResult>, revision: u64) -> Result<Value, H::Failure>

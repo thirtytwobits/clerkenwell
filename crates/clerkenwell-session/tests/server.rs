@@ -20,9 +20,10 @@ use clerkenwell_session::transport::{
 };
 use clerkenwell_session::{
     command_reply, decode_request, deliver_announcement, publish, publish_command, resync_all,
-    run_command, serve, serve_request, Accepted, Announced, Held, ProjectionFailure,
-    ProjectionHost, ProjectionRefusal, ProjectionRegistry, ProjectionReply, ProjectionRequest,
-    ProjectionSubscription, ProjectionSubscriptions,
+    run_command, serve, serve_request, Accepted, Announced, Held, ModificationCounter, Modified,
+    NumberedSnapshot, ProjectionFailure, ProjectionHost, ProjectionRefusal, ProjectionRegistry,
+    ProjectionReply, ProjectionRequest, ProjectionSubscription, ProjectionSubscriptions,
+    RanCommand,
 };
 use serde_json::{json, Value};
 
@@ -100,10 +101,13 @@ impl ProjectionFailure for Failure {
     }
 }
 
-/// A note, its title and the frontier its authoring state names.
+/// A note, its title and the frontier its authoring state names. The title's
+/// lock is the host's: it is held while a modification is numbered and saved,
+/// and while a snapshot is read.
 struct Notes {
     subscriptions: Mutex<ProjectionSubscriptions<Value, Held<String>>>,
     title: Mutex<String>,
+    modifications: ModificationCounter,
     refusal: Option<ProjectionRefusal>,
     mutations_run: Mutex<usize>,
     /// The principal each mutation was made as, in order.
@@ -131,6 +135,7 @@ impl Notes {
         Self {
             subscriptions: connection("reader"),
             title: Mutex::new("Shopping".to_owned()),
+            modifications: ModificationCounter::default(),
             refusal: None,
             mutations_run: Mutex::new(0),
             mutated_by: Mutex::new(Vec::new()),
@@ -158,6 +163,15 @@ impl Notes {
         self.title.lock().expect("title").clone()
     }
 
+    /// Saves `title` outside any request, as an announced change is saved,
+    /// and returns the number of the modification.
+    fn save(&self, title: &str) -> u64 {
+        let mut held = self.title.lock().expect("title");
+        let modification = self.modifications.take();
+        *held = title.to_owned();
+        modification
+    }
+
     fn subscription(&self, subscription_id: u64) -> ProjectionSubscription<Held<String>> {
         self.subscriptions
             .lock()
@@ -181,18 +195,25 @@ impl ProjectionHost for Notes {
         &REGISTRY
     }
 
+    fn modifications(&self) -> &ModificationCounter {
+        &self.modifications
+    }
+
     fn snapshot(
         &self,
         projection: &str,
         _params: &Value,
         _held: Option<&String>,
-    ) -> impl Future<Output = Result<Value, Failure>> + Send {
+    ) -> impl Future<Output = Result<NumberedSnapshot<Value>, Failure>> + Send {
+        let title = self.title.lock().expect("title");
+        let through = self.modifications.last();
         let snapshot = match projection {
-            "notes.replica" => json!({ "frontier": format!("frontier:{}", self.title()) }),
+            "notes.replica" => json!({ "frontier": format!("frontier:{}", *title) }),
             "boards.list" => json!({ "pinned": false }),
-            _ => json!({ "title": self.title() }),
+            _ => json!({ "title": *title }),
         };
-        async move { Ok(snapshot) }
+        drop(title);
+        async move { Ok(NumberedSnapshot { snapshot, through }) }
     }
 
     fn delivered(&self, snapshot: &Value) -> Option<String> {
@@ -208,7 +229,7 @@ impl ProjectionHost for Notes {
         principal: &Principal,
         mutation: &str,
         params: Value,
-    ) -> impl Future<Output = Result<Value, Failure>> + Send {
+    ) -> impl Future<Output = Result<Modified<Value>, Failure>> + Send {
         *self.mutations_run.lock().expect("count") += 1;
         self.mutated_by
             .lock()
@@ -217,12 +238,24 @@ impl ProjectionHost for Notes {
         let outcome = match (&self.refusal, mutation) {
             (Some(refusal), _) => Err(Failure::refused(refusal.clone())),
             (None, "note.rename") => {
-                let title = params["title"].as_str().expect("a title").to_owned();
-                *self.title.lock().expect("title") = title.clone();
-                Ok(json!({ "title": title }))
+                let title = params["title"].as_str().expect("a title");
+                let modification = self.save(title);
+                Ok(Modified {
+                    result: json!({ "title": title }),
+                    modification: Some(modification),
+                })
             }
-            (None, "note.preview") => Ok(json!({ "title": params["title"] })),
-            (None, _) => Ok(json!({})),
+            (None, "note.preview") => Ok(Modified {
+                result: json!({ "title": params["title"] }),
+                modification: None,
+            }),
+            (None, _) => {
+                let _held = self.title.lock().expect("title");
+                Ok(Modified {
+                    result: json!({}),
+                    modification: Some(self.modifications.take()),
+                })
+            }
         };
         async move { outcome }
     }
@@ -247,15 +280,25 @@ impl ProjectionHost for Notes {
         principal: &Principal,
         command: &str,
         _params: Value,
-    ) -> impl Future<Output = Result<Value, Failure>> + Send {
+    ) -> impl Future<Output = Result<Modified<Value>, Failure>> + Send {
         self.commanded_by
             .lock()
             .expect("principals")
             .push(principal.clone());
         let outcome = match (&self.refusal, command) {
             (Some(refusal), _) => Err(Failure::refused(refusal.clone())),
-            (None, "note.archive") => Ok(json!({ "archived": self.title() })),
-            (None, _) => Ok(json!({ "words": self.title().split_whitespace().count() })),
+            (None, "note.archive") => {
+                let title = self.title.lock().expect("title");
+                let modification = self.modifications.take();
+                Ok(Modified {
+                    result: json!({ "archived": *title }),
+                    modification: Some(modification),
+                })
+            }
+            (None, _) => Ok(Modified {
+                result: json!({ "words": self.title().split_whitespace().count() }),
+                modification: None,
+            }),
         };
         async move { outcome }
     }
@@ -708,7 +751,7 @@ fn a_patch_starts_from_the_revision_its_client_holds_when_it_is_delivered() {
         "other",
         ActorKind::Human,
     ));
-    let subscription_id = subscriptions.insert("notes.list".to_owned(), json!({}), 5);
+    let subscription_id = subscriptions.insert("notes.list".to_owned(), json!({}), 5, 0);
 
     // A delivery reached the client after the mutation chose its revision.
     let event = subscriptions
@@ -852,12 +895,18 @@ fn only_a_mutation_or_a_command_is_offered_to_other_connections() {
     let (counted, count) = run(&host, &host.subscriptions, "note.count").expect("count");
 
     assert!(subscribed.accepted.is_none());
-    let Some(Accepted::Mutation { mutation, result }) = renamed.accepted else {
+    let Some(Accepted::Mutation {
+        mutation, result, ..
+    }) = renamed.accepted
+    else {
         panic!("an accepted mutation: {:?}", renamed.accepted);
     };
     assert_eq!(mutation, "note.rename");
     assert_eq!(result, json!({ "title": "Errands" }));
-    let Some(Accepted::Command { command, result }) = count.accepted else {
+    let Some(Accepted::Command {
+        command, result, ..
+    }) = count.accepted
+    else {
         panic!("a served command: {:?}", count.accepted);
     };
     assert_eq!(command, "note.count");
@@ -1138,6 +1187,7 @@ fn an_announced_change_patches_every_subscription_reading_an_entity_it_touches_a
     let (_boards, _) = subscribe(&host, "boards.list", None);
     let announced = Announced {
         touches: &["Note"],
+        modification: host.save("Errands"),
         announcement: json!({ "progress": 1 }),
     };
 
@@ -1164,6 +1214,7 @@ fn an_announcement_touching_no_entity_a_projection_reads_patches_nothing() {
     for touches in [&[][..], &["Clock"][..]] {
         let announced = Announced {
             touches,
+            modification: host.save("Errands"),
             announcement: json!({}),
         };
 
@@ -1187,6 +1238,7 @@ fn successive_announcements_patch_a_subscription_in_the_order_they_were_made() {
     for progress in 1..=3 {
         let announced = Announced {
             touches: &["Note"],
+            modification: host.save(&format!("Errands {progress}")),
             announcement: json!({ "progress": progress }),
         };
         spans.extend(patch_spans(&block_on(deliver_announcement(
@@ -1201,4 +1253,159 @@ fn successive_announcements_patch_a_subscription_in_the_order_they_were_made() {
     for pair in spans.windows(2) {
         assert_eq!(pair[1].1, pair[0].2, "{spans:?}");
     }
+}
+
+/// The command `command` run on `host`, as any connection's caller.
+fn ran(host: &Notes, command: &str) -> RanCommand<Value> {
+    block_on(run_command(
+        host,
+        &Principal::new("writer", ActorKind::Human),
+        ProjectionCommandRequest {
+            command: command.to_owned(),
+            operation_id: None,
+            params: json!({}),
+        },
+    ))
+    .expect("the command runs")
+}
+
+#[test]
+fn a_subscription_whose_snapshot_holds_a_command_s_modification_is_not_sent_it() {
+    let host = Notes::new();
+    let (before, _) = subscribe(&host, "notes.list", None);
+    let archived = ran(&host, "note.archive");
+    let (after, _) = subscribe(&host, "notes.list", None);
+
+    let (_, events) = block_on(publish_command(&host, &host.subscriptions, &archived));
+
+    let spans = patch_spans(&events);
+    assert_eq!(spans.len(), 1, "{spans:?}");
+    assert_eq!(spans[0].0, before.subscription_id);
+    assert_eq!(host.command_patches_asked(), ["notes.list"]);
+    assert_eq!(
+        host.subscription(after.subscription_id).revision,
+        after.revision
+    );
+}
+
+#[test]
+fn a_subscription_whose_snapshot_holds_a_mutation_made_elsewhere_is_not_sent_it() {
+    let host = Notes::new();
+    let elsewhere = connection("other");
+    let (before, _) = subscribe(&host, "notes.list", None);
+    let reply = block_on(serve(
+        &host,
+        &elsewhere,
+        ProjectionRequest::Mutate(ProjectionMutationRequest {
+            mutation: "note.rename".to_owned(),
+            operation_id: None,
+            base_revision: None,
+            params: json!({ "title": "Errands" }),
+        }),
+    ))
+    .expect("rename elsewhere");
+    let (after, _) = subscribe(&host, "notes.list", None);
+    let accepted = reply
+        .accepted
+        .expect("the reply names the mutation it accepted");
+
+    let (_, events) = block_on(publish(&host, &host.subscriptions, &accepted));
+
+    let spans = patch_spans(&events);
+    assert_eq!(spans.len(), 1, "{spans:?}");
+    assert_eq!(spans[0].0, before.subscription_id);
+    assert_eq!(
+        host.subscription(after.subscription_id).revision,
+        after.revision
+    );
+}
+
+#[test]
+fn a_subscription_whose_snapshot_holds_an_announced_modification_is_not_sent_it() {
+    let host = Notes::new();
+    let (before, _) = subscribe(&host, "notes.list", None);
+    let announced = Announced {
+        touches: &["Note"],
+        modification: host.save("Errands"),
+        announcement: json!({ "progress": 1 }),
+    };
+    let (after, _) = subscribe(&host, "notes.list", None);
+
+    let events = block_on(deliver_announcement(&host, &host.subscriptions, &announced));
+
+    let spans = patch_spans(&events);
+    assert_eq!(spans.len(), 1, "{spans:?}");
+    assert_eq!(spans[0].0, before.subscription_id);
+    assert_eq!(
+        host.subscription(after.subscription_id).revision,
+        after.revision
+    );
+}
+
+#[test]
+fn each_modification_after_a_snapshot_is_sent_once_in_whatever_order_it_is_published() {
+    let host = Notes::new();
+    let (notes, _) = subscribe(&host, "notes.list", None);
+    let earlier = host.save("Errands");
+    let later = host.save("Chores");
+
+    let mut spans = Vec::new();
+    for modification in [later, earlier] {
+        let announced = Announced {
+            touches: &["Note"],
+            modification,
+            announcement: json!({ "modification": modification }),
+        };
+        spans.extend(patch_spans(&block_on(deliver_announcement(
+            &host,
+            &host.subscriptions,
+            &announced,
+        ))));
+    }
+
+    assert_eq!(spans.len(), 2, "{spans:?}");
+    assert!(spans.iter().all(|(id, _, _)| *id == notes.subscription_id));
+}
+
+#[test]
+fn a_resent_snapshot_holds_every_modification_saved_before_it() {
+    let host = Notes::new();
+    let (notes, _) = subscribe(&host, "notes.list", None);
+    let modification = host.save("Errands");
+    block_on(serve(
+        &host,
+        &host.subscriptions,
+        ProjectionRequest::Resync(ProjectionResyncRequest {
+            subscription_id: notes.subscription_id,
+        }),
+    ))
+    .expect("resync");
+    let announced = Announced {
+        touches: &["Note"],
+        modification,
+        announcement: json!({ "progress": 1 }),
+    };
+
+    let events = block_on(deliver_announcement(&host, &host.subscriptions, &announced));
+
+    assert!(events.is_empty(), "{events:?}");
+    assert!(host.announcement_patches_asked().is_empty());
+}
+
+#[test]
+fn a_change_that_saved_no_modification_sends_no_update() {
+    let host = Notes::new();
+    let (notes, _) = subscribe(&host, "notes.list", None);
+    let unsaved = RanCommand {
+        command: "note.archive".to_owned(),
+        operation_id: None,
+        result: json!({ "archived": host.title() }),
+        modification: None,
+    };
+
+    let (revision, events) = block_on(publish_command(&host, &host.subscriptions, &unsaved));
+
+    assert!(events.is_empty(), "{events:?}");
+    assert_eq!(revision, notes.revision);
+    assert!(host.command_patches_asked().is_empty());
 }

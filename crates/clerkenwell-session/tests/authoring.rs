@@ -23,9 +23,9 @@ use clerkenwell_session::transport::{
     ProjectionTransportEvent,
 };
 use clerkenwell_session::{
-    deliver_change, serve, AuthoringHeld, AuthoringStates, Held, ProjectionFailure, ProjectionHost,
-    ProjectionRefusal, ProjectionRegistry, ProjectionRequest, ProjectionSubscription,
-    ProjectionSubscriptions,
+    deliver_change, serve, AuthoringHeld, AuthoringStates, Held, ModificationCounter, Modified,
+    NumberedSnapshot, ProjectionFailure, ProjectionHost, ProjectionRefusal, ProjectionRegistry,
+    ProjectionRequest, ProjectionSubscription, ProjectionSubscriptions,
 };
 use clerkenwell_store::testing::MemoryStorage;
 use clerkenwell_store::{
@@ -204,6 +204,7 @@ fn subscriptions_of_a_client() -> Subscriptions {
 struct Library {
     authoring: AuthoringStates,
     changes: Arc<Mutex<Vec<ChangeEvent>>>,
+    modifications: ModificationCounter,
 }
 
 impl Library {
@@ -226,6 +227,7 @@ impl Library {
                 .expect("register");
         }
         Self {
+            modifications: ModificationCounter::default(),
             authoring: AuthoringStates::new(stores, PLANS, |entity, params| match entity {
                 "Draft" => Some(format!("session/{}", params["session_id"].as_str()?)),
                 _ => Some(WORKSPACE.to_owned()),
@@ -325,12 +327,16 @@ impl ProjectionHost for Library {
         Some(&self.authoring)
     }
 
+    fn modifications(&self) -> &ModificationCounter {
+        &self.modifications
+    }
+
     async fn snapshot(
         &self,
         projection: &str,
         _params: &Value,
         _held: Option<&()>,
-    ) -> Result<Value, Failure> {
+    ) -> Result<NumberedSnapshot<Value>, Failure> {
         panic!("the session asked the host for {projection}")
     }
 
@@ -347,8 +353,13 @@ impl ProjectionHost for Library {
         _principal: &Principal,
         _mutation: &str,
         _params: Value,
-    ) -> Result<Value, Failure> {
-        Ok(json!({}))
+    ) -> Result<Modified<Value>, Failure> {
+        // Every document this host keeps is an authoring state, which takes
+        // the operations its store announces.
+        Ok(Modified {
+            result: json!({}),
+            modification: None,
+        })
     }
 
     async fn mutation_patch(
@@ -368,7 +379,7 @@ impl ProjectionHost for Library {
         _principal: &Principal,
         command: &str,
         _params: Value,
-    ) -> Result<Value, Failure> {
+    ) -> Result<Modified<Value>, Failure> {
         panic!("the session asked the host to run {command}")
     }
 
