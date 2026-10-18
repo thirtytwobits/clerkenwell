@@ -147,11 +147,12 @@ derive clerkenwell_session::RanCommand: Clone, Debug, PartialEq
 field clerkenwell_session::RanCommand::command: String
 field clerkenwell_session::RanCommand::operation_id: Option<String>
 field clerkenwell_session::RanCommand::result: C
-async fn clerkenwell_session::answer_command<H, C>(host: &H, connection: &C, ran: RanCommand<H::CommandResult>) -> Result<Reply<H>, H::Failure> where H: ProjectionHost, C: ProjectionConnection<H::Patch, Held<H::Delivery>>,
+fn clerkenwell_session::command_reply<H: ProjectionHost>(ran: &RanCommand<H::CommandResult>, revision: u64) -> Result<Value, H::Failure>
 fn clerkenwell_session::decode_request<F: ProjectionFailure>(method: &str, params: Option<Value>) -> Option<Result<ProjectionRequest, F>>
 async fn clerkenwell_session::deliver_announcement<H, C>(host: &H, connection: &C, announced: &Announced<H::Announcement>) -> Vec<Event<H>> where H: ProjectionHost, C: ProjectionConnection<H::Patch, Held<H::Delivery>>,
 async fn clerkenwell_session::deliver_change<H, C>(host: &H, connection: &C, change: &ChangeEvent) -> Vec<Event<H>> where H: ProjectionHost, C: ProjectionConnection<H::Patch, Held<H::Delivery>>,
 async fn clerkenwell_session::publish<H, C>(host: &H, connection: &C, accepted: &Change<H>) -> (u64, Vec<Event<H>>) where H: ProjectionHost, C: ProjectionConnection<H::Patch, Held<H::Delivery>>,
+async fn clerkenwell_session::publish_command<H, C>(host: &H, connection: &C, ran: &RanCommand<H::CommandResult>) -> (u64, Vec<Event<H>>) where H: ProjectionHost, C: ProjectionConnection<H::Patch, Held<H::Delivery>>,
 async fn clerkenwell_session::resync_all<H, C>(host: &H, connection: &C, reason: &str) -> Vec<Event<H>> where H: ProjectionHost, C: ProjectionConnection<H::Patch, Held<H::Delivery>>,
 async fn clerkenwell_session::run_command<H: ProjectionHost>(host: &H, principal: &Principal, request: ProjectionCommandRequest) -> Result<RanCommand<H::CommandResult>, H::Failure>
 async fn clerkenwell_session::serve<H, C>(host: &H, connection: &C, request: ProjectionRequest) -> Result<Reply<H>, H::Failure> where H: ProjectionHost, C: ProjectionConnection<H::Patch, Held<H::Delivery>>,
@@ -207,11 +208,12 @@ derive clerkenwell_session::server::RanCommand: Clone, Debug, PartialEq
 field clerkenwell_session::server::RanCommand::command: String
 field clerkenwell_session::server::RanCommand::operation_id: Option<String>
 field clerkenwell_session::server::RanCommand::result: C
-async fn clerkenwell_session::server::answer_command<H, C>(host: &H, connection: &C, ran: RanCommand<H::CommandResult>) -> Result<Reply<H>, H::Failure> where H: ProjectionHost, C: ProjectionConnection<H::Patch, Held<H::Delivery>>,
+fn clerkenwell_session::server::command_reply<H: ProjectionHost>(ran: &RanCommand<H::CommandResult>, revision: u64) -> Result<Value, H::Failure>
 fn clerkenwell_session::server::decode_request<F: ProjectionFailure>(method: &str, params: Option<Value>) -> Option<Result<ProjectionRequest, F>>
 async fn clerkenwell_session::server::deliver_announcement<H, C>(host: &H, connection: &C, announced: &Announced<H::Announcement>) -> Vec<Event<H>> where H: ProjectionHost, C: ProjectionConnection<H::Patch, Held<H::Delivery>>,
 async fn clerkenwell_session::server::deliver_change<H, C>(host: &H, connection: &C, change: &ChangeEvent) -> Vec<Event<H>> where H: ProjectionHost, C: ProjectionConnection<H::Patch, Held<H::Delivery>>,
 async fn clerkenwell_session::server::publish<H, C>(host: &H, connection: &C, accepted: &Change<H>) -> (u64, Vec<Event<H>>) where H: ProjectionHost, C: ProjectionConnection<H::Patch, Held<H::Delivery>>,
+async fn clerkenwell_session::server::publish_command<H, C>(host: &H, connection: &C, ran: &RanCommand<H::CommandResult>) -> (u64, Vec<Event<H>>) where H: ProjectionHost, C: ProjectionConnection<H::Patch, Held<H::Delivery>>,
 async fn clerkenwell_session::server::resync_all<H, C>(host: &H, connection: &C, reason: &str) -> Vec<Event<H>> where H: ProjectionHost, C: ProjectionConnection<H::Patch, Held<H::Delivery>>,
 async fn clerkenwell_session::server::run_command<H: ProjectionHost>(host: &H, principal: &Principal, request: ProjectionCommandRequest) -> Result<RanCommand<H::CommandResult>, H::Failure>
 async fn clerkenwell_session::server::serve<H, C>(host: &H, connection: &C, request: ProjectionRequest) -> Result<Reply<H>, H::Failure> where H: ProjectionHost, C: ProjectionConnection<H::Patch, Held<H::Delivery>>,

@@ -43,6 +43,12 @@ pub const PUBLICATION_WINDOW: NonZeroUsize = match NonZeroUsize::new(256) {
     None => panic!("the publication window is non-zero"),
 };
 
+/// Commands the example's server runs at once.
+pub const COMMAND_LIMIT: NonZeroUsize = match NonZeroUsize::new(16) {
+    Some(limit) => limit,
+    None => panic!("the command limit is non-zero"),
+};
+
 /// The store that keeps every note.
 pub const NOTES_STORE: &str = "notes";
 

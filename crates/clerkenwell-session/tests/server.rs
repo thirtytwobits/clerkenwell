@@ -19,10 +19,10 @@ use clerkenwell_session::transport::{
     PROJECTION_MUTATE_METHOD, PROJECTION_SUBSCRIBE_METHOD,
 };
 use clerkenwell_session::{
-    answer_command, decode_request, deliver_announcement, publish, resync_all, run_command, serve,
-    serve_request, Accepted, Announced, Held, ProjectionFailure, ProjectionHost, ProjectionRefusal,
-    ProjectionRegistry, ProjectionReply, ProjectionRequest, ProjectionSubscription,
-    ProjectionSubscriptions,
+    command_reply, decode_request, deliver_announcement, publish, publish_command, resync_all,
+    run_command, serve, serve_request, Accepted, Announced, Held, ProjectionFailure,
+    ProjectionHost, ProjectionRefusal, ProjectionRegistry, ProjectionReply, ProjectionRequest,
+    ProjectionSubscription, ProjectionSubscriptions,
 };
 use serde_json::{json, Value};
 
@@ -1048,15 +1048,46 @@ fn a_command_runs_without_touching_a_subscription_and_is_answered_once_run() {
         notes.revision
     );
 
-    let reply = block_on(answer_command(&host, &host.subscriptions, ran)).expect("answer");
-    let accepted: ProjectionCommandAccepted<Value> =
-        serde_json::from_value(reply.result).expect("an accepted command");
-    assert_eq!(accepted.operation_id.as_deref(), Some("archive-op"));
+    let (revision, events) = block_on(publish_command(&host, &host.subscriptions, &ran));
     assert_eq!(
-        patch_spans(&reply.events),
-        [(notes.subscription_id, notes.revision, accepted.revision)]
+        patch_spans(&events),
+        [(notes.subscription_id, notes.revision, revision)]
     );
-    assert!(matches!(reply.accepted, Some(Accepted::Command { .. })));
+    let reply = command_reply::<Notes>(&ran, revision).expect("a reply");
+    let accepted: ProjectionCommandAccepted<Value> =
+        serde_json::from_value(reply).expect("an accepted command");
+    assert_eq!(accepted.operation_id.as_deref(), Some("archive-op"));
+    assert_eq!(accepted.revision, revision);
+    assert_eq!(
+        accepted.result, ran.result,
+        "the reply carries the host's result"
+    );
+}
+
+#[test]
+fn a_command_published_on_another_connection_patches_the_subscriptions_it_affects_there() {
+    let host = Notes::new();
+    let elsewhere = connection("other");
+    let (notes, _) = subscribe(&host, "notes.list", None);
+    let ran = block_on(run_command(
+        &host,
+        &Principal::new("other", ActorKind::Human),
+        ProjectionCommandRequest {
+            command: "note.archive".to_owned(),
+            operation_id: None,
+            params: json!({}),
+        },
+    ))
+    .expect("archive");
+
+    let (revision, events) = block_on(publish_command(&host, &host.subscriptions, &ran));
+    let (_, elsewhere_events) = block_on(publish_command(&host, &elsewhere, &ran));
+
+    assert_eq!(
+        patch_spans(&events),
+        [(notes.subscription_id, notes.revision, revision)]
+    );
+    assert!(elsewhere_events.is_empty(), "{elsewhere_events:?}");
 }
 
 #[test]

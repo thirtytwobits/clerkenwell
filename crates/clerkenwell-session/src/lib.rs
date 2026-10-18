@@ -24,9 +24,10 @@ pub use announcements::{Announced, AnnouncementFeed};
 pub use authoring::{AuthoringHeld, AuthoringStates, Held};
 pub use registry::ProjectionRegistry;
 pub use server::{
-    answer_command, decode_request, deliver_announcement, deliver_change, publish, resync_all,
-    run_command, serve, serve_request, Accepted, ProjectionConnection, ProjectionFailure,
-    ProjectionHost, ProjectionRefusal, ProjectionReply, ProjectionRequest, RanCommand,
+    command_reply, decode_request, deliver_announcement, deliver_change, publish, publish_command,
+    resync_all, run_command, serve, serve_request, Accepted, ProjectionConnection,
+    ProjectionFailure, ProjectionHost, ProjectionRefusal, ProjectionReply, ProjectionRequest,
+    RanCommand,
 };
 pub use subscriptions::{
     FollowingDelivery, ProjectionRuntimeDiagnostics, ProjectionSubscription,

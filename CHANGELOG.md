@@ -44,14 +44,19 @@ names the contracts.
   `CommandResult` and `ProjectionTransportCommandResult`. `ProjectionErrorCode` and
   `ProjectionErrorEnvelope.operation` take the command refusals and operation.
 - `clerkenwell-axum` runs each command while its connection serves the connection's other
-  requests and updates. It answers the command by its id once it has run, followed by the
-  updates the command sends its own connection; every other request is served in the order it
-  arrives. A command still running when its connection closes runs on, and its change reaches
-  every other connection. A command whose run ends without a result is refused with
-  `internal_error`.
-- `clerkenwell-session` exports `decode_request`, `run_command`, `answer_command` and
-  `RanCommand`, for a transport that runs a connection's commands alongside its other requests.
-  `run_command` reads and changes no subscription.
+  requests and updates; every other request is served in the order it arrives. Every
+  connection takes the same publications in the same order: each mutation's and command's
+  change, and each change the application announces or its stores make. A connection answers a
+  command by its id at the command's place among them, once its host has returned, followed by
+  the updates the command sends its own connection. A command still running when its connection
+  closes runs on, and its change reaches every other connection. A command whose run ends
+  without a result is refused with `internal_error`.
+- `ProjectionServer::new` takes `command_limit`: the most commands that run at once, across
+  every connection. A command beyond them is refused with `rate_limit`. Its `publication_window`
+  counts every publication.
+- `clerkenwell-session` exports `decode_request`, `run_command`, `publish_command`,
+  `command_reply` and `RanCommand`, for a transport that runs a connection's commands alongside
+  its other requests. `run_command` reads and changes no subscription.
 - An application announces a change it makes outside any request, such as a command's progress
   while it runs, on an `AnnouncementFeed` it owns, naming the entities the change touches.
   `ProjectionHost` requires `Announcement` and `announcement_patch`, and names its feed through
@@ -59,9 +64,14 @@ names the contracts.
   connection, takes the patch `announcement_patch` returns. `clerkenwell-session` exports
   `AnnouncementFeed`, `Announced`, `deliver_announcement` and
   `ProjectionRegistry::entities_affect_projection`.
-- `clerkenwell-axum` sends a connection the changes announced, and those its stores made, before
-  it answers a command that has run, so a command's caller takes its progress before its
-  response.
+- A command's caller takes every change the command announced, and every change its stores
+  made, before the command's response.
+
+### Fixed
+
+- A `clerkenwell-axum` connection that falls behind skips every publication it missed once it
+  has been resent its snapshots. It delivered the publications still queued after the
+  snapshots, which could regress a projection or apply a patch twice.
 
 ## 0.7.0
 

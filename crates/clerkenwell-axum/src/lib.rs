@@ -3,22 +3,23 @@
 //!
 //! The application authenticates each connection as a principal; every
 //! request on it is made as that principal. Each connection keeps its own
-//! subscriptions. A mutation one connection makes, or a command it runs,
-//! reaches the subscriptions of every other connection; each change the
-//! application announces reaches every connection's subscriptions, and each
-//! change a store announces every connection's authoring-state subscriptions.
-//! A connection that falls behind takes a snapshot for each of its
-//! subscriptions.
+//! subscriptions, and takes every publication in the order it was made: the
+//! change each mutation or command makes, and each change the application
+//! announces or its stores make. A connection that falls behind takes a
+//! snapshot for each of its subscriptions and skips what it missed.
 //!
 //! A connection serves every request in the order it arrives, except that a
 //! command runs while the connection serves its other requests and updates.
-//! A command's response, and the updates it sends its own connection, follow
-//! once it has run, after the changes it announced while it ran. A command still running when its connection closes runs
-//! on, and its change reaches every other connection.
+//! The connection answers a command at its command's place among the
+//! publications, once its host has returned, so its caller takes every change
+//! published before it first. A command still running when its connection
+//! closes runs on, and its change reaches every other connection.
 
+use std::collections::HashMap;
 use std::num::NonZeroUsize;
+use std::panic::AssertUnwindSafe;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, PoisonError};
 
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::http::request::Parts;
@@ -32,19 +33,16 @@ use clerkenwell_session::transport::{
     ProjectionTransportEvent, PROJECTION_UPDATE_NOTIFICATION,
 };
 use clerkenwell_session::{
-    answer_command, decode_request, deliver_announcement, deliver_change, publish, resync_all,
-    run_command, serve, Accepted, Announced, Held, ProjectionFailure, ProjectionHost,
+    command_reply, decode_request, deliver_announcement, deliver_change, publish, publish_command,
+    resync_all, run_command, serve, Accepted, Announced, Held, ProjectionFailure, ProjectionHost,
     ProjectionRefusal, ProjectionReply, ProjectionRequest, ProjectionSubscriptions, RanCommand,
 };
-use futures_util::future::BoxFuture;
-use futures_util::stream::FuturesUnordered;
 use futures_util::{FutureExt, SinkExt, StreamExt};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
-use tokio::sync::broadcast;
 use tokio::sync::broadcast::error::RecvError;
-use tokio::task::JoinError;
+use tokio::sync::{broadcast, Semaphore};
 
 const PARSE_ERROR: i64 = -32700;
 const INVALID_REQUEST: i64 = -32600;
@@ -194,24 +192,76 @@ struct Notification<'a, T> {
     params: &'a T,
 }
 
-/// What reaches every connection: a mutation one connection accepted or a
-/// command it ran, which reaches every other connection, or a change the
-/// application announced.
+/// What reaches every connection, in the order it happened.
 enum Publication<M, C, N> {
-    Request { origin: u64, change: Accepted<M, C> },
+    /// The change a request one connection served made, for every other
+    /// connection.
+    Served { origin: u64, change: Accepted<M, C> },
+    /// A command one connection ran, once its host returned: every connection
+    /// publishes its change, and its own connection answers it.
+    Ran {
+        origin: u64,
+        ticket: u64,
+        outcome: Result<RanCommand<C>, RpcFailure>,
+    },
+    /// A change the application announced.
     Announced(Arc<Announced<N>>),
+    /// A change one of the application's stores made.
+    Stored(Box<ChangeEvent>),
 }
 
-/// Where every connection takes its publications from.
-type Publications<A> = broadcast::Sender<
-    Arc<
-        Publication<
-            <A as ProjectionHost>::MutationResult,
-            <A as ProjectionHost>::CommandResult,
-            <A as ProjectionHost>::Announcement,
-        >,
-    >,
+/// A publication and its place in the order every connection takes them in.
+struct Sent<P> {
+    sequence: u64,
+    publication: P,
+}
+
+/// Every connection's publications, numbered in the order they are sent.
+struct Publications<P> {
+    sender: broadcast::Sender<Arc<Sent<P>>>,
+    /// The number of the last publication sent, held while one is sent.
+    last: Mutex<u64>,
+}
+
+impl<P> Publications<P> {
+    fn new(window: NonZeroUsize) -> Self {
+        Self {
+            sender: broadcast::channel(window.get()).0,
+            last: Mutex::new(0),
+        }
+    }
+
+    /// Sends `publication`, first handing it to `numbered` once it has its
+    /// number and before a later subscriber starts after it.
+    fn send(&self, publication: P, numbered: impl FnOnce(&Arc<Sent<P>>)) {
+        let mut last = self.last.lock().unwrap_or_else(PoisonError::into_inner);
+        *last += 1;
+        let sent = Arc::new(Sent {
+            sequence: *last,
+            publication,
+        });
+        numbered(&sent);
+        // No connection is listening when the send fails.
+        let _ = self.sender.send(sent);
+    }
+
+    /// A receiver of every publication sent from now on, and the number of the
+    /// last one it does not receive.
+    fn subscribe(&self) -> (u64, broadcast::Receiver<Arc<Sent<P>>>) {
+        let last = self.last.lock().unwrap_or_else(PoisonError::into_inner);
+        (*last, self.sender.subscribe())
+    }
+}
+
+type PublicationOf<A> = Publication<
+    <A as ProjectionHost>::MutationResult,
+    <A as ProjectionHost>::CommandResult,
+    <A as ProjectionHost>::Announcement,
 >;
+
+/// Each command a connection ran, by its ticket, until the connection answers
+/// it.
+type RanCommands<A> = Arc<Mutex<HashMap<u64, Arc<Sent<PublicationOf<A>>>>>>;
 
 type Subscriptions<A> = Mutex<
     ProjectionSubscriptions<<A as ProjectionHost>::Patch, Held<<A as ProjectionHost>::Delivery>>,
@@ -224,13 +274,8 @@ type Reply<A> = ProjectionReply<
     <A as ProjectionHost>::CommandResult,
 >;
 
-/// A command that has run: the id its response answers, its name, and its
-/// result, or why its run ended without one.
-type Ran<A> = (
-    Option<Value>,
-    String,
-    Result<Result<RanCommand<<A as ProjectionHost>::CommandResult>, RpcFailure>, JoinError>,
-);
+type Event<A> =
+    ProjectionTransportEvent<<A as ProjectionHost>::Snapshot, <A as ProjectionHost>::Patch>;
 
 /// What a request frame asks of its connection.
 enum Received {
@@ -247,8 +292,10 @@ enum Received {
 /// Serves an application's projections to every connection.
 pub struct ProjectionServer<A: ProjectionHost> {
     application: A,
-    published: Publications<A>,
-    changes: broadcast::Sender<Arc<ChangeEvent>>,
+    publications: Arc<Publications<PublicationOf<A>>>,
+    /// A permit for each command that may run at once, across every
+    /// connection.
+    commands: Arc<Semaphore>,
     connections: AtomicU64,
 }
 
@@ -263,29 +310,32 @@ where
     A::Announcement: 'static,
 {
     /// A server whose connections resynchronise once they fall more than
-    /// `publication_window` mutations, commands and announcements, or changes
-    /// to the application's stores, behind.
-    pub fn new(application: A, publication_window: NonZeroUsize) -> Arc<Self> {
-        let (published, _) = broadcast::channel(publication_window.get());
-        let (changes, _) = broadcast::channel(publication_window.get());
+    /// `publication_window` publications behind: mutations, commands, the
+    /// application's announcements and its stores' changes. At most
+    /// `command_limit` commands run at once, across every connection; a
+    /// command beyond them is refused as `rate_limit`.
+    pub fn new(
+        application: A,
+        publication_window: NonZeroUsize,
+        command_limit: NonZeroUsize,
+    ) -> Arc<Self> {
+        let publications = Arc::new(Publications::new(publication_window));
         if let Some(announcements) = application.announcements() {
-            let published = published.clone();
+            let publications = Arc::clone(&publications);
             announcements.listen(move |announced| {
-                // No connection is listening when the send fails.
-                let _ = published.send(Arc::new(Publication::Announced(Arc::clone(announced))));
+                publications.send(Publication::Announced(Arc::clone(announced)), |_| {});
             });
         }
         if let Some(authoring) = application.authoring_states() {
-            let changes = changes.clone();
+            let publications = Arc::clone(&publications);
             authoring.stores().changes().listen(move |change| {
-                // No connection is listening when the send fails.
-                let _ = changes.send(Arc::new(change.clone()));
+                publications.send(Publication::Stored(Box::new(change.clone())), |_| {});
             });
         }
         Arc::new(Self {
             application,
-            published,
-            changes,
+            publications,
+            commands: Arc::new(Semaphore::new(command_limit.get())),
             connections: AtomicU64::new(1),
         })
     }
@@ -327,75 +377,57 @@ where
         let origin = self.connections.fetch_add(1, Ordering::Relaxed);
         let subscriptions: Subscriptions<A> =
             Mutex::new(ProjectionSubscriptions::new(principal.clone()));
-        let mut published = self.published.subscribe();
-        let mut changes = self.changes.subscribe();
-        let mut running: FuturesUnordered<BoxFuture<'static, Ran<A>>> = FuturesUnordered::new();
+        let (_, mut published) = self.publications.subscribe();
+        // The id each running command's response answers, by its ticket.
+        let mut running: HashMap<u64, Option<Value>> = HashMap::new();
+        let ran: RanCommands<A> = Arc::default();
+        let mut tickets = 0;
         let (mut sink, mut stream) = socket.split();
         'serving: loop {
             let frames = tokio::select! {
-                // Updates first, so a command's own announcements and store
-                // changes reach its caller before its response.
-                biased;
-                publication = published.recv() => {
-                    let events = match publication.as_deref() {
-                        Ok(Publication::Request { origin: from, .. }) if *from == origin => continue,
-                        Ok(Publication::Request { change, .. }) => {
-                            publish(&self.application, &subscriptions, change).await.1
-                        }
-                        Ok(Publication::Announced(announced)) => {
-                            deliver_announcement(&self.application, &subscriptions, announced).await
-                        }
-                        Err(RecvError::Lagged(missed)) => {
-                            subscriptions
-                                .lock()
-                                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                                .record_dropped_updates(*missed);
-                            resync_all(&self.application, &subscriptions, "broadcastLag").await
-                        }
-                        Err(RecvError::Closed) => break,
-                    };
-                    events.iter().filter_map(notification).collect()
-                }
-                change = changes.recv() => {
-                    let events = match change {
-                        Ok(change) => deliver_change(&self.application, &subscriptions, &change).await,
-                        Err(RecvError::Lagged(missed)) => {
-                            subscriptions
-                                .lock()
-                                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                                .record_dropped_updates(missed);
-                            resync_all(&self.application, &subscriptions, "broadcastLag").await
-                        }
-                        Err(RecvError::Closed) => break,
-                    };
-                    events.iter().filter_map(notification).collect()
-                }
-                Some((id, name, ran)) = running.next(), if !running.is_empty() => {
-                    let answered = match ran {
-                        Ok(Ok(ran)) => answer_command(&self.application, &subscriptions, ran).await,
-                        Ok(Err(failure)) => Err(failure),
-                        Err(_) => Err(unfinished(&name)),
-                    };
-                    self.respond(origin, id, answered)
-                }
                 message = stream.next() => match message {
                     Some(Ok(Message::Text(text))) => {
                         match self.receive(origin, &subscriptions, text.as_str()).await {
                             Received::Answered(frames) => frames,
                             Received::Command { id, request } => {
-                                let name = request.command.clone();
-                                let server = Arc::clone(&self);
-                                let principal = principal.clone();
-                                let command = tokio::spawn(async move {
-                                    run_command(&server.application, &principal, request).await
-                                });
-                                running.push(async move { (id, name, command.await) }.boxed());
-                                continue;
+                                tickets += 1;
+                                match self.start(origin, tickets, &principal, request, &ran) {
+                                    Ok(()) => {
+                                        running.insert(tickets, id);
+                                        continue;
+                                    }
+                                    Err(failure) => Self::answer(id, Err(failure.error_object()), &[]),
+                                }
                             }
                         }
                     }
                     Some(Ok(Message::Close(_))) | Some(Err(_)) | None => break,
                     Some(Ok(_)) => continue,
+                },
+                sent = published.recv() => match sent {
+                    Ok(sent) => self.take(origin, &subscriptions, &sent, &mut running, &ran).await,
+                    Err(RecvError::Lagged(missed)) => {
+                        subscriptions
+                            .lock()
+                            .unwrap_or_else(PoisonError::into_inner)
+                            .record_dropped_updates(missed);
+                        let (skipped_through, receiver) = self.publications.subscribe();
+                        published = receiver;
+                        let mut frames: Vec<String> =
+                            resync_all(&self.application, &subscriptions, "broadcastLag")
+                                .await
+                                .iter()
+                                .filter_map(notification)
+                                .collect();
+                        frames.extend(self.answer_skipped(
+                            &subscriptions,
+                            skipped_through,
+                            &mut running,
+                            &ran,
+                        ));
+                        frames
+                    }
+                    Err(RecvError::Closed) => break,
                 },
             };
             for frame in frames {
@@ -404,21 +436,159 @@ where
                 }
             }
         }
-        if !running.is_empty() {
-            let published = self.published.clone();
-            tokio::spawn(async move {
-                while let Some((_, _, ran)) = running.next().await {
-                    if let Ok(Ok(ran)) = ran {
-                        let change = Accepted::Command {
-                            command: ran.command,
-                            result: ran.result,
-                        };
-                        // No other connection is listening when the send fails.
-                        let _ = published.send(Arc::new(Publication::Request { origin, change }));
-                    }
-                }
+    }
+
+    /// Starts the command `request` names as `ticket` of the connection
+    /// `origin`, authenticated as `principal`, unless as many commands as the
+    /// server allows are running. Once its host returns, its outcome is
+    /// published, and kept in `ran` until its connection answers it.
+    fn start(
+        self: &Arc<Self>,
+        origin: u64,
+        ticket: u64,
+        principal: &Principal,
+        request: ProjectionCommandRequest,
+        ran: &RanCommands<A>,
+    ) -> Result<(), RpcFailure> {
+        let Ok(permit) = Arc::clone(&self.commands).try_acquire_owned() else {
+            return Err(command_refusal(
+                ProjectionErrorCode::RateLimit,
+                "The server is running as many commands as it allows.",
+                &request.command,
+            ));
+        };
+        let server = Arc::clone(self);
+        let principal = principal.clone();
+        let ran = Arc::clone(ran);
+        tokio::spawn(async move {
+            let command = request.command.clone();
+            let outcome = AssertUnwindSafe(run_command(&server.application, &principal, request))
+                .catch_unwind()
+                .await
+                .unwrap_or_else(|_| {
+                    Err(command_refusal(
+                        ProjectionErrorCode::InternalError,
+                        format!("The command \"{command}\" ended without a result."),
+                        &command,
+                    ))
+                });
+            drop(permit);
+            let publication = Publication::Ran {
+                origin,
+                ticket,
+                outcome,
+            };
+            server.publications.send(publication, |sent| {
+                ran.lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .insert(ticket, Arc::clone(sent));
             });
+        });
+        Ok(())
+    }
+
+    /// The frames one publication sends the connection `origin`: the updates
+    /// it brings its subscriptions, after the response to a command of its
+    /// own that it carries.
+    async fn take(
+        &self,
+        origin: u64,
+        subscriptions: &Subscriptions<A>,
+        sent: &Sent<PublicationOf<A>>,
+        running: &mut HashMap<u64, Option<Value>>,
+        ran: &RanCommands<A>,
+    ) -> Vec<String> {
+        let events = match &sent.publication {
+            Publication::Served { origin: from, .. } if *from == origin => Vec::new(),
+            Publication::Served { change, .. } => {
+                publish(&self.application, subscriptions, change).await.1
+            }
+            Publication::Announced(announced) => {
+                deliver_announcement(&self.application, subscriptions, announced).await
+            }
+            Publication::Stored(change) => {
+                deliver_change(&self.application, subscriptions, change).await
+            }
+            Publication::Ran {
+                origin: from,
+                ticket,
+                outcome,
+            } if *from == origin => {
+                ran.lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .remove(ticket);
+                let id = running.remove(ticket).flatten();
+                return match outcome {
+                    Ok(command) => {
+                        let (revision, events) =
+                            publish_command(&self.application, subscriptions, command).await;
+                        let response = command_reply::<A>(command, revision)
+                            .map_err(|failure| failure.error_object());
+                        Self::answer(id, response, &events)
+                    }
+                    Err(failure) => Self::answer(id, Err(failure.error_object()), &[]),
+                };
+            }
+            Publication::Ran {
+                outcome: Ok(command),
+                ..
+            } => {
+                publish_command(&self.application, subscriptions, command)
+                    .await
+                    .1
+            }
+            Publication::Ran { .. } => Vec::new(),
+        };
+        events.iter().filter_map(notification).collect()
+    }
+
+    /// The responses to the connection's commands whose publications it
+    /// skipped, through `skipped_through`, after it fell behind. The snapshots
+    /// it was resent hold their changes.
+    fn answer_skipped(
+        &self,
+        subscriptions: &Subscriptions<A>,
+        skipped_through: u64,
+        running: &mut HashMap<u64, Option<Value>>,
+        ran: &RanCommands<A>,
+    ) -> Vec<String> {
+        let mut skipped: Vec<Arc<Sent<PublicationOf<A>>>> = {
+            let mut ran = ran.lock().unwrap_or_else(PoisonError::into_inner);
+            let tickets: Vec<u64> = ran
+                .iter()
+                .filter(|(_, sent)| sent.sequence <= skipped_through)
+                .map(|(ticket, _)| *ticket)
+                .collect();
+            tickets
+                .iter()
+                .filter_map(|ticket| ran.remove(ticket))
+                .collect()
+        };
+        skipped.sort_by_key(|sent| sent.sequence);
+        let revision = subscriptions
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .change_revision(false);
+        let mut frames = Vec::new();
+        for sent in skipped {
+            let Publication::Ran {
+                ticket, outcome, ..
+            } = &sent.publication
+            else {
+                continue;
+            };
+            let response = match outcome {
+                Ok(command) => command_reply::<A>(command, revision),
+                Err(failure) => Err(failure.clone()),
+            };
+            let id = running.remove(ticket).flatten();
+            frames.extend(Self::answer(
+                id,
+                response.map_err(|failure| failure.error_object()),
+                &[],
+            ));
         }
+        frames
     }
 
     /// What one request frame asks of its connection.
@@ -448,8 +618,7 @@ where
                     METHOD_NOT_FOUND,
                     format!("Unknown method \"{}\".", request.method),
                 );
-                let response = id.map(|id| frame(id, Err::<Value, _>(error)));
-                return Received::Answered(response.into_iter().collect());
+                return Received::Answered(Self::answer(id, Err(error), &[]));
             }
             Some(Ok(ProjectionRequest::Command(request))) => {
                 return Received::Command { id, request };
@@ -461,47 +630,54 @@ where
     }
 
     /// The frames that answer a served request: its response, when it has an
-    /// id, then the updates it sends. The mutation it accepted, or the
-    /// command it ran, goes to every other connection.
+    /// id, then the updates it sends. The change it made goes to every other
+    /// connection.
     fn respond(
         &self,
         origin: u64,
         id: Option<Value>,
         served: Result<Reply<A>, RpcFailure>,
     ) -> Vec<String> {
-        let (response, events) = match served {
-            Err(failure) => (Err(failure.error_object()), Vec::new()),
+        match served {
+            Err(failure) => Self::answer(id, Err(failure.error_object()), &[]),
             Ok(reply) => {
                 if let Some(change) = reply.accepted {
-                    // No other connection is listening when the send fails.
-                    let _ = self
-                        .published
-                        .send(Arc::new(Publication::Request { origin, change }));
+                    self.publications
+                        .send(Publication::Served { origin, change }, |_| {});
                 }
-                (Ok(reply.result), reply.events)
+                Self::answer(id, Ok(reply.result), &reply.events)
             }
-        };
-        let mut frames = Vec::new();
-        if let Some(id) = id {
-            frames.push(frame(id, response));
         }
-        frames.extend(events.iter().filter_map(notification));
-        frames
+    }
+
+    /// The frames that answer a request: its response, when it has an id,
+    /// then `events`.
+    fn answer(
+        id: Option<Value>,
+        response: Result<Value, ErrorObject>,
+        events: &[Event<A>],
+    ) -> Vec<String> {
+        id.map(|id| frame(id, response))
+            .into_iter()
+            .chain(events.iter().filter_map(notification))
+            .collect()
     }
 }
 
-/// The refusal of a command whose run ended without a result.
-fn unfinished(command: &str) -> RpcFailure {
-    let message = format!("The command \"{command}\" ended without a result.");
-    RpcFailure::new(ProjectionErrorCode::InternalError, message.clone(), None).described(
-        ProjectionErrorEnvelope::new(
-            ProjectionErrorCode::InternalError,
-            message,
-            ProjectionOperation::Command,
-            Some(command),
-            None,
-        ),
-    )
+/// The refusal of the command `command`, addressed to it.
+fn command_refusal(
+    code: ProjectionErrorCode,
+    message: impl Into<String>,
+    command: &str,
+) -> RpcFailure {
+    let message = message.into();
+    RpcFailure::new(code, message.clone(), None).described(ProjectionErrorEnvelope::new(
+        code,
+        message,
+        ProjectionOperation::Command,
+        Some(command),
+        None,
+    ))
 }
 
 /// The response frame that answers the request `id`.

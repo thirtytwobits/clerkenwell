@@ -224,8 +224,17 @@ impl ProjectionHost for Counters {
 type Socket = WebSocketStream<MaybeTlsStream<TcpStream>>;
 
 async fn start(window: usize) -> (String, std::sync::Arc<ProjectionServer<Counters>>) {
+    start_with(window, 8).await
+}
+
+/// A server that runs at most `commands` commands at once.
+async fn start_with(
+    window: usize,
+    commands: usize,
+) -> (String, std::sync::Arc<ProjectionServer<Counters>>) {
     let window = NonZeroUsize::new(window).expect("a publication window");
-    let server = ProjectionServer::new(Counters::default(), window);
+    let commands = NonZeroUsize::new(commands).expect("a command limit");
+    let server = ProjectionServer::new(Counters::default(), window, commands);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
         .await
         .expect("a listener");
@@ -688,6 +697,88 @@ async fn an_announcement_reaches_every_connection_subscribed_to_what_it_changed_
         json!({ "value": 9 }),
         "the first update another counter's subscriber takes is its own counter's"
     );
+}
+
+#[tokio::test]
+async fn a_command_beyond_the_servers_limit_is_refused_as_rate_limit_until_one_finishes() {
+    let (url, server) = start_with(8, 1).await;
+    let mut first = connect(&url).await;
+    let mut second = connect(&url).await;
+    reset_at_gate(&mut first, 1, "a", "held").await;
+    // The first connection serves its frames in order, so its command has
+    // started once this answers.
+    increment(&mut first, 2, "b").await;
+
+    request(
+        &mut second,
+        1,
+        "projection.command",
+        json!({ "command": "counter.reset", "params": { "counter_id": "c" } }),
+    )
+    .await;
+    let refused = next(&mut second).await;
+    assert_eq!(refused["id"], json!(1), "{refused}");
+    let envelope = &refused["error"]["data"]["projection_error"];
+    assert_eq!(envelope["code"], "rate_limit");
+    assert_eq!(envelope["retryable"], true);
+    assert_eq!(envelope["operation"], "command");
+    assert_eq!(envelope["name"], "counter.reset");
+
+    server.application().open("held");
+    assert_eq!(next(&mut first).await["id"], json!(1));
+    let retried = reset(&mut second, 2, "c").await;
+    assert_eq!(retried["result"]["counter_id"], "c");
+}
+
+#[tokio::test]
+async fn a_connection_that_falls_behind_skips_every_publication_its_snapshots_hold() {
+    let (url, server) = start(1).await;
+    let mut reader = connect(&url).await;
+    let mut writer = connect(&url).await;
+    let counter = subscribe(
+        &mut reader,
+        1,
+        "counters.value",
+        json!({ "counter_id": "a" }),
+    )
+    .await;
+    next(&mut reader).await;
+    // The reader's connection waits on this snapshot while the writer mutates.
+    request(
+        &mut reader,
+        2,
+        "projection.subscribe",
+        json!({ "projection": "clock.held" }),
+    )
+    .await;
+    for id in 1..=3 {
+        increment(&mut writer, id, "a").await;
+    }
+    server.application().released.add_permits(8);
+    let resynced = loop {
+        let frame = next(&mut reader).await;
+        let params = &frame["params"];
+        if frame["method"] == "projection.update"
+            && params["kind"] == "snapshot"
+            && params["subscription_id"] == counter["subscription_id"]
+        {
+            break params.clone();
+        }
+    };
+
+    increment(&mut writer, 4, "a").await;
+
+    let patch = loop {
+        let frame = next(&mut reader).await;
+        if frame["method"] == "projection.update"
+            && frame["params"]["subscription_id"] == counter["subscription_id"]
+        {
+            break frame["params"].clone();
+        }
+    };
+    assert_eq!(patch["kind"], "patch");
+    assert_eq!(patch["from_revision"], resynced["revision"]);
+    assert_ne!(patch["patch"]["value"], resynced["snapshot"]["value"]);
 }
 
 #[tokio::test]
