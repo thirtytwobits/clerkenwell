@@ -37,6 +37,12 @@ names the contracts.
   commands after the mutations. `Accepted` replaces `AcceptedMutation`, so
   `ProjectionReply::accepted`, `publish` and `clerkenwell-axum`'s publications carry a mutation
   or a command. `ProjectionSubscriptions::mutation_revision` is `change_revision`.
+- `ProjectionClient.projectionCommand(command, params, { operationId })` runs a command and
+  resolves with its result, typed by the model. `ProjectionModel` requires `commands`.
+  `@clerkenwell/client` exports `PROJECTION_COMMAND_METHOD`, `ProjectionCommandRequest`,
+  `ProjectionCommandAccepted`, `CommandContract`, `CommandName`, `CommandParams`,
+  `CommandResult` and `ProjectionTransportCommandResult`. `ProjectionErrorCode` and
+  `ProjectionErrorEnvelope.operation` take the command refusals and operation.
 
 ## 0.7.0
 

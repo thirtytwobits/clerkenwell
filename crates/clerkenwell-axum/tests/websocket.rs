@@ -259,6 +259,23 @@ async fn increment(socket: &mut Socket, id: u64, counter: &str) -> Value {
     response["result"].clone()
 }
 
+async fn reset(socket: &mut Socket, id: u64, counter: &str) -> Value {
+    request(
+        socket,
+        id,
+        "projection.command",
+        json!({
+            "command": "counter.reset",
+            "operation_id": format!("reset-{id}"),
+            "params": { "counter_id": counter },
+        }),
+    )
+    .await;
+    let response = next(socket).await;
+    assert_eq!(response["id"], json!(id), "{response}");
+    response["result"].clone()
+}
+
 fn update(frame: &Value) -> &Value {
     assert_eq!(frame["method"], "projection.update", "{frame}");
     &frame["params"]
@@ -375,6 +392,58 @@ async fn a_mutation_patches_no_subscription_it_does_not_affect() {
 }
 
 #[tokio::test]
+async fn a_command_answers_its_caller_then_patches_its_own_connection() {
+    let (url, _) = start(8).await;
+    let mut socket = connect_as(&url, "alice").await;
+    subscribe(
+        &mut socket,
+        1,
+        "counters.value",
+        json!({ "counter_id": "a" }),
+    )
+    .await;
+    next(&mut socket).await;
+    increment(&mut socket, 2, "a").await;
+    next(&mut socket).await;
+
+    let accepted = reset(&mut socket, 3, "a").await;
+
+    assert_eq!(accepted["operation_id"], "reset-3");
+    assert_eq!(accepted["result"]["by"], "alice");
+    let patch = next(&mut socket).await;
+    let patch = update(&patch);
+    assert_eq!(patch["to_revision"], accepted["revision"]);
+    assert_eq!(patch["patch"]["value"], accepted["result"]["value"]);
+}
+
+#[tokio::test]
+async fn a_command_on_one_connection_patches_a_subscription_on_another() {
+    let (url, _) = start(8).await;
+    let mut reader = connect(&url).await;
+    let mut writer = connect(&url).await;
+    let accepted = subscribe(
+        &mut reader,
+        1,
+        "counters.value",
+        json!({ "counter_id": "a" }),
+    )
+    .await;
+    next(&mut reader).await;
+    increment(&mut writer, 1, "a").await;
+    let incremented = next(&mut reader).await;
+    let incremented = update(&incremented);
+
+    let reset = reset(&mut writer, 2, "a").await;
+
+    let patch = next(&mut reader).await;
+    let patch = update(&patch);
+    assert_eq!(patch["kind"], "patch");
+    assert_eq!(patch["subscription_id"], accepted["subscription_id"]);
+    assert_eq!(patch["from_revision"], incremented["to_revision"]);
+    assert_eq!(patch["patch"]["value"], reset["result"]["value"]);
+}
+
+#[tokio::test]
 async fn a_connection_that_falls_behind_takes_a_snapshot_of_each_subscription() {
     let (url, server) = start(1).await;
     let mut reader = connect(&url).await;
@@ -436,6 +505,30 @@ async fn a_refused_request_answers_with_its_error_and_envelope() {
     assert_eq!(data["projection_error"]["code"], "unknown_mutation");
     assert_eq!(data["projection_error"]["operation"], "mutate");
     assert_eq!(data["projection_error"]["name"], "counter.explode");
+}
+
+#[tokio::test]
+async fn an_unknown_command_answers_with_its_error_and_envelope() {
+    let (url, _) = start(8).await;
+    let mut socket = connect(&url).await;
+
+    for (id, unknown) in [(1, "counter.explode"), (2, "counter.increment")] {
+        request(
+            &mut socket,
+            id,
+            "projection.command",
+            json!({ "command": unknown, "params": {} }),
+        )
+        .await;
+
+        let response = next(&mut socket).await;
+        assert_eq!(response["id"], json!(id));
+        assert_eq!(response["error"]["code"], json!(-32602));
+        let data = &response["error"]["data"];
+        assert_eq!(data["code"], "unknown_command");
+        assert_eq!(data["projection_error"]["operation"], "command");
+        assert_eq!(data["projection_error"]["name"], unknown);
+    }
 }
 
 #[tokio::test]

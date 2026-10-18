@@ -2,9 +2,12 @@
  * Copyright (c) 2026 Scott A Dixon
  *
  * The projection session protocol over an {@link RpcSocket}: the transport
- * `subscribeProjection` and `watchProjection` follow, and mutations.
+ * `subscribeProjection` and `watchProjection` follow, mutations and commands.
  */
 import type {
+  CommandName,
+  CommandParams,
+  CommandResult,
   MutationName,
   MutationParams,
   MutationResult,
@@ -14,10 +17,12 @@ import type {
 } from "./projection-model.js";
 import type { ProjectionTransport } from "./projection-subscription.js";
 import {
+  PROJECTION_COMMAND_METHOD,
   PROJECTION_MUTATE_METHOD,
   PROJECTION_RESYNC_METHOD,
   PROJECTION_SUBSCRIBE_METHOD,
   PROJECTION_UNSUBSCRIBE_METHOD,
+  type ProjectionCommandAccepted,
   type ProjectionMutationAccepted,
   type ProjectionResyncAccepted,
   type ProjectionSubscribeAccepted,
@@ -77,5 +82,22 @@ export class ProjectionClient<M extends ProjectionModel = ProjectionModel> imple
       throw new Error(`Expected a ${mutation} result, received ${accepted.result.mutation}.`);
     }
     return accepted.result.value as MutationResult<M, K>;
+  }
+
+  /** Runs a command, resolving with its result. */
+  async projectionCommand<K extends CommandName<M>>(
+    command: K,
+    params: CommandParams<M, K>,
+    options: { readonly operationId?: string } = {}
+  ): Promise<CommandResult<M, K>> {
+    const accepted = await this.socket.call<ProjectionCommandAccepted<M>>(PROJECTION_COMMAND_METHOD, {
+      command,
+      params,
+      ...(options.operationId === undefined ? {} : { operation_id: options.operationId })
+    });
+    if (accepted.result.command !== command) {
+      throw new Error(`Expected a ${command} result, received ${accepted.result.command}.`);
+    }
+    return accepted.result.value as CommandResult<M, K>;
   }
 }

@@ -1,13 +1,16 @@
 /**
  * Copyright (c) 2026 Scott A Dixon
  *
- * Projection session protocol: subscribe, resync, unsubscribe and mutate
- * requests, their accepted results, pushed events and typed rejections.
+ * Projection session protocol: subscribe, resync, unsubscribe, mutate and
+ * command requests, their accepted results, pushed events and typed rejections.
  */
 import type {
+  CommandName,
+  CommandParams,
   MutationName,
   MutationParams,
   ProjectionModel,
+  ProjectionTransportCommandResult,
   ProjectionTransportMutationResult,
   ProjectionTransportPatch,
   ProjectionTransportSnapshot
@@ -17,6 +20,7 @@ export const PROJECTION_SUBSCRIBE_METHOD = "projection.subscribe";
 export const PROJECTION_RESYNC_METHOD = "projection.resync";
 export const PROJECTION_UNSUBSCRIBE_METHOD = "projection.unsubscribe";
 export const PROJECTION_MUTATE_METHOD = "projection.mutate";
+export const PROJECTION_COMMAND_METHOD = "projection.command";
 export const PROJECTION_UPDATE_NOTIFICATION = "projection.update";
 
 export interface ProjectionSubscribeRequest {
@@ -47,6 +51,15 @@ export interface ProjectionMutationRequest<
   params: MutationParams<M, TMutation>;
 }
 
+export interface ProjectionCommandRequest<
+  M extends ProjectionModel = ProjectionModel,
+  TCommand extends CommandName<M> = CommandName<M>
+> {
+  command: TCommand;
+  operation_id?: string;
+  params: CommandParams<M, TCommand>;
+}
+
 export interface ProjectionSubscribeAccepted {
   subscription_id: number;
   revision: number;
@@ -74,6 +87,13 @@ export interface ProjectionMutationAccepted<M extends ProjectionModel = Projecti
   result: ProjectionTransportMutationResult<M>;
 }
 
+export interface ProjectionCommandAccepted<M extends ProjectionModel = ProjectionModel> {
+  operation_id?: string;
+  /** The revision the command's effects reach on its connection. */
+  revision: number;
+  result: ProjectionTransportCommandResult<M>;
+}
+
 export type ProjectionTransportEvent<M extends ProjectionModel = ProjectionModel> =
   | {
     kind: "snapshot";
@@ -95,6 +115,8 @@ export type ProjectionTransportEvent<M extends ProjectionModel = ProjectionModel
 export type ProjectionErrorCode =
   | "unknown_mutation"
   | "unsupported_mutation"
+  | "unknown_command"
+  | "unsupported_command"
   | "unknown_projection"
   | "unsupported_projection"
   | "invalid_params"
@@ -109,7 +131,7 @@ export type ProjectionErrorCode =
 export interface ProjectionErrorEnvelope {
   code: ProjectionErrorCode;
   message: string;
-  operation: "subscribe" | "resync" | "unsubscribe" | "mutate";
+  operation: "subscribe" | "resync" | "unsubscribe" | "mutate" | "command";
   retryable: boolean;
   name?: string;
   details?: unknown;

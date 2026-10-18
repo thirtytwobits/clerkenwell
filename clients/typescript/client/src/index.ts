@@ -68,6 +68,10 @@ export { conflictingFieldPaths, creationConflictingFieldPaths } from "./conflict
 
 // A projection model's names, parameters and payloads.
 export type {
+  CommandContract,
+  CommandName,
+  CommandParams,
+  CommandResult,
   MutationContract,
   MutationName,
   MutationParams,
@@ -78,6 +82,7 @@ export type {
   ProjectionParams,
   ProjectionPatch,
   ProjectionSnapshot,
+  ProjectionTransportCommandResult,
   ProjectionTransportMutationResult,
   ProjectionTransportPatch,
   ProjectionTransportSnapshot
@@ -85,6 +90,8 @@ export type {
 
 // The session protocol on the wire.
 export type {
+  ProjectionCommandAccepted,
+  ProjectionCommandRequest,
   ProjectionErrorCode,
   ProjectionErrorEnvelope,
   ProjectionMutationAccepted,
@@ -98,6 +105,7 @@ export type {
   ProjectionUnsubscribeRequest
 } from "./protocol.js";
 export {
+  PROJECTION_COMMAND_METHOD,
   PROJECTION_MUTATE_METHOD,
   PROJECTION_RESYNC_METHOD,
   PROJECTION_SUBSCRIBE_METHOD,
