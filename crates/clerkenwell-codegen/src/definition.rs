@@ -161,6 +161,19 @@ impl Definition {
         self.mutations().find(|mutation| mutation.name == name)
     }
 
+    /// The `commands` section, which a definition may leave out.
+    pub(crate) fn commands(&self) -> impl Iterator<Item = Command<'_>> {
+        self.document
+            .get("commands")
+            .and_then(Json::as_object)
+            .into_iter()
+            .flat_map(Object::iter)
+            .map(|(name, raw)| Command {
+                name,
+                raw: object(raw, "command"),
+            })
+    }
+
     pub(crate) fn collaboration(&self) -> Collaboration<'_> {
         Collaboration {
             raw: self.section("collaboration"),
@@ -317,6 +330,28 @@ impl<'a> Mutation<'a> {
 
     pub fn touches(&self) -> Vec<&'a str> {
         self.raw.strs_field("touches")
+    }
+}
+
+/// One `commands` entry.
+#[derive(Clone, Copy, Debug)]
+pub struct Command<'a> {
+    pub name: &'a str,
+    pub raw: &'a Object,
+}
+
+impl<'a> Command<'a> {
+    pub fn params(&self) -> &'a Object {
+        self.raw.object_field("params")
+    }
+
+    pub fn result(&self) -> &'a Object {
+        self.raw.object_field("result")
+    }
+
+    /// The entities the command may change, so their projections are republished after it.
+    pub fn touches(&self) -> Vec<&'a str> {
+        self.raw.opt_strs_field("touches").unwrap_or_default()
     }
 }
 

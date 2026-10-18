@@ -18,14 +18,14 @@ use clerkenwell_schema::{
     GeneratedProjectionSpec,
 };
 use clerkenwell_session::transport::{
-    ProjectionErrorCode, ProjectionErrorEnvelope, ProjectionMutationCommand,
-    ProjectionResyncCommand, ProjectionSubscribeAccepted, ProjectionSubscribeCommand,
+    ProjectionErrorCode, ProjectionErrorEnvelope, ProjectionMutationRequest,
+    ProjectionResyncRequest, ProjectionSubscribeAccepted, ProjectionSubscribeRequest,
     ProjectionTransportEvent,
 };
 use clerkenwell_session::{
-    deliver_change, serve, AuthoringHeld, AuthoringStates, Held, ProjectionCommand,
-    ProjectionFailure, ProjectionHost, ProjectionRefusal, ProjectionRegistry,
-    ProjectionSubscription, ProjectionSubscriptions,
+    deliver_change, serve, AuthoringHeld, AuthoringStates, Held, ModificationCounter, Modified,
+    NumberedSnapshot, ProjectionFailure, ProjectionHost, ProjectionRefusal, ProjectionRegistry,
+    ProjectionRequest, ProjectionSubscription, ProjectionSubscriptions,
 };
 use clerkenwell_store::testing::MemoryStorage;
 use clerkenwell_store::{
@@ -154,7 +154,7 @@ static MUTATIONS: &[GeneratedMutationSpec] = &[GeneratedMutationSpec {
     name: "note.touch",
     touches: &["Note"],
 }];
-static REGISTRY: ProjectionRegistry = ProjectionRegistry::new(PROJECTIONS, MUTATIONS, &[]);
+static REGISTRY: ProjectionRegistry = ProjectionRegistry::new(PROJECTIONS, MUTATIONS, &[], &[]);
 
 const POLICY: CommitPolicy = CommitPolicy {
     retained_operations: 8,
@@ -204,6 +204,7 @@ fn subscriptions_of_a_client() -> Subscriptions {
 struct Library {
     authoring: AuthoringStates,
     changes: Arc<Mutex<Vec<ChangeEvent>>>,
+    modifications: ModificationCounter,
 }
 
 impl Library {
@@ -226,6 +227,7 @@ impl Library {
                 .expect("register");
         }
         Self {
+            modifications: ModificationCounter::default(),
             authoring: AuthoringStates::new(stores, PLANS, |entity, params| match entity {
                 "Draft" => Some(format!("session/{}", params["session_id"].as_str()?)),
                 _ => Some(WORKSPACE.to_owned()),
@@ -313,6 +315,8 @@ impl ProjectionHost for Library {
     type Patch = Value;
     type Delivery = ();
     type MutationResult = Value;
+    type CommandResult = Value;
+    type Announcement = Value;
     type Failure = Failure;
 
     fn registry(&self) -> &ProjectionRegistry {
@@ -323,12 +327,16 @@ impl ProjectionHost for Library {
         Some(&self.authoring)
     }
 
+    fn modifications(&self) -> &ModificationCounter {
+        &self.modifications
+    }
+
     async fn snapshot(
         &self,
         projection: &str,
         _params: &Value,
         _held: Option<&()>,
-    ) -> Result<Value, Failure> {
+    ) -> Result<NumberedSnapshot<Value>, Failure> {
         panic!("the session asked the host for {projection}")
     }
 
@@ -345,8 +353,13 @@ impl ProjectionHost for Library {
         _principal: &Principal,
         _mutation: &str,
         _params: Value,
-    ) -> Result<Value, Failure> {
-        Ok(json!({}))
+    ) -> Result<Modified<Value>, Failure> {
+        // Every document this host keeps is an authoring state, which takes
+        // the operations its store announces.
+        Ok(Modified {
+            result: json!({}),
+            modification: None,
+        })
     }
 
     async fn mutation_patch(
@@ -357,6 +370,38 @@ impl ProjectionHost for Library {
     ) -> Option<Value> {
         panic!(
             "the session asked the host to patch {}",
+            subscription.projection
+        )
+    }
+
+    async fn command(
+        &self,
+        _principal: &Principal,
+        command: &str,
+        _params: Value,
+    ) -> Result<Modified<Value>, Failure> {
+        panic!("the session asked the host to run {command}")
+    }
+
+    async fn command_patch(
+        &self,
+        command: &str,
+        _result: &Value,
+        subscription: &ProjectionSubscription<Held<()>>,
+    ) -> Option<Value> {
+        panic!(
+            "the session asked the host to patch {} after {command}",
+            subscription.projection
+        )
+    }
+
+    async fn announcement_patch(
+        &self,
+        _announcement: &Value,
+        subscription: &ProjectionSubscription<Held<()>>,
+    ) -> Option<Value> {
+        panic!(
+            "the session asked the host to patch {} after an announcement",
             subscription.projection
         )
     }
@@ -388,7 +433,7 @@ fn subscribe(
     let reply = block_on(serve(
         library,
         connection,
-        ProjectionCommand::Subscribe(ProjectionSubscribeCommand {
+        ProjectionRequest::Subscribe(ProjectionSubscribeRequest {
             projection: projection.to_owned(),
             params: Some(params),
             held,
@@ -818,7 +863,7 @@ fn a_mutation_sends_authoring_state_subscriptions_nothing() {
     let reply = block_on(serve(
         &library,
         &connection,
-        ProjectionCommand::Mutate(ProjectionMutationCommand {
+        ProjectionRequest::Mutate(ProjectionMutationRequest {
             mutation: "note.touch".to_owned(),
             operation_id: None,
             base_revision: None,
@@ -848,7 +893,7 @@ fn a_resynchronised_subscription_takes_the_whole_accepted_state() {
     let reply = block_on(serve(
         &library,
         &connection,
-        ProjectionCommand::Resync(ProjectionResyncCommand {
+        ProjectionRequest::Resync(ProjectionResyncRequest {
             subscription_id: accepted.subscription_id,
         }),
     ))

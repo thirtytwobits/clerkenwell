@@ -201,18 +201,50 @@ pub(crate) fn check_semantics(definition: &Definition) -> Result<()> {
         }
     }
 
+    for command in definition.commands() {
+        let name = command.name;
+        schema_ref_name(
+            definition,
+            command.params(),
+            &format!("commands.{name}.params"),
+        )?;
+        schema_ref_name(
+            definition,
+            command.result(),
+            &format!("commands.{name}.result"),
+        )?;
+        for touched in command.touches() {
+            if !entity_names.contains(&touched) {
+                return refuse(format!(
+                    "commands.{name}.touches references unknown entity {}.",
+                    string_literal(touched)
+                ));
+            }
+            if definition
+                .entity(touched)
+                .is_some_and(|entity| entity.authoring_kind() == "readOnly")
+            {
+                return refuse(format!(
+                    "commands.{name}.touches includes read-only entity {}.",
+                    string_literal(touched)
+                ));
+            }
+        }
+    }
+
     check_generated_output_names(definition)?;
 
-    // Projection and mutation names share a public API namespace.
+    // Projection, mutation and command names share a public API namespace.
     let mut public_names = HashSet::new();
     for name in definition
         .projections()
         .map(|projection| projection.name)
         .chain(definition.mutations().map(|mutation| mutation.name))
+        .chain(definition.commands().map(|command| command.name))
     {
         if !public_names.insert(name) {
             return refuse(format!(
-                "Projection and mutation names must be unique; {} is duplicated.",
+                "Projection, mutation and command names must be unique; {} is duplicated.",
                 string_literal(name)
             ));
         }
@@ -932,6 +964,10 @@ fn check_generated_output_names(definition: &Definition) -> Result<()> {
         "generated mutation dispatch enum".to_owned(),
     )?;
     register(
+        "CommandName".to_owned(),
+        "generated command dispatch enum".to_owned(),
+    )?;
+    register(
         "ENTITY_NAMES".to_owned(),
         "generated entity name list".to_owned(),
     )?;
@@ -942,6 +978,10 @@ fn check_generated_output_names(definition: &Definition) -> Result<()> {
     register(
         "MUTATION_NAMES".to_owned(),
         "generated mutation name list".to_owned(),
+    )?;
+    register(
+        "COMMAND_NAMES".to_owned(),
+        "generated command name list".to_owned(),
     )?;
     for entity in definition.entities() {
         register(
@@ -964,6 +1004,14 @@ fn check_generated_output_names(definition: &Definition) -> Result<()> {
             source.clone(),
         )?;
         register(pascal_identifier(mutation.name), source)?;
+    }
+    for command in definition.commands() {
+        let source = format!("commands.{}", command.name);
+        register(
+            name_constant_identifier(command.name, "COMMAND"),
+            source.clone(),
+        )?;
+        register(pascal_identifier(command.name), source)?;
     }
     Ok(())
 }

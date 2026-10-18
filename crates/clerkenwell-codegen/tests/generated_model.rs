@@ -61,6 +61,11 @@ fn every_public_name_parses_to_the_variant_that_spells_it() {
         let parsed = model::MutationName::parse(name).expect("a mutation name parses");
         assert_eq!(parsed.as_str(), *name);
     }
+    for name in model::COMMAND_NAMES {
+        let parsed = model::CommandName::parse(name).expect("a command name parses");
+        assert_eq!(parsed.as_str(), *name);
+    }
+    assert!(model::CommandName::parse("not.a.command").is_none());
     assert!(model::ProjectionName::parse("not.a.projection").is_none());
 }
 
@@ -79,6 +84,7 @@ fn the_registries_list_every_definition_entry() {
         count("/projections")
     );
     assert_eq!(model::GENERATED_MUTATION_SPECS.len(), count("/mutations"));
+    assert_eq!(model::GENERATED_COMMAND_SPECS.len(), count("/commands"));
     assert_eq!(
         model::GENERATED_ENTITY_AUTHORING_SPECS.len(),
         count("/entities")
@@ -136,4 +142,38 @@ fn declared_constraints_reach_the_derived_json_schema() {
             "/$defs/TaskRecord/properties/checklist/items/minLength"
         ))
     );
+}
+
+#[test]
+fn each_command_spec_names_the_entities_its_command_touches() {
+    let document = notebook_document();
+    for spec in model::GENERATED_COMMAND_SPECS {
+        let declared: Vec<&str> = document
+            .pointer(&format!(
+                "/commands/{}/touches",
+                spec.name.replace('/', "~1")
+            ))
+            .and_then(Json::as_array)
+            .map(|touches| touches.iter().filter_map(Json::as_str).collect())
+            .unwrap_or_default();
+        assert_eq!(spec.touches, declared.as_slice(), "{}", spec.name);
+    }
+}
+
+#[test]
+fn a_command_result_on_the_wire_names_its_command() {
+    let archived = 3;
+    let result =
+        model::ProjectionTransportCommandResult::TaskArchiveDone(model::TaskArchiveDoneResult {
+            archived,
+        });
+
+    let wire = serde_json::to_value(&result).expect("serialises");
+    assert_eq!(wire["command"], model::TASK_ARCHIVE_DONE_COMMAND);
+    assert_eq!(wire["value"]["archived"], archived);
+
+    let read: model::ProjectionTransportCommandResult =
+        serde_json::from_value(wire).expect("deserialises");
+    assert_eq!(read.command_name(), model::CommandName::TaskArchiveDone);
+    assert_eq!(read, result);
 }

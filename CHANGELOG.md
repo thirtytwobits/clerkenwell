@@ -4,6 +4,87 @@ Each release's section is the notes of its GitHub release. A release that change
 lists each change under **Breaking**; `cargo run -p clerkenwell-release -- breaking --help`
 names the contracts.
 
+## 0.8.0
+
+### Breaking
+
+- A definition may declare `commands` (#81). Each names its `params` and `result` in `$defs`
+  and may list the entities it `touches`. Projection, mutation and command names share one
+  namespace. `clerkenwell-codegen` refuses a command that touches an unknown or read-only
+  entity, and a `$defs` entry that generates a name the command bindings use. The normalised
+  definition always carries `commands`.
+- The generated Rust model emits `CommandName`, `COMMAND_NAMES`, a `<NAME>_COMMAND` constant
+  for each command, `ProjectionTransportCommandResult`, tagged by `command`, and
+  `GENERATED_COMMAND_SPECS`. `clerkenwell-schema` exports `GeneratedCommandSpec`.
+- The generated TypeScript module emits `CommandName`, `COMMAND_NAMES`, a `<NAME>_COMMAND`
+  constant for each command, `CommandParamsByName`, `CommandResultByName`,
+  `ProjectionTransportCommandResult` and `COMMAND_EFFECT_PLANS`. `GeneratedProjectionModel`
+  gains `commands`.
+- The session protocol's requests are named as requests, in Rust, in `@clerkenwell/client` and
+  in the wire record's schema titles. `ProjectionCommand` is `ProjectionRequest`, and
+  `ProjectionSubscribeCommand`, `ProjectionResyncCommand`, `ProjectionUnsubscribeCommand` and
+  `ProjectionMutationCommand` are `ProjectionSubscribeRequest`, `ProjectionResyncRequest`,
+  `ProjectionUnsubscribeRequest` and `ProjectionMutationRequest`. No field on the wire changes.
+- The session protocol serves `projection.command`. Its params are `ProjectionCommandRequest`:
+  `command`, `params` and an optional `operation_id`. Its result is `ProjectionCommandAccepted`:
+  the `operation_id`, the `revision` the command's effects reach on its connection, and the
+  host's `result`. A refusal is addressed to the operation `command`. `ProjectionErrorCode`
+  gains `unknown_command` and `unsupported_command`, which `clerkenwell-axum` answers with
+  JSON-RPC error `-32602`.
+- `ProjectionHost` requires `CommandResult`, `command` and `command_patch`. After a command,
+  every subscription to a projection that reads an entity the command touches, on every
+  connection, takes the patch `command_patch` returns. `ProjectionRegistry::new` takes the
+  commands after the mutations. `Accepted` replaces `AcceptedMutation`, so
+  `ProjectionReply::accepted`, `publish` and `clerkenwell-axum`'s publications carry a mutation
+  or a command. `ProjectionSubscriptions::mutation_revision` is `change_revision`.
+- `ProjectionClient.projectionCommand(command, params, { operationId })` runs a command and
+  resolves with its result, typed by the model. `ProjectionModel` requires `commands`.
+  `@clerkenwell/client` exports `PROJECTION_COMMAND_METHOD`, `ProjectionCommandRequest`,
+  `ProjectionCommandAccepted`, `CommandContract`, `CommandName`, `CommandParams`,
+  `CommandResult` and `ProjectionTransportCommandResult`. `ProjectionErrorCode` and
+  `ProjectionErrorEnvelope.operation` take the command refusals and operation.
+- `clerkenwell-axum` runs each command while its connection serves the connection's other
+  requests and updates; every other request is served in the order it arrives. Every
+  connection takes the same publications in the same order: each mutation's and command's
+  change, and each change the application announces or its stores make. A connection answers a
+  command by its id at the command's place among them, once its host has returned, followed by
+  the updates the command sends its own connection. A command still running when its connection
+  closes runs on, and its change reaches every other connection. A command whose run ends
+  without a result is refused with `internal_error`.
+- `ProjectionServer::new` takes `command_limit`: the most commands that run at once, across
+  every connection. A command beyond them is refused with `rate_limit`. Its `publication_window`
+  counts every publication.
+- `clerkenwell-session` exports `decode_request`, `run_command`, `publish_command`,
+  `command_reply` and `RanCommand`, for a transport that runs a connection's commands alongside
+  its other requests. `run_command` reads and changes no subscription.
+- An application announces a change it makes outside any request, such as a command's progress
+  while it runs, on an `AnnouncementFeed` it owns, naming the entities the change touches.
+  `ProjectionHost` requires `Announcement` and `announcement_patch`, and names its feed through
+  `announcements`. Every subscription to a projection that reads a touched entity, on every
+  connection, takes the patch `announcement_patch` returns. `clerkenwell-session` exports
+  `AnnouncementFeed`, `Announced`, `deliver_announcement` and
+  `ProjectionRegistry::entities_affect_projection`.
+- A command's caller takes every change the command announced, and every change its stores
+  made, before the command's response.
+- A host numbers each modification behind its projections from the `ModificationCounter` it
+  names through `ProjectionHost::modifications`, taking the number while holding whatever keeps
+  a snapshot from reading the data it saves (#84). `snapshot` returns a `NumberedSnapshot`: the
+  snapshot and the number of the last modification it holds. `mutate` and `command` return
+  `Modified`: the result and the number of the modification its updates describe, or `None`.
+  `AnnouncementFeed::announce` takes the announced modification's number. `Accepted`,
+  `RanCommand` and `Announced` carry the number, and `ProjectionSubscription` carries `through`,
+  the number of the last modification its snapshot holds. `ProjectionSubscriptions::insert`,
+  `accept_subscription` and `resync` take it.
+
+### Fixed
+
+- A subscription to a projection its host serves is sent each modification once: none its
+  snapshot already holds (#84). A mutation, command or announcement could reach a subscription
+  whose snapshot was read after the modification was saved, and apply it twice.
+- A `clerkenwell-axum` connection that falls behind skips every publication it missed once it
+  has been resent its snapshots. It delivered the publications still queued after the
+  snapshots, which could regress a projection or apply a patch twice.
+
 ## 0.7.0
 
 ### Breaking

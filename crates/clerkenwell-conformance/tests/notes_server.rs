@@ -4,14 +4,16 @@ use std::sync::Arc;
 
 use clerkenwell_axum::ProjectionServer;
 use clerkenwell_conformance::workspace;
-use clerkenwell_example_notes::server::{writer_named_in, NotesServer, PUBLICATION_WINDOW};
+use clerkenwell_example_notes::server::{
+    writer_named_in, NotesServer, COMMAND_LIMIT, PUBLICATION_WINDOW,
+};
 use clerkenwell_example_notes::NOTE;
 use clerkenwell_store::CollaborationDocumentId;
 use serde_json::Value;
 
 /// A fresh notes server's address, and the server.
 async fn serve() -> (String, Arc<ProjectionServer<NotesServer>>) {
-    let server = ProjectionServer::new(NotesServer::default(), PUBLICATION_WINDOW);
+    let server = ProjectionServer::new(NotesServer::default(), PUBLICATION_WINDOW, COMMAND_LIMIT);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
         .await
         .expect("a listener");

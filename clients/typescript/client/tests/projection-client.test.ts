@@ -58,6 +58,49 @@ test("a mutation answered with another mutation's result is rejected", async () 
   await assert.rejects(mutated, /note\.rename/);
 });
 
+test("a command resolves with the result it produced", async () => {
+  const { client, latest } = projectionClient();
+  const params = { board_id: "b1" };
+  const archived = { archived: 3 };
+
+  const ran = client.projectionCommand("board.archiveDone", params, { operationId: "archive-1" });
+  latest().accept();
+  await settle();
+  latest().answer(0, { operation_id: "archive-1", revision: 4, result: { command: "board.archiveDone", value: archived } });
+
+  assert.deepEqual(await ran, archived);
+  assert.deepEqual(latest().request(0), {
+    jsonrpc: "2.0",
+    id: latest().request(0).id,
+    method: "projection.command",
+    params: { command: "board.archiveDone", params, operation_id: "archive-1" }
+  });
+});
+
+test("a command sends an operation id only when given one", async () => {
+  const { client, latest } = projectionClient();
+  const params = { board_id: "b1" };
+
+  const ran = client.projectionCommand("board.archiveDone", params);
+  latest().accept();
+  await settle();
+  latest().answer(0, { revision: 4, result: { command: "board.archiveDone", value: { archived: 0 } } });
+
+  await ran;
+  assert.deepEqual(latest().request(0).params, { command: "board.archiveDone", params });
+});
+
+test("a command answered with another command's result is rejected", async () => {
+  const { client, latest } = projectionClient();
+
+  const ran = client.projectionCommand("board.archiveDone", { board_id: "b1" });
+  latest().accept();
+  await settle();
+  latest().answer(0, { revision: 4, result: { command: "board.preview", value: {} } });
+
+  await assert.rejects(ran, /board\.archiveDone/);
+});
+
 test("a refusal is told apart from a request lost with its connection", async () => {
   const { client, latest } = projectionClient();
 

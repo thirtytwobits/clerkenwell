@@ -111,7 +111,7 @@ fn variant_enum_owner(definition_name: &str, tag: &str) -> String {
 }
 
 /// The `clerkenwell_schema` items the model re-exports.
-const SCHEMA_REEXPORTS: [&str; 19] = [
+const SCHEMA_REEXPORTS: [&str; 20] = [
     "ActorKind",
     "AuthoringPeerBlock",
     "AuthoringState",
@@ -124,6 +124,7 @@ const SCHEMA_REEXPORTS: [&str; 19] = [
     "GeneratedCollaborationFieldSpec",
     "GeneratedCollaborationStorageKind",
     "GeneratedCollaborationValueCodec",
+    "GeneratedCommandSpec",
     "GeneratedEntityAuthoringSpec",
     "GeneratedMaterializationPlan",
     "GeneratedMutationSpec",
@@ -193,19 +194,27 @@ pub fn render_model_module(definition: &Definition, project: &Project) -> Result
         .mutations()
         .map(|mutation| mutation.name)
         .collect();
+    let command_names: Vec<&str> = definition.commands().map(|command| command.name).collect();
     lines.extend(name_constants("ENTITY", &entity_names));
     lines.push(String::new());
     lines.extend(name_constants("PROJECTION", &projection_names));
     lines.push(String::new());
     lines.extend(name_constants("MUTATION", &mutation_names));
     lines.push(String::new());
+    if !command_names.is_empty() {
+        lines.extend(name_constants("COMMAND", &command_names));
+        lines.push(String::new());
+    }
     lines.push(name_enum("ProjectionName", "PROJECTION", &projection_names));
     lines.push(String::new());
     lines.push(name_enum("MutationName", "MUTATION", &mutation_names));
     lines.push(String::new());
+    lines.push(name_enum("CommandName", "COMMAND", &command_names));
+    lines.push(String::new());
     lines.push(string_slice_constant("ENTITY_NAMES", &entity_names));
     lines.push(string_slice_constant("PROJECTION_NAMES", &projection_names));
     lines.push(string_slice_constant("MUTATION_NAMES", &mutation_names));
+    lines.push(string_slice_constant("COMMAND_NAMES", &command_names));
     lines.push(String::new());
     let projections: Vec<_> = definition.projections().collect();
     lines.push(transport_enum(
@@ -237,6 +246,15 @@ pub fn render_model_module(definition: &Definition, project: &Project) -> Result
         &definition
             .mutations()
             .map(|mutation| Ok((mutation.name, schema_ref_type_name(mutation.result())?)))
+            .collect::<Result<Vec<_>>>()?,
+    ));
+    lines.push(String::new());
+    lines.push(transport_enum(
+        "ProjectionTransportCommandResult",
+        "command",
+        &definition
+            .commands()
+            .map(|command| Ok((command.name, schema_ref_type_name(command.result())?)))
             .collect::<Result<Vec<_>>>()?,
     ));
     lines.push(String::new());
@@ -284,6 +302,10 @@ fn transport_enum(enum_name: &str, tag: &str, entries: &[(&str, String)]) -> Str
         "#[allow(clippy::large_enum_variant)]".to_owned(),
         format!("pub enum {enum_name} {{"),
     ];
+    if entries.is_empty() {
+        let last = lines.len() - 1;
+        lines[last] = format!("pub enum {enum_name} {{}}");
+    }
     for (name, type_name) in entries {
         lines.push(rename_attribute("    ", name));
         lines.push(layout::wrap_last_argument(
@@ -292,29 +314,44 @@ fn transport_enum(enum_name: &str, tag: &str, entries: &[(&str, String)]) -> Str
             "),",
         ));
     }
-    lines.push("}".to_owned());
-    if tag == "mutation" {
+    if !entries.is_empty() {
+        lines.push("}".to_owned());
+    }
+    let named = match tag {
+        "mutation" => Some(("mutation_name", "MutationName")),
+        "command" => Some(("command_name", "CommandName")),
+        _ => None,
+    };
+    if let Some((method, name_enum)) = named {
         lines.extend(
             [
                 "",
                 &format!("impl {enum_name} {{"),
-                "    pub const fn mutation_name(&self) -> MutationName {",
-                "        match self {",
+                &format!("    pub const fn {method}(&self) -> {name_enum} {{"),
+                if entries.is_empty() {
+                    "        match *self {}"
+                } else {
+                    "        match self {"
+                },
             ]
             .map(str::to_owned),
         );
         for (name, _) in entries {
             let variant = pascal_identifier(name);
-            let arm = format!("            Self::{variant}(_) => MutationName::{variant},");
+            let arm = format!("            Self::{variant}(_) => {name_enum}::{variant},");
             if utf16_len(&arm) <= 100 {
                 lines.push(arm);
             } else {
                 lines.push(format!("            Self::{variant}(_) => {{"));
-                lines.push(format!("                MutationName::{variant}"));
+                lines.push(format!("                {name_enum}::{variant}"));
                 lines.push("            }".to_owned());
             }
         }
-        lines.extend(["        }", "    }", "}"].map(str::to_owned));
+        if entries.is_empty() {
+            lines.extend(["    }", "}"].map(str::to_owned));
+        } else {
+            lines.extend(["        }", "    }", "}"].map(str::to_owned));
+        }
     }
     lines.join("\n")
 }
@@ -333,6 +370,10 @@ fn mutation_path(name: &str) -> Expr {
 
 fn projection_path(name: &str) -> Expr {
     Expr::atom(name_constant_identifier(name, "PROJECTION"))
+}
+
+fn command_path(name: &str) -> Expr {
+    Expr::atom(name_constant_identifier(name, "COMMAND"))
 }
 
 fn mutation_paths(names: &[&str]) -> Expr {
@@ -378,6 +419,18 @@ fn registry_metadata(definition: &Definition) -> String {
             )
         })
         .collect();
+    let commands = definition
+        .commands()
+        .map(|command| {
+            spec(
+                "GeneratedCommandSpec",
+                vec![
+                    ("name", command_path(command.name)),
+                    ("touches", literals(&command.touches())),
+                ],
+            )
+        })
+        .collect();
     let entities = definition
         .entities()
         .map(|entity| {
@@ -415,6 +468,11 @@ fn registry_metadata(definition: &Definition) -> String {
         layout::item(
             "pub static GENERATED_MUTATION_SPECS: &[GeneratedMutationSpec] =",
             &Expr::slice(mutations),
+        ),
+        String::new(),
+        layout::item(
+            "pub static GENERATED_COMMAND_SPECS: &[GeneratedCommandSpec] =",
+            &Expr::slice(commands),
         ),
         String::new(),
         layout::item(
@@ -1071,6 +1129,23 @@ fn name_constants(suffix: &str, values: &[&str]) -> Vec<String> {
 
 /// An exhaustively matchable enum over public names, with `as_str` and `parse`.
 fn name_enum(enum_name: &str, suffix: &str, values: &[&str]) -> String {
+    if values.is_empty() {
+        return [
+            "#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]".to_owned(),
+            format!("pub enum {enum_name} {{}}"),
+            String::new(),
+            format!("impl {enum_name} {{"),
+            "    pub const fn as_str(self) -> &'static str {".to_owned(),
+            "        match self {}".to_owned(),
+            "    }".to_owned(),
+            String::new(),
+            "    pub fn parse(_value: &str) -> Option<Self> {".to_owned(),
+            "        None".to_owned(),
+            "    }".to_owned(),
+            "}".to_owned(),
+        ]
+        .join("\n");
+    }
     let variants: Vec<String> = values
         .iter()
         .map(|value| format!("    {},", pascal_identifier(value)))

@@ -5,6 +5,7 @@
 //! authoring state from the store, and every subscriber to a note takes its
 //! new authoring state when any client's operations are accepted.
 
+use std::convert::Infallible;
 use std::num::NonZeroUsize;
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -15,8 +16,8 @@ use clerkenwell_events::{ActorKind, Principal};
 use clerkenwell_schema::CollaborationExchangeMode;
 use clerkenwell_session::transport::ProjectionErrorCode;
 use clerkenwell_session::{
-    AuthoringStates, Held, ProjectionFailure, ProjectionHost, ProjectionRefusal,
-    ProjectionRegistry, ProjectionSubscription,
+    AuthoringStates, Held, ModificationCounter, Modified, NumberedSnapshot, ProjectionFailure,
+    ProjectionHost, ProjectionRefusal, ProjectionRegistry, ProjectionSubscription,
 };
 use clerkenwell_store::{
     CollaborationDocumentId, CollaborationImportRequest, CollaborationService, CollaborationStores,
@@ -26,11 +27,11 @@ use serde::de::DeserializeOwned;
 use serde_json::{json, Value};
 
 use crate::model::{
-    NoteCreateParams, NoteMutationResult, ProjectionTransportMutationResult,
-    ProjectionTransportPatch, ProjectionTransportSnapshot, ReplicaUpdateParams,
-    ReplicaUpdateResult, GENERATED_COLLABORATION_SPECS, GENERATED_ENTITY_AUTHORING_SPECS,
-    GENERATED_MUTATION_SPECS, GENERATED_PROJECTION_SPECS, NOTE_CREATE_MUTATION,
-    NOTE_IMPORT_UPDATE_MUTATION,
+    NoteCreateParams, NoteMutationResult, ProjectionTransportCommandResult,
+    ProjectionTransportMutationResult, ProjectionTransportPatch, ProjectionTransportSnapshot,
+    ReplicaUpdateParams, ReplicaUpdateResult, GENERATED_COLLABORATION_SPECS,
+    GENERATED_COMMAND_SPECS, GENERATED_ENTITY_AUTHORING_SPECS, GENERATED_MUTATION_SPECS,
+    GENERATED_PROJECTION_SPECS, NOTE_CREATE_MUTATION, NOTE_IMPORT_UPDATE_MUTATION,
 };
 use crate::storage::MemoryStorage;
 use crate::{peer_key, validate, COMMIT_POLICY, NOTE};
@@ -42,12 +43,19 @@ pub const PUBLICATION_WINDOW: NonZeroUsize = match NonZeroUsize::new(256) {
     None => panic!("the publication window is non-zero"),
 };
 
+/// Commands the example's server runs at once.
+pub const COMMAND_LIMIT: NonZeroUsize = match NonZeroUsize::new(16) {
+    Some(limit) => limit,
+    None => panic!("the command limit is non-zero"),
+};
+
 /// The store that keeps every note.
 pub const NOTES_STORE: &str = "notes";
 
 static REGISTRY: ProjectionRegistry = ProjectionRegistry::new(
     GENERATED_PROJECTION_SPECS,
     GENERATED_MUTATION_SPECS,
+    GENERATED_COMMAND_SPECS,
     GENERATED_ENTITY_AUTHORING_SPECS,
 );
 
@@ -55,6 +63,7 @@ static REGISTRY: ProjectionRegistry = ProjectionRegistry::new(
 pub struct NotesServer {
     service: CollaborationService,
     authoring: AuthoringStates,
+    modifications: ModificationCounter,
     created: AtomicU64,
 }
 
@@ -71,6 +80,7 @@ impl Default for NotesServer {
             authoring: AuthoringStates::new(stores, GENERATED_COLLABORATION_SPECS, |_, _| {
                 Some(NOTES_STORE.to_owned())
             }),
+            modifications: ModificationCounter::default(),
             created: AtomicU64::new(1),
         }
     }
@@ -174,6 +184,8 @@ impl ProjectionHost for NotesServer {
     type Patch = ProjectionTransportPatch;
     type Delivery = ();
     type MutationResult = ProjectionTransportMutationResult;
+    type CommandResult = ProjectionTransportCommandResult;
+    type Announcement = Infallible;
     type Failure = RpcFailure;
 
     fn registry(&self) -> &ProjectionRegistry {
@@ -184,13 +196,19 @@ impl ProjectionHost for NotesServer {
         Some(&self.authoring)
     }
 
+    /// Every modification the notes server saves is to a note, which its
+    /// authoring state's subscribers take from the store.
+    fn modifications(&self) -> &ModificationCounter {
+        &self.modifications
+    }
+
     /// Every projection the notes definition declares is an authoring state.
     async fn snapshot(
         &self,
         projection: &str,
         _params: &Value,
         _held: Option<&()>,
-    ) -> Result<ProjectionTransportSnapshot, RpcFailure> {
+    ) -> Result<NumberedSnapshot<ProjectionTransportSnapshot>, RpcFailure> {
         Err(RpcFailure::new(
             ProjectionErrorCode::UnsupportedProjection,
             format!("The notes server does not serve \"{projection}\"."),
@@ -211,8 +229,8 @@ impl ProjectionHost for NotesServer {
         principal: &Principal,
         mutation: &str,
         params: Value,
-    ) -> Result<ProjectionTransportMutationResult, RpcFailure> {
-        match mutation {
+    ) -> Result<Modified<ProjectionTransportMutationResult>, RpcFailure> {
+        let result = match mutation {
             NOTE_CREATE_MUTATION => self
                 .create(principal, decode(params)?)
                 .map(ProjectionTransportMutationResult::NoteCreate),
@@ -224,7 +242,11 @@ impl ProjectionHost for NotesServer {
                 format!("The notes server does not run \"{other}\"."),
                 None,
             )),
-        }
+        }?;
+        Ok(Modified {
+            result,
+            modification: None,
+        })
     }
 
     async fn mutation_patch(
@@ -234,6 +256,38 @@ impl ProjectionHost for NotesServer {
         _subscription: &ProjectionSubscription<Held<()>>,
     ) -> Option<ProjectionTransportPatch> {
         None
+    }
+
+    /// The notes definition declares no commands.
+    async fn command(
+        &self,
+        _principal: &Principal,
+        command: &str,
+        _params: Value,
+    ) -> Result<Modified<ProjectionTransportCommandResult>, RpcFailure> {
+        Err(RpcFailure::new(
+            ProjectionErrorCode::UnsupportedCommand,
+            format!("The notes server does not run \"{command}\"."),
+            None,
+        ))
+    }
+
+    async fn command_patch(
+        &self,
+        _command: &str,
+        result: &ProjectionTransportCommandResult,
+        _subscription: &ProjectionSubscription<Held<()>>,
+    ) -> Option<ProjectionTransportPatch> {
+        match *result {}
+    }
+
+    /// The notes server announces no change of its own.
+    async fn announcement_patch(
+        &self,
+        announcement: &Infallible,
+        _subscription: &ProjectionSubscription<Held<()>>,
+    ) -> Option<ProjectionTransportPatch> {
+        match *announcement {}
     }
 }
 

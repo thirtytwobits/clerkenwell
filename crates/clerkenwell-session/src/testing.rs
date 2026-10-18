@@ -8,10 +8,11 @@ use clerkenwell_schema::{AuthoringState, AuthoringStatePatch};
 
 use crate::authoring::AuthoringHeld;
 use crate::transport::{
-    ProjectionErrorEnvelope, ProjectionMutationAccepted, ProjectionMutationCommand,
-    ProjectionResyncAccepted, ProjectionResyncCommand, ProjectionSubscribeAccepted,
-    ProjectionSubscribeCommand, ProjectionTransportEvent, ProjectionUnsubscribeAccepted,
-    ProjectionUnsubscribeCommand, PROJECTION_MUTATE_METHOD, PROJECTION_RESYNC_METHOD,
+    ProjectionCommandAccepted, ProjectionCommandRequest, ProjectionErrorEnvelope,
+    ProjectionMutationAccepted, ProjectionMutationRequest, ProjectionResyncAccepted,
+    ProjectionResyncRequest, ProjectionSubscribeAccepted, ProjectionSubscribeRequest,
+    ProjectionTransportEvent, ProjectionUnsubscribeAccepted, ProjectionUnsubscribeRequest,
+    PROJECTION_COMMAND_METHOD, PROJECTION_MUTATE_METHOD, PROJECTION_RESYNC_METHOD,
     PROJECTION_SUBSCRIBE_METHOD, PROJECTION_UNSUBSCRIBE_METHOD, PROJECTION_UPDATE_NOTIFICATION,
 };
 
@@ -20,8 +21,9 @@ pub const WIRE_PROTOCOL_RECORD: &str = "wire-protocol.json";
 
 /// The JSON Schema of every message the protocol exchanges: each method's
 /// parameters and result, each notification's parameters, the refusal
-/// envelope, and the authoring state and its patch. Other snapshots, patches
-/// and mutation results are the application's, so any value stands for them.
+/// envelope, and the authoring state and its patch. Other snapshots, patches,
+/// mutation results and command results are the application's, so any value
+/// stands for them.
 /// The schema carries no annotations, so documentation can change without
 /// changing the record.
 pub fn wire_protocol() -> Value {
@@ -35,23 +37,28 @@ pub fn wire_protocol() -> Value {
     };
     method(
         PROJECTION_SUBSCRIBE_METHOD,
-        schema::<ProjectionSubscribeCommand>(&mut generator),
+        schema::<ProjectionSubscribeRequest>(&mut generator),
         schema::<ProjectionSubscribeAccepted>(&mut generator),
     );
     method(
         PROJECTION_RESYNC_METHOD,
-        schema::<ProjectionResyncCommand>(&mut generator),
+        schema::<ProjectionResyncRequest>(&mut generator),
         schema::<ProjectionResyncAccepted>(&mut generator),
     );
     method(
         PROJECTION_UNSUBSCRIBE_METHOD,
-        schema::<ProjectionUnsubscribeCommand>(&mut generator),
+        schema::<ProjectionUnsubscribeRequest>(&mut generator),
         schema::<ProjectionUnsubscribeAccepted>(&mut generator),
     );
     method(
         PROJECTION_MUTATE_METHOD,
-        schema::<ProjectionMutationCommand>(&mut generator),
+        schema::<ProjectionMutationRequest>(&mut generator),
         schema::<ProjectionMutationAccepted<Value>>(&mut generator),
+    );
+    method(
+        PROJECTION_COMMAND_METHOD,
+        schema::<ProjectionCommandRequest>(&mut generator),
+        schema::<ProjectionCommandAccepted<Value>>(&mut generator),
     );
     let mut notifications = Map::new();
     notifications.insert(

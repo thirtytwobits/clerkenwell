@@ -73,6 +73,12 @@ export type TestProjectionModel = {
       result: { note_id: string; title: string };
     };
   };
+  commands: {
+    "board.archiveDone": {
+      params: { board_id: string };
+      result: { archived: number };
+    };
+  };
 };
 
 export const TEST_COMPOSITION_PLANS = {

@@ -95,6 +95,13 @@ pub struct GeneratedMutationSpec {
     pub touches: &'static [&'static str],
 }
 
+/// A command and the entities it may change.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct GeneratedCommandSpec {
+    pub name: &'static str,
+    pub touches: &'static [&'static str],
+}
+
 /// How a collaborative field is held in the document.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GeneratedCollaborationStorageKind {

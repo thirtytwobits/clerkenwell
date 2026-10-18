@@ -6,7 +6,9 @@ use std::time::Duration;
 use clerkenwell_axum::ProjectionServer;
 use clerkenwell_doc::CollaborationReplica;
 use clerkenwell_events::{ActorKind, Principal};
-use clerkenwell_example_notes::server::{writer_named_in, NotesServer, PUBLICATION_WINDOW};
+use clerkenwell_example_notes::server::{
+    writer_named_in, NotesServer, COMMAND_LIMIT, PUBLICATION_WINDOW,
+};
 use clerkenwell_example_notes::NOTE;
 use clerkenwell_store::CollaborationDocumentId;
 use futures_util::{SinkExt, StreamExt};
@@ -143,7 +145,7 @@ impl Client {
 
 /// The address of a new notes server, and the server.
 async fn start() -> (String, Arc<ProjectionServer<NotesServer>>) {
-    let server = ProjectionServer::new(NotesServer::default(), PUBLICATION_WINDOW);
+    let server = ProjectionServer::new(NotesServer::default(), PUBLICATION_WINDOW, COMMAND_LIMIT);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
         .await
         .expect("a listener");

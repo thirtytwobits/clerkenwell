@@ -413,6 +413,27 @@
       ]
     }
   },
+  "commands": {
+    "note.preview": {
+      "params": {
+        "$ref": "#/$defs/NotePreviewParams"
+      },
+      "result": {
+        "$ref": "#/$defs/NotePreviewResult"
+      }
+    },
+    "task.archiveDone": {
+      "params": {
+        "$ref": "#/$defs/TaskArchiveDoneParams"
+      },
+      "result": {
+        "$ref": "#/$defs/TaskArchiveDoneResult"
+      },
+      "touches": [
+        "Task"
+      ]
+    }
+  },
   "collaboration": {
     "version": 1,
     "entities": {
@@ -2353,6 +2374,56 @@
       "properties": {
         "peer": {
           "type": "string"
+        }
+      }
+    },
+    "NotePreviewParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "body"
+      ],
+      "properties": {
+        "body": {
+          "type": "string"
+        }
+      }
+    },
+    "TaskArchiveDoneParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "board_id"
+      ],
+      "properties": {
+        "board_id": {
+          "type": "string"
+        }
+      }
+    },
+    "TaskArchiveDoneResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "archived"
+      ],
+      "properties": {
+        "archived": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "NotePreviewResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "word_count"
+      ],
+      "properties": {
+        "word_count": {
+          "type": "integer",
+          "minimum": 0
         }
       }
     }

@@ -123,6 +123,7 @@ pub fn render_model_module(definition: &Definition, project: &Project) -> Result
         .mutations()
         .map(|mutation| mutation.name)
         .collect();
+    let command_names: Vec<&str> = definition.commands().map(|command| command.name).collect();
     // Readonly tuples give consumers runtime iteration and a literal union.
     lines.extend(name_constants("ENTITY", &entity_names));
     lines.push(String::new());
@@ -130,6 +131,10 @@ pub fn render_model_module(definition: &Definition, project: &Project) -> Result
     lines.push(String::new());
     lines.extend(name_constants("MUTATION", &mutation_names));
     lines.push(String::new());
+    if !command_names.is_empty() {
+        lines.extend(name_constants("COMMAND", &command_names));
+        lines.push(String::new());
+    }
     lines.push(readonly_tuple("ENTITY_NAMES", &entity_names));
     lines.push("export type EntityName = typeof ENTITY_NAMES[number];".to_owned());
     lines.push(String::new());
@@ -138,6 +143,9 @@ pub fn render_model_module(definition: &Definition, project: &Project) -> Result
     lines.push(String::new());
     lines.push(readonly_tuple("MUTATION_NAMES", &mutation_names));
     lines.push("export type MutationName = typeof MUTATION_NAMES[number];".to_owned());
+    lines.push(String::new());
+    lines.push(readonly_tuple("COMMAND_NAMES", &command_names));
+    lines.push("export type CommandName = typeof COMMAND_NAMES[number];".to_owned());
     lines.push(String::new());
     lines.push(contract_interfaces(definition)?);
     lines.push(String::new());
@@ -158,6 +166,12 @@ pub fn render_model_module(definition: &Definition, project: &Project) -> Result
             "      result: MutationResultByName[K];",
             "    };",
             "  };",
+            "  commands: {",
+            "    [K in CommandName]: {",
+            "      params: CommandParamsByName[K];",
+            "      result: CommandResultByName[K];",
+            "    };",
+            "  };",
             "};",
             "",
         ]
@@ -174,6 +188,10 @@ fn contract_interfaces(definition: &Definition) -> Result<String> {
     let mut lines = Vec::new();
     let interface =
         |title: &str, entries: Vec<(&str, &Object)>, lines: &mut Vec<String>| -> Result<()> {
+            if entries.is_empty() {
+                lines.push(format!("export interface {title} {{}}"));
+                return Ok(());
+            }
             lines.push(format!("export interface {title} {{"));
             for (name, reference) in entries {
                 lines.push(format!(
@@ -187,6 +205,7 @@ fn contract_interfaces(definition: &Definition) -> Result<String> {
         };
     let projections: Vec<_> = definition.projections().collect();
     let mutations: Vec<_> = definition.mutations().collect();
+    let commands: Vec<_> = definition.commands().collect();
     interface(
         "ProjectionParamsByName",
         projections.iter().map(|p| (p.name, p.params())).collect(),
@@ -216,6 +235,18 @@ fn contract_interfaces(definition: &Definition) -> Result<String> {
         mutations.iter().map(|m| (m.name, m.result())).collect(),
         &mut lines,
     )?;
+    lines.push(String::new());
+    interface(
+        "CommandParamsByName",
+        commands.iter().map(|c| (c.name, c.params())).collect(),
+        &mut lines,
+    )?;
+    lines.push(String::new());
+    interface(
+        "CommandResultByName",
+        commands.iter().map(|c| (c.name, c.result())).collect(),
+        &mut lines,
+    )?;
     lines.extend(
         [
             "",
@@ -230,6 +261,10 @@ fn contract_interfaces(definition: &Definition) -> Result<String> {
             "export type ProjectionTransportMutationResult = {",
             "  [K in MutationName]: { mutation: K; value: MutationResultByName[K] };",
             "}[MutationName];",
+            "",
+            "export type ProjectionTransportCommandResult = {",
+            "  [K in CommandName]: { command: K; value: CommandResultByName[K] };",
+            "}[CommandName];",
         ]
         .map(str::to_owned),
     );
@@ -248,6 +283,10 @@ fn composition_metadata(definition: &Definition) -> Result<String> {
     let effects: Object = definition
         .mutations()
         .map(|mutation| (mutation.name, Json::from(mutation.touches())))
+        .collect();
+    let command_effects: Object = definition
+        .commands()
+        .map(|command| (command.name, Json::from(command.touches())))
         .collect();
     let authoring_plans: Object = definition
         .entities()
@@ -277,6 +316,11 @@ fn composition_metadata(definition: &Definition) -> Result<String> {
         format!(
             "export const MUTATION_EFFECT_PLANS = {} as const satisfies Record<MutationName, readonly EntityName[]>;",
             Json::from(effects).stringify_pretty()
+        ),
+        String::new(),
+        format!(
+            "export const COMMAND_EFFECT_PLANS = {} as const satisfies Record<CommandName, readonly EntityName[]>;",
+            Json::from(command_effects).stringify_pretty()
         ),
         String::new(),
         "export type GeneratedAuthoringPlan = AuthoringPlan<MutationName>;".to_owned(),
@@ -511,6 +555,9 @@ fn name_constants(suffix: &str, values: &[&str]) -> Vec<String> {
 }
 
 fn readonly_tuple(name: &str, values: &[&str]) -> String {
+    if values.is_empty() {
+        return format!("export const {name} = [] as const;");
+    }
     let rendered: Vec<String> = values
         .iter()
         .map(|value| format!("  {},", string_literal(value)))

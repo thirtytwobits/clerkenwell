@@ -623,6 +623,29 @@
     ],
     "version": 1
   },
+  "commands": [
+    {
+      "name": "note.preview",
+      "params": {
+        "$ref": "#/$defs/NotePreviewParams"
+      },
+      "result": {
+        "$ref": "#/$defs/NotePreviewResult"
+      }
+    },
+    {
+      "name": "task.archiveDone",
+      "params": {
+        "$ref": "#/$defs/TaskArchiveDoneParams"
+      },
+      "result": {
+        "$ref": "#/$defs/TaskArchiveDoneResult"
+      },
+      "touches": [
+        "Task"
+      ]
+    }
+  ],
   "definitions": [
     {
       "additionalProperties": false,
@@ -1485,6 +1508,33 @@
       "type": "object"
     },
     {
+      "additionalProperties": false,
+      "name": "NotePreviewParams",
+      "properties": {
+        "body": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "body"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "name": "NotePreviewResult",
+      "properties": {
+        "word_count": {
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "word_count"
+      ],
+      "type": "object"
+    },
+    {
       "additionalProperties": {
         "type": "string"
       },
@@ -1759,6 +1809,33 @@
           "type": "string"
         }
       },
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "name": "TaskArchiveDoneParams",
+      "properties": {
+        "board_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "board_id"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "name": "TaskArchiveDoneResult",
+      "properties": {
+        "archived": {
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "archived"
+      ],
       "type": "object"
     },
     {
