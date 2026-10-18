@@ -4,10 +4,13 @@ use std::sync::{Arc, Mutex};
 
 use clerkenwell_session::{Announced, AnnouncementFeed};
 
+/// Each announcement a listener heard, with the listener that heard it.
+type Heard = Arc<Mutex<Vec<(usize, Announced<u32>)>>>;
+
 #[test]
 fn every_listener_hears_every_announcement_in_the_order_it_was_made() {
     let feed = AnnouncementFeed::<u32>::default();
-    let heard: Arc<Mutex<Vec<(usize, Announced<u32>)>>> = Arc::default();
+    let heard: Heard = Arc::default();
     for listener in 0..2 {
         let heard = Arc::clone(&heard);
         feed.listen(move |announced| {

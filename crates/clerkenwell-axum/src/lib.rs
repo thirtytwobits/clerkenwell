@@ -202,6 +202,17 @@ enum Publication<M, C, N> {
     Announced(Arc<Announced<N>>),
 }
 
+/// Where every connection takes its publications from.
+type Publications<A> = broadcast::Sender<
+    Arc<
+        Publication<
+            <A as ProjectionHost>::MutationResult,
+            <A as ProjectionHost>::CommandResult,
+            <A as ProjectionHost>::Announcement,
+        >,
+    >,
+>;
+
 type Subscriptions<A> = Mutex<
     ProjectionSubscriptions<<A as ProjectionHost>::Patch, Held<<A as ProjectionHost>::Delivery>>,
 >;
@@ -236,8 +247,7 @@ enum Received {
 /// Serves an application's projections to every connection.
 pub struct ProjectionServer<A: ProjectionHost> {
     application: A,
-    published:
-        broadcast::Sender<Arc<Publication<A::MutationResult, A::CommandResult, A::Announcement>>>,
+    published: Publications<A>,
     changes: broadcast::Sender<Arc<ChangeEvent>>,
     connections: AtomicU64,
 }
