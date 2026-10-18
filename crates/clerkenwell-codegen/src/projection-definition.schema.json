@@ -35,6 +35,10 @@
       "additionalProperties": { "$ref": "#/definitions/mutation" },
       "minProperties": 1
     },
+    "commands": {
+      "type": "object",
+      "additionalProperties": { "$ref": "#/definitions/command" }
+    },
     "collaboration": { "$ref": "#/definitions/collaboration" },
     "$defs": {
       "type": "object",
@@ -236,6 +240,20 @@
           "type": "array",
           "items": { "type": "string", "minLength": 1 },
           "minItems": 1,
+          "uniqueItems": true
+        }
+      }
+    },
+    "command": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["params", "result"],
+      "properties": {
+        "params": { "$ref": "#/definitions/schemaRef" },
+        "result": { "$ref": "#/definitions/schemaRef" },
+        "touches": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
           "uniqueItems": true
         }
       }

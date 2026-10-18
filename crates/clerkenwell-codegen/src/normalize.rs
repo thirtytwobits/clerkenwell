@@ -40,6 +40,15 @@ pub fn normalized_document(definition: &Definition) -> Json {
     for section in ["entities", "projections", "mutations"] {
         normalized.insert(section, named_entries(document.object_field(section)));
     }
+    normalized.insert(
+        "commands",
+        named_entries(
+            document
+                .get("commands")
+                .and_then(Json::as_object)
+                .unwrap_or(&Object::new()),
+        ),
+    );
     normalized.insert("collaboration", collaboration_document.into());
     normalized.insert("definitions", named_entries(definition.defs()));
     deep_sort(&Json::Object(normalized))

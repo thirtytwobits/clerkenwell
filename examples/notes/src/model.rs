@@ -7,7 +7,7 @@ pub use clerkenwell_schema::{
     ActorKind, AuthoringPeerBlock, AuthoringState, AuthoringStatePatch, AuthoringStatePatchKind,
     CollaborationExchangeMode, GeneratedAuthoringPolicyKind, GeneratedCollaborationConflict,
     GeneratedCollaborationEntitySpec, GeneratedCollaborationFieldSpec,
-    GeneratedCollaborationStorageKind, GeneratedCollaborationValueCodec,
+    GeneratedCollaborationStorageKind, GeneratedCollaborationValueCodec, GeneratedCommandSpec,
     GeneratedEntityAuthoringSpec, GeneratedMaterializationPlan, GeneratedMutationSpec,
     GeneratedProjectionSpec, GeneratedRemoveMode, GeneratedSnapshotMode, GeneratedWriterConflict,
 };
@@ -143,9 +143,23 @@ impl MutationName {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum CommandName {}
+
+impl CommandName {
+    pub const fn as_str(self) -> &'static str {
+        match self {}
+    }
+
+    pub fn parse(_value: &str) -> Option<Self> {
+        None
+    }
+}
+
 pub const ENTITY_NAMES: &[&str] = &["Note"];
 pub const PROJECTION_NAMES: &[&str] = &["notes.authoringState"];
 pub const MUTATION_NAMES: &[&str] = &["note.create", "note.importUpdate"];
+pub const COMMAND_NAMES: &[&str] = &[];
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "projection", content = "value", deny_unknown_fields)]
@@ -182,6 +196,17 @@ impl ProjectionTransportMutationResult {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(tag = "command", content = "value", deny_unknown_fields)]
+#[allow(clippy::large_enum_variant)]
+pub enum ProjectionTransportCommandResult {}
+
+impl ProjectionTransportCommandResult {
+    pub const fn command_name(&self) -> CommandName {
+        match *self {}
+    }
+}
+
 pub static GENERATED_PROJECTION_SPECS: &[GeneratedProjectionSpec] = &[GeneratedProjectionSpec {
     name: NOTES_AUTHORING_STATE_PROJECTION,
     depends_on: &["Note"],
@@ -203,6 +228,8 @@ pub static GENERATED_MUTATION_SPECS: &[GeneratedMutationSpec] = &[
         touches: &["Note"],
     },
 ];
+
+pub static GENERATED_COMMAND_SPECS: &[GeneratedCommandSpec] = &[];
 
 pub static GENERATED_ENTITY_AUTHORING_SPECS: &[GeneratedEntityAuthoringSpec] =
     &[GeneratedEntityAuthoringSpec {

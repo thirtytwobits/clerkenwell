@@ -4,6 +4,23 @@ Each release's section is the notes of its GitHub release. A release that change
 lists each change under **Breaking**; `cargo run -p clerkenwell-release -- breaking --help`
 names the contracts.
 
+## 0.8.0
+
+### Breaking
+
+- A definition may declare `commands` (#81). Each names its `params` and `result` in `$defs`
+  and may list the entities it `touches`. Projection, mutation and command names share one
+  namespace. `clerkenwell-codegen` refuses a command that touches an unknown or read-only
+  entity, and a `$defs` entry that generates a name the command bindings use. The normalised
+  definition always carries `commands`.
+- The generated Rust model emits `CommandName`, `COMMAND_NAMES`, a `<NAME>_COMMAND` constant
+  for each command, `ProjectionTransportCommandResult`, tagged by `command`, and
+  `GENERATED_COMMAND_SPECS`. `clerkenwell-schema` exports `GeneratedCommandSpec`.
+- The generated TypeScript module emits `CommandName`, `COMMAND_NAMES`, a `<NAME>_COMMAND`
+  constant for each command, `CommandParamsByName`, `CommandResultByName`,
+  `ProjectionTransportCommandResult` and `COMMAND_EFFECT_PLANS`. `GeneratedProjectionModel`
+  gains `commands`.
+
 ## 0.7.0
 
 ### Breaking

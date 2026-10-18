@@ -91,6 +91,9 @@ export const MUTATION_NAMES = [
 ] as const;
 export type MutationName = typeof MUTATION_NAMES[number];
 
+export const COMMAND_NAMES = [] as const;
+export type CommandName = typeof COMMAND_NAMES[number];
+
 export interface ProjectionParamsByName {
   "notes.authoringState": NoteAuthoringParams;
 }
@@ -113,6 +116,10 @@ export interface MutationResultByName {
   "note.importUpdate": ReplicaUpdateResult;
 }
 
+export interface CommandParamsByName {}
+
+export interface CommandResultByName {}
+
 export type ProjectionTransportSnapshot = {
   [K in ProjectionName]: { projection: K; value: ProjectionSnapshotByName[K] };
 }[ProjectionName];
@@ -124,6 +131,10 @@ export type ProjectionTransportPatch = {
 export type ProjectionTransportMutationResult = {
   [K in MutationName]: { mutation: K; value: MutationResultByName[K] };
 }[MutationName];
+
+export type ProjectionTransportCommandResult = {
+  [K in CommandName]: { command: K; value: CommandResultByName[K] };
+}[CommandName];
 
 /** The projection model @clerkenwell/client is generic over. */
 export type GeneratedProjectionModel = {
@@ -138,6 +149,12 @@ export type GeneratedProjectionModel = {
     [K in MutationName]: {
       params: MutationParamsByName[K];
       result: MutationResultByName[K];
+    };
+  };
+  commands: {
+    [K in CommandName]: {
+      params: CommandParamsByName[K];
+      result: CommandResultByName[K];
     };
   };
 };
@@ -164,6 +181,8 @@ export const MUTATION_EFFECT_PLANS = {
     "Note"
   ]
 } as const satisfies Record<MutationName, readonly EntityName[]>;
+
+export const COMMAND_EFFECT_PLANS = {} as const satisfies Record<CommandName, readonly EntityName[]>;
 
 export type GeneratedAuthoringPlan = AuthoringPlan<MutationName>;
 export const AUTHORING_PLANS = {

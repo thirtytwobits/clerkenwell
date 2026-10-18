@@ -99,6 +99,10 @@ variant clerkenwell_schema::GeneratedCollaborationValueCodec::PropertyText
 variant clerkenwell_schema::GeneratedCollaborationValueCodec::String
 variant clerkenwell_schema::GeneratedCollaborationValueCodec::StringList
 variant clerkenwell_schema::GeneratedCollaborationValueCodec::StructuredJson
+struct clerkenwell_schema::GeneratedCommandSpec
+derive clerkenwell_schema::GeneratedCommandSpec: Clone, Copy, Debug, Eq, PartialEq
+field clerkenwell_schema::GeneratedCommandSpec::name: &'static str
+field clerkenwell_schema::GeneratedCommandSpec::touches: &'static [&'static str]
 struct clerkenwell_schema::GeneratedEntityAuthoringSpec
 derive clerkenwell_schema::GeneratedEntityAuthoringSpec: Clone, Copy, Debug, Eq, PartialEq
 field clerkenwell_schema::GeneratedEntityAuthoringSpec::entity: &'static str

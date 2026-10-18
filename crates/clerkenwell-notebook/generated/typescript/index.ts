@@ -399,6 +399,22 @@ export type SyncResetParams = {
   "peer"?: string;
 };
 
+export type NotePreviewParams = {
+  "body": string;
+};
+
+export type TaskArchiveDoneParams = {
+  "board_id": string;
+};
+
+export type TaskArchiveDoneResult = {
+  "archived": number;
+};
+
+export type NotePreviewResult = {
+  "word_count": number;
+};
+
 export type NoteAuthoringParams = {
   "note_id": string;
 };
@@ -439,6 +455,9 @@ export const TASK_SCHEDULE_MUTATION = "task.schedule";
 export const TASK_ARCHIVE_MUTATION = "task.archive";
 export const WORKSPACE_CONFIGURE_MUTATION = "workspace.configure";
 export const SYNC_RESET_MUTATION = "sync.reset";
+
+export const NOTE_PREVIEW_COMMAND = "note.preview";
+export const TASK_ARCHIVE_DONE_COMMAND = "task.archiveDone";
 
 export const ENTITY_NAMES = [
   "Note",
@@ -481,6 +500,12 @@ export const MUTATION_NAMES = [
   "sync.reset",
 ] as const;
 export type MutationName = typeof MUTATION_NAMES[number];
+
+export const COMMAND_NAMES = [
+  "note.preview",
+  "task.archiveDone",
+] as const;
+export type CommandName = typeof COMMAND_NAMES[number];
 
 export interface ProjectionParamsByName {
   "notes.list": NotesListParams;
@@ -555,6 +580,16 @@ export interface MutationResultByName {
   "sync.reset": EmptyResult;
 }
 
+export interface CommandParamsByName {
+  "note.preview": NotePreviewParams;
+  "task.archiveDone": TaskArchiveDoneParams;
+}
+
+export interface CommandResultByName {
+  "note.preview": NotePreviewResult;
+  "task.archiveDone": TaskArchiveDoneResult;
+}
+
 export type ProjectionTransportSnapshot = {
   [K in ProjectionName]: { projection: K; value: ProjectionSnapshotByName[K] };
 }[ProjectionName];
@@ -566,6 +601,10 @@ export type ProjectionTransportPatch = {
 export type ProjectionTransportMutationResult = {
   [K in MutationName]: { mutation: K; value: MutationResultByName[K] };
 }[MutationName];
+
+export type ProjectionTransportCommandResult = {
+  [K in CommandName]: { command: K; value: CommandResultByName[K] };
+}[CommandName];
 
 /** The projection model @clerkenwell/client is generic over. */
 export type GeneratedProjectionModel = {
@@ -580,6 +619,12 @@ export type GeneratedProjectionModel = {
     [K in MutationName]: {
       params: MutationParamsByName[K];
       result: MutationResultByName[K];
+    };
+  };
+  commands: {
+    [K in CommandName]: {
+      params: CommandParamsByName[K];
+      result: CommandResultByName[K];
     };
   };
 };
@@ -728,6 +773,13 @@ export const MUTATION_EFFECT_PLANS = {
     "SyncHealth"
   ]
 } as const satisfies Record<MutationName, readonly EntityName[]>;
+
+export const COMMAND_EFFECT_PLANS = {
+  "note.preview": [],
+  "task.archiveDone": [
+    "Task"
+  ]
+} as const satisfies Record<CommandName, readonly EntityName[]>;
 
 export type GeneratedAuthoringPlan = AuthoringPlan<MutationName>;
 export const AUTHORING_PLANS = {

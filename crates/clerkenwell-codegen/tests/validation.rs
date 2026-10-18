@@ -376,6 +376,61 @@ fn every_semantic_rule_refuses_naming_the_definition_path() {
             &["projections.note.summary", "$defs.NoteSummary"],
         ),
         (
+            "command touches an unknown entity",
+            |d| {
+                set(
+                    d,
+                    "/commands/task.archiveDone/touches",
+                    json(r#"["Missing"]"#),
+                )
+            },
+            &["commands.task.archiveDone.touches", "Missing"],
+        ),
+        (
+            "command touches read-only",
+            |d| {
+                set(
+                    d,
+                    "/commands/task.archiveDone/touches",
+                    json(r#"["Task", "Activity"]"#),
+                )
+            },
+            &["commands.task.archiveDone.touches", "Activity"],
+        ),
+        (
+            "command result",
+            |d| {
+                set(
+                    d,
+                    "/commands/note.preview/result",
+                    json(r##"{ "$ref": "#/$defs/Missing" }"##),
+                )
+            },
+            &["commands.note.preview.result"],
+        ),
+        (
+            "command named as a mutation",
+            |d| {
+                let preview = d
+                    .pointer("/commands/note.preview")
+                    .cloned()
+                    .expect("declared");
+                set(d, "/commands/note.rename", preview);
+            },
+            &["note.rename"],
+        ),
+        (
+            "command output name",
+            |d| {
+                let preview = d
+                    .pointer("/commands/note.preview")
+                    .cloned()
+                    .expect("declared");
+                set(d, "/commands/note.summary", preview);
+            },
+            &["commands.note.summary", "$defs.NoteSummary"],
+        ),
+        (
             "update fields",
             |d| remove(d, "/projections/notes.byId/materialization/updatesField"),
             &["projections.notes.byId.materialization"],
@@ -834,4 +889,18 @@ fn a_definition_named_as_a_name_the_bindings_import_is_refused() {
             &[&format!("$defs.{name}"), "the generated bindings' import"],
         );
     }
+}
+
+#[test]
+fn a_definition_may_declare_no_commands() {
+    let mut document = notebook_document();
+    remove(&mut document, "/commands");
+    validate(document).expect("a definition without commands is valid");
+}
+
+#[test]
+fn a_command_may_touch_no_entity() {
+    let mut document = notebook_document();
+    remove(&mut document, "/commands/task.archiveDone/touches");
+    validate(document).expect("a command that touches nothing is valid");
 }

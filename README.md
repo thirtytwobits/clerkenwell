@@ -32,7 +32,7 @@ Conflict: The Note edit by grace conflicts with the policy of: status.
 
 | Term | Meaning |
 |---|---|
-| definition | the JSON file declaring an application's entities, projections, mutations and, for each collaborative field, its storage and conflict policy |
+| definition | the JSON file declaring an application's entities, projections, mutations, commands and, for each collaborative field, its storage and conflict policy |
 | plan | what the generator emits from a definition for each collaborative entity; replicas execute it to read and write fields |
 | replica | one writer's copy of a document, which records its edits as operations |
 | projection | a named view of application state that clients subscribe to |

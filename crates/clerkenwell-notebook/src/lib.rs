@@ -7,7 +7,7 @@ pub use clerkenwell_schema::{
     ActorKind, AuthoringPeerBlock, AuthoringState, AuthoringStatePatch, AuthoringStatePatchKind,
     CollaborationExchangeMode, GeneratedAuthoringPolicyKind, GeneratedCollaborationConflict,
     GeneratedCollaborationEntitySpec, GeneratedCollaborationFieldSpec,
-    GeneratedCollaborationStorageKind, GeneratedCollaborationValueCodec,
+    GeneratedCollaborationStorageKind, GeneratedCollaborationValueCodec, GeneratedCommandSpec,
     GeneratedEntityAuthoringSpec, GeneratedMaterializationPlan, GeneratedMutationSpec,
     GeneratedProjectionSpec, GeneratedRemoveMode, GeneratedSnapshotMode, GeneratedWriterConflict,
 };
@@ -729,6 +729,32 @@ pub struct SyncResetParams {
 
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, PartialEq)]
 #[serde(deny_unknown_fields)]
+pub struct NotePreviewParams {
+    pub body: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct TaskArchiveDoneParams {
+    pub board_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct TaskArchiveDoneResult {
+    #[schemars(extend("minimum" = 0))]
+    pub archived: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct NotePreviewResult {
+    #[schemars(extend("minimum" = 0))]
+    pub word_count: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct NoteAuthoringParams {
     pub note_id: String,
 }
@@ -772,6 +798,9 @@ pub const TASK_SCHEDULE_MUTATION: &str = "task.schedule";
 pub const TASK_ARCHIVE_MUTATION: &str = "task.archive";
 pub const WORKSPACE_CONFIGURE_MUTATION: &str = "workspace.configure";
 pub const SYNC_RESET_MUTATION: &str = "sync.reset";
+
+pub const NOTE_PREVIEW_COMMAND: &str = "note.preview";
+pub const TASK_ARCHIVE_DONE_COMMAND: &str = "task.archiveDone";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ProjectionName {
@@ -977,6 +1006,38 @@ impl MutationName {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum CommandName {
+    NotePreview,
+    TaskArchiveDone,
+}
+
+#[rustfmt::skip]
+impl CommandName {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::NotePreview => {
+                NOTE_PREVIEW_COMMAND
+            },
+            Self::TaskArchiveDone => {
+                TASK_ARCHIVE_DONE_COMMAND
+            },
+        }
+    }
+
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            NOTE_PREVIEW_COMMAND => {
+                Some(Self::NotePreview)
+            },
+            TASK_ARCHIVE_DONE_COMMAND => {
+                Some(Self::TaskArchiveDone)
+            },
+            _ => None,
+        }
+    }
+}
+
 pub const ENTITY_NAMES: &[&str] = &[
     "Note",
     "Board",
@@ -1013,6 +1074,7 @@ pub const MUTATION_NAMES: &[&str] = &[
     "workspace.configure",
     "sync.reset",
 ];
+pub const COMMAND_NAMES: &[&str] = &["note.preview", "task.archiveDone"];
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "projection", content = "value", deny_unknown_fields)]
@@ -1119,6 +1181,25 @@ impl ProjectionTransportMutationResult {
             Self::TaskArchive(_) => MutationName::TaskArchive,
             Self::WorkspaceConfigure(_) => MutationName::WorkspaceConfigure,
             Self::SyncReset(_) => MutationName::SyncReset,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(tag = "command", content = "value", deny_unknown_fields)]
+#[allow(clippy::large_enum_variant)]
+pub enum ProjectionTransportCommandResult {
+    #[serde(rename = "note.preview")]
+    NotePreview(NotePreviewResult),
+    #[serde(rename = "task.archiveDone")]
+    TaskArchiveDone(TaskArchiveDoneResult),
+}
+
+impl ProjectionTransportCommandResult {
+    pub const fn command_name(&self) -> CommandName {
+        match self {
+            Self::NotePreview(_) => CommandName::NotePreview,
+            Self::TaskArchiveDone(_) => CommandName::TaskArchiveDone,
         }
     }
 }
@@ -1273,6 +1354,17 @@ pub static GENERATED_MUTATION_SPECS: &[GeneratedMutationSpec] = &[
     GeneratedMutationSpec {
         name: SYNC_RESET_MUTATION,
         touches: &["SyncHealth"],
+    },
+];
+
+pub static GENERATED_COMMAND_SPECS: &[GeneratedCommandSpec] = &[
+    GeneratedCommandSpec {
+        name: NOTE_PREVIEW_COMMAND,
+        touches: &[],
+    },
+    GeneratedCommandSpec {
+        name: TASK_ARCHIVE_DONE_COMMAND,
+        touches: &["Task"],
     },
 ];
 
