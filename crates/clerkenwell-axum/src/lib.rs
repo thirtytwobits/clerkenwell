@@ -304,8 +304,15 @@ struct Lifecycle {
     stopping: bool,
     /// The commands started and not yet published.
     running: usize,
-    /// The connections being served.
+    /// The connections admitted and not yet ended.
     serving: usize,
+}
+
+/// A connection the server counts among those it serves, and every
+/// publication sent since it was counted.
+struct Admitted<P> {
+    published: broadcast::Receiver<Arc<Sent<P>>>,
+    serving: Counted,
 }
 
 /// Serves an application's projections to every connection.
@@ -408,19 +415,40 @@ where
     /// on its connection, every connection is sent a Close frame and ends.
     /// Resolves when the last connection has ended. The application ends its
     /// own long work as it shuts down, and bounds the wait itself.
+    ///
+    /// The shutdown goes on when this future is dropped, and every call
+    /// resolves once it has ended.
     pub async fn shut_down(&self) {
-        self.lifecycle.send_modify(|state| state.stopping = true);
-        let mut lifecycle = self.lifecycle.subscribe();
-        let _ = lifecycle.wait_for(|state| state.running == 0).await;
-        let closing_at = Arc::clone(&self.closing_at);
-        self.publications.send(Publication::Closing, |sent| {
-            closing_at.store(sent.sequence, Ordering::SeqCst);
+        let mut begun = false;
+        self.lifecycle.send_if_modified(|state| {
+            begun = !state.stopping;
+            state.stopping = true;
+            begun
         });
-        let _ = lifecycle.wait_for(|state| state.serving == 0).await;
+        if begun {
+            let mut lifecycle = self.lifecycle.subscribe();
+            let publications = Arc::clone(&self.publications);
+            let closing_at = Arc::clone(&self.closing_at);
+            tokio::spawn(async move {
+                let _ = lifecycle.wait_for(|state| state.running == 0).await;
+                publications.send(Publication::Closing, |sent| {
+                    closing_at.store(sent.sequence, Ordering::SeqCst);
+                });
+            });
+        }
+        let mut lifecycle = self.lifecycle.subscribe();
+        let _ = lifecycle
+            .wait_for(|state| state.running == 0 && state.serving == 0)
+            .await;
     }
 
-    fn stopping(&self) -> bool {
-        self.lifecycle.borrow().stopping
+    /// Admits a connection, unless the server is shutting down.
+    fn admit(&self) -> Option<Admitted<PublicationOf<A>>> {
+        // Subscribed before it is counted, so a connection the server counts
+        // takes the closing publication.
+        let (_, published) = self.publications.subscribe();
+        let serving = Counted::take(&self.lifecycle, |state| &mut state.serving)?;
+        Some(Admitted { published, serving })
     }
 
     /// A router that serves the protocol to WebSocket connections at `path`.
@@ -441,12 +469,14 @@ where
         Router::new().route(
             path,
             get(move |parts: Parts, upgrade: WebSocketUpgrade| async move {
-                if self.stopping() {
+                // Admitted before it is upgraded, so the shutdown waits for a
+                // connection whose upgrade it did not refuse.
+                let Some(admitted) = self.admit() else {
                     return StatusCode::SERVICE_UNAVAILABLE.into_response();
-                }
+                };
                 match authenticate(&parts) {
                     Some(principal) => upgrade
-                        .on_upgrade(move |socket| self.serve_socket(socket, principal))
+                        .on_upgrade(move |socket| self.serve_admitted(socket, principal, admitted))
                         .into_response(),
                     None => StatusCode::UNAUTHORIZED.into_response(),
                 }
@@ -457,14 +487,27 @@ where
     /// Serves one WebSocket, authenticated as `principal`, until it closes or
     /// the server shuts down.
     pub async fn serve_socket(self: Arc<Self>, socket: WebSocket, principal: Principal) {
-        // Subscribed before it is counted, so a connection the server counts
-        // takes the closing publication.
-        let (_, mut published) = self.publications.subscribe();
-        let Some(_serving) = Counted::take(&self.lifecycle, |state| &mut state.serving) else {
-            let mut socket = socket;
-            let _ = socket.send(Message::Close(None)).await;
-            return;
-        };
+        match self.admit() {
+            Some(admitted) => self.serve_admitted(socket, principal, admitted).await,
+            None => {
+                let mut socket = socket;
+                let _ = socket.send(Message::Close(None)).await;
+            }
+        }
+    }
+
+    /// Serves one admitted WebSocket, authenticated as `principal`, until it
+    /// closes or the server shuts down.
+    async fn serve_admitted(
+        self: Arc<Self>,
+        socket: WebSocket,
+        principal: Principal,
+        admitted: Admitted<PublicationOf<A>>,
+    ) {
+        let Admitted {
+            mut published,
+            serving: _serving,
+        } = admitted;
         let origin = self.connections.fetch_add(1, Ordering::Relaxed);
         let subscriptions: Subscriptions<A> =
             Mutex::new(ProjectionSubscriptions::new(principal.clone()));
@@ -540,8 +583,8 @@ where
     }
 
     /// Starts the command `request` names as `ticket` of the connection
-    /// `origin`, authenticated as `principal`, unless as many commands as the
-    /// server allows are running or the server is shutting down. Once its host
+    /// `origin`, authenticated as `principal`, unless the server is shutting
+    /// down or is running as many commands as it allows. Once its host
     /// returns, its outcome is published, and kept in `ran` until its
     /// connection answers it.
     fn start(
@@ -552,17 +595,17 @@ where
         request: ProjectionCommandRequest,
         ran: &RanCommands<A>,
     ) -> Result<(), RpcFailure> {
-        let Ok(permit) = Arc::clone(&self.commands).try_acquire_owned() else {
-            return Err(command_refusal(
-                ProjectionErrorCode::RateLimit,
-                "The server is running as many commands as it allows.",
-                &request.command,
-            ));
-        };
         let Some(started) = Counted::take(&self.lifecycle, |state| &mut state.running) else {
             return Err(command_refusal(
                 ProjectionErrorCode::Interrupted,
                 "The server is shutting down.",
+                &request.command,
+            ));
+        };
+        let Ok(permit) = Arc::clone(&self.commands).try_acquire_owned() else {
+            return Err(command_refusal(
+                ProjectionErrorCode::RateLimit,
+                "The server is running as many commands as it allows.",
                 &request.command,
             ));
         };

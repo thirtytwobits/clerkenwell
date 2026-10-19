@@ -5,6 +5,7 @@ use std::num::NonZeroUsize;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use axum::http::request::Parts;
 use clerkenwell_axum::{ProjectionServer, RpcFailure};
 use clerkenwell_events::{ActorKind, Principal};
 use clerkenwell_schema::{
@@ -268,11 +269,7 @@ async fn start_with(
     let window = NonZeroUsize::new(window).expect("a publication window");
     let commands = NonZeroUsize::new(commands).expect("a command limit");
     let server = ProjectionServer::new(Counters::default(), window, commands);
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
-        .await
-        .expect("a listener");
-    let address = listener.local_addr().expect("an address");
-    let router = server.clone().router("/projections", |parts| {
+    let url = serve_with(&server, |parts| {
         let id = parts
             .headers
             .get("authorization")?
@@ -280,9 +277,24 @@ async fn start_with(
             .ok()?
             .strip_prefix("Bearer ")?;
         Some(Principal::new(id, ActorKind::Human))
-    });
+    })
+    .await;
+    (url, server)
+}
+
+/// Serves `server`, whose connections `authenticate` authenticates, and
+/// returns its URL.
+async fn serve_with(
+    server: &Arc<ProjectionServer<Counters>>,
+    authenticate: impl Fn(&Parts) -> Option<Principal> + Clone + Send + Sync + 'static,
+) -> String {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("a listener");
+    let address = listener.local_addr().expect("an address");
+    let router = Arc::clone(server).router("/projections", authenticate);
     tokio::spawn(async move { axum::serve(listener, router).await.expect("serve") });
-    (format!("ws://{address}/projections"), server)
+    format!("ws://{address}/projections")
 }
 
 /// The upgrade request to `url` of a client presenting `id`'s credentials.
@@ -1117,6 +1129,94 @@ async fn an_upgrade_while_shutting_down_is_refused_as_unavailable() {
     server.application().open("held");
     assert_eq!(next(&mut caller).await["id"], json!(1));
     shutting_down.await.expect("the shutdown");
+}
+
+#[tokio::test]
+async fn a_command_sent_while_shutting_down_at_the_command_limit_is_refused_as_interrupted() {
+    let (url, server) = start_with(8, 1).await;
+    let mut caller = connect(&url).await;
+    let mut late = connect(&url).await;
+    reset_at_gate(&mut caller, 1, "a", "held").await;
+    increment(&mut caller, 2, "b").await;
+    let shutting_down = begin_shutting_down(&server).await;
+
+    request(
+        &mut late,
+        1,
+        "projection.command",
+        json!({ "command": "counter.reset", "params": { "counter_id": "c" } }),
+    )
+    .await;
+    let refused = next(&mut late).await;
+    assert_eq!(refused["id"], json!(1), "{refused}");
+    assert_eq!(
+        refused["error"]["data"]["projection_error"]["code"],
+        "interrupted"
+    );
+
+    server.application().open("held");
+    assert_eq!(next(&mut caller).await["id"], json!(1));
+    shutting_down.await.expect("the shutdown");
+}
+
+// Two workers, as the upgrade's authentication blocks one until the test
+// releases it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_upgrade_accepted_before_shutting_down_is_closed_before_the_shutdown_resolves() {
+    let window = NonZeroUsize::new(8).expect("a publication window");
+    let commands = NonZeroUsize::new(8).expect("a command limit");
+    let server = ProjectionServer::new(Counters::default(), window, commands);
+    let (authenticating, mut authenticated) = tokio::sync::mpsc::unbounded_channel();
+    let (release, released) = std::sync::mpsc::channel::<()>();
+    let released = Arc::new(Mutex::new(released));
+    let url = serve_with(&server, move |_| {
+        authenticating.send(()).expect("the test");
+        released
+            .lock()
+            .expect("the release")
+            .recv()
+            .expect("the release");
+        Some(Principal::new("client", ActorKind::Human))
+    })
+    .await;
+
+    let connecting = tokio::spawn(async move { connect(&url).await });
+    authenticated.recv().await.expect("an upgrade");
+    let mut shutting_down = begin_shutting_down(&server).await;
+    assert!(
+        tokio::time::timeout(Duration::from_millis(200), &mut shutting_down)
+            .await
+            .is_err(),
+        "the shutdown waits for an accepted upgrade"
+    );
+
+    release.send(()).expect("the upgrade");
+    let mut socket = connecting.await.expect("the connection");
+    assert!(closed(&mut socket).await, "the accepted upgrade is closed");
+    tokio::time::timeout(Duration::from_secs(5), shutting_down)
+        .await
+        .expect("the shutdown in time")
+        .expect("the shutdown");
+}
+
+#[tokio::test]
+async fn a_shutdown_whose_future_is_dropped_still_closes_every_connection() {
+    let (url, server) = start(8).await;
+    let mut caller = connect(&url).await;
+    let mut other = connect(&url).await;
+    reset_at_gate(&mut caller, 1, "a", "held").await;
+    increment(&mut caller, 2, "b").await;
+    let shutting_down = begin_shutting_down(&server).await;
+    shutting_down.abort();
+    assert!(shutting_down.await.is_err_and(|error| error.is_cancelled()));
+
+    server.application().open("held");
+    assert_eq!(next(&mut caller).await["id"], json!(1));
+    assert!(closed(&mut caller).await, "the caller is closed");
+    assert!(closed(&mut other).await, "every connection is closed");
+    tokio::time::timeout(Duration::from_secs(5), server.shut_down())
+        .await
+        .expect("a later shutdown resolves once the first has ended");
 }
 
 #[tokio::test]

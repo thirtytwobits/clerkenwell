@@ -15,7 +15,8 @@ names the contracts.
 - `ProjectionServer::shut_down` stops a `clerkenwell-axum` server in order. It refuses every
   command from then on as `interrupted` and every upgrade with `503 Service Unavailable`, waits
   for each running command to be answered on its connection, then sends every connection a
-  Close frame, and resolves once the last connection has ended.
+  Close frame, and resolves once the last connection has ended. The shutdown goes on when its
+  future is dropped.
 
 ### Fixed
 
