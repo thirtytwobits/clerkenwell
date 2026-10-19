@@ -80,6 +80,8 @@
         "base_revision_in_future",
         "stale_write",
         "rate_limit",
+        "cancelled",
+        "interrupted",
         "internal_error"
       ],
       "type": "string"
@@ -195,8 +197,10 @@
     "parse_error": -32700,
     "refusals": {
       "base_revision_in_future": -32009,
+      "cancelled": -32002,
       "conflict": -32009,
       "internal_error": -32000,
+      "interrupted": -32003,
       "invalid_params": -32602,
       "not_found": -32004,
       "rate_limit": -32000,

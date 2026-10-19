@@ -4,6 +4,24 @@ Each release's section is the notes of its GitHub release. A release that change
 lists each change under **Breaking**; `cargo run -p clerkenwell-release -- breaking --help`
 names the contracts.
 
+## 0.9.0
+
+### Breaking
+
+- `ProjectionErrorCode` gains `cancelled`, for work stopped on purpose before it finished, and
+  `interrupted`, for work the server program stopped, as when it shuts down (#86). Only
+  `interrupted` is retryable. `clerkenwell-axum` answers them with JSON-RPC errors `-32002` and
+  `-32003`, and `@clerkenwell/client`'s `ProjectionErrorCode` names both.
+- `ProjectionServer::shut_down` stops a `clerkenwell-axum` server in order. It refuses every
+  command from then on as `interrupted` and every upgrade with `503 Service Unavailable`, waits
+  for each running command to be answered on its connection, then sends every connection a
+  Close frame, and resolves once the last connection has ended.
+
+### Fixed
+
+- A request whose host panics is refused as `internal_error`, addressed to its operation, and
+  its connection keeps serving, as a command's already did.
+
 ## 0.8.0
 
 ### Breaking

@@ -132,7 +132,9 @@ pub enum ProjectionTransportEvent<S, P> {
     },
 }
 
-/// Why a request was refused.
+/// Why a request was refused. `cancelled` work was stopped on purpose before
+/// it finished, as when a user cancels a running command; `interrupted` work
+/// was stopped by the server program, as when it shuts down.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum ProjectionErrorCode {
@@ -149,11 +151,13 @@ pub enum ProjectionErrorCode {
     BaseRevisionInFuture,
     StaleWrite,
     RateLimit,
+    Cancelled,
+    Interrupted,
     InternalError,
 }
 
 impl ProjectionErrorCode {
-    pub const ALL: [Self; 14] = [
+    pub const ALL: [Self; 16] = [
         Self::UnknownMutation,
         Self::UnsupportedMutation,
         Self::UnknownCommand,
@@ -167,6 +171,8 @@ impl ProjectionErrorCode {
         Self::BaseRevisionInFuture,
         Self::StaleWrite,
         Self::RateLimit,
+        Self::Cancelled,
+        Self::Interrupted,
         Self::InternalError,
     ];
 
@@ -185,6 +191,8 @@ impl ProjectionErrorCode {
             Self::BaseRevisionInFuture => "base_revision_in_future",
             Self::StaleWrite => "stale_write",
             Self::RateLimit => "rate_limit",
+            Self::Cancelled => "cancelled",
+            Self::Interrupted => "interrupted",
             Self::InternalError => "internal_error",
         }
     }
@@ -197,7 +205,10 @@ impl ProjectionErrorCode {
 
     /// Whether the same request may succeed if sent again unchanged.
     pub fn retryable(self) -> bool {
-        matches!(self, Self::BaseRevisionInFuture | Self::RateLimit)
+        matches!(
+            self,
+            Self::BaseRevisionInFuture | Self::RateLimit | Self::Interrupted
+        )
     }
 }
 

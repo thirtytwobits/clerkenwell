@@ -14,6 +14,10 @@
 //! publications, once its host has returned, so its caller takes every change
 //! published before it first. A command still running when its connection
 //! closes runs on, and its change reaches every other connection.
+//!
+//! [`ProjectionServer::shut_down`] stops the server in order: it refuses the
+//! commands and connections that arrive from then on, lets each running
+//! command finish and be answered, then closes every connection.
 
 use std::collections::HashMap;
 use std::num::NonZeroUsize;
@@ -42,7 +46,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use tokio::sync::broadcast::error::RecvError;
-use tokio::sync::{broadcast, Semaphore};
+use tokio::sync::{broadcast, watch, Semaphore};
 
 const PARSE_ERROR: i64 = -32700;
 const INVALID_REQUEST: i64 = -32600;
@@ -119,6 +123,8 @@ fn rpc_code(code: ProjectionErrorCode) -> i64 {
         ProjectionErrorCode::Conflict
         | ProjectionErrorCode::StaleWrite
         | ProjectionErrorCode::BaseRevisionInFuture => -32009,
+        ProjectionErrorCode::Cancelled => -32002,
+        ProjectionErrorCode::Interrupted => -32003,
         ProjectionErrorCode::RateLimit | ProjectionErrorCode::InternalError => -32000,
     }
 }
@@ -208,6 +214,9 @@ enum Publication<M, C, N> {
     Announced(Arc<Announced<N>>),
     /// A change one of the application's stores made.
     Stored(Box<ChangeEvent>),
+    /// The server is shutting down: every connection closes once it takes
+    /// this, after every command its server ran.
+    Closing,
 }
 
 /// A publication and its place in the order every connection takes them in.
@@ -289,6 +298,16 @@ enum Received {
     },
 }
 
+/// Whether the server is shutting down, and what it waits for when it does.
+#[derive(Debug, Default)]
+struct Lifecycle {
+    stopping: bool,
+    /// The commands started and not yet published.
+    running: usize,
+    /// The connections being served.
+    serving: usize,
+}
+
 /// Serves an application's projections to every connection.
 pub struct ProjectionServer<A: ProjectionHost> {
     application: A,
@@ -297,6 +316,43 @@ pub struct ProjectionServer<A: ProjectionHost> {
     /// connection.
     commands: Arc<Semaphore>,
     connections: AtomicU64,
+    lifecycle: Arc<watch::Sender<Lifecycle>>,
+    /// The number of the closing publication; 0 until the server shuts down.
+    closing_at: Arc<AtomicU64>,
+}
+
+/// Holds a place in the lifecycle's count, given back when dropped.
+struct Counted {
+    lifecycle: Arc<watch::Sender<Lifecycle>>,
+    count: fn(&mut Lifecycle) -> &mut usize,
+}
+
+impl Counted {
+    /// Takes a place in `count`, unless the server is shutting down.
+    fn take(
+        lifecycle: &Arc<watch::Sender<Lifecycle>>,
+        count: fn(&mut Lifecycle) -> &mut usize,
+    ) -> Option<Self> {
+        let mut taken = false;
+        lifecycle.send_if_modified(|state| {
+            taken = !state.stopping;
+            if taken {
+                *count(state) += 1;
+            }
+            taken
+        });
+        taken.then(|| Self {
+            lifecycle: Arc::clone(lifecycle),
+            count,
+        })
+    }
+}
+
+impl Drop for Counted {
+    fn drop(&mut self) {
+        let count = self.count;
+        self.lifecycle.send_modify(|state| *count(state) -= 1);
+    }
 }
 
 impl<A> ProjectionServer<A>
@@ -337,11 +393,34 @@ where
             publications,
             commands: Arc::new(Semaphore::new(command_limit.get())),
             connections: AtomicU64::new(1),
+            lifecycle: Arc::new(watch::Sender::new(Lifecycle::default())),
+            closing_at: Arc::new(AtomicU64::new(0)),
         })
     }
 
     pub fn application(&self) -> &A {
         &self.application
+    }
+
+    /// Shuts the server down. From now on it refuses every command as
+    /// `interrupted` and every connection's upgrade with `503 Service
+    /// Unavailable`. Once each running command has finished and been answered
+    /// on its connection, every connection is sent a Close frame and ends.
+    /// Resolves when the last connection has ended. The application ends its
+    /// own long work as it shuts down, and bounds the wait itself.
+    pub async fn shut_down(&self) {
+        self.lifecycle.send_modify(|state| state.stopping = true);
+        let mut lifecycle = self.lifecycle.subscribe();
+        let _ = lifecycle.wait_for(|state| state.running == 0).await;
+        let closing_at = Arc::clone(&self.closing_at);
+        self.publications.send(Publication::Closing, |sent| {
+            closing_at.store(sent.sequence, Ordering::SeqCst);
+        });
+        let _ = lifecycle.wait_for(|state| state.serving == 0).await;
+    }
+
+    fn stopping(&self) -> bool {
+        self.lifecycle.borrow().stopping
     }
 
     /// A router that serves the protocol to WebSocket connections at `path`.
@@ -362,6 +441,9 @@ where
         Router::new().route(
             path,
             get(move |parts: Parts, upgrade: WebSocketUpgrade| async move {
+                if self.stopping() {
+                    return StatusCode::SERVICE_UNAVAILABLE.into_response();
+                }
                 match authenticate(&parts) {
                     Some(principal) => upgrade
                         .on_upgrade(move |socket| self.serve_socket(socket, principal))
@@ -372,18 +454,27 @@ where
         )
     }
 
-    /// Serves one WebSocket, authenticated as `principal`, until it closes.
+    /// Serves one WebSocket, authenticated as `principal`, until it closes or
+    /// the server shuts down.
     pub async fn serve_socket(self: Arc<Self>, socket: WebSocket, principal: Principal) {
+        // Subscribed before it is counted, so a connection the server counts
+        // takes the closing publication.
+        let (_, mut published) = self.publications.subscribe();
+        let Some(_serving) = Counted::take(&self.lifecycle, |state| &mut state.serving) else {
+            let mut socket = socket;
+            let _ = socket.send(Message::Close(None)).await;
+            return;
+        };
         let origin = self.connections.fetch_add(1, Ordering::Relaxed);
         let subscriptions: Subscriptions<A> =
             Mutex::new(ProjectionSubscriptions::new(principal.clone()));
-        let (_, mut published) = self.publications.subscribe();
         // The id each running command's response answers, by its ticket.
         let mut running: HashMap<u64, Option<Value>> = HashMap::new();
         let ran: RanCommands<A> = Arc::default();
         let mut tickets = 0;
         let (mut sink, mut stream) = socket.split();
         'serving: loop {
+            let mut closing = false;
             let frames = tokio::select! {
                 message = stream.next() => match message {
                     Some(Ok(Message::Text(text))) => {
@@ -405,6 +496,10 @@ where
                     Some(Ok(_)) => continue,
                 },
                 sent = published.recv() => match sent {
+                    Ok(sent) if matches!(sent.publication, Publication::Closing) => {
+                        closing = true;
+                        Vec::new()
+                    }
                     Ok(sent) => self.take(origin, &subscriptions, &sent, &mut running, &ran).await,
                     Err(RecvError::Lagged(missed)) => {
                         subscriptions
@@ -425,6 +520,8 @@ where
                             &mut running,
                             &ran,
                         ));
+                        let closing_at = self.closing_at.load(Ordering::SeqCst);
+                        closing = closing_at != 0 && closing_at <= skipped_through;
                         frames
                     }
                     Err(RecvError::Closed) => break,
@@ -435,13 +532,18 @@ where
                     break 'serving;
                 }
             }
+            if closing {
+                let _ = sink.send(Message::Close(None)).await;
+                break;
+            }
         }
     }
 
     /// Starts the command `request` names as `ticket` of the connection
     /// `origin`, authenticated as `principal`, unless as many commands as the
-    /// server allows are running. Once its host returns, its outcome is
-    /// published, and kept in `ran` until its connection answers it.
+    /// server allows are running or the server is shutting down. Once its host
+    /// returns, its outcome is published, and kept in `ran` until its
+    /// connection answers it.
     fn start(
         self: &Arc<Self>,
         origin: u64,
@@ -454,6 +556,13 @@ where
             return Err(command_refusal(
                 ProjectionErrorCode::RateLimit,
                 "The server is running as many commands as it allows.",
+                &request.command,
+            ));
+        };
+        let Some(started) = Counted::take(&self.lifecycle, |state| &mut state.running) else {
+            return Err(command_refusal(
+                ProjectionErrorCode::Interrupted,
+                "The server is shutting down.",
                 &request.command,
             ));
         };
@@ -483,6 +592,8 @@ where
                     .unwrap_or_else(PoisonError::into_inner)
                     .insert(ticket, Arc::clone(sent));
             });
+            // Published first, so the closing publication follows its outcome.
+            drop(started);
         });
         Ok(())
     }
@@ -537,7 +648,7 @@ where
                     .await
                     .1
             }
-            Publication::Ran { .. } => Vec::new(),
+            Publication::Ran { .. } | Publication::Closing => Vec::new(),
         };
         events.iter().filter_map(notification).collect()
     }
@@ -612,6 +723,7 @@ where
                 )),
             )]);
         }
+        let request_method = request.method.clone();
         let served = match decode_request::<RpcFailure>(&request.method, request.params) {
             None => {
                 let error = ErrorObject::framing(
@@ -623,7 +735,26 @@ where
             Some(Ok(ProjectionRequest::Command(request))) => {
                 return Received::Command { id, request };
             }
-            Some(Ok(request)) => serve(&self.application, subscriptions, request).await,
+            Some(Ok(request)) => {
+                let named = match &request {
+                    ProjectionRequest::Subscribe(subscribe) => Some(subscribe.projection.clone()),
+                    ProjectionRequest::Mutate(mutate) => Some(mutate.mutation.clone()),
+                    _ => None,
+                };
+                AssertUnwindSafe(serve(&self.application, subscriptions, request))
+                    .catch_unwind()
+                    .await
+                    .unwrap_or_else(|_| {
+                        let operation = ProjectionOperation::for_method(&request_method)
+                            .expect("a decoded request names a protocol method");
+                        Err(refusal(
+                            ProjectionErrorCode::InternalError,
+                            "The request ended without a result.",
+                            operation,
+                            named.as_deref(),
+                        ))
+                    })
+            }
             Some(Err(failure)) => Err(failure),
         };
         Received::Answered(self.respond(origin, id, served))
@@ -670,13 +801,19 @@ fn command_refusal(
     message: impl Into<String>,
     command: &str,
 ) -> RpcFailure {
+    refusal(code, message, ProjectionOperation::Command, Some(command))
+}
+
+/// The refusal of a request for `operation`, addressed to what it `named`.
+fn refusal(
+    code: ProjectionErrorCode,
+    message: impl Into<String>,
+    operation: ProjectionOperation,
+    named: Option<&str>,
+) -> RpcFailure {
     let message = message.into();
     RpcFailure::new(code, message.clone(), None).described(ProjectionErrorEnvelope::new(
-        code,
-        message,
-        ProjectionOperation::Command,
-        Some(command),
-        None,
+        code, message, operation, named, None,
     ))
 }
 
