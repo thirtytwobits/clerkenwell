@@ -257,10 +257,12 @@ field clerkenwell_session::transport::ProjectionCommandRequest::operation_id: Op
 field clerkenwell_session::transport::ProjectionCommandRequest::params: Value
 enum clerkenwell_session::transport::ProjectionErrorCode
 derive clerkenwell_session::transport::ProjectionErrorCode: Clone, Copy, Debug, Deserialize, Eq, Hash, JsonSchema, PartialEq, Serialize
-const clerkenwell_session::transport::ProjectionErrorCode::ALL: [Self; 14]
+const clerkenwell_session::transport::ProjectionErrorCode::ALL: [Self; 16]
 variant clerkenwell_session::transport::ProjectionErrorCode::BaseRevisionInFuture
+variant clerkenwell_session::transport::ProjectionErrorCode::Cancelled
 variant clerkenwell_session::transport::ProjectionErrorCode::Conflict
 variant clerkenwell_session::transport::ProjectionErrorCode::InternalError
+variant clerkenwell_session::transport::ProjectionErrorCode::Interrupted
 variant clerkenwell_session::transport::ProjectionErrorCode::InvalidParams
 variant clerkenwell_session::transport::ProjectionErrorCode::NotFound
 variant clerkenwell_session::transport::ProjectionErrorCode::RateLimit

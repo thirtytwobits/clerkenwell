@@ -126,6 +126,8 @@ export type ProjectionErrorCode =
   | "base_revision_in_future"
   | "stale_write"
   | "rate_limit"
+  | "cancelled"
+  | "interrupted"
   | "internal_error";
 
 export interface ProjectionErrorEnvelope {

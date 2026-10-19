@@ -696,7 +696,7 @@ fn a_host_failure_reaches_its_client_described_by_its_code() {
 }
 
 #[test]
-fn only_a_rate_limit_or_a_base_revision_in_the_future_may_be_sent_again() {
+fn only_a_rate_limit_a_base_revision_in_the_future_or_an_interruption_may_be_sent_again() {
     let retryable = ProjectionErrorCode::ALL
         .into_iter()
         .filter(|code| code.retryable())
@@ -706,7 +706,8 @@ fn only_a_rate_limit_or_a_base_revision_in_the_future_may_be_sent_again() {
         retryable,
         [
             ProjectionErrorCode::BaseRevisionInFuture,
-            ProjectionErrorCode::RateLimit
+            ProjectionErrorCode::RateLimit,
+            ProjectionErrorCode::Interrupted
         ]
     );
 }
