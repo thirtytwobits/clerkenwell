@@ -122,7 +122,8 @@ fn strip_validation_keywords(schema: &mut Json) {
 
 /// The type renderers switch on `type` and ignore everything else, which is
 /// what lets a constraint ride through without widening a generated type. The
-/// constraints reach the Rust output only as `schemars` attributes.
+/// constraints reach the Rust output only as `schemars` attributes and as an
+/// open object's `OTHER_MEMBER_CONSTRAINTS`.
 #[test]
 fn validation_only_keywords_leave_the_generated_types_alone() {
     let config = notebook_config();
@@ -154,8 +155,21 @@ fn validation_only_keywords_leave_the_generated_types_alone() {
     assert_eq!(with.typescript_model, without.typescript_model);
     assert_ne!(with.rust_model, without.rust_model);
     let types_only = |rust: &str| -> Vec<String> {
+        let mut in_constraints = false;
         rust.lines()
-            .filter(|line| !line.trim_start().starts_with("#[schemars("))
+            .filter(|line| {
+                if line
+                    .trim_start()
+                    .starts_with("const OTHER_MEMBER_CONSTRAINTS")
+                {
+                    in_constraints = true;
+                }
+                let constraint = in_constraints;
+                if in_constraints && line.ends_with(';') {
+                    in_constraints = false;
+                }
+                !constraint && !line.trim_start().starts_with("#[schemars(")
+            })
             .map(str::to_owned)
             .collect()
     };
@@ -743,6 +757,12 @@ fn a_construct_a_renderer_cannot_represent_is_refused_at_generation() {
             "NoteSummary.nested",
         ),
         (
+            "/$defs/NoteSummary/properties/nested",
+            r#"{ "type": "object", "properties": { "kind": { "type": "string" } },
+                "additionalProperties": { "type": "string" } }"#,
+            "NoteSummary.nested",
+        ),
+        (
             "/$defs/NoteSummary/properties/sort",
             r#"{ "type": ["string", "integer"] }"#,
             "NoteSummary.sort",
@@ -903,4 +923,697 @@ fn a_command_may_touch_no_entity() {
     let mut document = notebook_document();
     remove(&mut document, "/commands/task.archiveDone/touches");
     validate(document).expect("a command that touches nothing is valid");
+}
+
+/// An open object: declared members beside other members of a typed schema.
+fn open_object(properties: &str, required: &str, other_members: &str) -> String {
+    format!(
+        r#"{{ "type": "object", "properties": {properties}, "required": {required},
+            "additionalProperties": {other_members} }}"#
+    )
+}
+
+#[test]
+fn an_open_object_declares_members_that_are_values_of_its_other_members() {
+    let cases = [
+        (
+            r#"{ "kind": { "type": "string" }, "size": { "type": "integer" } }"#,
+            r#"{ "type": "json" }"#,
+        ),
+        (
+            r#"{ "kind": { "type": "string", "enum": ["a", "b"] } }"#,
+            r#"{ "type": "string" }"#,
+        ),
+        (
+            r#"{ "count": { "type": "integer" } }"#,
+            r#"{ "type": "number" }"#,
+        ),
+        (
+            r#"{ "count": { "type": "integer", "minimum": 2, "maximum": 4 } }"#,
+            r#"{ "type": "integer", "minimum": 0, "maximum": 10 }"#,
+        ),
+        (
+            r#"{ "sizes": { "type": "array", "items": { "type": "integer" } } }"#,
+            r#"{ "type": "array", "items": { "type": "number" } }"#,
+        ),
+        (
+            r#"{ "labels": { "type": "object", "additionalProperties": { "type": "string", "const": "x" } } }"#,
+            r#"{ "type": "object", "additionalProperties": { "type": "string" } }"#,
+        ),
+        (
+            r##"{ "summary": { "$ref": "#/$defs/NoteSummary" } }"##,
+            r##"{ "$ref": "#/$defs/NoteSummary" }"##,
+        ),
+        (
+            r#"{ "kind": { "type": "string" } }"#,
+            r#"{ "type": ["string", "boolean"] }"#,
+        ),
+    ];
+    for (properties, other_members) in cases {
+        validate(with_defs(&format!(
+            r#"{{ "ProbeOpen": {} }}"#,
+            open_object(properties, "[]", other_members)
+        )))
+        .unwrap_or_else(|error| panic!("{properties} beside {other_members}: {error}"));
+    }
+}
+
+#[test]
+fn an_open_object_is_refused_where_its_members_cannot_be_held() {
+    let cases = [
+        (
+            open_object(r#"{ "count": { "type": "integer" } }"#, "[]", r#"{ "type": "string" }"#),
+            "$defs.ProbeOpen.properties.count is not a value of the object's additionalProperties schema",
+        ),
+        (
+            open_object(r#"{ "ratio": { "type": "number" } }"#, "[]", r#"{ "type": "integer" }"#),
+            "$defs.ProbeOpen.properties.ratio is not a value",
+        ),
+        (
+            open_object(r#"{ "kind": { "type": "string" } }"#, "[]", r#"{ "type": "string", "enum": ["a"] }"#),
+            "$defs.ProbeOpen.properties.kind is not a value",
+        ),
+        (
+            open_object(r#"{ "extra": { "type": "json" } }"#, "[]", r#"{ "type": "string" }"#),
+            "$defs.ProbeOpen.properties.extra is not a value",
+        ),
+        (
+            open_object(
+                r##"{ "summary": { "$ref": "#/$defs/NoteSummary" } }"##,
+                "[]",
+                r##"{ "$ref": "#/$defs/NoteDetail" }"##,
+            ),
+            "$defs.ProbeOpen.properties.summary is not a value",
+        ),
+        (
+            open_object(r#"{ "kind": { "type": "string" } }"#, r#"["kind", "colour"]"#, r#"{ "type": "string" }"#),
+            "$defs.ProbeOpen.required references unknown property \"colour\"",
+        ),
+        (
+            open_object("{}", "[]", r#"{ "type": "string" }"#),
+            "$defs.ProbeOpen declares no properties beside additionalProperties",
+        ),
+        (
+            open_object(r#"{ "otherMembers": { "type": "string" } }"#, "[]", r#"{ "type": "string" }"#),
+            "$defs.ProbeOpen.properties.otherMembers is named as the Rust field holding the other members",
+        ),
+        (
+            r#"{ "type": "object", "required": ["kind"], "additionalProperties": { "type": "string" } }"#
+                .to_owned(),
+            "$defs.ProbeOpen.required may name only members its properties declare",
+        ),
+        (
+            format!(
+                r#"{{ "type": "object", "discriminator": "tag", "oneOf": {{ "a": {} }} }}"#,
+                open_object(r#"{ "kind": { "type": "string" } }"#, "[]", r#"{ "type": "string" }"#)
+            ),
+            "$defs.ProbeOpen.oneOf.a must be a closed object",
+        ),
+    ];
+    for (schema, expected) in cases {
+        assert_mentions(
+            &refusal(with_defs(&format!(r#"{{ "ProbeOpen": {schema} }}"#))),
+            &[expected],
+        );
+    }
+}
+
+/// A field stores an open object whole: its members, declared or not, are one
+/// value, so no field path reaches into it, and a collaborative entity's
+/// schema declares its members as fields.
+#[test]
+fn a_collaboration_field_stores_an_open_object_whole() {
+    let mut document = notebook_document();
+    let theme = document
+        .pointer("/collaboration/entities/Note/fields/appearance")
+        .cloned()
+        .expect("the notebook stores an appearance");
+    set(
+        &mut document,
+        "/collaboration/entities/Note/fields/appearance.theme",
+        theme,
+    );
+    assert_mentions(
+        &refusal(document),
+        &["collaboration.entities.Note.fields.appearance.theme does not resolve in NoteDocument"],
+    );
+
+    let mut document = notebook_document();
+    remove(
+        &mut document,
+        "/collaboration/entities/Note/fields/appearance",
+    );
+    assert_mentions(
+        &refusal(document),
+        &["collaboration.entities.Note.fields does not cover entity schema paths: appearance."],
+    );
+
+    let mut document = notebook_document();
+    set(
+        &mut document,
+        "/$defs/NoteDocument/additionalProperties",
+        json(r#"{ "type": "json" }"#),
+    );
+    assert_mentions(
+        &refusal(document),
+        &["entities.Note.schema must be a closed object"],
+    );
+}
+
+/// A union's constraints bind the members it admits: a bound on numbers
+/// leaves a string member alone and holds an integer member to it.
+#[test]
+fn an_open_object_admits_a_union_member_only_within_the_union_constraints() {
+    let bounded = r#"{ "type": ["string", "integer"], "minimum": 10, "maximum": 20 }"#;
+    let probe = |member: &str| {
+        with_defs(&format!(
+            r##"{{ "ProbeBounded": {bounded}, "ProbeOpen": {} }}"##,
+            open_object(
+                &format!(r#"{{ "member": {member} }}"#),
+                "[]",
+                r##"{ "$ref": "#/$defs/ProbeBounded" }"##
+            )
+        ))
+    };
+    for admitted in [
+        r#"{ "type": "string" }"#,
+        r#"{ "type": "integer", "minimum": 12, "maximum": 20 }"#,
+        r#"{ "type": ["string", "integer"], "minimum": 10, "maximum": 15 }"#,
+    ] {
+        validate(probe(admitted)).unwrap_or_else(|error| panic!("{admitted}: {error}"));
+    }
+    for refused in [
+        r#"{ "type": "integer" }"#,
+        r#"{ "type": "integer", "minimum": 5, "maximum": 15 }"#,
+        r#"{ "type": ["string", "integer"], "minimum": 10 }"#,
+        r#"{ "type": "boolean" }"#,
+    ] {
+        assert_mentions(
+            &refusal(probe(refused)),
+            &["$defs.ProbeOpen.properties.member is not a value"],
+        );
+    }
+}
+
+/// A member that enumerates its values is admitted when each value meets the
+/// other members' bounds.
+#[test]
+fn an_open_object_admits_an_enumerated_member_by_its_values() {
+    let probe = |member: &str, other_members: &str| {
+        with_defs(&format!(
+            r#"{{ "ProbeOpen": {} }}"#,
+            open_object(&format!(r#"{{ "member": {member} }}"#), "[]", other_members)
+        ))
+    };
+    for (member, other_members) in [
+        (
+            r#"{ "type": "string", "enum": ["ab", "abc"] }"#,
+            r#"{ "type": "string", "minLength": 2 }"#,
+        ),
+        (
+            r#"{ "type": "string", "const": "abc" }"#,
+            r#"{ "type": "string", "minLength": 3 }"#,
+        ),
+        (
+            r#"{ "type": "integer", "const": 12 }"#,
+            r#"{ "type": "integer", "minimum": 10, "maximum": 12 }"#,
+        ),
+        (
+            r#"{ "type": "string", "enum": ["x"] }"#,
+            r#"{ "type": "string", "const": "x" }"#,
+        ),
+        (
+            r#"{ "type": "string", "const": "x" }"#,
+            r#"{ "type": "string", "const": "x" }"#,
+        ),
+    ] {
+        validate(probe(member, other_members))
+            .unwrap_or_else(|error| panic!("{member} beside {other_members}: {error}"));
+    }
+    for (member, other_members) in [
+        (
+            r#"{ "type": "string", "enum": ["a", "abc"] }"#,
+            r#"{ "type": "string", "minLength": 2 }"#,
+        ),
+        (
+            r#"{ "type": "integer", "const": 13 }"#,
+            r#"{ "type": "integer", "maximum": 12 }"#,
+        ),
+        (
+            r#"{ "type": "string", "enum": ["x", "y"] }"#,
+            r#"{ "type": "string", "const": "x" }"#,
+        ),
+        (
+            r#"{ "type": "string" }"#,
+            r#"{ "type": "string", "const": "x" }"#,
+        ),
+    ] {
+        assert_mentions(
+            &refusal(probe(member, other_members)),
+            &["$defs.ProbeOpen.properties.member is not a value"],
+        );
+    }
+}
+
+/// A structural keyword shapes only the type it belongs to; on another type
+/// it would shape nothing either binding renders.
+#[test]
+fn a_structural_keyword_is_refused_on_a_type_it_does_not_apply_to() {
+    let cases = [
+        (
+            r#"{ "type": "string", "additionalProperties": { "type": "string", "minLength": 2 } }"#,
+            "$defs.ProbeScalar.additionalProperties applies only to object schemas",
+        ),
+        (
+            r#"{ "type": "integer", "properties": {} }"#,
+            "$defs.ProbeScalar.properties applies only to object schemas",
+        ),
+        (
+            r#"{ "type": "boolean", "required": [] }"#,
+            "$defs.ProbeScalar.required applies only to object schemas",
+        ),
+        (
+            r#"{ "type": "number", "items": { "type": "string" } }"#,
+            "$defs.ProbeScalar.items applies only to array schemas",
+        ),
+        (
+            r#"{ "type": ["string", "integer"], "additionalProperties": { "type": "string" } }"#,
+            "$defs.ProbeScalar.additionalProperties applies only to object schemas",
+        ),
+        (
+            r#"{ "type": "array", "items": { "type": "string" }, "properties": {} }"#,
+            "$defs.ProbeScalar.properties applies only to object schemas",
+        ),
+        (
+            r#"{ "type": "object", "additionalProperties": false, "properties": {}, "items": { "type": "string" } }"#,
+            "$defs.ProbeScalar.items applies only to array schemas",
+        ),
+    ];
+    for (schema, expected) in cases {
+        assert_mentions(
+            &refusal(with_defs(&format!(r#"{{ "ProbeScalar": {schema} }}"#))),
+            &[expected],
+        );
+    }
+}
+
+/// A keyed sequence keeps each item's members in containers of their own, so
+/// its items are closed objects: an open object's or a record's members are
+/// one value, which no item field addresses.
+#[test]
+fn a_keyed_sequence_holds_closed_objects() {
+    let mut document = notebook_document();
+    set(
+        &mut document,
+        "/$defs/BoardColumn/additionalProperties",
+        json(r#"{ "type": "json" }"#),
+    );
+    assert_mentions(
+        &refusal(document),
+        &["collaboration.entities.Board.fields.columns is a keyed sequence, whose items must be closed objects"],
+    );
+    let mut document = notebook_document();
+    set(
+        &mut document,
+        "/$defs/BoardDocument/properties/columns/items",
+        json(r#"{ "type": "object", "additionalProperties": { "type": "string" } }"#),
+    );
+    assert_mentions(
+        &refusal(document),
+        &["collaboration.entities.Board.fields.columns is a keyed sequence, whose items must be closed objects"],
+    );
+}
+
+/// A union's validation keywords are checked against its member types: a
+/// bound needs a numeric member, `minLength` a string member, and `const` a
+/// value of one of its types.
+#[test]
+fn a_union_validation_keyword_is_checked_against_its_types() {
+    let refused = [
+        (
+            r#"{ "type": ["string", "integer"], "minimum": "x" }"#,
+            "$defs.ProbeUnion.minimum requires a finite numeric bound on a numeric schema",
+        ),
+        (
+            r#"{ "type": ["string", "boolean"], "maximum": 3 }"#,
+            "$defs.ProbeUnion.maximum requires a finite numeric bound on a numeric schema",
+        ),
+        (
+            r#"{ "type": ["integer", "number"], "minimum": 3, "maximum": 2 }"#,
+            "$defs.ProbeUnion.minimum exceeds maximum",
+        ),
+        (
+            r#"{ "type": ["integer", "boolean"], "minLength": 1 }"#,
+            "$defs.ProbeUnion.minLength is supported only on string schemas",
+        ),
+        (
+            r#"{ "type": ["string", "integer"], "minLength": -1 }"#,
+            "$defs.ProbeUnion.minLength must be a non-negative integer",
+        ),
+        (
+            r#"{ "type": ["string", "integer"], "const": true }"#,
+            "$defs.ProbeUnion.const must be a value of one of its types",
+        ),
+        (
+            r#"{ "type": ["boolean", "integer"], "const": 1.5 }"#,
+            "$defs.ProbeUnion.const must be a value of one of its types",
+        ),
+    ];
+    for (schema, expected) in refused {
+        assert_mentions(
+            &refusal(with_defs(&format!(r#"{{ "ProbeUnion": {schema} }}"#))),
+            &[expected],
+        );
+    }
+    for schema in [
+        r#"{ "type": ["string", "integer"], "minimum": 0, "minLength": 1 }"#,
+        r#"{ "type": ["string", "integer"], "const": 3 }"#,
+        r#"{ "type": ["boolean", "number"], "const": 1.5 }"#,
+    ] {
+        validate(with_defs(&format!(r#"{{ "ProbeUnion": {schema} }}"#)))
+            .unwrap_or_else(|error| panic!("{schema}: {error}"));
+    }
+}
+
+/// A `$defs` entry that is a reference names the schema at the end of its
+/// chain of references; a chain that returns to an entry names none.
+#[test]
+fn a_chain_of_references_ends_at_a_schema() {
+    let message = refusal(with_defs(
+        r##"{ "ProbeA": { "$ref": "#/$defs/ProbeB" }, "ProbeB": { "$ref": "#/$defs/ProbeA" } }"##,
+    ));
+    assert!(message.contains("is a cycle of references"), "{message}");
+
+    // A keyed sequence's closed item reached through two references.
+    let mut document = with_defs(
+        r##"{ "ProbeColumn": { "$ref": "#/$defs/ProbeColumnAlias" },
+            "ProbeColumnAlias": { "$ref": "#/$defs/BoardColumn" } }"##,
+    );
+    set(
+        &mut document,
+        "/$defs/BoardDocument/properties/columns/items",
+        json(r##"{ "$ref": "#/$defs/ProbeColumn" }"##),
+    );
+    validate(document).expect("a closed item reached through aliases is a keyed sequence's item");
+}
+
+/// A member whose references end at the definition the other members' do is
+/// a value of it, whichever aliases each passes through.
+#[test]
+fn an_open_object_admits_a_member_reaching_its_other_members_type_through_aliases() {
+    validate(with_defs(
+        r##"{
+            "ProbeTarget": { "type": "object", "additionalProperties": false,
+                "properties": { "label": { "type": "string" } } },
+            "ProbeAlias": { "$ref": "#/$defs/ProbeTarget" },
+            "ProbeOpen": { "type": "object",
+                "properties": { "member": { "$ref": "#/$defs/ProbeAlias" } },
+                "additionalProperties": { "$ref": "#/$defs/ProbeTarget" } }
+        }"##,
+    ))
+    .expect("a member behind an alias of the other members' type is admitted");
+}
+
+/// A constant is a value of its schema only when it meets the schema's
+/// bounds; one that does not leaves the schema no values.
+#[test]
+fn a_constant_meets_its_bounds() {
+    for (schema, expected) in [
+        (
+            r#"{ "type": "string", "const": "x", "minLength": 2 }"#,
+            "$defs.ProbeConstant.const does not meet its minLength",
+        ),
+        (
+            r#"{ "type": "integer", "const": 1, "minimum": 2 }"#,
+            "$defs.ProbeConstant.const does not meet its minimum",
+        ),
+        (
+            r#"{ "type": ["string", "number"], "const": 9.5, "maximum": 9 }"#,
+            "$defs.ProbeConstant.const does not meet its maximum",
+        ),
+    ] {
+        assert_mentions(
+            &refusal(with_defs(&format!(r#"{{ "ProbeConstant": {schema} }}"#))),
+            &[expected],
+        );
+    }
+    for schema in [
+        r#"{ "type": "string", "const": "xy", "minLength": 2 }"#,
+        r#"{ "type": ["string", "integer"], "const": "x", "minimum": 2 }"#,
+    ] {
+        validate(with_defs(&format!(r#"{{ "ProbeConstant": {schema} }}"#)))
+            .unwrap_or_else(|error| panic!("{schema}: {error}"));
+    }
+}
+
+/// An enumerated member's values are those its own bounds leave it, for
+/// the other members' bounds; both bindings render every value it lists, so
+/// each is one of the other members' enumerated values.
+#[test]
+fn an_open_object_admits_an_enumerated_member_by_the_values_its_bounds_leave() {
+    validate(with_defs(&format!(
+        r#"{{ "ProbeOpen": {} }}"#,
+        open_object(
+            r#"{ "member": { "type": "string", "enum": ["a", "valid"], "minLength": 2 } }"#,
+            "[]",
+            r#"{ "type": "string", "minLength": 2 }"#,
+        )
+    )))
+    .expect("the member's bounds leave it only values of the other members");
+    assert_mentions(
+        &refusal(with_defs(&format!(
+            r#"{{ "ProbeOpen": {} }}"#,
+            open_object(
+                r#"{ "member": { "type": "string", "enum": ["a", "valid"], "minLength": 2 } }"#,
+                "[]",
+                r#"{ "type": "string", "enum": ["valid"] }"#,
+            )
+        ))),
+        &["$defs.ProbeOpen.properties.member is not a value"],
+    );
+}
+
+/// A member that lists its values is admitted by the type of those values,
+/// whatever wider type it declares.
+#[test]
+fn an_open_object_admits_a_listed_member_by_the_types_of_its_values() {
+    let probe = |member: &str| {
+        with_defs(&format!(
+            r#"{{ "ProbeOpen": {} }}"#,
+            open_object(
+                &format!(r#"{{ "member": {member} }}"#),
+                "[]",
+                r#"{ "type": "integer" }"#
+            )
+        ))
+    };
+    validate(probe(r#"{ "type": "number", "const": 1 }"#))
+        .expect("a number member whose one value is an integer");
+    assert_mentions(
+        &refusal(probe(r#"{ "type": "number", "const": 1.5 }"#)),
+        &["$defs.ProbeOpen.properties.member is not a value"],
+    );
+}
+
+/// A `default` beside a reference is a value of the schema its chain of
+/// references ends at.
+#[test]
+fn a_default_beside_a_reference_is_checked_at_the_end_of_its_chain() {
+    let probe = |default: &str| {
+        with_defs(&format!(
+            r##"{{
+                "ProbeTarget": {{ "type": "string", "enum": ["valid", "other"] }},
+                "ProbeAlias": {{ "$ref": "#/$defs/ProbeTarget" }},
+                "ProbeHolder": {{ "type": "object", "additionalProperties": false,
+                    "properties": {{ "level": {{ "$ref": "#/$defs/ProbeAlias", "default": {default} }} }} }}
+            }}"##
+        ))
+    };
+    validate(probe(r#""valid""#)).expect("a default of the aliased enum");
+    assert_mentions(
+        &refusal(probe(r#""nope""#)),
+        &["default must be one of the values its enum admits"],
+    );
+}
+
+/// An integer schema's bounds are the integers they leave: a fractional
+/// bound is its ceiling as a minimum and its floor as a maximum.
+#[test]
+fn an_open_object_compares_integer_bounds_by_the_integers_they_leave() {
+    let probe = |member: &str, other_members: &str| {
+        with_defs(&format!(
+            r#"{{ "ProbeOpen": {} }}"#,
+            open_object(&format!(r#"{{ "member": {member} }}"#), "[]", other_members)
+        ))
+    };
+    for (member, other_members) in [
+        (
+            r#"{ "type": "integer", "minimum": 1.1 }"#,
+            r#"{ "type": "integer", "minimum": 1.5 }"#,
+        ),
+        (
+            r#"{ "type": "integer", "minimum": 1.1 }"#,
+            r#"{ "type": "number", "minimum": 1.5 }"#,
+        ),
+        (
+            r#"{ "type": "integer", "maximum": 2.9 }"#,
+            r#"{ "type": "integer", "maximum": 2.5 }"#,
+        ),
+    ] {
+        validate(probe(member, other_members))
+            .unwrap_or_else(|error| panic!("{member} beside {other_members}: {error}"));
+    }
+    assert_mentions(
+        &refusal(probe(
+            r#"{ "type": "number", "minimum": 1.1 }"#,
+            r#"{ "type": "number", "minimum": 1.5 }"#,
+        )),
+        &["$defs.ProbeOpen.properties.member is not a value"],
+    );
+}
+
+/// TypeScript renders a constant member as its type and an enumerated one as
+/// its values, so beside enumerated other members only an enumerated member
+/// is assignable to them.
+#[test]
+fn a_constant_member_is_refused_beside_enumerated_other_members() {
+    assert_mentions(
+        &refusal(with_defs(&format!(
+            r#"{{ "ProbeOpen": {} }}"#,
+            open_object(
+                r#"{ "member": { "type": "string", "const": "x" } }"#,
+                "[]",
+                r#"{ "type": "string", "enum": ["x"] }"#,
+            )
+        ))),
+        &["$defs.ProbeOpen.properties.member is not a value"],
+    );
+}
+
+/// The Rust model holds an integer as an `i64`, so an integer constant is
+/// one; a union with a number member holds a wider one.
+#[test]
+fn an_integer_constant_is_an_i64() {
+    assert_mentions(
+        &refusal(with_defs(
+            r#"{ "ProbeConstant": { "type": "integer", "const": 1e20 } }"#,
+        )),
+        &["$defs.ProbeConstant.const must be an integer an i64 holds"],
+    );
+    validate(with_defs(
+        r#"{ "ProbeConstant": { "type": ["integer", "number"], "const": 1e20 } }"#,
+    ))
+    .expect("a union's number member holds the constant");
+    assert_mentions(
+        &refusal(with_defs(
+            r#"{ "ProbeConstant": { "type": ["integer", "string"], "const": 1e20 } }"#,
+        )),
+        &["$defs.ProbeConstant.const must be an integer an i64 holds"],
+    );
+}
+
+/// A field holding an object stores it whole, as `structuredJson` over that
+/// object's schema.
+#[test]
+fn a_field_holding_an_object_is_structured_json_over_its_schema() {
+    let mut document = notebook_document();
+    set(
+        &mut document,
+        "/collaboration/entities/Note/fields/appearance",
+        json(
+            r#"{ "storage": { "kind": "scalar", "container": "appearance", "key": "value" },
+            "value": { "codec": "string" }, "required": true, "conflict": "merge" }"#,
+        ),
+    );
+    assert_mentions(
+        &refusal(document),
+        &["collaboration.entities.Note.fields.appearance holds an object, so its codec is structuredJson over that object's schema"],
+    );
+
+    let mut document = notebook_document();
+    set(
+        &mut document,
+        "/collaboration/entities/Note/fields/appearance/value/schema",
+        json(r##"{ "$ref": "#/$defs/NoteExtras" }"##),
+    );
+    assert_mentions(
+        &refusal(document),
+        &["collaboration.entities.Note.fields.appearance holds an object, so its codec is structuredJson over that object's schema"],
+    );
+}
+
+/// Each value of a string enum is a Rust variant of its own.
+#[test]
+fn enum_values_generating_one_rust_variant_are_refused() {
+    for schema in [
+        r#"{ "ProbeLevel": { "type": "string", "enum": ["a-b", "a_b"] } }"#,
+        r#"{ "ProbeOpen": { "type": "object",
+            "properties": { "first": { "type": "string", "enum": ["a-b"] } },
+            "additionalProperties": { "type": "string", "enum": ["a-b", "a_b"] } } }"#,
+    ] {
+        assert_mentions(
+            &refusal(with_defs(schema)),
+            &["enum values \"a-b\" and \"a_b\" both generate the Rust variant AB"],
+        );
+    }
+}
+
+/// An enum whose bounds exclude every value it lists has no values.
+#[test]
+fn an_enum_with_no_value_within_its_bounds_is_refused() {
+    assert_mentions(
+        &refusal(with_defs(
+            r#"{ "ProbeLevel": { "type": "string", "enum": ["a"], "minLength": 2 } }"#,
+        )),
+        &["$defs.ProbeLevel.enum has no value that meets its bounds"],
+    );
+    assert_mentions(
+        &refusal(with_defs(&format!(
+            r#"{{ "ProbeOpen": {} }}"#,
+            open_object(
+                r#"{ "member": { "type": "string", "enum": ["a"], "minLength": 2 } }"#,
+                "[]",
+                r#"{ "type": "string" }"#,
+            )
+        ))),
+        &["$defs.ProbeOpen.properties.member.enum has no value that meets its bounds"],
+    );
+    validate(with_defs(
+        r#"{ "ProbeLevel": { "type": "string", "enum": ["a", "valid"], "minLength": 2 } }"#,
+    ))
+    .expect("an enum keeping a value within its bounds");
+}
+
+/// Whether a bound is an integer's is decided by a union's numeric types: a
+/// string alternative is not bounded.
+#[test]
+fn an_open_object_rounds_the_integer_bounds_of_a_mixed_union() {
+    validate(with_defs(&format!(
+        r##"{{ "ProbeOthers": {{ "type": ["number", "string"], "minimum": 1.5 }},
+            "ProbeOpen": {} }}"##,
+        open_object(
+            r#"{ "member": { "type": ["integer", "string"], "minimum": 1.1 } }"#,
+            "[]",
+            r##"{ "$ref": "#/$defs/ProbeOthers" }"##,
+        )
+    )))
+    .expect("the member's numbers begin at 2");
+}
+
+/// TypeScript renders a member by its declared types, its constant aside, so
+/// each declared type is one the other members admit.
+#[test]
+fn an_open_object_refuses_a_member_whose_declared_types_the_others_do_not_admit() {
+    assert_mentions(
+        &refusal(with_defs(&format!(
+            r##"{{ "ProbeChoice": {{ "type": ["integer", "string"], "const": 1 }},
+                "ProbeOpen": {} }}"##,
+            open_object(
+                r##"{ "member": { "$ref": "#/$defs/ProbeChoice" } }"##,
+                "[]",
+                r#"{ "type": "integer" }"#,
+            )
+        ))),
+        &["$defs.ProbeOpen.properties.member is not a value"],
+    );
 }

@@ -12,6 +12,52 @@ names the contracts.
   `additionalProperties`, as `BTreeMap<String, T>`, so a record serialises its keys in key order
   (#88). The model imports `BTreeMap`, and `clerkenwell-codegen` refuses a `$defs` entry that
   generates that name.
+- The generated Rust model re-exports `clerkenwell-schema`'s `OtherMembers`, `DeclaredMembers`,
+  `DeclaredMemberError`, `SchemaConstraint` and `SchemaConstraintValue` (#89), and
+  `clerkenwell-codegen` refuses a `$defs` entry that generates one of those names.
+- `clerkenwell-codegen` refuses:
+  - `required` on a record, and a tagged-union variant whose `additionalProperties` is a schema;
+  - `properties`, `additionalProperties` and `required` on a schema that is not an object, and
+    `items` on one that is not an array;
+  - a keyed sequence whose items are not closed objects;
+  - a `$defs` entry whose chain of references returns to itself;
+  - a primitive union's `minimum`, `maximum`, `minLength` or `const` that none of its types
+    admits;
+  - a `const` that does not meet its schema's bounds, and a numeric `const` an `i64` does not hold
+    where only an integer type holds it;
+  - a string enum two of whose values generate one Rust variant, or none of whose values meets
+    its bounds;
+  - a collaboration field holding an object whose codec is not `structuredJson` over that
+    object's schema, or `propertyText` for a closed object.
+
+### Added
+
+- An object schema may declare `properties` beside a typed `additionalProperties`: an open
+  object (#89). Each declared member must be a value of the `additionalProperties` schema. The
+  generated Rust struct holds the other members in a flattened `other_members:
+  OtherMembers<Self, T>`, which refuses a declared member's name and carries the other members'
+  validation keywords and `default` into the derived `schemars` schema, and the generated TypeScript
+  type declares the others with an index signature, whose values may be `undefined` as an optional
+  member's may. Schema imports carry the shape. A collaboration field stores an open object whole, and a collaborative
+  entity's schema is a closed object.
+
+### Fixed
+
+- Generated fixtures keep each value's `const`, meet its `minimum`, `maximum` and `minLength`,
+  and take an enum value, and a union member, that meets them; an integer fixture is one an `i64`
+  holds. Generation refuses a string schema whose `minLength` exceeds the 1048576 characters a
+  fixture string holds.
+- The schema derived for a `$defs` string enum or primitive union carries its validation keywords
+  and `default`.
+- The generated Rust model boxes a field whose type holds its own struct again without an
+  indirection, through an alias or another struct, and writes a numeric bound at the edge of `i64`
+  as the integer it is.
+- The generated Rust model writes its strings as Rust string literals, control characters
+  included, and each number as a literal of a type that holds it.
+- A `default` beside a reference is checked against the schema its chain of references ends at.
+- The generated Rust model declares the helper enum of an inline string enum within a property's
+  or record's array items and record values, at any depth, and each helper enum carries its
+  schema's validation keywords and `default`.
 
 ## 0.9.0
 

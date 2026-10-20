@@ -6,11 +6,11 @@ mod common;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use clerkenwell_codegen::testing::{normalized_document, Json, Object};
+use clerkenwell_codegen::testing::{self, normalized_document, Json, Object};
 use clerkenwell_codegen::{build_outputs, generate, Config, Definition, Error, Mode};
 use common::{
     copy_notebook, json, notebook_config, notebook_config_path, notebook_document, push, set,
-    validate,
+    validate, with_defs,
 };
 
 fn reversed(object: &Object) -> Object {
@@ -81,7 +81,61 @@ fn the_committed_example_outputs_pass_check() {
 fn generated_rust_satisfies_rustfmt() {
     let config = notebook_config();
     let definition = Definition::load(&config.definition).expect("valid");
-    let outputs = build_outputs(&definition, &config).expect("renders");
+    assert_rustfmt_clean(&definition, &config);
+}
+
+/// An open object's declared member names wrap as rustfmt wraps them inside
+/// the `impl` that lists them.
+#[test]
+fn an_open_object_with_many_declared_members_satisfies_rustfmt() {
+    let short = [
+        "alpha", "bravo", "charlie", "delta", "echo", "foxtrot", "golf", "hotel",
+    ];
+    let long = short.map(|name| format!("declared_member_{name}"));
+    let long: Vec<&str> = long.iter().map(String::as_str).collect();
+    for names in [&short[..], &long[..]] {
+        for count in 1..=names.len() {
+            assert_open_object_rustfmt_clean(&names[..count], r#"{ "type": "string" }"#);
+        }
+    }
+}
+
+/// An open object's other-member constraints are laid out as rustfmt lays
+/// them out.
+#[test]
+fn an_open_object_with_constrained_other_members_satisfies_rustfmt() {
+    for other_members in [
+        r#"{ "type": "string", "minLength": 2 }"#,
+        r#"{ "type": "string", "minLength": 2, "const": "a-rather-long-constant-value" }"#,
+        r#"{ "type": "array", "items": { "type": "string" }, "default": ["a", "b"] }"#,
+        r#"{ "type": "array", "items": { "type": "array",
+            "items": { "type": "string", "minLength": 2 } } }"#,
+    ] {
+        assert_open_object_rustfmt_clean(&[], other_members);
+    }
+}
+
+/// `names` declared as members beside `other_members`; with no names, one
+/// member of the other members' own schema.
+fn assert_open_object_rustfmt_clean(names: &[&str], other_members: &str) {
+    let mut properties: Vec<String> = names
+        .iter()
+        .map(|name| format!(r#""{name}": {{ "type": "string" }}"#))
+        .collect();
+    if properties.is_empty() {
+        properties.push(format!(r#""member": {other_members}"#));
+    }
+    let document = with_defs(&format!(
+        r#"{{ "ProbeOpen": {{ "type": "object", "properties": {{ {} }},
+            "additionalProperties": {other_members} }} }}"#,
+        properties.join(", ")
+    ));
+    let definition = testing::definition(document).expect("valid");
+    assert_rustfmt_clean(&definition, &notebook_config());
+}
+
+fn assert_rustfmt_clean(definition: &Definition, config: &Config) {
+    let outputs = build_outputs(definition, config).expect("renders");
     let directory = tempfile::tempdir().expect("a temporary directory");
     let path = directory.path().join("model.rs");
     std::fs::write(&path, &outputs.rust_model).expect("written");
@@ -603,4 +657,500 @@ fn the_configured_header_and_command_open_every_generated_code_file() {
             "{opening}"
         );
     }
+}
+
+/// Every helper enum the Rust model names is declared: an inline string enum
+/// as a record's values, as an open object's other members, and as the
+/// values of a record-valued property, directly or within arrays and records
+/// at any depth.
+#[test]
+fn the_enum_of_an_inline_typed_value_is_declared() {
+    let document = with_defs(
+        r#"{
+            "ProbeRecord": { "type": "object",
+                "additionalProperties": { "type": "string", "enum": ["low", "high"] } },
+            "ProbeOpen": { "type": "object",
+                "properties": { "level": { "type": "string", "enum": ["low"] } },
+                "additionalProperties": { "type": "string", "enum": ["low", "high"] } },
+            "ProbeHolder": { "type": "object", "additionalProperties": false,
+                "properties": { "labels": { "type": "object",
+                    "additionalProperties": { "type": "string", "enum": ["low", "high"] } },
+                    "grid": { "type": "array", "items": { "type": "object",
+                        "additionalProperties": { "type": "array",
+                            "items": { "type": "string", "enum": ["low", "high"] } } } } } },
+            "ProbeOpenList": { "type": "object",
+                "properties": { "levels": { "type": "array",
+                    "items": { "type": "string", "enum": ["low"] } } },
+                "additionalProperties": { "type": "array",
+                    "items": { "type": "string", "enum": ["low", "high"] } } },
+            "ProbeRecordGrid": { "type": "object",
+                "additionalProperties": { "type": "object",
+                    "additionalProperties": { "type": "string", "enum": ["low", "high"] } } }
+        }"#,
+    );
+    let definition = testing::definition(document).expect("valid");
+    let rust = build_outputs(&definition, &notebook_config())
+        .expect("renders")
+        .rust_model;
+    for (named, declared) in [
+        (
+            "BTreeMap<String, ProbeRecordValue>",
+            "pub enum ProbeRecordValue {",
+        ),
+        (
+            "OtherMembers<ProbeOpen, ProbeOpenOtherMembers>",
+            "pub enum ProbeOpenOtherMembers {",
+        ),
+        (
+            "BTreeMap<String, ProbeHolderLabels>",
+            "pub enum ProbeHolderLabels {",
+        ),
+        (
+            "Vec<BTreeMap<String, Vec<ProbeHolderGrid>>>",
+            "pub enum ProbeHolderGrid {",
+        ),
+        (
+            "OtherMembers<ProbeOpenList, Vec<ProbeOpenListOtherMembers>>",
+            "pub enum ProbeOpenListOtherMembers {",
+        ),
+        (
+            "BTreeMap<String, BTreeMap<String, ProbeRecordGridValue>>",
+            "pub enum ProbeRecordGridValue {",
+        ),
+    ] {
+        assert!(rust.contains(named), "{named} is not named:\n{rust}");
+        assert!(rust.contains(declared), "{declared} is not declared");
+    }
+}
+
+/// Every object in `value`, at any depth, that holds `member`.
+fn objects_holding<'a>(
+    value: &'a serde_json::Value,
+    member: &str,
+    found: &mut Vec<&'a serde_json::Value>,
+) {
+    match value {
+        serde_json::Value::Object(object) => {
+            if object.contains_key(member) {
+                found.push(value);
+            }
+            object
+                .values()
+                .for_each(|value| objects_holding(value, member, found));
+        }
+        serde_json::Value::Array(items) => items
+            .iter()
+            .for_each(|item| objects_holding(item, member, found)),
+        _ => {}
+    }
+}
+
+/// A contract fixture is a value of its definition: a sample honours the
+/// constraints of each member it holds, an open object's other members
+/// included, a union's sample is of a member its constraints leave values
+/// of, and an open object whose other members are of its own type has a
+/// finite sample.
+#[test]
+fn contract_fixtures_honour_constraints_and_recursive_open_objects() {
+    let mut document = with_defs(
+        r##"{
+            "ProbeTree": { "type": "object",
+                "properties": { "child": { "$ref": "#/$defs/ProbeTree" } },
+                "additionalProperties": { "$ref": "#/$defs/ProbeTree" } },
+            "ProbeConstrained": { "type": "object",
+                "properties": {
+                    "count": { "type": "integer", "minimum": 12, "maximum": 20 },
+                    "code": { "type": "string", "minLength": 12 },
+                    "long": { "type": "string", "minLength": 200000 },
+                    "mode": { "type": "string", "const": "fixed" },
+                    "ratio": { "type": "number", "minimum": 12.5, "maximum": 13 }
+                },
+                "required": ["count", "code", "mode", "ratio", "long"],
+                "additionalProperties": { "$ref": "#/$defs/ProbeScalar" } },
+            "ProbeScalar": { "type": ["integer", "string", "number"], "minimum": 10 },
+            "ProbeLevel": { "type": "string", "enum": ["a", "valid"], "minLength": 2 },
+            "ProbeFraction": { "type": ["integer", "number"], "minimum": 0.1, "maximum": 0.2 },
+            "ProbeLevels": { "type": "object",
+                "properties": { "first": { "$ref": "#/$defs/ProbeLevel" } },
+                "required": ["first"],
+                "additionalProperties": { "$ref": "#/$defs/ProbeLevel" } }
+        }"##,
+    );
+    set(
+        &mut document,
+        "/$defs/NoteSummary/properties/tree",
+        json(r##"{ "$ref": "#/$defs/ProbeTree" }"##),
+    );
+    set(
+        &mut document,
+        "/$defs/NoteSummary/properties/constrained",
+        json(r##"{ "$ref": "#/$defs/ProbeConstrained" }"##),
+    );
+    push(
+        &mut document,
+        "/$defs/NoteSummary/required",
+        json(r#""tree""#),
+    );
+    push(
+        &mut document,
+        "/$defs/NoteSummary/required",
+        json(r#""constrained""#),
+    );
+    set(
+        &mut document,
+        "/$defs/NoteSummary/properties/levels",
+        json(r##"{ "$ref": "#/$defs/ProbeLevels" }"##),
+    );
+    push(
+        &mut document,
+        "/$defs/NoteSummary/required",
+        json(r#""levels""#),
+    );
+    set(
+        &mut document,
+        "/$defs/NoteSummary/properties/fraction",
+        json(r##"{ "$ref": "#/$defs/ProbeFraction" }"##),
+    );
+    push(
+        &mut document,
+        "/$defs/NoteSummary/required",
+        json(r#""fraction""#),
+    );
+    let definition = testing::definition(document).expect("valid");
+    let outputs = build_outputs(&definition, &notebook_config()).expect("renders");
+    let fixtures: serde_json::Value =
+        serde_json::from_str(&outputs.contract_fixtures).expect("fixtures are JSON");
+
+    let mut constrained = Vec::new();
+    objects_holding(&fixtures, "ratio", &mut constrained);
+    assert!(!constrained.is_empty(), "no sample of ProbeConstrained");
+    for sample in constrained {
+        let count = sample["count"].as_f64().expect("an integer count");
+        assert!(
+            (12.0..=20.0).contains(&count) && count.fract() == 0.0,
+            "{sample}"
+        );
+        assert!(
+            sample["code"].as_str().expect("a code").chars().count() >= 12,
+            "{sample}"
+        );
+        assert!(
+            sample["long"]
+                .as_str()
+                .expect("a long string")
+                .chars()
+                .count()
+                >= 200_000,
+            "a long string is too short"
+        );
+        assert_eq!(sample["mode"], "fixed");
+        let ratio = sample["ratio"].as_f64().expect("a ratio");
+        assert!((12.5..=13.0).contains(&ratio), "{sample}");
+        for (name, value) in sample.as_object().expect("an object") {
+            if ["count", "code", "mode", "ratio", "long"].contains(&name.as_str()) {
+                continue;
+            }
+            if let Some(number) = value.as_f64() {
+                assert!(number >= 10.0, "{name} is below the minimum in {sample}");
+            }
+        }
+    }
+
+    let mut fractions = Vec::new();
+    objects_holding(&fixtures, "fraction", &mut fractions);
+    assert!(!fractions.is_empty(), "no sample of ProbeFraction");
+    for holder in fractions {
+        let fraction = holder["fraction"].as_f64().expect("a number");
+        assert!((0.1..=0.2).contains(&fraction), "{holder}");
+    }
+
+    let mut levels = Vec::new();
+    objects_holding(&fixtures, "first", &mut levels);
+    assert!(!levels.is_empty(), "no sample of ProbeLevels");
+    for sample in levels {
+        for (name, value) in sample.as_object().expect("an object") {
+            assert_eq!(value, "valid", "{name} in {sample}");
+        }
+    }
+
+    let mut trees = Vec::new();
+    objects_holding(&fixtures, "tree", &mut trees);
+    assert!(trees.iter().all(|holder| holder["tree"].is_object()));
+}
+
+/// A named string enum's validation keywords are attributes of its type, so
+/// the schema derived for each use of it carries them.
+#[test]
+fn a_named_enum_carries_its_constraints() {
+    let document = with_defs(
+        r#"{ "ProbeLevel": { "type": "string", "enum": ["low", "high"], "minLength": 3 } }"#,
+    );
+    let definition = testing::definition(document).expect("valid");
+    let rust = build_outputs(&definition, &notebook_config())
+        .expect("renders")
+        .rust_model;
+    assert!(
+        rust.contains("#[schemars(extend(\"minLength\" = 3))]\npub enum ProbeLevel {"),
+        "{rust}"
+    );
+}
+
+/// A `default` beside an open object's reference to its other members' type
+/// is among its other-member constraints: the referenced type carries only
+/// its own.
+#[test]
+fn a_default_beside_an_other_members_reference_is_a_constraint() {
+    let document = with_defs(
+        r##"{
+            "ProbeLevel": { "type": "string", "enum": ["low", "high"] },
+            "ProbeOpen": { "type": "object",
+                "properties": { "first": { "$ref": "#/$defs/ProbeLevel" } },
+                "additionalProperties": { "$ref": "#/$defs/ProbeLevel", "default": "high" } }
+        }"##,
+    );
+    let definition = testing::definition(document).expect("valid");
+    let rust = build_outputs(&definition, &notebook_config())
+        .expect("renders")
+        .rust_model;
+    let declared = rust
+        .split("impl DeclaredMembers for ProbeOpen {")
+        .nth(1)
+        .and_then(|rest| rest.split("\n}\n").next())
+        .expect("ProbeOpen declares its members");
+    assert!(declared.contains(r#"keyword: "default","#), "{declared}");
+    assert!(
+        declared.contains(r#"value: SchemaConstraintValue::String("high"),"#),
+        "{declared}"
+    );
+}
+
+/// A helper enum carries the validation keywords and default of the schema
+/// it was declared from, so a record's or an open object's values derive
+/// them though no field attribute reaches them.
+#[test]
+fn a_helper_enum_carries_its_schema_constraints() {
+    let document = with_defs(
+        r#"{ "ProbeRecord": { "type": "object", "additionalProperties":
+            { "type": "string", "enum": ["low", "high"], "minLength": 3, "default": "low" } } }"#,
+    );
+    let definition = testing::definition(document).expect("valid");
+    let rust = build_outputs(&definition, &notebook_config())
+        .expect("renders")
+        .rust_model;
+    assert!(
+        rust.contains(
+            "#[schemars(extend(\"default\" = \"low\"), extend(\"minLength\" = 3))]\npub enum ProbeRecordValue {"
+        ),
+        "{rust}"
+    );
+}
+
+/// A fixture holds a string of at most 2^20 characters; generation refuses a
+/// schema whose minLength asks for more rather than allocate it.
+#[test]
+fn a_fixture_string_longer_than_a_fixture_holds_is_refused() {
+    for min_length in ["1048577", "1e100"] {
+        let mut document = notebook_document();
+        set(
+            &mut document,
+            "/$defs/NoteSummary/properties/title/minLength",
+            json(min_length),
+        );
+        let definition = testing::definition(document).expect("valid");
+        match build_outputs(&definition, &notebook_config()) {
+            Err(Error::Definition(message)) => assert!(
+                message.contains("minLength exceeds the 1048576 characters a fixture string holds"),
+                "{message}"
+            ),
+            other => panic!("minLength {min_length}: expected a refusal, got {other:?}"),
+        }
+    }
+}
+
+/// The Rust type of a field that can reach its own struct again without an
+/// indirection is boxed, whether it names the struct, an alias of it, or a
+/// struct that refers back; other members are held in a map already.
+#[test]
+fn a_field_reaching_its_own_type_is_boxed() {
+    let document = with_defs(
+        r##"{
+            "ProbeNode": { "type": "object", "additionalProperties": false,
+                "properties": { "child": { "$ref": "#/$defs/ProbeNodeAlias" } } },
+            "ProbeNodeAlias": { "$ref": "#/$defs/ProbeNode" },
+            "ProbeLeft": { "type": "object", "additionalProperties": false,
+                "properties": { "right": { "$ref": "#/$defs/ProbeRight" } } },
+            "ProbeRight": { "type": "object", "additionalProperties": false,
+                "properties": { "left": { "$ref": "#/$defs/ProbeLeft" } } },
+            "ProbeTree": { "type": "object",
+                "properties": { "child": { "$ref": "#/$defs/ProbeTreeAlias" } },
+                "additionalProperties": { "$ref": "#/$defs/ProbeTree" } },
+            "ProbeTreeAlias": { "$ref": "#/$defs/ProbeTree" }
+        }"##,
+    );
+    let definition = testing::definition(document).expect("valid");
+    let rust = build_outputs(&definition, &notebook_config())
+        .expect("renders")
+        .rust_model;
+    for field in [
+        "pub child: Option<Box<ProbeNodeAlias>>,",
+        "pub right: Option<Box<ProbeRight>>,",
+        "pub left: Option<Box<ProbeLeft>>,",
+        "pub child: Option<Box<ProbeTreeAlias>>,",
+        "pub other_members: OtherMembers<ProbeTree, ProbeTree>,",
+    ] {
+        assert!(rust.contains(field), "{field} is not generated");
+    }
+}
+
+/// An integer constraint at the edge of `i64` is written as the integer it
+/// is, so the generated literal compiles.
+#[test]
+fn an_integer_constraint_at_the_i64_boundary_is_exact() {
+    let document = with_defs(
+        r#"{ "ProbeOpen": { "type": "object",
+            "properties": { "member": { "type": "integer", "minimum": -9223372036854775808 } },
+            "additionalProperties": { "type": "integer", "minimum": -9223372036854775808 } } }"#,
+    );
+    let definition = testing::definition(document).expect("valid");
+    let rust = build_outputs(&definition, &notebook_config())
+        .expect("renders")
+        .rust_model;
+    assert!(
+        rust.contains("SchemaConstraintValue::Integer(-9223372036854775808)"),
+        "{rust}"
+    );
+    assert!(
+        rust.contains(r#"extend("minimum" = -9223372036854775808i64)"#),
+        "the field bound is not exact"
+    );
+}
+
+/// A string the Rust model writes is a Rust string literal, control
+/// characters included.
+#[test]
+fn a_control_character_in_a_generated_string_is_a_rust_escape() {
+    let document = with_defs(
+        r#"{
+            "ProbeOpen": { "type": "object",
+                "properties": { "member": { "type": "string", "const": "\u0008x" } },
+                "additionalProperties": { "type": "string", "const": "\u0008x",
+                    "default": "\u0008x" } },
+            "ProbeUnion": { "type": ["string", "integer"], "default": "\u000c" },
+            "ProbeHolder": { "type": "object", "additionalProperties": false,
+                "properties": { "label": { "type": "string", "default": "\u0008" } } }
+        }"#,
+    );
+    let definition = testing::definition(document).expect("valid");
+    assert_rustfmt_clean(&definition, &notebook_config());
+}
+
+/// The Rust model holds a JSON Schema integer as an `i64`, so an integer
+/// fixture is one: generation refuses an integer schema whose bounds leave
+/// it none, and a union samples another member instead.
+#[test]
+fn an_integer_fixture_is_an_i64() {
+    let mut document =
+        with_defs(r#"{ "ProbeWide": { "type": ["integer", "number"], "minimum": 1e19 } }"#);
+    set(
+        &mut document,
+        "/$defs/NoteSummary/properties/wide",
+        json(r##"{ "$ref": "#/$defs/ProbeWide" }"##),
+    );
+    push(
+        &mut document,
+        "/$defs/NoteSummary/required",
+        json(r#""wide""#),
+    );
+    let definition = testing::definition(document).expect("valid");
+    let outputs = build_outputs(&definition, &notebook_config()).expect("renders");
+    let fixtures: serde_json::Value =
+        serde_json::from_str(&outputs.contract_fixtures).expect("fixtures are JSON");
+    let mut wide = Vec::new();
+    objects_holding(&fixtures, "wide", &mut wide);
+    assert!(!wide.is_empty(), "no sample of ProbeWide");
+    for holder in wide {
+        assert!(
+            holder["wide"].as_f64().expect("a number") >= 1e19,
+            "{holder}"
+        );
+    }
+
+    let mut document = notebook_document();
+    set(
+        &mut document,
+        "/$defs/NoteSummary/properties/huge",
+        json(r#"{ "type": "integer", "minimum": 1e19 }"#),
+    );
+    push(
+        &mut document,
+        "/$defs/NoteSummary/required",
+        json(r#""huge""#),
+    );
+    let definition = testing::definition(document).expect("valid");
+    match build_outputs(&definition, &notebook_config()) {
+        Err(Error::Definition(message)) => {
+            assert!(
+                message.contains("admit no integer an i64 holds"),
+                "{message}"
+            )
+        }
+        other => panic!("expected a refusal, got {other:?}"),
+    }
+}
+
+/// A number the Rust model writes is a literal of a type that holds it: an
+/// integer within `i32` as written, within `i64` suffixed, and beyond as a
+/// float.
+#[test]
+fn a_generated_number_is_a_literal_of_a_type_that_holds_it() {
+    let document = with_defs(
+        r#"{
+            "ProbeSmall": { "type": ["integer", "number"], "default": 7 },
+            "ProbeWide": { "type": ["integer", "number"], "default": 10000000000 },
+            "ProbeHuge": { "type": ["integer", "number"], "default": 1e20, "minimum": 1e20 },
+            "ProbeFraction": { "type": ["integer", "number"], "default": 2.5 }
+        }"#,
+    );
+    let definition = testing::definition(document).expect("valid");
+    let rust = build_outputs(&definition, &notebook_config())
+        .expect("renders")
+        .rust_model;
+    for literal in [
+        r#"extend("default" = 7)"#,
+        r#"extend("default" = 10000000000i64)"#,
+        r#"extend("default" = 1e20), extend("minimum" = 1e20)"#,
+        r#"extend("default" = 2.5)"#,
+    ] {
+        assert!(rust.contains(literal), "{literal} is not generated");
+    }
+}
+
+/// A referenced record renders as a map alias, which carries no constraint,
+/// so its values' constraints are among the other members' constraints.
+#[test]
+fn a_referenced_record_s_value_constraints_are_other_member_constraints() {
+    let document = with_defs(
+        r##"{
+            "ProbeRecord": { "type": "object",
+                "additionalProperties": { "type": "string", "minLength": 2 } },
+            "ProbeOpen": { "type": "object",
+                "properties": { "first": { "$ref": "#/$defs/ProbeRecord" } },
+                "additionalProperties": { "$ref": "#/$defs/ProbeRecord" } }
+        }"##,
+    );
+    let definition = testing::definition(document).expect("valid");
+    let rust = build_outputs(&definition, &notebook_config())
+        .expect("renders")
+        .rust_model;
+    let declared = rust
+        .split("impl DeclaredMembers for ProbeOpen {")
+        .nth(1)
+        .and_then(|rest| rest.split("\n}\n").next())
+        .expect("ProbeOpen declares its members");
+    assert!(
+        declared.contains(r#"path: &["additionalProperties"],"#)
+            && declared.contains(r#"keyword: "minLength","#)
+            && declared.contains("value: SchemaConstraintValue::Integer(2),"),
+        "{declared}"
+    );
 }

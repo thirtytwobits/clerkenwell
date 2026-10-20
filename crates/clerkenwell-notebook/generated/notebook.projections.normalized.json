@@ -323,6 +323,21 @@
         },
         "fields": [
           {
+            "conflict": "merge",
+            "path": "appearance",
+            "required": true,
+            "storage": {
+              "container": "appearance",
+              "kind": "structuredMap"
+            },
+            "value": {
+              "codec": "structuredJson",
+              "schema": {
+                "$ref": "#/$defs/NoteAppearance"
+              }
+            }
+          },
+          {
             "conflict": "explicit",
             "path": "archived_at",
             "required": false,
@@ -1128,6 +1143,32 @@
       "type": "object"
     },
     {
+      "additionalProperties": {
+        "default": "plain",
+        "minLength": 1,
+        "type": "string"
+      },
+      "description": "A theme and accent, and any other appearance settings, each a non-empty string.",
+      "name": "NoteAppearance",
+      "properties": {
+        "accent": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "theme": {
+          "enum": [
+            "light",
+            "dark"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "theme"
+      ],
+      "type": "object"
+    },
+    {
       "additionalProperties": false,
       "name": "NoteAuthoringParams",
       "properties": {
@@ -1259,6 +1300,9 @@
       "additionalProperties": false,
       "name": "NoteDocument",
       "properties": {
+        "appearance": {
+          "$ref": "#/$defs/NoteAppearance"
+        },
         "archived_at": {
           "type": "string"
         },
@@ -1349,6 +1393,7 @@
         "properties",
         "layout",
         "extras",
+        "appearance",
         "meta"
       ],
       "type": "object"
@@ -1649,7 +1694,8 @@
       "type": "object"
     },
     {
-      "description": "A count or a measure.",
+      "description": "A count or a measure, never negative.",
+      "minimum": 0,
       "name": "Quantity",
       "type": [
         "integer",

@@ -54,6 +54,10 @@
         "extras": {
           "extras-key": "extras-value"
         },
+        "appearance": {
+          "theme": "light",
+          "other-member": "other-member-value"
+        },
         "meta": {
           "owner": "meta-owner-value",
           "reviewer": "meta-reviewer-value"

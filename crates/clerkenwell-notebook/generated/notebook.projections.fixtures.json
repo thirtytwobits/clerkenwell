@@ -351,7 +351,7 @@
       "snapshot": {
         "projection": "workspace.current",
         "value": {
-          "scope": "fixture",
+          "scope": "workspace",
           "revision": "fixture",
           "theme": "light",
           "shortcuts": {},
@@ -365,7 +365,7 @@
             "projection": "workspace.current",
             "value": {
               "kind": "reset",
-              "scope": "fixture",
+              "scope": "workspace",
               "revision": "fixture",
               "theme": "light",
               "shortcuts": {},
@@ -373,7 +373,7 @@
             }
           },
           "expectedSnapshot": {
-            "scope": "fixture",
+            "scope": "workspace",
             "revision": "fixture",
             "theme": "light",
             "shortcuts": {},

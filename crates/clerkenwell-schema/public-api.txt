@@ -1,5 +1,5 @@
 # The public API of clerkenwell_schema. Written by `cargo run -p clerkenwell-public-api`.
-# Types named from: clerkenwell_events
+# Types named from: clerkenwell_events, schemars, serde
 
 use clerkenwell_schema::ActorKind = clerkenwell_events::ActorKind
 struct clerkenwell_schema::AuthoringPeerBlock
@@ -30,6 +30,14 @@ enum clerkenwell_schema::CollaborationExchangeMode
 derive clerkenwell_schema::CollaborationExchangeMode: Clone, Copy, Debug, Deserialize, Eq, JsonSchema, PartialEq, Serialize
 variant clerkenwell_schema::CollaborationExchangeMode::Bootstrap
 variant clerkenwell_schema::CollaborationExchangeMode::Incremental
+struct clerkenwell_schema::DeclaredMemberError { .. }
+derive clerkenwell_schema::DeclaredMemberError: Clone, Debug, Eq, PartialEq
+impl fmt::Display for clerkenwell_schema::DeclaredMemberError
+impl std::error::Error for clerkenwell_schema::DeclaredMemberError
+fn clerkenwell_schema::DeclaredMemberError::name(&self) -> &str
+trait clerkenwell_schema::DeclaredMembers
+const clerkenwell_schema::DeclaredMembers::DECLARED_MEMBERS: &'static [&'static str]
+const clerkenwell_schema::DeclaredMembers::OTHER_MEMBER_CONSTRAINTS: &'static [SchemaConstraint]
 enum clerkenwell_schema::GeneratedAuthoringPolicyKind
 derive clerkenwell_schema::GeneratedAuthoringPolicyKind: Clone, Copy, Debug, Eq, PartialEq
 variant clerkenwell_schema::GeneratedAuthoringPolicyKind::Collaborative
@@ -137,3 +145,32 @@ struct clerkenwell_schema::GeneratedWriterConflict
 derive clerkenwell_schema::GeneratedWriterConflict: Clone, Copy, Debug, Eq, PartialEq
 field clerkenwell_schema::GeneratedWriterConflict::conflict: GeneratedCollaborationConflict
 field clerkenwell_schema::GeneratedWriterConflict::kind: ActorKind
+struct clerkenwell_schema::OtherMembers<Owner, V> { .. }
+impl<Owner, V: Clone> impl Clone for clerkenwell_schema::OtherMembers<Owner, V>
+impl<Owner, V> impl Default for clerkenwell_schema::OtherMembers<Owner, V>
+impl<Owner, V> impl Deref for clerkenwell_schema::OtherMembers<Owner, V>
+impl<'de, Owner: DeclaredMembers, V: Deserialize<'de>> impl Deserialize<'de> for clerkenwell_schema::OtherMembers<Owner, V>
+impl<Owner, V: Eq> impl Eq for clerkenwell_schema::OtherMembers<Owner, V>
+impl<Owner, V> impl IntoIterator for clerkenwell_schema::OtherMembers<Owner, V>
+impl<Owner: DeclaredMembers, V: JsonSchema> impl JsonSchema for clerkenwell_schema::OtherMembers<Owner, V>
+impl<Owner, V: PartialEq> impl PartialEq for clerkenwell_schema::OtherMembers<Owner, V>
+impl<Owner, V: Serialize> impl Serialize for clerkenwell_schema::OtherMembers<Owner, V>
+impl<Owner: DeclaredMembers, V> impl TryFrom<BTreeMap<String, V>> for clerkenwell_schema::OtherMembers<Owner, V>
+impl<Owner, V: fmt::Debug> impl fmt::Debug for clerkenwell_schema::OtherMembers<Owner, V>
+impl<Owner, V> fn clerkenwell_schema::OtherMembers::get_mut(&mut self, name: &str) -> Option<&mut V>
+impl<Owner: DeclaredMembers, V> fn clerkenwell_schema::OtherMembers::insert(&mut self, name: impl Into<String>, value: V) -> Result<Option<V>, DeclaredMemberError>
+impl<Owner, V> fn clerkenwell_schema::OtherMembers::into_map(self) -> BTreeMap<String, V>
+impl<Owner, V> fn clerkenwell_schema::OtherMembers::new() -> Self
+impl<Owner, V> fn clerkenwell_schema::OtherMembers::remove(&mut self, name: &str) -> Option<V>
+struct clerkenwell_schema::SchemaConstraint
+derive clerkenwell_schema::SchemaConstraint: Clone, Copy, Debug, PartialEq
+field clerkenwell_schema::SchemaConstraint::keyword: &'static str
+field clerkenwell_schema::SchemaConstraint::path: &'static [&'static str]
+field clerkenwell_schema::SchemaConstraint::value: SchemaConstraintValue
+enum clerkenwell_schema::SchemaConstraintValue
+derive clerkenwell_schema::SchemaConstraintValue: Clone, Copy, Debug, PartialEq
+variant clerkenwell_schema::SchemaConstraintValue::Boolean(bool)
+variant clerkenwell_schema::SchemaConstraintValue::Integer(i64)
+variant clerkenwell_schema::SchemaConstraintValue::Json(&'static str)
+variant clerkenwell_schema::SchemaConstraintValue::Number(f64)
+variant clerkenwell_schema::SchemaConstraintValue::String(&'static str)

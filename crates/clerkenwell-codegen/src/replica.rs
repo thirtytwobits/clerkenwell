@@ -13,7 +13,7 @@ use crate::definition::{CollaborationEntity, CollaborationField, Definition};
 use crate::error::Result;
 use crate::json::Object;
 use crate::schema::{has_type, object_at};
-use crate::validate::{collaboration_path_presence, dereference};
+use crate::validate::{addressable_members, collaboration_path_presence, dereference};
 
 /// Whether a replica may hold a document without the field.
 fn materialised_optionally(field: &CollaborationField) -> bool {
@@ -87,10 +87,7 @@ fn fieldless_objects(
     found: &mut IndexSet<String>,
 ) -> Result<()> {
     let schema = dereference(definition, raw_schema)?;
-    let Some(properties) = has_type(schema, "object")
-        .then(|| object_at(schema, "properties"))
-        .flatten()
-    else {
+    let Some(properties) = addressable_members(schema) else {
         return Ok(());
     };
     for (member, member_schema) in properties.iter() {

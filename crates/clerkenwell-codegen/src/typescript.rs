@@ -7,8 +7,8 @@ use crate::json::{number_to_string, string_literal, Json, Object};
 use crate::names::{name_constant_identifier, pascal_identifier};
 use crate::replica::optional_paths;
 use crate::schema::{
-    object_at, primitive_union_types, read_string_array, schema_ref_type_name,
-    stringify_or_undefined,
+    object_at, other_members_schema, primitive_union_types, read_string_array,
+    record_values_schema, schema_ref_type_name, stringify_or_undefined,
 };
 
 /// The generated-file header as a block comment, without a trailing newline.
@@ -487,7 +487,7 @@ fn schema_to_typescript(schema: &Object) -> Result<String> {
     let schema_type = schema.get("type");
     match schema_type.and_then(Json::as_str) {
         Some("object") => {
-            if let Some(additional) = object_at(schema, "additionalProperties") {
+            if let Some(additional) = record_values_schema(schema) {
                 return Ok(format!(
                     "Record<string, {}>",
                     schema_to_typescript(additional)?
@@ -517,6 +517,14 @@ fn schema_to_typescript(schema: &Object) -> Result<String> {
                     "  {}{optional}: {};",
                     string_literal(property_name),
                     schema_to_typescript(property_schema)?
+                ));
+            }
+            // An other member may be `undefined`, as an optional declared
+            // member may: JSON leaves out both.
+            if let Some(additional) = other_members_schema(schema) {
+                fields.push(format!(
+                    "  [member: string]: {} | undefined;",
+                    schema_to_typescript(additional)?
                 ));
             }
             Ok(format!("{{\n{}\n}}", fields.join("\n")))

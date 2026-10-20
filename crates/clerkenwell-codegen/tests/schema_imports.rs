@@ -128,3 +128,35 @@ fn reference_annotations_preserve_defaults_and_validate_the_referenced_type() {
     fs::write(&path, imported.to_string()).unwrap();
     assert!(Definition::load_with_schemas(&config.definition, &[path]).is_err());
 }
+
+/// An imported object with declared members and other members of any value is
+/// an open object in both bindings.
+#[test]
+fn imports_an_object_with_declared_and_other_members() {
+    let directory = tempfile::tempdir().unwrap();
+    let schema = directory.path().join("shared.schema.json");
+    fs::write(
+        &schema,
+        json!({"$defs": {
+            "SharedInput": {"type": "object", "required": ["type"], "properties": {
+                "type": {"type": "string", "enum": ["object"]}
+            }, "additionalProperties": true}
+        }})
+        .to_string(),
+    )
+    .unwrap();
+    let mut config = common::notebook_config();
+    config.schema_imports = vec![schema];
+    let definition =
+        Definition::load_with_schemas(&config.definition, &config.schema_imports).unwrap();
+    let outputs = build_outputs(&definition, &config).unwrap();
+    assert!(outputs
+        .rust_model
+        .contains("pub other_members: OtherMembers<SharedInput, JsonValue>,"));
+    assert!(outputs
+        .rust_model
+        .contains("impl DeclaredMembers for SharedInput {"));
+    assert!(outputs.typescript_model.contains(
+        "export type SharedInput = {\n  \"type\": \"object\";\n  [member: string]: unknown | undefined;\n};"
+    ));
+}

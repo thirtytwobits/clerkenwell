@@ -1,19 +1,22 @@
 //! The Rust model module: serde types for every `$defs` entry, dispatch enums,
 //! and the registry and collaboration plan constants.
 
+use std::collections::HashSet;
+
 use crate::config::Project;
 use crate::definition::{Definition, Materialization};
 use crate::error::{refuse, Result};
 use crate::expand::SHARED;
-use crate::json::{number_to_string, string_literal, Json, Object};
+use crate::json::{number_to_string, Json, Object};
 use crate::layout::{self, Expr};
 use crate::names::{
     constant_name, name_constant_identifier, pascal_identifier, rust_field_identifier,
     rust_property_enum_name, utf16_len,
 };
 use crate::schema::{
-    has_type, object_at, primitive_union_types, read_string_array, ref_string,
-    schema_ref_type_name, stringify_or_undefined,
+    has_type, object_at, other_members_schema, primitive_union_types, read_string_array,
+    record_values_schema, ref_string, schema_ref_name, schema_ref_type_name,
+    stringify_or_undefined,
 };
 
 /// A helper enum generated for a string-enum property.
@@ -23,6 +26,9 @@ pub(crate) struct RustPropertyEnum {
     pub def: String,
     pub source: String,
     pub values: Vec<String>,
+    /// The string enum's schema, whose validation keywords and default the
+    /// enum carries.
+    pub schema: Object,
 }
 
 /// Every object property, and every property of a tagged-union variant, with a
@@ -57,7 +63,7 @@ pub(crate) fn collect_rust_property_enums(definition: &Definition) -> Vec<RustPr
         }
         for (owner, path, properties) in owners {
             for (property_name, property_schema) in properties.iter() {
-                let Some(values) = property_schema.as_object().and_then(property_enum_values)
+                let Some(schema) = property_schema.as_object().and_then(property_enum_schema)
                 else {
                     continue;
                 };
@@ -65,7 +71,24 @@ pub(crate) fn collect_rust_property_enums(definition: &Definition) -> Vec<RustPr
                     name: rust_property_enum_name(&owner, property_name),
                     def: definition_name.to_owned(),
                     source: format!("{path}.{property_name}"),
-                    values,
+                    values: string_enum_values(schema).expect("an enum schema"),
+                    schema: schema.clone(),
+                });
+            }
+        }
+        // The values of a record `$def` are named `value`, an open object's
+        // other members after their field.
+        let values = record_values_schema(schema)
+            .map(|values| ("value", values))
+            .or_else(|| other_members_schema(schema).map(|values| (OTHER_MEMBERS_FIELD, values)));
+        if let Some((name, values)) = values {
+            if let Some(schema) = property_enum_schema(values) {
+                enums.push(RustPropertyEnum {
+                    name: rust_property_enum_name(definition_name, name),
+                    def: definition_name.to_owned(),
+                    source: format!("$defs.{definition_name}.additionalProperties"),
+                    values: string_enum_values(schema).expect("an enum schema"),
+                    schema: schema.clone(),
                 });
             }
         }
@@ -73,26 +96,25 @@ pub(crate) fn collect_rust_property_enums(definition: &Definition) -> Vec<RustPr
     enums
 }
 
-/// The values of a property's string enum, declared directly or as its array
-/// items.
-fn property_enum_values(property_schema: &Object) -> Option<Vec<String>> {
-    let enum_schema = if property_schema
-        .get("enum")
-        .and_then(Json::as_array)
-        .is_some()
-    {
-        property_schema
-    } else if has_type(property_schema, "array") {
-        object_at(property_schema, "items")
-            .filter(|items| items.get("enum").and_then(Json::as_array).is_some())?
-    } else {
-        return None;
-    };
+/// A property's string enum schema, declared directly or within its array
+/// items and record values at any depth, each of which the Rust type names
+/// after the property.
+fn property_enum_schema(property_schema: &Object) -> Option<&Object> {
+    if string_enum_values(property_schema).is_some() {
+        return Some(property_schema);
+    }
+    has_type(property_schema, "array")
+        .then(|| object_at(property_schema, "items"))
+        .flatten()
+        .and_then(property_enum_schema)
+        .or_else(|| record_values_schema(property_schema).and_then(property_enum_schema))
+}
+
+/// The values of `schema`'s string enum.
+fn string_enum_values(schema: &Object) -> Option<Vec<String>> {
+    let values = schema.get("enum").and_then(Json::as_array)?;
     Some(
-        enum_schema
-            .get("enum")
-            .and_then(Json::as_array)
-            .expect("checked above")
+        values
             .iter()
             .filter_map(Json::as_str)
             .map(str::to_owned)
@@ -111,13 +133,15 @@ fn variant_enum_owner(definition_name: &str, tag: &str) -> String {
 }
 
 /// The `clerkenwell_schema` items the model re-exports.
-const SCHEMA_REEXPORTS: [&str; 20] = [
+const SCHEMA_REEXPORTS: [&str; 25] = [
     "ActorKind",
     "AuthoringPeerBlock",
     "AuthoringState",
     "AuthoringStatePatch",
     "AuthoringStatePatchKind",
     "CollaborationExchangeMode",
+    "DeclaredMemberError",
+    "DeclaredMembers",
     "GeneratedAuthoringPolicyKind",
     "GeneratedCollaborationConflict",
     "GeneratedCollaborationEntitySpec",
@@ -132,7 +156,13 @@ const SCHEMA_REEXPORTS: [&str; 20] = [
     "GeneratedRemoveMode",
     "GeneratedSnapshotMode",
     "GeneratedWriterConflict",
+    "OtherMembers",
+    "SchemaConstraint",
+    "SchemaConstraintValue",
 ];
+
+/// The Rust field of a generated open object that holds its other members.
+pub(crate) const OTHER_MEMBERS_FIELD: &str = "other_members";
 
 /// The names the model's other imports bind, the last two only where its
 /// body uses them.
@@ -176,12 +206,15 @@ pub fn render_model_module(definition: &Definition, project: &Project) -> Result
         .into_iter()
         .filter(|property_enum| !SHARED.contains(&property_enum.def.as_str()))
     {
-        lines.push(render_enum(&property_enum.name, &property_enum.values));
+        lines.push(with_constraints(
+            render_enum(&property_enum.name, &property_enum.values),
+            &property_enum.schema,
+        ));
         lines.push(String::new());
     }
 
     for (definition_name, schema) in definition.declared_def_entries() {
-        lines.push(render_definition(definition_name, schema)?);
+        lines.push(render_definition(definition, definition_name, schema)?);
         lines.push(String::new());
     }
 
@@ -295,7 +328,7 @@ fn transport_enum(enum_name: &str, tag: &str, entries: &[(&str, String)]) -> Str
         "#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]".to_owned(),
         format!(
             "#[serde(tag = {}, content = \"value\", deny_unknown_fields)]",
-            string_literal(tag)
+            rust_string(tag)
         ),
         // Variants wrap arbitrary schema-defined payloads, so their sizes vary
         // by design.
@@ -357,7 +390,7 @@ fn transport_enum(enum_name: &str, tag: &str, entries: &[(&str, String)]) -> Str
 }
 
 fn literal(value: &str) -> Expr {
-    Expr::atom(string_literal(value))
+    Expr::atom(rust_string(value))
 }
 
 fn literals(values: &[&str]) -> Expr {
@@ -680,7 +713,7 @@ fn collaboration_metadata(definition: &Definition) -> String {
                 (
                     "authoring_document",
                     Expr::atom(match entity.authoring_document() {
-                        Some(document) => format!("Some({})", string_literal(document)),
+                        Some(document) => format!("Some({})", rust_string(document)),
                         None => "None".to_owned(),
                     }),
                 ),
@@ -746,7 +779,11 @@ fn render_enum(name: &str, values: &[String]) -> String {
 }
 
 /// One `$defs` entry as a serde type or a transparent alias.
-fn render_definition(definition_name: &str, schema: &Object) -> Result<String> {
+fn render_definition(
+    definition: &Definition,
+    definition_name: &str,
+    schema: &Object,
+) -> Result<String> {
     let type_name = pascal_identifier(definition_name);
     if has_type(schema, "json") {
         return Ok(format!("pub type {type_name} = JsonValue;"));
@@ -758,15 +795,21 @@ fn render_definition(definition_name: &str, schema: &Object) -> Result<String> {
         ));
     }
     if let Some(members) = primitive_union_types(schema)? {
-        return primitive_union(definition_name, &members);
+        return Ok(with_constraints(
+            primitive_union(definition_name, &members)?,
+            schema,
+        ));
     }
     if let Some(values) = schema.get("enum").and_then(Json::as_array) {
-        return Ok(render_enum(
-            &type_name,
-            &values
-                .iter()
-                .map(|value| value.as_str().unwrap().to_owned())
-                .collect::<Vec<_>>(),
+        return Ok(with_constraints(
+            render_enum(
+                &type_name,
+                &values
+                    .iter()
+                    .map(|value| value.as_str().unwrap().to_owned())
+                    .collect::<Vec<_>>(),
+            ),
+            schema,
         ));
     }
     if !has_type(schema, "object") {
@@ -775,12 +818,19 @@ fn render_definition(definition_name: &str, schema: &Object) -> Result<String> {
         ));
     }
     if object_at(schema, "oneOf").is_some() {
-        return tagged_union(definition_name, schema);
+        return tagged_union(definition, definition_name, schema);
     }
     // A record-shaped `$def` names one open map, so a value schema used at many
     // sites is written once.
-    if let Some(additional) = object_at(schema, "additionalProperties") {
-        let value = rust_type(definition_name, definition_name, "value", additional, false)?;
+    if let Some(additional) = record_values_schema(schema) {
+        let value = rust_type(
+            definition,
+            definition_name,
+            definition_name,
+            "value",
+            additional,
+            false,
+        )?;
         return Ok(format!("pub type {type_name} = BTreeMap<String, {value}>;"));
     }
     let Some(properties) = object_at(schema, "properties") else {
@@ -798,8 +848,11 @@ fn render_definition(definition_name: &str, schema: &Object) -> Result<String> {
             .as_object()
             .expect("validation requires object property schemas");
         fields.push(render_field(
-            definition_name,
-            definition_name,
+            TypeOwner {
+                definition,
+                definition_name,
+                enum_owner: definition_name,
+            },
             property_name,
             property_schema,
             required.contains(&property_name),
@@ -807,7 +860,49 @@ fn render_definition(definition_name: &str, schema: &Object) -> Result<String> {
             "pub ",
         )?);
     }
-    let derive = "#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, PartialEq)]\n#[serde(deny_unknown_fields)]";
+    let derive = "#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, PartialEq)]";
+    if let Some(additional) = other_members_schema(schema) {
+        // An open object's other members are flattened beside its declared
+        // ones, which serde's `deny_unknown_fields` does not admit.
+        // `OtherMembers` holds its values in a map, an indirection.
+        let value = rust_type(
+            definition,
+            definition_name,
+            definition_name,
+            OTHER_MEMBERS_FIELD,
+            additional,
+            true,
+        )?;
+        fields.push(format!(
+            "    #[serde(flatten)]\n{}",
+            layout::declaration(
+                "    ",
+                &format!("pub {OTHER_MEMBERS_FIELD}:"),
+                &format!("OtherMembers<{type_name}, {value}>"),
+            )
+        ));
+        let declared: Vec<&str> = properties.keys().collect();
+        let mut items = vec![layout::item_at(
+            4,
+            "const DECLARED_MEMBERS: &'static [&'static str] =",
+            &literals(&declared),
+        )];
+        let mut constraints = Vec::new();
+        collect_constraints(definition, additional, &mut Vec::new(), &mut constraints)?;
+        if !constraints.is_empty() {
+            items.push(layout::item_at(
+                4,
+                "const OTHER_MEMBER_CONSTRAINTS: &'static [SchemaConstraint] =",
+                &Expr::slice(constraints),
+            ));
+        }
+        return Ok(format!(
+            "{derive}\npub struct {type_name} {{\n{}\n}}\n\nimpl DeclaredMembers for {type_name} {{\n{}\n}}",
+            fields.join("\n"),
+            items.join("\n")
+        ));
+    }
+    let derive = format!("{derive}\n#[serde(deny_unknown_fields)]");
     if fields.is_empty() {
         // Unit-like params still reject unknown fields on deserialisation.
         return Ok(format!("{derive}\npub struct {type_name} {{}}"));
@@ -816,6 +911,99 @@ fn render_definition(definition_name: &str, schema: &Object) -> Result<String> {
         "{derive}\npub struct {type_name} {{\n{}\n}}",
         fields.join("\n")
     ))
+}
+
+/// The validation keywords and defaults within `schema`, at `path`, as
+/// `SchemaConstraint` values: those the schema of its Rust type does not
+/// carry. Its Rust type is built of `Vec` and `BTreeMap` down to each
+/// constrained scalar.
+fn collect_constraints<'a>(
+    definition: &'a Definition,
+    schema: &'a Object,
+    path: &mut Vec<&'a str>,
+    found: &mut Vec<Expr>,
+) -> Result<()> {
+    // A reference carries only annotations, and a `default` beside it is this
+    // use's. A referenced type carries its own constraints, but for a record,
+    // which is a map alias.
+    let reference = schema.get("$ref").is_some();
+    if reference {
+        let referenced = crate::validate::dereference(definition, schema)?;
+        if record_values_schema(referenced).is_some() {
+            collect_constraints(definition, referenced, path, found)?;
+        }
+    }
+    for keyword in crate::validate::VALIDATION_SCHEMA_KEYS
+        .iter()
+        .chain(&["default"])
+        .filter(|keyword| !reference || **keyword == "default")
+    {
+        let Some(value) = schema.get(keyword) else {
+            continue;
+        };
+        let value = match value {
+            Json::Bool(value) => format!("SchemaConstraintValue::Boolean({value})"),
+            Json::String(value) => {
+                format!("SchemaConstraintValue::String({})", rust_string(value))
+            }
+            Json::Null | Json::Array(_) | Json::Object(_) => format!(
+                "SchemaConstraintValue::Json({})",
+                rust_string(&value.stringify())
+            ),
+            _ => {
+                let number = value.as_f64().expect("validation keeps scalar constraints");
+                match i64_literal(number) {
+                    Some(integer) => format!("SchemaConstraintValue::Integer({integer})"),
+                    None => format!("SchemaConstraintValue::Number({number:?})"),
+                }
+            }
+        };
+        let path_literals: Vec<&str> = path.clone();
+        found.push(Expr::Struct(
+            "SchemaConstraint".to_owned(),
+            vec![
+                ("path".to_owned(), literals(&path_literals)),
+                ("keyword".to_owned(), literal(keyword)),
+                ("value".to_owned(), Expr::atom(value)),
+            ],
+        ));
+    }
+    let nested = if has_type(schema, "array") {
+        object_at(schema, "items").map(|items| ("items", items))
+    } else {
+        record_values_schema(schema).map(|values| ("additionalProperties", values))
+    };
+    if let Some((keyword, nested)) = nested {
+        path.push(keyword);
+        collect_constraints(definition, nested, path, found)?;
+        path.pop();
+    }
+    Ok(())
+}
+
+/// A `$defs` enum or union with a `#[schemars(...)]` attribute carrying its
+/// validation keywords and default, so the schema derived for each use of the
+/// type carries them.
+fn with_constraints(rendered: String, schema: &Object) -> String {
+    let arguments: Vec<String> = ["const", "default", "minLength", "minimum", "maximum"]
+        .into_iter()
+        .filter_map(|keyword| {
+            let value = schema.get(keyword)?;
+            let literal = match keyword {
+                "minimum" | "maximum" => bound_literal(value),
+                _ => json_tokens(value),
+            };
+            Some(format!("extend({} = {literal})", rust_string(keyword)))
+        })
+        .collect();
+    if arguments.is_empty() {
+        return rendered;
+    }
+    rendered.replacen(
+        "\npub enum ",
+        &format!("\n#[schemars({})]\npub enum ", arguments.join(", ")),
+        1,
+    )
 }
 
 fn primitive_union(definition_name: &str, members: &[&str]) -> Result<String> {
@@ -829,7 +1017,7 @@ fn primitive_union(definition_name: &str, members: &[&str]) -> Result<String> {
             other => {
                 return refuse(format!(
                     "Cannot render unsupported Rust primitive union member {}.",
-                    string_literal(other)
+                    rust_string(other)
                 ))
             }
         };
@@ -848,7 +1036,7 @@ fn primitive_union(definition_name: &str, members: &[&str]) -> Result<String> {
 
 /// A `$defs` tagged union as a serde internally tagged enum. Variant fields
 /// carry no visibility modifier.
-fn tagged_union(definition_name: &str, schema: &Object) -> Result<String> {
+fn tagged_union(definition: &Definition, definition_name: &str, schema: &Object) -> Result<String> {
     let discriminator = schema
         .get("discriminator")
         .and_then(Json::as_str)
@@ -874,8 +1062,11 @@ fn tagged_union(definition_name: &str, schema: &Object) -> Result<String> {
                 .expect("validation requires object property schemas");
             let is_required = required.contains(&property_name);
             fields.push(render_field(
-                definition_name,
-                &owner,
+                TypeOwner {
+                    definition,
+                    definition_name,
+                    enum_owner: &owner,
+                },
                 property_name,
                 property_schema,
                 is_required,
@@ -883,6 +1074,7 @@ fn tagged_union(definition_name: &str, schema: &Object) -> Result<String> {
                 "",
             )?);
             let base = rust_type(
+                definition,
                 definition_name,
                 &owner,
                 property_name,
@@ -922,7 +1114,7 @@ fn tagged_union(definition_name: &str, schema: &Object) -> Result<String> {
             .to_owned(),
         format!(
             "#[serde(tag = {}, deny_unknown_fields)]",
-            string_literal(discriminator)
+            rust_string(discriminator)
         ),
         format!("pub enum {} {{", pascal_identifier(definition_name)),
         rendered.join("\n"),
@@ -931,10 +1123,18 @@ fn tagged_union(definition_name: &str, schema: &Object) -> Result<String> {
     .join("\n"))
 }
 
+/// The `$defs` entry a field belongs to, and what its string enums are named
+/// after.
+#[derive(Clone, Copy)]
+struct TypeOwner<'a> {
+    definition: &'a Definition,
+    definition_name: &'a str,
+    enum_owner: &'a str,
+}
+
 /// One field, with serde attributes for a renamed or optional wire property.
 fn render_field(
-    definition_name: &str,
-    enum_owner: &str,
+    owner: TypeOwner,
     property_name: &str,
     property_schema: &Object,
     required: bool,
@@ -957,8 +1157,9 @@ fn render_field(
         attributes.push(format!("{indent}#[schemars({})]", validation.join(", ")));
     }
     let base = rust_type(
-        definition_name,
-        enum_owner,
+        owner.definition,
+        owner.definition_name,
+        owner.enum_owner,
         property_name,
         property_schema,
         false,
@@ -981,7 +1182,7 @@ fn render_field(
 /// `#[serde(rename = "value")]`, its argument on a line of its own when the
 /// attribute is too wide, as rustfmt breaks it.
 fn rename_attribute(indent: &str, value: &str) -> String {
-    let argument = format!("rename = {}", string_literal(value));
+    let argument = format!("rename = {}", rust_string(value));
     let line = format!("{indent}#[serde({argument})]");
     if layout::fits_attribute(&line) {
         line
@@ -995,31 +1196,17 @@ fn rename_attribute(indent: &str, value: &str) -> String {
 fn schemars_arguments(schema: &Object) -> Vec<String> {
     let mut arguments = Vec::new();
     if let Some(constant) = schema.get("const") {
-        arguments.push(format!("extend(\"const\" = {})", constant.stringify()));
+        arguments.push(format!("extend(\"const\" = {})", json_tokens(constant)));
     }
     if let Some(default) = schema.get("default") {
-        arguments.push(format!("extend(\"default\" = {})", default.stringify()));
+        arguments.push(format!("extend(\"default\" = {})", json_tokens(default)));
     }
     if let Some(min_length) = schema.get("minLength").and_then(Json::as_f64) {
         arguments.push(format!("length(min = {})", number_to_string(min_length)));
     }
     for name in ["minimum", "maximum"] {
         if let Some(bound) = schema.get(name) {
-            let value = bound.as_f64().expect("validated numeric bound");
-            let suffix =
-                if value.fract() == 0.0 && (value < i32::MIN as f64 || value > i32::MAX as f64) {
-                    if value >= i64::MIN as f64 && value < -(i64::MIN as f64) {
-                        "i64"
-                    } else {
-                        "f64"
-                    }
-                } else {
-                    ""
-                };
-            arguments.push(format!(
-                "extend(\"{name}\" = {}{suffix})",
-                bound.stringify()
-            ));
+            arguments.push(format!("extend(\"{name}\" = {})", bound_literal(bound)));
         }
     }
     if let Some(items) = object_at(schema, "items") {
@@ -1031,10 +1218,101 @@ fn schemars_arguments(schema: &Object) -> Vec<String> {
     arguments
 }
 
+/// `value` as a Rust string literal.
+fn rust_string(value: &str) -> String {
+    format!("{value:?}")
+}
+
+/// `value` as the tokens of a `json!` value, its strings Rust string
+/// literals.
+fn json_tokens(value: &Json) -> String {
+    match value {
+        Json::String(text) => rust_string(text),
+        Json::Array(items) => format!(
+            "[{}]",
+            items.iter().map(json_tokens).collect::<Vec<_>>().join(",")
+        ),
+        Json::Object(members) => format!(
+            "{{{}}}",
+            members
+                .iter()
+                .map(|(name, member)| format!("{}:{}", rust_string(name), json_tokens(member)))
+                .collect::<Vec<_>>()
+                .join(",")
+        ),
+        Json::Number(number) => number_literal(*number),
+        _ => value.stringify(),
+    }
+}
+
+/// A numeric bound as an `extend` value.
+fn bound_literal(bound: &Json) -> String {
+    number_literal(bound.as_f64().expect("validated numeric bound"))
+}
+
+/// `value` as a literal of a type that holds it: an integer within `i32` as
+/// written, one within `i64` suffixed, and any other number as a float.
+fn number_literal(value: f64) -> String {
+    match i64_literal(value) {
+        Some(integer) if i32::try_from(integer).is_ok() => integer.to_string(),
+        Some(integer) => format!("{integer}i64"),
+        None => format!("{value:?}"),
+    }
+}
+
+/// `value` as the `i64` it is exactly, if it is one.
+fn i64_literal(value: f64) -> Option<i64> {
+    (value.fract() == 0.0 && value >= i64::MIN as f64 && value < -(i64::MIN as f64))
+        .then_some(value as i64)
+}
+
+/// Whether a value of `schema` holds a value of `target`'s type without an
+/// indirection: through references, struct fields and tagged-union variant
+/// fields, but not `Vec`, `BTreeMap` or `OtherMembers`. Such a field is boxed.
+fn reaches_directly(
+    definition: &Definition,
+    schema: &Object,
+    target: &str,
+    visited: &mut HashSet<String>,
+) -> Result<bool> {
+    if schema.get("$ref").is_some() {
+        let name = schema_ref_name(definition, schema, "Rust type")?;
+        if name == target {
+            return Ok(true);
+        }
+        if !visited.insert(name.clone()) {
+            return Ok(false);
+        }
+        let referenced = definition
+            .def(&name)
+            .expect("schema_ref_name checked it exists");
+        return reaches_directly(definition, referenced, target, visited);
+    }
+    if !has_type(schema, "object") {
+        return Ok(false);
+    }
+    let variants = object_at(schema, "oneOf")
+        .into_iter()
+        .flat_map(|variants| variants.iter().map(|(_, variant)| variant))
+        .filter_map(Json::as_object);
+    let members = object_at(schema, "properties")
+        .into_iter()
+        .chain(variants.filter_map(|variant| object_at(variant, "properties")))
+        .flat_map(|properties| properties.iter().map(|(_, member)| member))
+        .filter_map(Json::as_object);
+    for member in members {
+        if reaches_directly(definition, member, target, visited)? {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
 /// The Rust type of a field of `definition_name`. A field holding its own
 /// type directly is boxed; `Vec` and `BTreeMap` already are indirections. A
 /// string enum is the helper enum named after `enum_owner` and the property.
 fn rust_type(
+    definition: &Definition,
     definition_name: &str,
     enum_owner: &str,
     property_name: &str,
@@ -1043,13 +1321,13 @@ fn rust_type(
 ) -> Result<String> {
     if matches!(schema.get("$ref"), Some(Json::String(_))) {
         let referenced = schema_ref_type_name(schema)?;
-        return Ok(
-            if referenced == pascal_identifier(definition_name) && !behind_indirection {
-                format!("Box<{referenced}>")
-            } else {
-                referenced
-            },
-        );
+        let recursive = !behind_indirection
+            && reaches_directly(definition, schema, definition_name, &mut HashSet::new())?;
+        return Ok(if recursive {
+            format!("Box<{referenced}>")
+        } else {
+            referenced
+        });
     }
     if schema.get("enum").and_then(Json::as_array).is_some() {
         return Ok(rust_property_enum_name(enum_owner, property_name));
@@ -1065,7 +1343,7 @@ fn rust_type(
             let items = object_at(schema, "items").expect("validation requires array items");
             format!(
                 "Vec<{}>",
-                rust_type(definition_name, enum_owner, property_name, items, true)?
+                rust_type(definition, definition_name, enum_owner, property_name, items, true)?
             )
         }
         Some("string") => "String".to_owned(),
@@ -1073,10 +1351,11 @@ fn rust_type(
         Some("integer") => "i64".to_owned(),
         Some("number") => "f64".to_owned(),
         Some("json") => "JsonValue".to_owned(),
-        Some("object") => match object_at(schema, "additionalProperties") {
+        Some("object") => match record_values_schema(schema) {
             Some(additional) => format!(
                 "BTreeMap<String, {}>",
                 rust_type(
+                    definition,
                     definition_name,
                     enum_owner,
                     property_name,
@@ -1107,7 +1386,7 @@ fn string_slice_constant(name: &str, values: &[&str]) -> String {
 /// after `NAME:` when even the head is.
 fn string_constant(name: &str, value: &str) -> String {
     let head = format!("pub const {name}: &str =");
-    let literal = string_literal(value);
+    let literal = rust_string(value);
     let inline = format!("{head} {literal};");
     if utf16_len(&inline) <= 100 {
         return inline;
