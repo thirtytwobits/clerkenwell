@@ -177,3 +177,37 @@ fn a_command_result_on_the_wire_names_its_command() {
     assert_eq!(read.command_name(), model::CommandName::TaskArchiveDone);
     assert_eq!(read, result);
 }
+
+/// A record serialises its keys in key order, whatever order they were read in,
+/// both as a record `$defs` entry and as a record field.
+#[test]
+fn a_record_serialises_its_keys_in_key_order() {
+    let keys = ["zeta", "alpha", "mu", "beta"];
+    let mut sorted = keys;
+    sorted.sort_unstable();
+    let entries = |order: &[&str]| -> String {
+        let pairs: Vec<String> = order
+            .iter()
+            .map(|key| format!(r#""{key}":"{key}""#))
+            .collect();
+        format!("{{{}}}", pairs.join(","))
+    };
+
+    let properties: model::NoteProperties =
+        serde_json::from_str(&entries(&keys)).expect("a record parses");
+    assert_eq!(
+        serde_json::to_string(&properties).expect("serialises"),
+        entries(&sorted)
+    );
+
+    let settings: model::WorkspaceSettings = serde_json::from_str(&format!(
+        r#"{{"scope":"workspace","revision":"r","theme":"system","shortcuts":{},"autosave_seconds":30}}"#,
+        entries(&keys)
+    ))
+    .expect("settings parse");
+    let wire = serde_json::to_string(&settings).expect("serialises");
+    assert!(
+        wire.contains(&format!(r#""shortcuts":{}"#, entries(&sorted))),
+        "{wire}"
+    );
+}

@@ -13,7 +13,7 @@ pub use clerkenwell_schema::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, PartialEq, Eq)]
 pub enum ReplicaUpdateParamsExchangeMode {
@@ -236,9 +236,9 @@ pub struct AttachmentPreview {
     pub page_count: Option<i64>,
 }
 
-pub type NoteProperties = HashMap<String, String>;
+pub type NoteProperties = BTreeMap<String, String>;
 
-pub type NoteExtras = HashMap<String, JsonValue>;
+pub type NoteExtras = BTreeMap<String, JsonValue>;
 
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, PartialEq)]
 #[serde(deny_unknown_fields)]
@@ -515,7 +515,7 @@ pub struct TaskRecord {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub subtasks: Option<Vec<TaskRecord>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub links: Option<HashMap<String, TaskRecord>>,
+    pub links: Option<BTreeMap<String, TaskRecord>>,
     #[schemars(inner(length(min = 1)))]
     pub checklist: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -598,7 +598,7 @@ pub struct WorkspaceSettings {
     #[schemars(extend("default" = "system"))]
     pub theme: WorkspaceSettingsTheme,
     #[schemars(extend("default" = {}))]
-    pub shortcuts: HashMap<String, String>,
+    pub shortcuts: BTreeMap<String, String>,
     #[schemars(extend("default" = 30))]
     pub autosave_seconds: i64,
 }
@@ -613,7 +613,7 @@ pub struct WorkspaceSettingsPatch {
     #[schemars(extend("default" = "system"))]
     pub theme: WorkspaceSettingsPatchTheme,
     #[schemars(extend("default" = {}))]
-    pub shortcuts: HashMap<String, String>,
+    pub shortcuts: BTreeMap<String, String>,
     #[schemars(extend("default" = 30))]
     pub autosave_seconds: i64,
 }

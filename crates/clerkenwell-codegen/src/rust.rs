@@ -136,7 +136,7 @@ const SCHEMA_REEXPORTS: [&str; 20] = [
 
 /// The names the model's other imports bind, the last two only where its
 /// body uses them.
-const OTHER_IMPORTS: [&str; 4] = ["Deserialize", "Serialize", "JsonValue", "HashMap"];
+const OTHER_IMPORTS: [&str; 4] = ["Deserialize", "Serialize", "JsonValue", "BTreeMap"];
 
 /// Every name the model's imports bind, which no `$defs` entry may generate.
 pub(crate) fn import_bindings() -> impl Iterator<Item = &'static str> {
@@ -283,8 +283,8 @@ pub fn render_model_module(definition: &Definition, project: &Project) -> Result
     if body.contains("JsonValue") {
         header.push("use serde_json::Value as JsonValue;".to_owned());
     }
-    if body.contains("HashMap<") {
-        header.push("use std::collections::HashMap;".to_owned());
+    if body.contains("BTreeMap<") {
+        header.push("use std::collections::BTreeMap;".to_owned());
     }
     header.push(String::new());
     Ok(format!("{}\n{body}", header.join("\n")))
@@ -781,7 +781,7 @@ fn render_definition(definition_name: &str, schema: &Object) -> Result<String> {
     // sites is written once.
     if let Some(additional) = object_at(schema, "additionalProperties") {
         let value = rust_type(definition_name, definition_name, "value", additional, false)?;
-        return Ok(format!("pub type {type_name} = HashMap<String, {value}>;"));
+        return Ok(format!("pub type {type_name} = BTreeMap<String, {value}>;"));
     }
     let Some(properties) = object_at(schema, "properties") else {
         return refuse(format!(
@@ -1032,7 +1032,7 @@ fn schemars_arguments(schema: &Object) -> Vec<String> {
 }
 
 /// The Rust type of a field of `definition_name`. A field holding its own
-/// type directly is boxed; `Vec` and `HashMap` already are indirections. A
+/// type directly is boxed; `Vec` and `BTreeMap` already are indirections. A
 /// string enum is the helper enum named after `enum_owner` and the property.
 fn rust_type(
     definition_name: &str,
@@ -1075,7 +1075,7 @@ fn rust_type(
         Some("json") => "JsonValue".to_owned(),
         Some("object") => match object_at(schema, "additionalProperties") {
             Some(additional) => format!(
-                "HashMap<String, {}>",
+                "BTreeMap<String, {}>",
                 rust_type(
                     definition_name,
                     enum_owner,

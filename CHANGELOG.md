@@ -4,6 +4,15 @@ Each release's section is the notes of its GitHub release. A release that change
 lists each change under **Breaking**; `cargo run -p clerkenwell-release -- breaking --help`
 names the contracts.
 
+## 0.10.0
+
+### Breaking
+
+- The generated Rust model writes each record, a `$defs` entry or field with
+  `additionalProperties`, as `BTreeMap<String, T>`, so a record serialises its keys in key order
+  (#88). The model imports `BTreeMap`, and `clerkenwell-codegen` refuses a `$defs` entry that
+  generates that name.
+
 ## 0.9.0
 
 ### Breaking
