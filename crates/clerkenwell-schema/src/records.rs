@@ -81,6 +81,21 @@ impl<'a, Constraints, V> IntoIterator for &'a RecordMembers<Constraints, V> {
     }
 }
 
+impl<'a, Constraints, V> IntoIterator for &'a mut RecordMembers<Constraints, V> {
+    type Item = (&'a String, &'a mut V);
+    type IntoIter = std::collections::btree_map::IterMut<'a, String, V>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.members.iter_mut()
+    }
+}
+
+impl<Constraints, V> Extend<(String, V)> for RecordMembers<Constraints, V> {
+    fn extend<I: IntoIterator<Item = (String, V)>>(&mut self, members: I) {
+        self.members.extend(members);
+    }
+}
+
 impl<Constraints, V> IntoIterator for RecordMembers<Constraints, V> {
     type Item = (String, V);
     type IntoIter = std::collections::btree_map::IntoIter<String, V>;

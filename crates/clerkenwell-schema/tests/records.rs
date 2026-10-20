@@ -75,6 +75,28 @@ fn a_record_reads_and_writes_as_its_map() {
     assert_eq!(labels, map.into_iter().collect::<Labels>());
 }
 
+/// A record iterates mutably and extends as its map does, where a `for` loop
+/// or a generic bound names the trait rather than dereferencing.
+#[test]
+fn a_record_iterates_mutably_and_extends_as_its_map() {
+    fn extend_with_size(members: &mut impl Extend<(String, String)>) {
+        members.extend([("size".to_owned(), "large".to_owned())]);
+    }
+
+    let mut labels = Labels::from(BTreeMap::from([("colour".to_owned(), "red".to_owned())]));
+    extend_with_size(&mut labels);
+    for (_, value) in &mut labels {
+        value.make_ascii_uppercase();
+    }
+    assert_eq!(
+        labels.into_map(),
+        BTreeMap::from([
+            ("colour".to_owned(), "RED".to_owned()),
+            ("size".to_owned(), "LARGE".to_owned()),
+        ])
+    );
+}
+
 #[test]
 fn the_schema_carries_the_values_constraints() {
     let schema = serde_json::to_value(schemars::schema_for!(Labels)).expect("a schema");
