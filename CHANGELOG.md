@@ -32,9 +32,9 @@ names the contracts.
     its bounds;
   - a collaboration field holding an object whose codec is not `structuredJson`, or
     `propertyText` for a closed object;
-  - a collaboration field whose `value.schema` is not the `$defs` entry the entity schema
-    declares at its path, or, for a `structuredList`, the `$defs` entry of one item of the array
-    there (#80).
+  - a collaboration field whose `value.schema` does not resolve to the `$defs` entry the entity
+    schema declares at its path, or, for a `structuredList`, to the `$defs` entry of one item of
+    the array there (#80).
 
 ### Added
 

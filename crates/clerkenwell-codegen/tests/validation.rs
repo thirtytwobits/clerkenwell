@@ -1546,8 +1546,9 @@ fn a_field_holding_an_object_is_structured_json_over_its_schema() {
     );
 }
 
-/// A field's value schema is the schema the entity schema declares at its
-/// path, or, for a structured list, the schema of one item of the array there.
+/// A field's value schema resolves to the schema the entity schema declares at
+/// its path, or, for a structured list, to the schema of one item of the array
+/// there.
 #[test]
 fn a_value_schema_is_the_entity_schema_at_its_path() {
     let cases = [
@@ -1604,6 +1605,20 @@ fn a_value_schema_is_the_entity_schema_at_its_path() {
         &refusal(document),
         &["collaboration.entities.Note.fields.attachments.value.schema is #/$defs/Attachment, but NoteDocument declares an item of attachments as an inline schema."],
     );
+
+    // An alias generates the type it names, so it describes the same values.
+    let mut document = notebook_document();
+    set(
+        &mut document,
+        "/$defs/NoteAppearanceAlias",
+        json(r##"{ "$ref": "#/$defs/NoteAppearance" }"##),
+    );
+    set(
+        &mut document,
+        "/$defs/NoteDocument/properties/appearance",
+        json(r##"{ "$ref": "#/$defs/NoteAppearanceAlias" }"##),
+    );
+    validate(document).expect("the value schema resolves to the declared schema");
 }
 
 /// Each value of a string enum is a Rust variant of its own.

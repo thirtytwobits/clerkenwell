@@ -731,9 +731,11 @@ fn check_collaboration_entity(
     Ok(())
 }
 
-/// A field's value schema is the `$defs` entry the entity schema `schema_name`
-/// declares at the field's path, `field_schema`, or, for a structured list,
-/// the `$defs` entry of one item of the array there.
+/// A field's value schema resolves to the `$defs` entry the entity schema
+/// `schema_name` declares at the field's path, `field_schema`, or, for a
+/// structured list, to the `$defs` entry of one item of the array there. An
+/// alias generates the type it names, so either side may reach the entry
+/// through aliases.
 fn check_value_schema(
     definition: &Definition,
     field: &CollaborationField,
