@@ -20,7 +20,10 @@ names the contracts.
   schema that is not an object, `items` on one that is not an array, a keyed sequence whose
   items are not closed objects, a `$defs` entry whose chain of references returns to itself, and
   a primitive union's `minimum`, `maximum`, `minLength` or `const` that none of its types admits,
-  and a `const` that does not meet its schema's bounds.
+  a `const` that does not meet its schema's bounds, an integer `const` an `i64` does not hold, a
+  string enum two of whose values generate one Rust variant, and a collaboration field holding an
+  object whose codec is not `structuredJson` over that object's schema, or `propertyText` for a
+  closed object.
 
 ### Added
 

@@ -1471,3 +1471,83 @@ fn an_open_object_compares_integer_bounds_by_the_integers_they_leave() {
         &["$defs.ProbeOpen.properties.member is not a value"],
     );
 }
+
+/// TypeScript renders a constant member as its type and an enumerated one as
+/// its values, so beside enumerated other members only an enumerated member
+/// is assignable to them.
+#[test]
+fn a_constant_member_is_refused_beside_enumerated_other_members() {
+    assert_mentions(
+        &refusal(with_defs(&format!(
+            r#"{{ "ProbeOpen": {} }}"#,
+            open_object(
+                r#"{ "member": { "type": "string", "const": "x" } }"#,
+                "[]",
+                r#"{ "type": "string", "enum": ["x"] }"#,
+            )
+        ))),
+        &["$defs.ProbeOpen.properties.member is not a value"],
+    );
+}
+
+/// The Rust model holds an integer as an `i64`, so an integer constant is
+/// one; a union with a number member holds a wider one.
+#[test]
+fn an_integer_constant_is_an_i64() {
+    assert_mentions(
+        &refusal(with_defs(
+            r#"{ "ProbeConstant": { "type": "integer", "const": 1e20 } }"#,
+        )),
+        &["$defs.ProbeConstant.const must be an integer an i64 holds"],
+    );
+    validate(with_defs(
+        r#"{ "ProbeConstant": { "type": ["integer", "number"], "const": 1e20 } }"#,
+    ))
+    .expect("a union's number member holds the constant");
+}
+
+/// A field holding an object stores it whole, as `structuredJson` over that
+/// object's schema.
+#[test]
+fn a_field_holding_an_object_is_structured_json_over_its_schema() {
+    let mut document = notebook_document();
+    set(
+        &mut document,
+        "/collaboration/entities/Note/fields/appearance",
+        json(
+            r#"{ "storage": { "kind": "scalar", "container": "appearance", "key": "value" },
+            "value": { "codec": "string" }, "required": true, "conflict": "merge" }"#,
+        ),
+    );
+    assert_mentions(
+        &refusal(document),
+        &["collaboration.entities.Note.fields.appearance holds an object, so its codec is structuredJson over that object's schema"],
+    );
+
+    let mut document = notebook_document();
+    set(
+        &mut document,
+        "/collaboration/entities/Note/fields/appearance/value/schema",
+        json(r##"{ "$ref": "#/$defs/NoteExtras" }"##),
+    );
+    assert_mentions(
+        &refusal(document),
+        &["collaboration.entities.Note.fields.appearance holds an object, so its codec is structuredJson over that object's schema"],
+    );
+}
+
+/// Each value of a string enum is a Rust variant of its own.
+#[test]
+fn enum_values_generating_one_rust_variant_are_refused() {
+    for schema in [
+        r#"{ "ProbeLevel": { "type": "string", "enum": ["a-b", "a_b"] } }"#,
+        r#"{ "ProbeOpen": { "type": "object",
+            "properties": { "first": { "type": "string", "enum": ["a-b"] } },
+            "additionalProperties": { "type": "string", "enum": ["a-b", "a_b"] } } }"#,
+    ] {
+        assert_mentions(
+            &refusal(with_defs(schema)),
+            &["enum values \"a-b\" and \"a_b\" both generate the Rust variant AB"],
+        );
+    }
+}

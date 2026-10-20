@@ -688,6 +688,25 @@ fn check_collaboration_entity(
                 &format!("{context}.fields.{path}.value.schema"),
             )?;
         }
+        let (_, field_schema) = collaboration_schema_at(definition, entity_schema, path)?
+            .expect("the path resolved above");
+        // A field holding an object stores it whole: as structured JSON of its
+        // schema, or, for a closed object, as property text.
+        if has_type(field_schema, "object") {
+            let structured = match field.value_schema() {
+                Some(value_schema) if field.codec() == "structuredJson" => {
+                    std::ptr::eq(dereference(definition, value_schema)?, field_schema)
+                }
+                _ => false,
+            };
+            let open = other_members_schema(field_schema).is_some()
+                || record_values_schema(field_schema).is_some();
+            if !structured && (open || field.codec() != "propertyText") {
+                return refuse(format!(
+                    "{context}.fields.{path} holds an object, so its codec is structuredJson over that object's schema."
+                ));
+            }
+        }
     }
 
     check_keyed_sequence_containers(&context, &fields)?;
@@ -1168,6 +1187,22 @@ fn check_schema_node(definition: &Definition, schema: Option<&Json>, context: &s
                 "{context}.enum is supported only on string schemas."
             ));
         }
+        let mut variants: HashMap<String, &str> = HashMap::new();
+        for value in values
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(Json::as_str)
+        {
+            let variant = pascal_identifier(value);
+            if let Some(previous) = variants.insert(variant.clone(), value) {
+                return refuse(format!(
+                    "{context}.enum values {} and {} both generate the Rust variant {variant}.",
+                    string_literal(previous),
+                    string_literal(value)
+                ));
+            }
+        }
     }
 
     if schema.get("oneOf").is_some() || schema.get("discriminator").is_some() {
@@ -1419,13 +1454,12 @@ fn admits(
     if !typed {
         return Ok(false);
     }
-    // Both bindings render every value a member lists, its own bounds aside,
-    // so each is one of the values an enumerated other member admits.
+    // Both bindings render an enumerated other member as its values, and a
+    // member as its own enum's values or, without one, its type; so each
+    // value of the member's enum, its own bounds aside, is one of them.
     if let Some(admitted) = values.get("enum").and_then(Json::as_array) {
-        let listed: Vec<&Json> = match (member.get("enum"), member.get("const")) {
-            (Some(Json::Array(listed)), _) => listed.iter().collect(),
-            (_, Some(constant)) => vec![constant],
-            _ => return Ok(false),
+        let Some(listed) = member.get("enum").and_then(Json::as_array) else {
+            return Ok(false);
         };
         if !listed.iter().all(|value| admitted.contains(value)) {
             return Ok(false);
@@ -1574,6 +1608,12 @@ fn check_validation_keywords(schema: &Object, types: &[&str], context: &str) -> 
                     return refuse(format!(
                         "{context}.const must be an integer to match its declared type."
                     ));
+                }
+                let representable = constant
+                    .as_f64()
+                    .is_some_and(|value| value >= i64::MIN as f64 && value < -(i64::MIN as f64));
+                if *single == "integer" && !representable {
+                    return refuse(format!("{context}.const must be an integer an i64 holds."));
                 }
             }
             _ => {
