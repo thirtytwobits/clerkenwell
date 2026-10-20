@@ -1583,3 +1583,19 @@ fn an_enum_with_no_value_within_its_bounds_is_refused() {
     ))
     .expect("an enum keeping a value within its bounds");
 }
+
+/// Whether a bound is an integer's is decided by a union's numeric types: a
+/// string alternative is not bounded.
+#[test]
+fn an_open_object_rounds_the_integer_bounds_of_a_mixed_union() {
+    validate(with_defs(&format!(
+        r##"{{ "ProbeOthers": {{ "type": ["number", "string"], "minimum": 1.5 }},
+            "ProbeOpen": {} }}"##,
+        open_object(
+            r#"{ "member": { "type": ["integer", "string"], "minimum": 1.1 } }"#,
+            "[]",
+            r##"{ "$ref": "#/$defs/ProbeOthers" }"##,
+        )
+    )))
+    .expect("the member's numbers begin at 2");
+}

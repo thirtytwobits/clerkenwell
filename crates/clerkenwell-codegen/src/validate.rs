@@ -1495,9 +1495,11 @@ fn admits(
             let Some(limit) = values.get(bound).and_then(Json::as_f64).filter(|_| applies) else {
                 continue;
             };
-            // An integer schema's bound is the integer it leaves.
+            // A numeric bound of a schema whose numbers are integers is the
+            // integer it leaves; its other types are not bounded.
             let integral = |types: &[&str], value: f64| {
-                if bound == "minLength" || !types.iter().all(|kind| *kind == "integer") {
+                let integers = !types.contains(&"number") && types.contains(&"integer");
+                if bound == "minLength" || !integers {
                     value
                 } else if tighter {
                     value.ceil()
