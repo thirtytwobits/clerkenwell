@@ -13,7 +13,8 @@ use crate::json::{string_literal, Json, Object};
 use crate::names::{name_constant_identifier, pascal_identifier};
 use crate::rust::collect_rust_property_enums;
 use crate::schema::{
-    has_type, object_at, primitive_union_types, read_string_array, resolve_ref, schema_ref_name,
+    has_type, object_at, other_members_schema, primitive_union_types, read_string_array,
+    record_values_schema, resolve_ref, schema_ref_name,
 };
 
 /// The meta-schema every definition document must satisfy.
@@ -603,6 +604,11 @@ fn check_collaboration_entity(
         &format!("entities.{entity_name}.schema"),
     )?;
     let entity_schema = definition.def(&schema_name).expect("resolved above");
+    if other_members_schema(entity_schema).is_some() {
+        return refuse(format!(
+            "entities.{entity_name}.schema must be a closed object: a collaborative entity's members are its fields."
+        ));
+    }
     let required_paths = collect_collaboration_schema_paths(definition, entity_schema, "")?;
     let fields: Vec<_> = collaboration.fields().collect();
 
@@ -801,6 +807,15 @@ pub(crate) fn collaboration_path_presence(
     resolve_collaboration_schema_path(definition, root, path)
 }
 
+/// The members of an object schema that collaboration field paths address.
+/// An open object's members are one value, which a field stores whole.
+pub(crate) fn addressable_members(schema: &Object) -> Option<&Object> {
+    if !has_type(schema, "object") || other_members_schema(schema).is_some() {
+        return None;
+    }
+    object_at(schema, "properties")
+}
+
 /// Whether a collaboration field path resolves in the entity schema, and if
 /// so how the schema requires its value.
 fn resolve_collaboration_schema_path(
@@ -823,10 +838,8 @@ fn resolve_collaboration_schema_path(
             schema = dereference(definition, items)?;
             continue;
         }
-        let property = has_type(schema, "object")
-            .then(|| object_at(schema, "properties"))
-            .flatten()
-            .and_then(|properties| object_at(properties, segment));
+        let property =
+            addressable_members(schema).and_then(|properties| object_at(properties, segment));
         let Some(property) = property else {
             return Ok(None);
         };
@@ -865,10 +878,7 @@ fn collect_collaboration_schema_paths(
         }
         return Ok(paths);
     }
-    if let Some(properties) = has_type(schema, "object")
-        .then(|| object_at(schema, "properties"))
-        .flatten()
-    {
+    if let Some(properties) = addressable_members(schema) {
         let mut paths = IndexSet::new();
         for (property, property_schema) in properties.iter() {
             let Some(property_schema) = property_schema.as_object() else {
@@ -1135,27 +1145,28 @@ fn check_schema_node(definition: &Definition, schema: Option<&Json>, context: &s
 
     match schema_type {
         "object" => {
-            if let Some(additional) = schema
-                .get("additionalProperties")
-                .filter(|value| value.as_object().is_some())
-            {
-                if schema.get("properties").is_some() {
-                    return refuse(format!(
-                        "{context} record schemas may not declare fixed properties."
-                    ));
-                }
-                return check_schema_node(
-                    definition,
-                    Some(additional),
-                    &format!("{context}.additionalProperties"),
-                );
-            }
-            // Closed objects keep TypeScript and serde aligned around the same
-            // "no undeclared fields" behaviour.
-            if schema.get("additionalProperties") != Some(&Json::Bool(false)) {
+            let additional = schema.get("additionalProperties");
+            let other_members = additional.and_then(Json::as_object);
+            if other_members.is_none() && additional != Some(&Json::Bool(false)) {
                 return refuse(format!(
                     "{context} object schemas must declare additionalProperties: false or a typed schema."
                 ));
+            }
+            if let Some(other_members) = other_members {
+                check_schema_node(
+                    definition,
+                    additional,
+                    &format!("{context}.additionalProperties"),
+                )?;
+                if schema.get("properties").is_none() {
+                    if schema.get("required").is_some() {
+                        return refuse(format!(
+                            "{context}.required may name only members its properties declare."
+                        ));
+                    }
+                    return Ok(());
+                }
+                check_open_object(definition, schema, other_members, context)?;
             }
             let Some(properties) = object_at(schema, "properties") else {
                 return refuse(format!("{context} object schemas must declare properties."));
@@ -1197,6 +1208,159 @@ fn check_schema_node(definition: &Definition, schema: Option<&Json>, context: &s
             "{context} uses unsupported schema type {}.",
             string_literal(other)
         )),
+    }
+}
+
+/// An open object declares at least one member, each a value of its other
+/// members' schema, and none named as the Rust field holding the others.
+fn check_open_object(
+    definition: &Definition,
+    schema: &Object,
+    other_members: &Object,
+    context: &str,
+) -> Result<()> {
+    let Some(properties) =
+        object_at(schema, "properties").filter(|properties| !properties.is_empty())
+    else {
+        return refuse(format!(
+            "{context} declares no properties beside additionalProperties; a record omits properties."
+        ));
+    };
+    for (property_name, property_schema) in properties.iter() {
+        let context = format!("{context}.properties.{property_name}");
+        if crate::names::rust_field_identifier(property_name) == crate::rust::OTHER_MEMBERS_FIELD {
+            return refuse(format!(
+                "{context} is named as the Rust field holding the other members."
+            ));
+        }
+        let Some(property_schema) = property_schema.as_object() else {
+            return refuse(format!("{context} must be an object schema."));
+        };
+        if !admits(
+            definition,
+            other_members,
+            property_schema,
+            &mut HashSet::new(),
+        )? {
+            return refuse(format!(
+                "{context} is not a value of the object's additionalProperties schema."
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// Whether every value of `member` is a value of `values`. A pair of schemas
+/// the subset cannot compare is not admitted. `assumed` holds the reference
+/// pairs being compared, so recursive definitions compare coinductively.
+fn admits(
+    definition: &Definition,
+    values: &Object,
+    member: &Object,
+    assumed: &mut HashSet<(String, String)>,
+) -> Result<bool> {
+    if has_type(values, "json") {
+        return Ok(true);
+    }
+    let values_ref = values.get("$ref").and_then(Json::as_str);
+    let member_ref = member.get("$ref").and_then(Json::as_str);
+    if values_ref.is_some() && values_ref == member_ref {
+        return Ok(true);
+    }
+    if values_ref.is_some() || member_ref.is_some() {
+        let pair = (
+            Json::from(values.clone()).stringify(),
+            Json::from(member.clone()).stringify(),
+        );
+        if !assumed.insert(pair) {
+            return Ok(true);
+        }
+        let values = dereference(definition, values)?;
+        let member = dereference(definition, member)?;
+        return admits(definition, values, member, assumed);
+    }
+
+    let member_types: Vec<&str> = match primitive_union_types(member)? {
+        Some(types) => types,
+        None => match member.get("type").and_then(Json::as_str) {
+            Some(member_type) => vec![member_type],
+            None => return Ok(false),
+        },
+    };
+    let values_types: Vec<&str> = match primitive_union_types(values)? {
+        Some(types) => types,
+        None => match values.get("type").and_then(Json::as_str) {
+            Some(values_type) => vec![values_type],
+            None => return Ok(false),
+        },
+    };
+    let scalar_admitted = |member_type: &str| {
+        values_types.iter().any(|values_type| {
+            *values_type == member_type || (*values_type == "number" && member_type == "integer")
+        })
+    };
+    if !member_types
+        .iter()
+        .all(|member_type| scalar_admitted(member_type))
+    {
+        return Ok(false);
+    }
+    if values_types.len() > 1 || member_types.len() > 1 {
+        return Ok(true);
+    }
+
+    if let Some(admitted) = values.get("enum").and_then(Json::as_array) {
+        let member_values = match (member.get("enum"), member.get("const")) {
+            (Some(Json::Array(values)), _) => values.clone(),
+            (_, Some(constant)) => vec![constant.clone()],
+            _ => return Ok(false),
+        };
+        if !member_values.iter().all(|value| admitted.contains(value)) {
+            return Ok(false);
+        }
+    }
+    if let Some(constant) = values.get("const") {
+        if member.get("const") != Some(constant) {
+            return Ok(false);
+        }
+    }
+    for (bound, tighter) in [("minimum", true), ("minLength", true), ("maximum", false)] {
+        let Some(limit) = values.get(bound).and_then(Json::as_f64) else {
+            continue;
+        };
+        let held = member
+            .get(bound)
+            .and_then(Json::as_f64)
+            .is_some_and(|value| {
+                if tighter {
+                    value >= limit
+                } else {
+                    value <= limit
+                }
+            });
+        if !held {
+            return Ok(false);
+        }
+    }
+
+    match values_types[0] {
+        "array" => {
+            let (Some(values_items), Some(member_items)) =
+                (object_at(values, "items"), object_at(member, "items"))
+            else {
+                return Ok(false);
+            };
+            admits(definition, values_items, member_items, assumed)
+        }
+        "object" => {
+            // Records admit records of admitted values; other objects admit
+            // only themselves, by reference.
+            match (record_values_schema(values), record_values_schema(member)) {
+                (Some(values), Some(member)) => admits(definition, values, member, assumed),
+                _ => Ok(false),
+            }
+        }
+        _ => Ok(true),
     }
 }
 
@@ -1334,6 +1498,14 @@ fn check_tagged_union(definition: &Definition, schema: &Object, context: &str) -
             return refuse(format!(
                 "{context}.oneOf.{tag} declares {}, which the tag already carries.",
                 string_literal(discriminator)
+            ));
+        }
+        if variant_schema
+            .get("additionalProperties")
+            .is_some_and(|additional| additional.as_object().is_some())
+        {
+            return refuse(format!(
+                "{context}.oneOf.{tag} must be a closed object: additionalProperties false."
             ));
         }
         check_schema_node(definition, Some(variant), &format!("{context}.oneOf.{tag}"))?;

@@ -904,3 +904,158 @@ fn a_command_may_touch_no_entity() {
     remove(&mut document, "/commands/task.archiveDone/touches");
     validate(document).expect("a command that touches nothing is valid");
 }
+
+/// An open object: declared members beside other members of a typed schema.
+fn open_object(properties: &str, required: &str, other_members: &str) -> String {
+    format!(
+        r#"{{ "type": "object", "properties": {properties}, "required": {required},
+            "additionalProperties": {other_members} }}"#
+    )
+}
+
+#[test]
+fn an_open_object_declares_members_that_are_values_of_its_other_members() {
+    let cases = [
+        (
+            r#"{ "kind": { "type": "string" }, "size": { "type": "integer" } }"#,
+            r#"{ "type": "json" }"#,
+        ),
+        (
+            r#"{ "kind": { "type": "string", "enum": ["a", "b"] } }"#,
+            r#"{ "type": "string" }"#,
+        ),
+        (
+            r#"{ "count": { "type": "integer" } }"#,
+            r#"{ "type": "number" }"#,
+        ),
+        (
+            r#"{ "count": { "type": "integer", "minimum": 2, "maximum": 4 } }"#,
+            r#"{ "type": "integer", "minimum": 0, "maximum": 10 }"#,
+        ),
+        (
+            r#"{ "sizes": { "type": "array", "items": { "type": "integer" } } }"#,
+            r#"{ "type": "array", "items": { "type": "number" } }"#,
+        ),
+        (
+            r#"{ "labels": { "type": "object", "additionalProperties": { "type": "string", "const": "x" } } }"#,
+            r#"{ "type": "object", "additionalProperties": { "type": "string" } }"#,
+        ),
+        (
+            r##"{ "summary": { "$ref": "#/$defs/NoteSummary" } }"##,
+            r##"{ "$ref": "#/$defs/NoteSummary" }"##,
+        ),
+        (
+            r#"{ "kind": { "type": "string" } }"#,
+            r#"{ "type": ["string", "boolean"] }"#,
+        ),
+    ];
+    for (properties, other_members) in cases {
+        validate(with_defs(&format!(
+            r#"{{ "ProbeOpen": {} }}"#,
+            open_object(properties, "[]", other_members)
+        )))
+        .unwrap_or_else(|error| panic!("{properties} beside {other_members}: {error}"));
+    }
+}
+
+#[test]
+fn an_open_object_is_refused_where_its_members_cannot_be_held() {
+    let cases = [
+        (
+            open_object(r#"{ "count": { "type": "integer" } }"#, "[]", r#"{ "type": "string" }"#),
+            "$defs.ProbeOpen.properties.count is not a value of the object's additionalProperties schema",
+        ),
+        (
+            open_object(r#"{ "ratio": { "type": "number" } }"#, "[]", r#"{ "type": "integer" }"#),
+            "$defs.ProbeOpen.properties.ratio is not a value",
+        ),
+        (
+            open_object(r#"{ "kind": { "type": "string" } }"#, "[]", r#"{ "type": "string", "enum": ["a"] }"#),
+            "$defs.ProbeOpen.properties.kind is not a value",
+        ),
+        (
+            open_object(r#"{ "extra": { "type": "json" } }"#, "[]", r#"{ "type": "string" }"#),
+            "$defs.ProbeOpen.properties.extra is not a value",
+        ),
+        (
+            open_object(
+                r##"{ "summary": { "$ref": "#/$defs/NoteSummary" } }"##,
+                "[]",
+                r##"{ "$ref": "#/$defs/NoteDetail" }"##,
+            ),
+            "$defs.ProbeOpen.properties.summary is not a value",
+        ),
+        (
+            open_object(r#"{ "kind": { "type": "string" } }"#, r#"["kind", "colour"]"#, r#"{ "type": "string" }"#),
+            "$defs.ProbeOpen.required references unknown property \"colour\"",
+        ),
+        (
+            open_object("{}", "[]", r#"{ "type": "string" }"#),
+            "$defs.ProbeOpen declares no properties beside additionalProperties",
+        ),
+        (
+            open_object(r#"{ "otherMembers": { "type": "string" } }"#, "[]", r#"{ "type": "string" }"#),
+            "$defs.ProbeOpen.properties.otherMembers is named as the Rust field holding the other members",
+        ),
+        (
+            r#"{ "type": "object", "required": ["kind"], "additionalProperties": { "type": "string" } }"#
+                .to_owned(),
+            "$defs.ProbeOpen.required may name only members its properties declare",
+        ),
+        (
+            format!(
+                r#"{{ "type": "object", "discriminator": "tag", "oneOf": {{ "a": {} }} }}"#,
+                open_object(r#"{ "kind": { "type": "string" } }"#, "[]", r#"{ "type": "string" }"#)
+            ),
+            "$defs.ProbeOpen.oneOf.a must be a closed object",
+        ),
+    ];
+    for (schema, expected) in cases {
+        assert_mentions(
+            &refusal(with_defs(&format!(r#"{{ "ProbeOpen": {schema} }}"#))),
+            &[expected],
+        );
+    }
+}
+
+/// A field stores an open object whole: its members, declared or not, are one
+/// value, so no field path reaches into it, and a collaborative entity's
+/// schema declares its members as fields.
+#[test]
+fn a_collaboration_field_stores_an_open_object_whole() {
+    let mut document = notebook_document();
+    let theme = document
+        .pointer("/collaboration/entities/Note/fields/appearance")
+        .cloned()
+        .expect("the notebook stores an appearance");
+    set(
+        &mut document,
+        "/collaboration/entities/Note/fields/appearance.theme",
+        theme,
+    );
+    assert_mentions(
+        &refusal(document),
+        &["collaboration.entities.Note.fields.appearance.theme does not resolve in NoteDocument"],
+    );
+
+    let mut document = notebook_document();
+    remove(
+        &mut document,
+        "/collaboration/entities/Note/fields/appearance",
+    );
+    assert_mentions(
+        &refusal(document),
+        &["collaboration.entities.Note.fields does not cover entity schema paths: appearance."],
+    );
+
+    let mut document = notebook_document();
+    set(
+        &mut document,
+        "/$defs/NoteDocument/additionalProperties",
+        json(r#"{ "type": "json" }"#),
+    );
+    assert_mentions(
+        &refusal(document),
+        &["entities.Note.schema must be a closed object"],
+    );
+}

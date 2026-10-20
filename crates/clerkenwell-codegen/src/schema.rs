@@ -18,6 +18,22 @@ pub(crate) fn has_type(schema: &Object, expected: &str) -> bool {
     schema.get("type").and_then(Json::as_str) == Some(expected)
 }
 
+/// The values schema of a record: `additionalProperties` of an object schema
+/// that declares no `properties`.
+pub(crate) fn record_values_schema(schema: &Object) -> Option<&Object> {
+    if schema.get("properties").is_some() {
+        return None;
+    }
+    object_at(schema, "additionalProperties")
+}
+
+/// The schema of an open object's other members: `additionalProperties` of an
+/// object schema that declares `properties` beside it.
+pub(crate) fn other_members_schema(schema: &Object) -> Option<&Object> {
+    object_at(schema, "properties")?;
+    object_at(schema, "additionalProperties")
+}
+
 /// The member types of a primitive union (`"type": ["string", "integer"]`), or
 /// `None` when `type` is not an array.
 pub(crate) fn primitive_union_types(schema: &Object) -> Result<Option<Vec<&str>>> {

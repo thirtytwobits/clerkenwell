@@ -12,8 +12,8 @@ use crate::names::{
     rust_property_enum_name, utf16_len,
 };
 use crate::schema::{
-    has_type, object_at, primitive_union_types, read_string_array, ref_string,
-    schema_ref_type_name, stringify_or_undefined,
+    has_type, object_at, other_members_schema, primitive_union_types, read_string_array,
+    record_values_schema, ref_string, schema_ref_type_name, stringify_or_undefined,
 };
 
 /// A helper enum generated for a string-enum property.
@@ -111,13 +111,15 @@ fn variant_enum_owner(definition_name: &str, tag: &str) -> String {
 }
 
 /// The `clerkenwell_schema` items the model re-exports.
-const SCHEMA_REEXPORTS: [&str; 20] = [
+const SCHEMA_REEXPORTS: [&str; 23] = [
     "ActorKind",
     "AuthoringPeerBlock",
     "AuthoringState",
     "AuthoringStatePatch",
     "AuthoringStatePatchKind",
     "CollaborationExchangeMode",
+    "DeclaredMemberError",
+    "DeclaredMembers",
     "GeneratedAuthoringPolicyKind",
     "GeneratedCollaborationConflict",
     "GeneratedCollaborationEntitySpec",
@@ -132,7 +134,11 @@ const SCHEMA_REEXPORTS: [&str; 20] = [
     "GeneratedRemoveMode",
     "GeneratedSnapshotMode",
     "GeneratedWriterConflict",
+    "OtherMembers",
 ];
+
+/// The Rust field of a generated open object that holds its other members.
+pub(crate) const OTHER_MEMBERS_FIELD: &str = "other_members";
 
 /// The names the model's other imports bind, the last two only where its
 /// body uses them.
@@ -779,7 +785,7 @@ fn render_definition(definition_name: &str, schema: &Object) -> Result<String> {
     }
     // A record-shaped `$def` names one open map, so a value schema used at many
     // sites is written once.
-    if let Some(additional) = object_at(schema, "additionalProperties") {
+    if let Some(additional) = record_values_schema(schema) {
         let value = rust_type(definition_name, definition_name, "value", additional, false)?;
         return Ok(format!("pub type {type_name} = BTreeMap<String, {value}>;"));
     }
@@ -807,7 +813,37 @@ fn render_definition(definition_name: &str, schema: &Object) -> Result<String> {
             "pub ",
         )?);
     }
-    let derive = "#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, PartialEq)]\n#[serde(deny_unknown_fields)]";
+    let derive = "#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, PartialEq)]";
+    if let Some(additional) = other_members_schema(schema) {
+        // An open object's other members are flattened beside its declared
+        // ones, which serde's `deny_unknown_fields` does not admit.
+        let value = rust_type(
+            definition_name,
+            definition_name,
+            OTHER_MEMBERS_FIELD,
+            additional,
+            false,
+        )?;
+        fields.push(format!(
+            "    #[serde(flatten)]\n{}",
+            layout::declaration(
+                "    ",
+                &format!("pub {OTHER_MEMBERS_FIELD}:"),
+                &format!("OtherMembers<{type_name}, {value}>"),
+            )
+        ));
+        let declared: Vec<&str> = properties.keys().collect();
+        return Ok(format!(
+            "{derive}\npub struct {type_name} {{\n{}\n}}\n\nimpl DeclaredMembers for {type_name} {{\n{}\n}}",
+            fields.join("\n"),
+            layout::item_at(
+                4,
+                "const DECLARED_MEMBERS: &'static [&'static str] =",
+                &literals(&declared)
+            )
+        ));
+    }
+    let derive = format!("{derive}\n#[serde(deny_unknown_fields)]");
     if fields.is_empty() {
         // Unit-like params still reject unknown fields on deserialisation.
         return Ok(format!("{derive}\npub struct {type_name} {{}}"));
@@ -1073,7 +1109,7 @@ fn rust_type(
         Some("integer") => "i64".to_owned(),
         Some("number") => "f64".to_owned(),
         Some("json") => "JsonValue".to_owned(),
-        Some("object") => match object_at(schema, "additionalProperties") {
+        Some("object") => match record_values_schema(schema) {
             Some(additional) => format!(
                 "BTreeMap<String, {}>",
                 rust_type(

@@ -5,11 +5,12 @@
 
 pub use clerkenwell_schema::{
     ActorKind, AuthoringPeerBlock, AuthoringState, AuthoringStatePatch, AuthoringStatePatchKind,
-    CollaborationExchangeMode, GeneratedAuthoringPolicyKind, GeneratedCollaborationConflict,
-    GeneratedCollaborationEntitySpec, GeneratedCollaborationFieldSpec,
-    GeneratedCollaborationStorageKind, GeneratedCollaborationValueCodec, GeneratedCommandSpec,
-    GeneratedEntityAuthoringSpec, GeneratedMaterializationPlan, GeneratedMutationSpec,
-    GeneratedProjectionSpec, GeneratedRemoveMode, GeneratedSnapshotMode, GeneratedWriterConflict,
+    CollaborationExchangeMode, DeclaredMemberError, DeclaredMembers, GeneratedAuthoringPolicyKind,
+    GeneratedCollaborationConflict, GeneratedCollaborationEntitySpec,
+    GeneratedCollaborationFieldSpec, GeneratedCollaborationStorageKind,
+    GeneratedCollaborationValueCodec, GeneratedCommandSpec, GeneratedEntityAuthoringSpec,
+    GeneratedMaterializationPlan, GeneratedMutationSpec, GeneratedProjectionSpec,
+    GeneratedRemoveMode, GeneratedSnapshotMode, GeneratedWriterConflict, OtherMembers,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
@@ -21,6 +22,14 @@ pub enum ReplicaUpdateParamsExchangeMode {
     Incremental,
     #[serde(rename = "bootstrap")]
     Bootstrap,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, PartialEq, Eq)]
+pub enum NoteAppearanceTheme {
+    #[serde(rename = "light")]
+    Light,
+    #[serde(rename = "dark")]
+    Dark,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, PartialEq, Eq)]
@@ -241,6 +250,19 @@ pub type NoteProperties = BTreeMap<String, String>;
 pub type NoteExtras = BTreeMap<String, JsonValue>;
 
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, PartialEq)]
+pub struct NoteAppearance {
+    pub theme: NoteAppearanceTheme,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub accent: Option<String>,
+    #[serde(flatten)]
+    pub other_members: OtherMembers<NoteAppearance, String>,
+}
+
+impl DeclaredMembers for NoteAppearance {
+    const DECLARED_MEMBERS: &'static [&'static str] = &["theme", "accent"];
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct NoteLayout {
     pub caption: String,
@@ -305,6 +327,7 @@ pub struct NoteDocument {
     pub properties: NoteProperties,
     pub layout: NoteLayout,
     pub extras: NoteExtras,
+    pub appearance: NoteAppearance,
     pub meta: NoteMeta,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub source: Option<NoteSource>,
@@ -1770,6 +1793,26 @@ pub static NOTE_COLLABORATION_FIELDS: &[GeneratedCollaborationFieldSpec] = &[
         required: true,
         required_in_parent: true,
         conflict: GeneratedCollaborationConflict::LastWriterWins,
+        writers: &[],
+    },
+    GeneratedCollaborationFieldSpec {
+        path: "appearance",
+        storage_kind: GeneratedCollaborationStorageKind::StructuredMap,
+        container: Some("appearance"),
+        container_template: None,
+        key: None,
+        identity_path: None,
+        identity_variable: None,
+        order_container: None,
+        item_container_template: None,
+        metadata_container: None,
+        metadata_container_template: None,
+        metadata_key: None,
+        codec: GeneratedCollaborationValueCodec::StructuredJson,
+        value_schema: Some("#/$defs/NoteAppearance"),
+        required: true,
+        required_in_parent: true,
+        conflict: GeneratedCollaborationConflict::Merge,
         writers: &[],
     },
     GeneratedCollaborationFieldSpec {

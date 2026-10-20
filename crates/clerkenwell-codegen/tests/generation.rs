@@ -6,11 +6,11 @@ mod common;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use clerkenwell_codegen::testing::{normalized_document, Json, Object};
+use clerkenwell_codegen::testing::{self, normalized_document, Json, Object};
 use clerkenwell_codegen::{build_outputs, generate, Config, Definition, Error, Mode};
 use common::{
     copy_notebook, json, notebook_config, notebook_config_path, notebook_document, push, set,
-    validate,
+    validate, with_defs,
 };
 
 fn reversed(object: &Object) -> Object {
@@ -81,7 +81,41 @@ fn the_committed_example_outputs_pass_check() {
 fn generated_rust_satisfies_rustfmt() {
     let config = notebook_config();
     let definition = Definition::load(&config.definition).expect("valid");
-    let outputs = build_outputs(&definition, &config).expect("renders");
+    assert_rustfmt_clean(&definition, &config);
+}
+
+/// An open object's declared member names wrap as rustfmt wraps them inside
+/// the `impl` that lists them.
+#[test]
+fn an_open_object_with_many_declared_members_satisfies_rustfmt() {
+    let short = [
+        "alpha", "bravo", "charlie", "delta", "echo", "foxtrot", "golf", "hotel",
+    ];
+    let long = short.map(|name| format!("declared_member_{name}"));
+    let long: Vec<&str> = long.iter().map(String::as_str).collect();
+    for names in [&short[..], &long[..]] {
+        for count in 1..=names.len() {
+            assert_open_object_rustfmt_clean(&names[..count]);
+        }
+    }
+}
+
+fn assert_open_object_rustfmt_clean(names: &[&str]) {
+    let properties: Vec<String> = names
+        .iter()
+        .map(|name| format!(r#""{name}": {{ "type": "string" }}"#))
+        .collect();
+    let document = with_defs(&format!(
+        r#"{{ "ProbeOpen": {{ "type": "object", "properties": {{ {} }},
+            "additionalProperties": {{ "type": "string" }} }} }}"#,
+        properties.join(", ")
+    ));
+    let definition = testing::definition(document).expect("valid");
+    assert_rustfmt_clean(&definition, &notebook_config());
+}
+
+fn assert_rustfmt_clean(definition: &Definition, config: &Config) {
+    let outputs = build_outputs(definition, config).expect("renders");
     let directory = tempfile::tempdir().expect("a temporary directory");
     let path = directory.path().join("model.rs");
     std::fs::write(&path, &outputs.rust_model).expect("written");

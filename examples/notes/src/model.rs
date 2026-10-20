@@ -5,11 +5,12 @@
 
 pub use clerkenwell_schema::{
     ActorKind, AuthoringPeerBlock, AuthoringState, AuthoringStatePatch, AuthoringStatePatchKind,
-    CollaborationExchangeMode, GeneratedAuthoringPolicyKind, GeneratedCollaborationConflict,
-    GeneratedCollaborationEntitySpec, GeneratedCollaborationFieldSpec,
-    GeneratedCollaborationStorageKind, GeneratedCollaborationValueCodec, GeneratedCommandSpec,
-    GeneratedEntityAuthoringSpec, GeneratedMaterializationPlan, GeneratedMutationSpec,
-    GeneratedProjectionSpec, GeneratedRemoveMode, GeneratedSnapshotMode, GeneratedWriterConflict,
+    CollaborationExchangeMode, DeclaredMemberError, DeclaredMembers, GeneratedAuthoringPolicyKind,
+    GeneratedCollaborationConflict, GeneratedCollaborationEntitySpec,
+    GeneratedCollaborationFieldSpec, GeneratedCollaborationStorageKind,
+    GeneratedCollaborationValueCodec, GeneratedCommandSpec, GeneratedEntityAuthoringSpec,
+    GeneratedMaterializationPlan, GeneratedMutationSpec, GeneratedProjectionSpec,
+    GeneratedRemoveMode, GeneratedSnapshotMode, GeneratedWriterConflict, OtherMembers,
 };
 use serde::{Deserialize, Serialize};
 

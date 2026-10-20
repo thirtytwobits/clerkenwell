@@ -655,6 +655,20 @@
             "required": true,
             "conflict": "lastWriterWins"
           },
+          "appearance": {
+            "storage": {
+              "kind": "structuredMap",
+              "container": "appearance"
+            },
+            "value": {
+              "codec": "structuredJson",
+              "schema": {
+                "$ref": "#/$defs/NoteAppearance"
+              }
+            },
+            "required": true,
+            "conflict": "merge"
+          },
           "meta.owner": {
             "storage": {
               "kind": "scalar",
@@ -1145,6 +1159,28 @@
         "type": "json"
       }
     },
+    "NoteAppearance": {
+      "type": "object",
+      "properties": {
+        "theme": {
+          "type": "string",
+          "enum": [
+            "light",
+            "dark"
+          ]
+        },
+        "accent": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "theme"
+      ],
+      "additionalProperties": {
+        "type": "string"
+      },
+      "description": "A theme and accent, and any other appearance settings, each a string."
+    },
     "NoteLayout": {
       "type": "object",
       "additionalProperties": false,
@@ -1266,6 +1302,7 @@
         "properties",
         "layout",
         "extras",
+        "appearance",
         "meta"
       ],
       "properties": {
@@ -1333,6 +1370,9 @@
         },
         "extras": {
           "$ref": "#/$defs/NoteExtras"
+        },
+        "appearance": {
+          "$ref": "#/$defs/NoteAppearance"
         },
         "meta": {
           "$ref": "#/$defs/NoteMeta"

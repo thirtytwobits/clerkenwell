@@ -12,6 +12,21 @@ names the contracts.
   `additionalProperties`, as `BTreeMap<String, T>`, so a record serialises its keys in key order
   (#88). The model imports `BTreeMap`, and `clerkenwell-codegen` refuses a `$defs` entry that
   generates that name.
+- The generated Rust model re-exports `clerkenwell-schema`'s `OtherMembers`, `DeclaredMembers` and
+  `DeclaredMemberError` (#89), and `clerkenwell-codegen` refuses a `$defs` entry that generates
+  one of those names.
+- `clerkenwell-codegen` refuses `required` on a record, and a tagged-union variant whose
+  `additionalProperties` is a schema.
+
+### Added
+
+- An object schema may declare `properties` beside a typed `additionalProperties`: an open
+  object (#89). Each declared member must be a value of the `additionalProperties` schema. The
+  generated Rust struct holds the other members in a flattened `other_members:
+  OtherMembers<Self, T>`, which refuses a declared member's name, and the generated TypeScript
+  type intersects the declared members with an index signature for the others. Schema imports
+  carry the shape. A collaboration field stores an open object whole, and a collaborative
+  entity's schema is a closed object.
 
 ## 0.9.0
 

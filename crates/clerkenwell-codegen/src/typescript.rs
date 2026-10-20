@@ -7,8 +7,8 @@ use crate::json::{number_to_string, string_literal, Json, Object};
 use crate::names::{name_constant_identifier, pascal_identifier};
 use crate::replica::optional_paths;
 use crate::schema::{
-    object_at, primitive_union_types, read_string_array, schema_ref_type_name,
-    stringify_or_undefined,
+    object_at, other_members_schema, primitive_union_types, read_string_array,
+    record_values_schema, schema_ref_type_name, stringify_or_undefined,
 };
 
 /// The generated-file header as a block comment, without a trailing newline.
@@ -487,7 +487,7 @@ fn schema_to_typescript(schema: &Object) -> Result<String> {
     let schema_type = schema.get("type");
     match schema_type.and_then(Json::as_str) {
         Some("object") => {
-            if let Some(additional) = object_at(schema, "additionalProperties") {
+            if let Some(additional) = record_values_schema(schema) {
                 return Ok(format!(
                     "Record<string, {}>",
                     schema_to_typescript(additional)?
@@ -519,12 +519,22 @@ fn schema_to_typescript(schema: &Object) -> Result<String> {
                     schema_to_typescript(property_schema)?
                 ));
             }
-            Ok(format!("{{\n{}\n}}", fields.join("\n")))
+            let declared = format!("{{\n{}\n}}", fields.join("\n"));
+            // An intersection, not an index signature beside the declared
+            // members: TypeScript checks an optional member's `undefined`
+            // against an index signature declared with it.
+            match other_members_schema(schema) {
+                Some(additional) => Ok(format!(
+                    "{declared} & {{\n  [member: string]: {};\n}}",
+                    schema_to_typescript(additional)?
+                )),
+                None => Ok(declared),
+            }
         }
         Some("array") => {
             let items = object_at(schema, "items").expect("validation requires array items");
             let item_type = schema_to_typescript(items)?;
-            Ok(if item_type.contains(" | ") {
+            Ok(if item_type.contains(" | ") || item_type.contains(" & ") {
                 format!("({item_type})[]")
             } else {
                 format!("{item_type}[]")

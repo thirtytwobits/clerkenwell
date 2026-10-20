@@ -70,6 +70,13 @@ export type NoteProperties = Record<string, string>;
 
 export type NoteExtras = Record<string, unknown>;
 
+export type NoteAppearance = {
+  "theme": "light" | "dark";
+  "accent"?: string;
+} & {
+  [member: string]: string;
+};
+
 export type NoteLayout = {
   "caption": string;
   "columns": number;
@@ -116,6 +123,7 @@ export type NoteDocument = {
   "properties": NoteProperties;
   "layout": NoteLayout;
   "extras": NoteExtras;
+  "appearance": NoteAppearance;
   "meta": NoteMeta;
   "source"?: NoteSource;
   "cover_image"?: NoteCoverImage;
@@ -1121,6 +1129,22 @@ export const COLLABORATION_PLANS = {
         },
         "required": true,
         "conflict": "lastWriterWins",
+        "requiredInParent": true
+      },
+      "appearance": {
+        "path": "appearance",
+        "storage": {
+          "kind": "structuredMap",
+          "container": "appearance"
+        },
+        "value": {
+          "codec": "structuredJson",
+          "schema": {
+            "$ref": "#/$defs/NoteAppearance"
+          }
+        },
+        "required": true,
+        "conflict": "merge",
         "requiredInParent": true
       },
       "meta.owner": {

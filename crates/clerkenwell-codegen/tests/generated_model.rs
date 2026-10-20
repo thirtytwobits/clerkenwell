@@ -211,3 +211,53 @@ fn a_record_serialises_its_keys_in_key_order() {
         "{wire}"
     );
 }
+
+/// An open object reads and writes its declared members and every other
+/// member, and its other members never hold a declared one.
+#[test]
+fn an_open_object_round_trips_every_member() {
+    let wire = serde_json::json!({
+        "theme": "dark",
+        "accent": "teal",
+        "density": "compact",
+        "font": "serif",
+    });
+    let appearance: model::NoteAppearance =
+        serde_json::from_value(wire.clone()).expect("an open object parses");
+    assert_eq!(appearance.theme, model::NoteAppearanceTheme::Dark);
+    assert_eq!(appearance.accent.as_deref(), Some("teal"));
+    assert_eq!(
+        appearance.other_members.keys().collect::<Vec<_>>(),
+        ["density", "font"]
+    );
+    assert_eq!(serde_json::to_value(&appearance).expect("serialises"), wire);
+
+    let mut other_members = model::OtherMembers::<model::NoteAppearance, String>::new();
+    assert!(other_members.insert("theme", "light".to_owned()).is_err());
+    other_members
+        .insert("density", "roomy".to_owned())
+        .expect("density is not declared");
+    let built = model::NoteAppearance {
+        theme: model::NoteAppearanceTheme::Light,
+        accent: None,
+        other_members,
+    };
+    assert_eq!(
+        serde_json::to_value(&built).expect("serialises"),
+        serde_json::json!({ "theme": "light", "density": "roomy" })
+    );
+}
+
+/// The schema `schemars` derives for an open object declares its members and
+/// types the others.
+#[test]
+fn an_open_object_schema_declares_its_members_and_types_the_others() {
+    let schema =
+        serde_json::to_value(schemars::schema_for!(model::NoteAppearance)).expect("a schema");
+    let properties = schema["properties"].as_object().expect("properties");
+    let mut declared: Vec<&String> = properties.keys().collect();
+    declared.sort_unstable();
+    assert_eq!(declared, ["accent", "theme"]);
+    assert_eq!(schema["additionalProperties"]["type"], "string");
+    assert_eq!(schema["required"], serde_json::json!(["theme"]));
+}

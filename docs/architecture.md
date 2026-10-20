@@ -4,7 +4,7 @@
 
 | Crate | Owns |
 |---|---|
-| `clerkenwell-schema` | the plan types generated bindings instantiate, and the authoring state every collaborative entity's projection delivers, which generated bindings re-export |
+| `clerkenwell-schema` | the plan types generated bindings instantiate, the authoring state every collaborative entity's projection delivers, and the other members of a generated open object, which generated bindings re-export |
 | `clerkenwell-doc` | plan-driven Loro replicas: whole-document edits written as operations under a given peer, text edits at a captured frontier, forks, the peers an update holds operations of, and field conflict policy judged by the writer's kind |
 | `clerkenwell-session` | the projection session protocol: wire contracts, registry, per-connection subscriptions and the number of the last modification each one's snapshot holds, the principal each connection is authenticated as, and what each update left its client holding, resuming a subscription from that, and serving each request against an application's host as that principal; it answers every collaborative entity's authoring state from the store keeping the document, with a block of peers allocated to the subscriber, and delivers each change a store announces to the subscriptions following it, and each change the application announces to the subscriptions it affects |
 | `clerkenwell-axum` | a reference transport: the session protocol as JSON-RPC 2.0 over axum WebSocket connections, each authenticated as a principal by the application, each mutation, command and application announcement published to every connection's subscriptions and each store change to its authoring-state subscriptions, each command run while its connection serves its other requests, and a shutdown that answers every running command before it closes each connection |
@@ -45,9 +45,9 @@ root.
 
 The code generator's optional `schemaImports` configuration lists JSON Schema bundles with
 `$defs`, resolved relative to the configuration file. Each definition name has one owner.
-Supported imports include closed objects, typed maps, arrays, named string enums, recursive
-references, tagged object unions, numeric bounds and opaque JSON extension fields. Unsupported
-constraints fail generation. The projection definition supplies collaboration and transport
+Supported imports include closed objects, open objects, typed maps, arrays, named string enums,
+recursive references, tagged object unions, numeric bounds and opaque JSON extension fields.
+Unsupported constraints fail generation. The projection definition supplies collaboration and transport
 semantics for these imported types.
 
 A replica reads and writes a collaborative document as the application's schema spells it,

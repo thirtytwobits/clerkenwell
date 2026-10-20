@@ -5,15 +5,18 @@
 //! types. Projections and mutations are named by their wire names. Every
 //! collaborative entity's authoring state delivers the same snapshot and
 //! patch, so generated bindings name [`AuthoringState`] and
-//! [`AuthoringStatePatch`] rather than declaring their own.
+//! [`AuthoringStatePatch`] rather than declaring their own. A generated open
+//! object holds its undeclared members in an [`OtherMembers`].
 
 mod authoring;
+mod members;
 
 pub use authoring::{
     AuthoringPeerBlock, AuthoringState, AuthoringStatePatch, AuthoringStatePatchKind,
     CollaborationExchangeMode,
 };
 pub use clerkenwell_events::ActorKind;
+pub use members::{DeclaredMemberError, DeclaredMembers, OtherMembers};
 
 /// How an entity's content is authored.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

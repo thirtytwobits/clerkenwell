@@ -276,38 +276,44 @@ fn prefer_next_line(same_line: &str, next_line: &str) -> bool {
             .any(|&c| first_line_ends_with(same_line, c) && !first_line_ends_with(next_line, c))
 }
 
-/// `left value;` as rustfmt lays it out, or `None` where rustfmt cannot.
-fn rustfmt_item(left: &str, value: &Expr) -> Option<String> {
+/// `left value;` at block indent `indent` as rustfmt lays it out, or `None`
+/// where rustfmt cannot.
+fn rustfmt_item(indent: usize, left: &str, value: &Expr) -> Option<String> {
+    let lead = spaces(indent);
     let same_line = MAX_WIDTH
-        .checked_sub(width(left) + 2)
+        .checked_sub(indent + width(left) + 2)
         .and_then(|available| {
             rewrite(
                 value,
                 Shape {
-                    indent: 0,
+                    indent,
                     width: available,
                 },
             )
         });
     if let Some(same) = same_line.as_deref().filter(|text| is_single_line(text)) {
-        return Some(format!("{left} {same};"));
+        return Some(format!("{lead}{left} {same};"));
     }
-    let next_line = rewrite(
-        value,
-        Shape {
-            indent: TAB,
-            width: MAX_WIDTH - TAB - 1,
-        },
-    );
+    let next_line = MAX_WIDTH
+        .checked_sub(indent + TAB + 1)
+        .and_then(|available| {
+            rewrite(
+                value,
+                Shape {
+                    indent: indent + TAB,
+                    width: available,
+                },
+            )
+        });
     let chosen = match (same_line, next_line) {
         (Some(same), Some(next)) if prefer_next_line(&same, &next) => {
-            format!("\n{}{next}", spaces(TAB))
+            format!("\n{}{next}", spaces(indent + TAB))
         }
         (Some(same), _) => format!(" {same}"),
-        (None, Some(next)) => format!("\n{}{next}", spaces(TAB)),
+        (None, Some(next)) => format!("\n{}{next}", spaces(indent + TAB)),
         (None, None) => return None,
     };
-    Some(format!("{left}{chosen};"))
+    Some(format!("{lead}{left}{chosen};"))
 }
 
 /// The plain layout of an expression starting at `indent`.
@@ -385,9 +391,19 @@ pub(crate) fn wrap_last_argument(open: &str, argument: &str, close: &str) -> Str
 /// `left value;` as rustfmt formats it; where rustfmt cannot, the plain
 /// layout, with a struct value on the line after `left`.
 pub(crate) fn item(left: &str, value: &Expr) -> String {
-    rustfmt_item(left, value).unwrap_or_else(|| match value {
-        Expr::Struct(..) => format!("{left}\n{}{};", spaces(TAB), written(value, TAB)),
-        _ => format!("{left} {};", written(value, 0)),
+    item_at(0, left, value)
+}
+
+/// [`item`] at block indent `indent`, its first line indented.
+pub(crate) fn item_at(indent: usize, left: &str, value: &Expr) -> String {
+    let lead = spaces(indent);
+    rustfmt_item(indent, left, value).unwrap_or_else(|| match value {
+        Expr::Struct(..) => format!(
+            "{lead}{left}\n{}{};",
+            spaces(indent + TAB),
+            written(value, indent + TAB)
+        ),
+        _ => format!("{lead}{left} {};", written(value, indent)),
     })
 }
 
@@ -424,7 +440,7 @@ mod tests {
                 ("list".to_owned(), Expr::slice(list.clone())),
             ],
         )]);
-        assert!(rustfmt_item("pub static SPECS: &[Spec] =", &value).is_none());
+        assert!(rustfmt_item(0, "pub static SPECS: &[Spec] =", &value).is_none());
         let plain = item("pub static SPECS: &[Spec] =", &value);
         let one_line_list = written(&Expr::slice(list), 0);
         assert!(plain.contains(&one_line_list), "{plain}");

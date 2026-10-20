@@ -7,8 +7,8 @@ use crate::error::{refuse, Result};
 use crate::json::{Json, Object};
 use crate::names::kebab_identifier;
 use crate::schema::{
-    has_type, object_at, primitive_union_types, read_string_array, resolve_ref,
-    stringify_or_undefined,
+    has_type, object_at, other_members_schema, primitive_union_types, read_string_array,
+    resolve_ref, stringify_or_undefined,
 };
 use crate::validate::{collaboration_path_presence, contract_property};
 
@@ -546,6 +546,22 @@ fn sample_value(
                         );
                     }
                 }
+            }
+            // An open object's sample holds one member it does not declare.
+            if let (Some(properties), Some(additional)) = (
+                object_at(schema, "properties"),
+                other_members_schema(schema),
+            ) {
+                let mut name = "other-member".to_owned();
+                while properties.contains_key(&name) {
+                    name.push('-');
+                }
+                let value = if has_type(additional, "json") {
+                    "other-value".into()
+                } else {
+                    sample_value(definition, additional, suffix, Some(&name))?
+                };
+                sample.insert(name, value);
             }
             sample.into()
         }
