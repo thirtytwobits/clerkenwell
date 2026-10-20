@@ -1362,6 +1362,10 @@ fn admits(
         }
         let values = dereference(definition, values)?;
         let member = dereference(definition, member)?;
+        // References ending at one definition name one type.
+        if std::ptr::eq(values, member) {
+            return Ok(true);
+        }
         return admits(definition, values, member, assumed);
     }
 
@@ -1543,6 +1547,23 @@ fn check_validation_keywords(schema: &Object, types: &[&str], context: &str) -> 
                         "{context}.const must be a value of one of its types."
                     ));
                 }
+            }
+        }
+    }
+
+    if let Some(constant) = schema.get("const") {
+        for bound in ["minLength", "minimum", "maximum"] {
+            let Some(limit) = schema.get(bound).and_then(Json::as_f64) else {
+                continue;
+            };
+            let met = match (bound, constant) {
+                ("minLength", Json::String(text)) => text.chars().count() as f64 >= limit,
+                ("minimum", Json::Number(value)) => *value >= limit,
+                ("maximum", Json::Number(value)) => *value <= limit,
+                _ => true,
+            };
+            if !met {
+                return refuse(format!("{context}.const does not meet its {bound}."));
             }
         }
     }

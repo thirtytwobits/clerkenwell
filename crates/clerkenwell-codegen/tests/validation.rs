@@ -1316,3 +1316,52 @@ fn a_chain_of_references_ends_at_a_schema() {
     );
     validate(document).expect("a closed item reached through aliases is a keyed sequence's item");
 }
+
+/// A member whose references end at the definition the other members' do is
+/// a value of it, whichever aliases each passes through.
+#[test]
+fn an_open_object_admits_a_member_reaching_its_other_members_type_through_aliases() {
+    validate(with_defs(
+        r##"{
+            "ProbeTarget": { "type": "object", "additionalProperties": false,
+                "properties": { "label": { "type": "string" } } },
+            "ProbeAlias": { "$ref": "#/$defs/ProbeTarget" },
+            "ProbeOpen": { "type": "object",
+                "properties": { "member": { "$ref": "#/$defs/ProbeAlias" } },
+                "additionalProperties": { "$ref": "#/$defs/ProbeTarget" } }
+        }"##,
+    ))
+    .expect("a member behind an alias of the other members' type is admitted");
+}
+
+/// A constant is a value of its schema only when it meets the schema's
+/// bounds; one that does not leaves the schema no values.
+#[test]
+fn a_constant_meets_its_bounds() {
+    for (schema, expected) in [
+        (
+            r#"{ "type": "string", "const": "x", "minLength": 2 }"#,
+            "$defs.ProbeConstant.const does not meet its minLength",
+        ),
+        (
+            r#"{ "type": "integer", "const": 1, "minimum": 2 }"#,
+            "$defs.ProbeConstant.const does not meet its minimum",
+        ),
+        (
+            r#"{ "type": ["string", "number"], "const": 9.5, "maximum": 9 }"#,
+            "$defs.ProbeConstant.const does not meet its maximum",
+        ),
+    ] {
+        assert_mentions(
+            &refusal(with_defs(&format!(r#"{{ "ProbeConstant": {schema} }}"#))),
+            &[expected],
+        );
+    }
+    for schema in [
+        r#"{ "type": "string", "const": "xy", "minLength": 2 }"#,
+        r#"{ "type": ["string", "integer"], "const": "x", "minimum": 2 }"#,
+    ] {
+        validate(with_defs(&format!(r#"{{ "ProbeConstant": {schema} }}"#)))
+            .unwrap_or_else(|error| panic!("{schema}: {error}"));
+    }
+}

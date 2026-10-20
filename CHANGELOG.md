@@ -19,7 +19,8 @@ names the contracts.
   `additionalProperties` is a schema, `properties`, `additionalProperties` and `required` on a
   schema that is not an object, `items` on one that is not an array, a keyed sequence whose
   items are not closed objects, a `$defs` entry whose chain of references returns to itself, and
-  a primitive union's `minimum`, `maximum`, `minLength` or `const` that none of its types admits.
+  a primitive union's `minimum`, `maximum`, `minLength` or `const` that none of its types admits,
+  and a `const` that does not meet its schema's bounds.
 
 ### Added
 
