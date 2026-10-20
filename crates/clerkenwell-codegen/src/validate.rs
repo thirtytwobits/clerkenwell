@@ -14,7 +14,7 @@ use crate::names::{name_constant_identifier, pascal_identifier, rust_record_cons
 use crate::rust::collect_rust_property_enums;
 use crate::schema::{
     has_type, object_at, other_members_schema, primitive_union_types, read_string_array,
-    record_values_schema, resolve_ref, schema_ref_name, value_meets_bounds,
+    record_values_schema, ref_string, resolve_ref, schema_ref_name, value_meets_bounds,
 };
 
 /// The meta-schema every definition document must satisfy.
@@ -681,27 +681,24 @@ fn check_collaboration_entity(
                 "{context}.fields.{path}.value.schema is required for structuredJson."
             ));
         }
-        if let Some(schema) = field.value_schema() {
-            schema_ref_name(
-                definition,
-                schema,
-                &format!("{context}.fields.{path}.value.schema"),
-            )?;
-        }
         let (_, field_schema) = collaboration_schema_at(definition, entity_schema, path)?
             .expect("the path resolved above");
+        if let Some(schema) = field.value_schema() {
+            check_value_schema(
+                definition,
+                field,
+                schema,
+                field_schema,
+                &format!("{context}.fields.{path}.value.schema"),
+                &schema_name,
+            )?;
+        }
         // A field holding an object stores it whole: as structured JSON of its
         // schema, or, for a closed object, as property text.
         if has_type(field_schema, "object") {
-            let structured = match field.value_schema() {
-                Some(value_schema) if field.codec() == "structuredJson" => {
-                    std::ptr::eq(dereference(definition, value_schema)?, field_schema)
-                }
-                _ => false,
-            };
             let open = other_members_schema(field_schema).is_some()
                 || record_values_schema(field_schema).is_some();
-            if !structured && (open || field.codec() != "propertyText") {
+            if codec != "structuredJson" && (open || codec != "propertyText") {
                 return refuse(format!(
                     "{context}.fields.{path} holds an object, so its codec is structuredJson over that object's schema."
                 ));
@@ -732,6 +729,51 @@ fn check_collaboration_entity(
         ));
     }
     Ok(())
+}
+
+/// A field's value schema is the `$defs` entry the entity schema `schema_name`
+/// declares at the field's path, `field_schema`, or, for a structured list,
+/// the `$defs` entry of one item of the array there.
+fn check_value_schema(
+    definition: &Definition,
+    field: &CollaborationField,
+    value_schema: &Object,
+    field_schema: &Object,
+    context: &str,
+    schema_name: &str,
+) -> Result<()> {
+    schema_ref_name(definition, value_schema, context)?;
+    let path = field.path;
+    let (declared, what) = if field.storage_kind() == "structuredList" {
+        let items = has_type(field_schema, "array")
+            .then(|| object_at(field_schema, "items"))
+            .flatten();
+        let Some(items) = items else {
+            return refuse(format!(
+                "{context} is the schema of one item of a structured list, but {schema_name} declares no array at {path}."
+            ));
+        };
+        (
+            dereference(definition, items)?,
+            format!("an item of {path}"),
+        )
+    } else {
+        (field_schema, path.to_owned())
+    };
+    if std::ptr::eq(dereference(definition, value_schema)?, declared) {
+        return Ok(());
+    }
+    let declared_name = definition
+        .def_entries()
+        .find(|(_, schema)| std::ptr::eq(*schema, declared))
+        .map_or_else(
+            || "an inline schema".to_owned(),
+            |(name, _)| format!("#/$defs/{name}"),
+        );
+    refuse(format!(
+        "{context} is {}, but {schema_name} declares {what} as {declared_name}.",
+        ref_string(value_schema)
+    ))
 }
 
 /// A container inside a keyed sequence holds one item's data, so its name

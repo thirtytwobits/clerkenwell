@@ -1544,16 +1544,65 @@ fn a_field_holding_an_object_is_structured_json_over_its_schema() {
         &refusal(document),
         &["collaboration.entities.Note.fields.appearance holds an object, so its codec is structuredJson over that object's schema"],
     );
+}
+
+/// A field's value schema is the schema the entity schema declares at its
+/// path, or, for a structured list, the schema of one item of the array there.
+#[test]
+fn a_value_schema_is_the_entity_schema_at_its_path() {
+    let cases = [
+        (
+            "appearance",
+            "NoteExtras",
+            "is #/$defs/NoteExtras, but NoteDocument declares appearance as #/$defs/NoteAppearance",
+        ),
+        (
+            "layout",
+            "NoteProperties",
+            "is #/$defs/NoteProperties, but NoteDocument declares layout as #/$defs/NoteLayout",
+        ),
+        (
+            "attachments",
+            "AttachmentPreview",
+            "is #/$defs/AttachmentPreview, but NoteDocument declares an item of attachments as #/$defs/Attachment",
+        ),
+    ];
+    for (field, schema, message) in cases {
+        let mut document = notebook_document();
+        set(
+            &mut document,
+            &format!("/collaboration/entities/Note/fields/{field}/value/schema"),
+            json(&format!(r##"{{ "$ref": "#/$defs/{schema}" }}"##)),
+        );
+        assert_mentions(
+            &refusal(document),
+            &[&format!(
+                "collaboration.entities.Note.fields.{field}.value.schema {message}."
+            )],
+        );
+    }
 
     let mut document = notebook_document();
     set(
         &mut document,
-        "/collaboration/entities/Note/fields/appearance/value/schema",
-        json(r##"{ "$ref": "#/$defs/NoteExtras" }"##),
+        "/collaboration/entities/Note/fields/layout/storage/kind",
+        json(r#""structuredList""#),
     );
     assert_mentions(
         &refusal(document),
-        &["collaboration.entities.Note.fields.appearance holds an object, so its codec is structuredJson over that object's schema"],
+        &["collaboration.entities.Note.fields.layout.value.schema is the schema of one item of a structured list, but NoteDocument declares no array at layout."],
+    );
+
+    // An inline schema is no `$defs` entry, so no reference names it.
+    let mut document = notebook_document();
+    set(
+        &mut document,
+        "/$defs/NoteDocument/properties/attachments/items",
+        json(r#"{ "type": "object", "additionalProperties": { "type": "string" } }"#),
+    );
+    assert_mentions(
+        &refusal(document),
+        &["collaboration.entities.Note.fields.attachments.value.schema is #/$defs/Attachment, but NoteDocument declares an item of attachments as an inline schema."],
     );
 }
 
