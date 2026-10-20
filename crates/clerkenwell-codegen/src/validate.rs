@@ -1383,18 +1383,6 @@ fn admits(
             None => return Ok(false),
         },
     };
-    let scalar_admitted = |member_type: &str| {
-        values_types.iter().any(|values_type| {
-            *values_type == member_type || (*values_type == "number" && member_type == "integer")
-        })
-    };
-    if !member_types
-        .iter()
-        .all(|member_type| scalar_admitted(member_type))
-    {
-        return Ok(false);
-    }
-
     // The values of a member that enumerates them, less those its own bounds
     // exclude, are checked one by one.
     let member_values: Option<Vec<&Json>> = match (member.get("enum"), member.get("const")) {
@@ -1407,6 +1395,30 @@ fn admits(
         (_, Some(constant)) => Some(vec![constant]),
         _ => None,
     };
+    // A member that lists its values is admitted by their types; any other,
+    // by its declared types.
+    let scalar_admitted = |member_type: &str| {
+        values_types.iter().any(|values_type| {
+            *values_type == member_type || (*values_type == "number" && member_type == "integer")
+        })
+    };
+    let typed = match &member_values {
+        Some(member_values) => member_values.iter().all(|value| {
+            values_types.iter().any(|values_type| match *values_type {
+                "integer" => is_integer(value),
+                "number" => value.as_f64().is_some(),
+                "string" => value.as_str().is_some(),
+                "boolean" => value.as_bool().is_some(),
+                _ => false,
+            })
+        }),
+        None => member_types
+            .iter()
+            .all(|member_type| scalar_admitted(member_type)),
+    };
+    if !typed {
+        return Ok(false);
+    }
     if let Some(admitted) = values.get("enum").and_then(Json::as_array) {
         let Some(member_values) = &member_values else {
             return Ok(false);

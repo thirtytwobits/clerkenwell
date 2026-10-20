@@ -1379,3 +1379,25 @@ fn an_open_object_admits_an_enumerated_member_by_the_values_its_bounds_leave() {
     )))
     .expect("the member's bounds leave it only values of the other members");
 }
+
+/// A member that lists its values is admitted by the type of those values,
+/// whatever wider type it declares.
+#[test]
+fn an_open_object_admits_a_listed_member_by_the_types_of_its_values() {
+    let probe = |member: &str| {
+        with_defs(&format!(
+            r#"{{ "ProbeOpen": {} }}"#,
+            open_object(
+                &format!(r#"{{ "member": {member} }}"#),
+                "[]",
+                r#"{ "type": "integer" }"#
+            )
+        ))
+    };
+    validate(probe(r#"{ "type": "number", "const": 1 }"#))
+        .expect("a number member whose one value is an integer");
+    assert_mentions(
+        &refusal(probe(r#"{ "type": "number", "const": 1.5 }"#)),
+        &["$defs.ProbeOpen.properties.member is not a value"],
+    );
+}

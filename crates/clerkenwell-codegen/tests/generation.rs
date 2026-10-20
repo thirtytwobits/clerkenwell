@@ -966,3 +966,61 @@ fn a_fixture_string_longer_than_a_fixture_holds_is_refused() {
         }
     }
 }
+
+/// The Rust type of a field that can reach its own struct again without an
+/// indirection is boxed, whether it names the struct, an alias of it, or a
+/// struct that refers back; other members are held in a map already.
+#[test]
+fn a_field_reaching_its_own_type_is_boxed() {
+    let document = with_defs(
+        r##"{
+            "ProbeNode": { "type": "object", "additionalProperties": false,
+                "properties": { "child": { "$ref": "#/$defs/ProbeNodeAlias" } } },
+            "ProbeNodeAlias": { "$ref": "#/$defs/ProbeNode" },
+            "ProbeLeft": { "type": "object", "additionalProperties": false,
+                "properties": { "right": { "$ref": "#/$defs/ProbeRight" } } },
+            "ProbeRight": { "type": "object", "additionalProperties": false,
+                "properties": { "left": { "$ref": "#/$defs/ProbeLeft" } } },
+            "ProbeTree": { "type": "object",
+                "properties": { "child": { "$ref": "#/$defs/ProbeTreeAlias" } },
+                "additionalProperties": { "$ref": "#/$defs/ProbeTree" } },
+            "ProbeTreeAlias": { "$ref": "#/$defs/ProbeTree" }
+        }"##,
+    );
+    let definition = testing::definition(document).expect("valid");
+    let rust = build_outputs(&definition, &notebook_config())
+        .expect("renders")
+        .rust_model;
+    for field in [
+        "pub child: Option<Box<ProbeNodeAlias>>,",
+        "pub right: Option<Box<ProbeRight>>,",
+        "pub left: Option<Box<ProbeLeft>>,",
+        "pub child: Option<Box<ProbeTreeAlias>>,",
+        "pub other_members: OtherMembers<ProbeTree, ProbeTree>,",
+    ] {
+        assert!(rust.contains(field), "{field} is not generated");
+    }
+}
+
+/// An integer constraint at the edge of `i64` is written as the integer it
+/// is, so the generated literal compiles.
+#[test]
+fn an_integer_constraint_at_the_i64_boundary_is_exact() {
+    let document = with_defs(
+        r#"{ "ProbeOpen": { "type": "object",
+            "properties": { "member": { "type": "integer", "minimum": -9223372036854775808 } },
+            "additionalProperties": { "type": "integer", "minimum": -9223372036854775808 } } }"#,
+    );
+    let definition = testing::definition(document).expect("valid");
+    let rust = build_outputs(&definition, &notebook_config())
+        .expect("renders")
+        .rust_model;
+    assert!(
+        rust.contains("SchemaConstraintValue::Integer(-9223372036854775808)"),
+        "{rust}"
+    );
+    assert!(
+        rust.contains(r#"extend("minimum" = -9223372036854775808i64)"#),
+        "the field bound is not exact"
+    );
+}
