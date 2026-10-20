@@ -28,6 +28,13 @@ names the contracts.
   carry the shape. A collaboration field stores an open object whole, and a collaborative
   entity's schema is a closed object.
 
+### Fixed
+
+- Generated fixtures keep each value's `const` and meet its `minimum`, `maximum` and
+  `minLength`.
+- The generated Rust model declares the helper enum of a record whose values are an inline string
+  enum.
+
 ## 0.9.0
 
 ### Breaking

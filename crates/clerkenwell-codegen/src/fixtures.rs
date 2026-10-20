@@ -475,42 +475,74 @@ fn sample_schema_value(definition: &Definition, schema: &Object) -> Result<Json>
 
 /// A sample value of `schema`, as [`sample_schema_value`] samples it. With a
 /// `suffix`, each free string names the property `key` holding it and the
-/// suffix; enum values and tags are kept.
+/// suffix; enum values, constants and tags are kept, and each value meets
+/// its bounds.
 fn sample_value(
     definition: &Definition,
     schema: &Object,
     suffix: Option<&str>,
     key: Option<&str>,
 ) -> Result<Json> {
+    sample_within(definition, schema, suffix, key, true)
+}
+
+/// [`sample_value`], giving each open object an undeclared member when
+/// `extend` holds. The value of such a member is sampled without, so an open
+/// object whose other members are of its own type has a finite sample.
+fn sample_within(
+    definition: &Definition,
+    schema: &Object,
+    suffix: Option<&str>,
+    key: Option<&str>,
+    extend: bool,
+) -> Result<Json> {
     if schema.get("$ref").is_some() {
-        return sample_value(
+        return sample_within(
             definition,
             resolve_ref(definition, schema, "fixture schema")?,
             suffix,
             key,
+            extend,
         );
+    }
+    if let Some(constant) = schema.get("const") {
+        return Ok(constant.clone());
     }
     if let Some(values) = schema.get("enum").and_then(Json::as_array) {
         return Ok(values.first().cloned().unwrap_or(Json::Null));
     }
     if let Some(members) = primitive_union_types(schema)? {
-        let mut member = Object::new();
+        let mut member = schema.clone();
         member.insert("type", members[0].into());
-        return sample_value(definition, &member, suffix, key);
+        return sample_within(definition, &member, suffix, key, extend);
     }
     let schema_type = schema.get("type");
     Ok(match schema_type.and_then(Json::as_str) {
-        Some("string") => match (suffix, key) {
-            (None, _) => "fixture".into(),
-            (Some(suffix), Some(key)) => format!("{}-{suffix}", kebab_identifier(key)).into(),
-            (Some(suffix), None) => format!("{suffix}-value").into(),
-        },
-        Some("integer" | "number") => 1.0.into(),
+        Some("string") => {
+            let mut sample = match (suffix, key) {
+                (None, _) => "fixture".to_owned(),
+                (Some(suffix), Some(key)) => format!("{}-{suffix}", kebab_identifier(key)),
+                (Some(suffix), None) => format!("{suffix}-value"),
+            };
+            let min_length = schema
+                .get("minLength")
+                .and_then(Json::as_f64)
+                .unwrap_or(0.0);
+            while (sample.chars().count() as f64) < min_length {
+                sample.push('x');
+            }
+            sample.into()
+        }
+        Some(numeric @ ("integer" | "number")) => {
+            bounded_sample(schema, numeric == "integer")?.into()
+        }
         Some("boolean") => true.into(),
         Some("json") => Json::Null,
         Some("array") => {
             let items = object_at(schema, "items").expect("validation requires array items");
-            Json::Array(vec![sample_value(definition, items, suffix, None)?])
+            Json::Array(vec![sample_within(
+                definition, items, suffix, None, extend,
+            )?])
         }
         Some("object") => {
             if let Some(variants) = object_at(schema, "oneOf") {
@@ -527,7 +559,9 @@ fn sample_value(
                 let variant = variant
                     .as_object()
                     .expect("validation requires object variants");
-                if let Json::Object(fields) = sample_value(definition, variant, suffix, key)? {
+                if let Json::Object(fields) =
+                    sample_within(definition, variant, suffix, key, extend)?
+                {
                     sample.spread(&fields);
                 }
                 return Ok(sample.into());
@@ -542,13 +576,20 @@ fn sample_value(
                             .expect("validation requires object property schemas");
                         sample.insert(
                             property,
-                            sample_value(definition, property_schema, suffix, Some(property))?,
+                            sample_within(
+                                definition,
+                                property_schema,
+                                suffix,
+                                Some(property),
+                                extend,
+                            )?,
                         );
                     }
                 }
             }
             // An open object's sample holds one member it does not declare.
-            if let (Some(properties), Some(additional)) = (
+            if let (true, Some(properties), Some(additional)) = (
+                extend,
                 object_at(schema, "properties"),
                 other_members_schema(schema),
             ) {
@@ -559,7 +600,7 @@ fn sample_value(
                 let value = if has_type(additional, "json") {
                     "other-value".into()
                 } else {
-                    sample_value(definition, additional, suffix, Some(&name))?
+                    sample_within(definition, additional, suffix, Some(&name), false)?
                 };
                 sample.insert(name, value);
             }
@@ -572,6 +613,36 @@ fn sample_value(
             ))
         }
     })
+}
+
+/// 1, or the bound nearest it of a schema that excludes 1; an integer
+/// schema's sample is an integer.
+fn bounded_sample(schema: &Object, integer: bool) -> Result<f64> {
+    let mut sample: f64 = 1.0;
+    if let Some(minimum) = schema.get("minimum").and_then(Json::as_f64) {
+        if sample < minimum {
+            sample = if integer { minimum.ceil() } else { minimum };
+        }
+    }
+    if let Some(maximum) = schema.get("maximum").and_then(Json::as_f64) {
+        if sample > maximum {
+            sample = if integer { maximum.floor() } else { maximum };
+        }
+    }
+    let within = |bound: &str, holds: fn(f64, f64) -> bool| {
+        schema
+            .get(bound)
+            .and_then(Json::as_f64)
+            .is_none_or(|limit| holds(sample, limit))
+    };
+    if !within("minimum", |value, limit| value >= limit)
+        || !within("maximum", |value, limit| value <= limit)
+    {
+        return refuse(
+            "Cannot generate a fixture for an integer schema whose bounds admit no integer.",
+        );
+    }
+    Ok(sample)
 }
 
 /// One patch of `kind` and the snapshot applying it to `snapshot` yields.

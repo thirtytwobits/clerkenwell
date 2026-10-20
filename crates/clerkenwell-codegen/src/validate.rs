@@ -1305,9 +1305,6 @@ fn admits(
     {
         return Ok(false);
     }
-    if values_types.len() > 1 || member_types.len() > 1 {
-        return Ok(true);
-    }
 
     if let Some(admitted) = values.get("enum").and_then(Json::as_array) {
         let member_values = match (member.get("enum"), member.get("const")) {
@@ -1324,8 +1321,18 @@ fn admits(
             return Ok(false);
         }
     }
-    for (bound, tighter) in [("minimum", true), ("minLength", true), ("maximum", false)] {
-        let Some(limit) = values.get(bound).and_then(Json::as_f64) else {
+    // A bound constrains only the values of its own type, so it binds a
+    // member whose values include that type.
+    let numeric = member_types
+        .iter()
+        .any(|member_type| matches!(*member_type, "integer" | "number"));
+    let textual = member_types.contains(&"string");
+    for (bound, tighter, applies) in [
+        ("minimum", true, numeric),
+        ("maximum", false, numeric),
+        ("minLength", true, textual),
+    ] {
+        let Some(limit) = values.get(bound).and_then(Json::as_f64).filter(|_| applies) else {
             continue;
         };
         let held = member
@@ -1341,6 +1348,9 @@ fn admits(
         if !held {
             return Ok(false);
         }
+    }
+    if values_types.len() > 1 || member_types.len() > 1 {
+        return Ok(true);
     }
 
     match values_types[0] {

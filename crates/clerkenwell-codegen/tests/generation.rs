@@ -638,3 +638,144 @@ fn the_configured_header_and_command_open_every_generated_code_file() {
         );
     }
 }
+
+/// Every helper enum the Rust model names is declared: an inline string enum
+/// as a record's values, as an open object's other members, and as the
+/// values of a record-valued property.
+#[test]
+fn the_enum_of_an_inline_typed_value_is_declared() {
+    let document = with_defs(
+        r#"{
+            "ProbeRecord": { "type": "object",
+                "additionalProperties": { "type": "string", "enum": ["low", "high"] } },
+            "ProbeOpen": { "type": "object",
+                "properties": { "level": { "type": "string", "enum": ["low"] } },
+                "additionalProperties": { "type": "string", "enum": ["low", "high"] } },
+            "ProbeHolder": { "type": "object", "additionalProperties": false,
+                "properties": { "labels": { "type": "object",
+                    "additionalProperties": { "type": "string", "enum": ["low", "high"] } } } }
+        }"#,
+    );
+    let definition = testing::definition(document).expect("valid");
+    let rust = build_outputs(&definition, &notebook_config())
+        .expect("renders")
+        .rust_model;
+    for (named, declared) in [
+        (
+            "BTreeMap<String, ProbeRecordValue>",
+            "pub enum ProbeRecordValue {",
+        ),
+        (
+            "OtherMembers<ProbeOpen, ProbeOpenOtherMembers>",
+            "pub enum ProbeOpenOtherMembers {",
+        ),
+        (
+            "BTreeMap<String, ProbeHolderLabels>",
+            "pub enum ProbeHolderLabels {",
+        ),
+    ] {
+        assert!(rust.contains(named), "{named} is not named:\n{rust}");
+        assert!(rust.contains(declared), "{declared} is not declared");
+    }
+}
+
+/// Every object in `value`, at any depth, that holds `member`.
+fn objects_holding<'a>(
+    value: &'a serde_json::Value,
+    member: &str,
+    found: &mut Vec<&'a serde_json::Value>,
+) {
+    match value {
+        serde_json::Value::Object(object) => {
+            if object.contains_key(member) {
+                found.push(value);
+            }
+            object
+                .values()
+                .for_each(|value| objects_holding(value, member, found));
+        }
+        serde_json::Value::Array(items) => items
+            .iter()
+            .for_each(|item| objects_holding(item, member, found)),
+        _ => {}
+    }
+}
+
+/// A contract fixture is a value of its definition: a sample honours the
+/// constraints of each member it holds, an open object's other members
+/// included, and an open object whose other members are of its own type has
+/// a finite sample.
+#[test]
+fn contract_fixtures_honour_constraints_and_recursive_open_objects() {
+    let mut document = with_defs(
+        r##"{
+            "ProbeTree": { "type": "object",
+                "properties": { "child": { "$ref": "#/$defs/ProbeTree" } },
+                "additionalProperties": { "$ref": "#/$defs/ProbeTree" } },
+            "ProbeConstrained": { "type": "object",
+                "properties": {
+                    "count": { "type": "integer", "minimum": 12, "maximum": 20 },
+                    "code": { "type": "string", "minLength": 12 },
+                    "mode": { "type": "string", "const": "fixed" },
+                    "ratio": { "type": "number", "minimum": 12.5, "maximum": 13 }
+                },
+                "required": ["count", "code", "mode", "ratio"],
+                "additionalProperties": { "$ref": "#/$defs/ProbeScalar" } },
+            "ProbeScalar": { "type": ["integer", "string", "number"], "minimum": 10 }
+        }"##,
+    );
+    set(
+        &mut document,
+        "/$defs/NoteSummary/properties/tree",
+        json(r##"{ "$ref": "#/$defs/ProbeTree" }"##),
+    );
+    set(
+        &mut document,
+        "/$defs/NoteSummary/properties/constrained",
+        json(r##"{ "$ref": "#/$defs/ProbeConstrained" }"##),
+    );
+    push(
+        &mut document,
+        "/$defs/NoteSummary/required",
+        json(r#""tree""#),
+    );
+    push(
+        &mut document,
+        "/$defs/NoteSummary/required",
+        json(r#""constrained""#),
+    );
+    let definition = testing::definition(document).expect("valid");
+    let outputs = build_outputs(&definition, &notebook_config()).expect("renders");
+    let fixtures: serde_json::Value =
+        serde_json::from_str(&outputs.contract_fixtures).expect("fixtures are JSON");
+
+    let mut constrained = Vec::new();
+    objects_holding(&fixtures, "ratio", &mut constrained);
+    assert!(!constrained.is_empty(), "no sample of ProbeConstrained");
+    for sample in constrained {
+        let count = sample["count"].as_f64().expect("an integer count");
+        assert!(
+            (12.0..=20.0).contains(&count) && count.fract() == 0.0,
+            "{sample}"
+        );
+        assert!(
+            sample["code"].as_str().expect("a code").chars().count() >= 12,
+            "{sample}"
+        );
+        assert_eq!(sample["mode"], "fixed");
+        let ratio = sample["ratio"].as_f64().expect("a ratio");
+        assert!((12.5..=13.0).contains(&ratio), "{sample}");
+        for (name, value) in sample.as_object().expect("an object") {
+            if ["count", "code", "mode", "ratio"].contains(&name.as_str()) {
+                continue;
+            }
+            if let Some(number) = value.as_f64() {
+                assert!(number >= 10.0, "{name} is below the minimum in {sample}");
+            }
+        }
+    }
+
+    let mut trees = Vec::new();
+    objects_holding(&fixtures, "tree", &mut trees);
+    assert!(trees.iter().all(|holder| holder["tree"].is_object()));
+}

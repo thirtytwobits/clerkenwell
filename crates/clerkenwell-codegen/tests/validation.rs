@@ -743,6 +743,12 @@ fn a_construct_a_renderer_cannot_represent_is_refused_at_generation() {
             "NoteSummary.nested",
         ),
         (
+            "/$defs/NoteSummary/properties/nested",
+            r#"{ "type": "object", "properties": { "kind": { "type": "string" } },
+                "additionalProperties": { "type": "string" } }"#,
+            "NoteSummary.nested",
+        ),
+        (
             "/$defs/NoteSummary/properties/sort",
             r#"{ "type": ["string", "integer"] }"#,
             "NoteSummary.sort",
@@ -1058,4 +1064,39 @@ fn a_collaboration_field_stores_an_open_object_whole() {
         &refusal(document),
         &["entities.Note.schema must be a closed object"],
     );
+}
+
+/// A union's constraints bind the members it admits: a bound on numbers
+/// leaves a string member alone and holds an integer member to it.
+#[test]
+fn an_open_object_admits_a_union_member_only_within_the_union_constraints() {
+    let bounded = r#"{ "type": ["string", "integer"], "minimum": 10, "maximum": 20 }"#;
+    let probe = |member: &str| {
+        with_defs(&format!(
+            r##"{{ "ProbeBounded": {bounded}, "ProbeOpen": {} }}"##,
+            open_object(
+                &format!(r#"{{ "member": {member} }}"#),
+                "[]",
+                r##"{ "$ref": "#/$defs/ProbeBounded" }"##
+            )
+        ))
+    };
+    for admitted in [
+        r#"{ "type": "string" }"#,
+        r#"{ "type": "integer", "minimum": 12, "maximum": 20 }"#,
+        r#"{ "type": ["string", "integer"], "minimum": 10, "maximum": 15 }"#,
+    ] {
+        validate(probe(admitted)).unwrap_or_else(|error| panic!("{admitted}: {error}"));
+    }
+    for refused in [
+        r#"{ "type": "integer" }"#,
+        r#"{ "type": "integer", "minimum": 5, "maximum": 15 }"#,
+        r#"{ "type": ["string", "integer"], "minimum": 10 }"#,
+        r#"{ "type": "boolean" }"#,
+    ] {
+        assert_mentions(
+            &refusal(probe(refused)),
+            &["$defs.ProbeOpen.properties.member is not a value"],
+        );
+    }
 }
