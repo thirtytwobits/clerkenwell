@@ -17,7 +17,8 @@ names the contracts.
   `clerkenwell-codegen` refuses a `$defs` entry that generates one of those names.
 - `clerkenwell-codegen` refuses `required` on a record, a tagged-union variant whose
   `additionalProperties` is a schema, `properties`, `additionalProperties` and `required` on a
-  schema that is not an object, and `items` on one that is not an array.
+  schema that is not an object, `items` on one that is not an array, and a keyed sequence whose
+  items are not closed objects.
 
 ### Added
 
@@ -25,7 +26,7 @@ names the contracts.
   object (#89). Each declared member must be a value of the `additionalProperties` schema. The
   generated Rust struct holds the other members in a flattened `other_members:
   OtherMembers<Self, T>`, which refuses a declared member's name and carries the other members'
-  validation keywords into the derived `schemars` schema, and the generated TypeScript
+  validation keywords and `default` into the derived `schemars` schema, and the generated TypeScript
   type intersects the declared members with an index signature for the others. Schema imports
   carry the shape. A collaboration field stores an open object whole, and a collaborative
   entity's schema is a closed object.
@@ -33,7 +34,7 @@ names the contracts.
 ### Fixed
 
 - Generated fixtures keep each value's `const`, meet its `minimum`, `maximum` and `minLength`,
-  and take an enum value that meets them.
+  and take an enum value, and a union member, that meets them.
 - The schema derived for a `$defs` string enum or primitive union carries its validation keywords
   and `default`.
 - The generated Rust model declares the helper enum of an inline string enum within a property's

@@ -171,5 +171,6 @@ enum clerkenwell_schema::SchemaConstraintValue
 derive clerkenwell_schema::SchemaConstraintValue: Clone, Copy, Debug, PartialEq
 variant clerkenwell_schema::SchemaConstraintValue::Boolean(bool)
 variant clerkenwell_schema::SchemaConstraintValue::Integer(i64)
+variant clerkenwell_schema::SchemaConstraintValue::Json(&'static str)
 variant clerkenwell_schema::SchemaConstraintValue::Number(f64)
 variant clerkenwell_schema::SchemaConstraintValue::String(&'static str)

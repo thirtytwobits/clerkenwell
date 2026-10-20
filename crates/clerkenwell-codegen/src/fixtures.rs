@@ -516,10 +516,18 @@ fn sample_within(
         };
         return Ok(value.clone());
     }
+    // A union's sample is of its first member its constraints leave values of.
     if let Some(members) = primitive_union_types(schema)? {
-        let mut member = schema.clone();
-        member.insert("type", members[0].into());
-        return sample_within(definition, &member, suffix, key, extend);
+        let mut refusal = None;
+        for member_type in members {
+            let mut member = schema.clone();
+            member.insert("type", member_type.into());
+            match sample_within(definition, &member, suffix, key, extend) {
+                Ok(sample) => return Ok(sample),
+                Err(error) => refusal = Some(error),
+            }
+        }
+        return Err(refusal.expect("a union has members"));
     }
     let schema_type = schema.get("type");
     Ok(match schema_type.and_then(Json::as_str) {

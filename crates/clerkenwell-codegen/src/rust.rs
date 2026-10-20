@@ -886,14 +886,18 @@ fn render_definition(definition_name: &str, schema: &Object) -> Result<String> {
     ))
 }
 
-/// The validation keywords within `schema`, at `path`, as `SchemaConstraint`
-/// values: those the schema of its Rust type does not carry. Its Rust type is
-/// built of `Vec` and `BTreeMap` down to each constrained scalar.
+/// The validation keywords and defaults within `schema`, at `path`, as
+/// `SchemaConstraint` values: those the schema of its Rust type does not
+/// carry. Its Rust type is built of `Vec` and `BTreeMap` down to each
+/// constrained scalar.
 fn collect_constraints<'a>(schema: &'a Object, path: &mut Vec<&'a str>, found: &mut Vec<Expr>) {
     if schema.get("$ref").is_some() {
         return;
     }
-    for keyword in crate::validate::VALIDATION_SCHEMA_KEYS {
+    for keyword in crate::validate::VALIDATION_SCHEMA_KEYS
+        .iter()
+        .chain(&["default"])
+    {
         let Some(value) = schema.get(keyword) else {
             continue;
         };
@@ -902,6 +906,10 @@ fn collect_constraints<'a>(schema: &'a Object, path: &mut Vec<&'a str>, found: &
             Json::String(value) => {
                 format!("SchemaConstraintValue::String({})", string_literal(value))
             }
+            Json::Null | Json::Array(_) | Json::Object(_) => format!(
+                "SchemaConstraintValue::Json({})",
+                string_literal(&value.stringify())
+            ),
             _ => {
                 let number = value.as_f64().expect("validation keeps scalar constraints");
                 if number.fract() == 0.0 && number >= i64::MIN as f64 && number < -(i64::MIN as f64)

@@ -107,6 +107,7 @@ fn an_open_object_with_constrained_other_members_satisfies_rustfmt() {
     for other_members in [
         r#"{ "type": "string", "minLength": 2 }"#,
         r#"{ "type": "string", "minLength": 2, "const": "a-rather-long-constant-value" }"#,
+        r#"{ "type": "array", "items": { "type": "string" }, "default": ["a", "b"] }"#,
         r#"{ "type": "array", "items": { "type": "array",
             "items": { "type": "string", "minLength": 2 } } }"#,
     ] {
@@ -746,8 +747,9 @@ fn objects_holding<'a>(
 
 /// A contract fixture is a value of its definition: a sample honours the
 /// constraints of each member it holds, an open object's other members
-/// included, and an open object whose other members are of its own type has
-/// a finite sample.
+/// included, a union's sample is of a member its constraints leave values
+/// of, and an open object whose other members are of its own type has a
+/// finite sample.
 #[test]
 fn contract_fixtures_honour_constraints_and_recursive_open_objects() {
     let mut document = with_defs(
@@ -766,6 +768,7 @@ fn contract_fixtures_honour_constraints_and_recursive_open_objects() {
                 "additionalProperties": { "$ref": "#/$defs/ProbeScalar" } },
             "ProbeScalar": { "type": ["integer", "string", "number"], "minimum": 10 },
             "ProbeLevel": { "type": "string", "enum": ["a", "valid"], "minLength": 2 },
+            "ProbeFraction": { "type": ["integer", "number"], "minimum": 0.1, "maximum": 0.2 },
             "ProbeLevels": { "type": "object",
                 "properties": { "first": { "$ref": "#/$defs/ProbeLevel" } },
                 "required": ["first"],
@@ -802,6 +805,16 @@ fn contract_fixtures_honour_constraints_and_recursive_open_objects() {
         "/$defs/NoteSummary/required",
         json(r#""levels""#),
     );
+    set(
+        &mut document,
+        "/$defs/NoteSummary/properties/fraction",
+        json(r##"{ "$ref": "#/$defs/ProbeFraction" }"##),
+    );
+    push(
+        &mut document,
+        "/$defs/NoteSummary/required",
+        json(r#""fraction""#),
+    );
     let definition = testing::definition(document).expect("valid");
     let outputs = build_outputs(&definition, &notebook_config()).expect("renders");
     let fixtures: serde_json::Value =
@@ -831,6 +844,14 @@ fn contract_fixtures_honour_constraints_and_recursive_open_objects() {
                 assert!(number >= 10.0, "{name} is below the minimum in {sample}");
             }
         }
+    }
+
+    let mut fractions = Vec::new();
+    objects_holding(&fixtures, "fraction", &mut fractions);
+    assert!(!fractions.is_empty(), "no sample of ProbeFraction");
+    for holder in fractions {
+        let fraction = holder["fraction"].as_f64().expect("a number");
+        assert!((0.1..=0.2).contains(&fraction), "{holder}");
     }
 
     let mut levels = Vec::new();

@@ -264,11 +264,18 @@ pub struct NoteAppearance {
 
 impl DeclaredMembers for NoteAppearance {
     const DECLARED_MEMBERS: &'static [&'static str] = &["theme", "accent"];
-    const OTHER_MEMBER_CONSTRAINTS: &'static [SchemaConstraint] = &[SchemaConstraint {
-        path: &[],
-        keyword: "minLength",
-        value: SchemaConstraintValue::Integer(1),
-    }];
+    const OTHER_MEMBER_CONSTRAINTS: &'static [SchemaConstraint] = &[
+        SchemaConstraint {
+            path: &[],
+            keyword: "minLength",
+            value: SchemaConstraintValue::Integer(1),
+        },
+        SchemaConstraint {
+            path: &[],
+            keyword: "default",
+            value: SchemaConstraintValue::String("plain"),
+        },
+    ];
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, PartialEq)]

@@ -1180,7 +1180,8 @@
       ],
       "additionalProperties": {
         "type": "string",
-        "minLength": 1
+        "minLength": 1,
+        "default": "plain"
       },
       "description": "A theme and accent, and any other appearance settings, each a non-empty string."
     },

@@ -17,16 +17,16 @@ use serde::de::Error as _;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 /// The members an open object declares, by their wire names, and the
-/// validation keywords its other members' schema carries beyond their Rust
-/// type's.
+/// validation keywords and defaults its other members' schema carries beyond
+/// their Rust type's.
 pub trait DeclaredMembers {
     const DECLARED_MEMBERS: &'static [&'static str];
     const OTHER_MEMBER_CONSTRAINTS: &'static [SchemaConstraint] = &[];
 }
 
-/// A validation keyword of an open object's other members' schema, at `path`
-/// within it: the `items` and `additionalProperties` keywords leading to the
-/// schema it constrains.
+/// A validation keyword or `default` of an open object's other members'
+/// schema, at `path` within it: the `items` and `additionalProperties`
+/// keywords leading to the schema it belongs to.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct SchemaConstraint {
     pub path: &'static [&'static str],
@@ -34,13 +34,15 @@ pub struct SchemaConstraint {
     pub value: SchemaConstraintValue,
 }
 
-/// The value of a [`SchemaConstraint`]'s keyword.
+/// The value of a [`SchemaConstraint`]'s keyword: a scalar, or any other
+/// JSON value as its text.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum SchemaConstraintValue {
     Boolean(bool),
     Integer(i64),
     Number(f64),
     String(&'static str),
+    Json(&'static str),
 }
 
 impl From<SchemaConstraintValue> for serde_json::Value {
@@ -50,6 +52,9 @@ impl From<SchemaConstraintValue> for serde_json::Value {
             SchemaConstraintValue::Integer(value) => value.into(),
             SchemaConstraintValue::Number(value) => value.into(),
             SchemaConstraintValue::String(value) => value.into(),
+            SchemaConstraintValue::Json(text) => {
+                serde_json::from_str(text).expect("a constraint's JSON text is JSON")
+            }
         }
     }
 }

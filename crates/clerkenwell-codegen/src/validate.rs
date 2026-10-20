@@ -612,6 +612,32 @@ fn check_collaboration_entity(
     let required_paths = collect_collaboration_schema_paths(definition, entity_schema, "")?;
     let fields: Vec<_> = collaboration.fields().collect();
 
+    // Each member of a keyed sequence's item is held in a container of its
+    // own, which an open object's or a record's members are not.
+    for field in fields
+        .iter()
+        .filter(|field| field.storage_kind() == "keyedSequence")
+    {
+        let path = field.path;
+        let items =
+            collaboration_schema_at(definition, entity_schema, path)?.and_then(|(_, sequence)| {
+                has_type(sequence, "array")
+                    .then(|| object_at(sequence, "items"))
+                    .flatten()
+            });
+        let Some(items) = items else {
+            continue;
+        };
+        let items = dereference(definition, items)?;
+        if !has_type(items, "object")
+            || items.get("additionalProperties") != Some(&Json::Bool(false))
+        {
+            return refuse(format!(
+                "{context}.fields.{path} is a keyed sequence, whose items must be closed objects."
+            ));
+        }
+    }
+
     for field in &fields {
         let path = field.path;
         let Some(presence) = resolve_collaboration_schema_path(definition, entity_schema, path)?
@@ -823,6 +849,16 @@ fn resolve_collaboration_schema_path(
     root: &Object,
     field_path: &str,
 ) -> Result<Option<Presence>> {
+    Ok(collaboration_schema_at(definition, root, field_path)?.map(|(presence, _)| presence))
+}
+
+/// How the schema `root` requires the value at a collaboration path, and that
+/// value's schema, or `None` when the path does not resolve in it.
+fn collaboration_schema_at<'a>(
+    definition: &'a Definition,
+    root: &'a Object,
+    field_path: &str,
+) -> Result<Option<(Presence, &'a Object)>> {
     let mut schema = dereference(definition, root)?;
     let mut required = true;
     let mut required_in_parent = true;
@@ -849,10 +885,13 @@ fn resolve_collaboration_schema_path(
         required = required && required_in_parent;
         schema = dereference(definition, property)?;
     }
-    Ok(Some(Presence {
-        required,
-        required_in_parent,
-    }))
+    Ok(Some((
+        Presence {
+            required,
+            required_in_parent,
+        },
+        schema,
+    )))
 }
 
 /// Every path under the entity schema a collaboration field must cover, with

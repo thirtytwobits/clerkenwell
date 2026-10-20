@@ -125,6 +125,11 @@ impl DeclaredMembers for Grid {
             keyword: "const",
             value: SchemaConstraintValue::String("xy"),
         },
+        SchemaConstraint {
+            path: &[],
+            keyword: "default",
+            value: SchemaConstraintValue::Json(r#"["xy", "xy"]"#),
+        },
     ];
 }
 
@@ -135,5 +140,9 @@ fn the_schema_carries_the_other_members_constraints() {
     assert_eq!(items["type"], "string");
     assert_eq!(items["minLength"], 2);
     assert_eq!(items["const"], "xy");
+    assert_eq!(
+        schema["additionalProperties"]["default"],
+        serde_json::json!(["xy", "xy"])
+    );
     assert!(schema["properties"]["name"].get("minLength").is_none());
 }

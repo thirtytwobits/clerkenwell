@@ -1216,3 +1216,30 @@ fn a_structural_keyword_is_refused_on_a_type_it_does_not_apply_to() {
         );
     }
 }
+
+/// A keyed sequence keeps each item's members in containers of their own, so
+/// its items are closed objects: an open object's or a record's members are
+/// one value, which no item field addresses.
+#[test]
+fn a_keyed_sequence_holds_closed_objects() {
+    let mut document = notebook_document();
+    set(
+        &mut document,
+        "/$defs/BoardColumn/additionalProperties",
+        json(r#"{ "type": "json" }"#),
+    );
+    assert_mentions(
+        &refusal(document),
+        &["collaboration.entities.Board.fields.columns is a keyed sequence, whose items must be closed objects"],
+    );
+    let mut document = notebook_document();
+    set(
+        &mut document,
+        "/$defs/BoardDocument/properties/columns/items",
+        json(r#"{ "type": "object", "additionalProperties": { "type": "string" } }"#),
+    );
+    assert_mentions(
+        &refusal(document),
+        &["collaboration.entities.Board.fields.columns is a keyed sequence, whose items must be closed objects"],
+    );
+}
