@@ -888,7 +888,7 @@ fn render_definition(
             &literals(&declared),
         )];
         let mut constraints = Vec::new();
-        collect_constraints(additional, &mut Vec::new(), &mut constraints);
+        collect_constraints(definition, additional, &mut Vec::new(), &mut constraints)?;
         if !constraints.is_empty() {
             items.push(layout::item_at(
                 4,
@@ -917,10 +917,22 @@ fn render_definition(
 /// `SchemaConstraint` values: those the schema of its Rust type does not
 /// carry. Its Rust type is built of `Vec` and `BTreeMap` down to each
 /// constrained scalar.
-fn collect_constraints<'a>(schema: &'a Object, path: &mut Vec<&'a str>, found: &mut Vec<Expr>) {
-    // A reference carries only annotations; the referenced type carries its
-    // own constraints, and a `default` beside the reference is this use's.
+fn collect_constraints<'a>(
+    definition: &'a Definition,
+    schema: &'a Object,
+    path: &mut Vec<&'a str>,
+    found: &mut Vec<Expr>,
+) -> Result<()> {
+    // A reference carries only annotations, and a `default` beside it is this
+    // use's. A referenced type carries its own constraints, but for a record,
+    // which is a map alias.
     let reference = schema.get("$ref").is_some();
+    if reference {
+        let referenced = crate::validate::dereference(definition, schema)?;
+        if record_values_schema(referenced).is_some() {
+            collect_constraints(definition, referenced, path, found)?;
+        }
+    }
     for keyword in crate::validate::VALIDATION_SCHEMA_KEYS
         .iter()
         .chain(&["default"])
@@ -963,9 +975,10 @@ fn collect_constraints<'a>(schema: &'a Object, path: &mut Vec<&'a str>, found: &
     };
     if let Some((keyword, nested)) = nested {
         path.push(keyword);
-        collect_constraints(nested, path, found);
+        collect_constraints(definition, nested, path, found)?;
         path.pop();
     }
+    Ok(())
 }
 
 /// A `$defs` enum or union with a `#[schemars(...)]` attribute carrying its

@@ -1573,7 +1573,7 @@ fn an_enum_with_no_value_within_its_bounds_is_refused() {
             open_object(
                 r#"{ "member": { "type": "string", "enum": ["a"], "minLength": 2 } }"#,
                 "[]",
-                r#"{ "type": "integer" }"#,
+                r#"{ "type": "string" }"#,
             )
         ))),
         &["$defs.ProbeOpen.properties.member.enum has no value that meets its bounds"],
@@ -1598,4 +1598,22 @@ fn an_open_object_rounds_the_integer_bounds_of_a_mixed_union() {
         )
     )))
     .expect("the member's numbers begin at 2");
+}
+
+/// TypeScript renders a member by its declared types, its constant aside, so
+/// each declared type is one the other members admit.
+#[test]
+fn an_open_object_refuses_a_member_whose_declared_types_the_others_do_not_admit() {
+    assert_mentions(
+        &refusal(with_defs(&format!(
+            r##"{{ "ProbeChoice": {{ "type": ["integer", "string"], "const": 1 }},
+                "ProbeOpen": {} }}"##,
+            open_object(
+                r##"{ "member": { "$ref": "#/$defs/ProbeChoice" } }"##,
+                "[]",
+                r#"{ "type": "integer" }"#,
+            )
+        ))),
+        &["$defs.ProbeOpen.properties.member is not a value"],
+    );
 }

@@ -1430,27 +1430,19 @@ fn admits(
         (_, Some(constant)) => Some(vec![constant]),
         _ => None,
     };
-    // A member that lists its values is admitted by their types; any other,
-    // by its declared types.
-    let scalar_admitted = |member_type: &str| {
+    // Both bindings render a member by its declared types, its listed values
+    // aside, so each is one the other members admit: a number member whose
+    // listed values are integers is one integer other members admit.
+    let integral_values = member_values
+        .as_ref()
+        .is_some_and(|listed| listed.iter().all(|value| is_integer(value)));
+    let typed = member_types.iter().all(|member_type| {
         values_types.iter().any(|values_type| {
-            *values_type == member_type || (*values_type == "number" && member_type == "integer")
+            *values_type == *member_type
+                || (*values_type == "number" && *member_type == "integer")
+                || (*values_type == "integer" && *member_type == "number" && integral_values)
         })
-    };
-    let typed = match &member_values {
-        Some(member_values) => member_values.iter().all(|value| {
-            values_types.iter().any(|values_type| match *values_type {
-                "integer" => is_integer(value),
-                "number" => value.as_f64().is_some(),
-                "string" => value.as_str().is_some(),
-                "boolean" => value.as_bool().is_some(),
-                _ => false,
-            })
-        }),
-        None => member_types
-            .iter()
-            .all(|member_type| scalar_admitted(member_type)),
-    };
+    });
     if !typed {
         return Ok(false);
     }

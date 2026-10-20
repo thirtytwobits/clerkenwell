@@ -1124,3 +1124,33 @@ fn a_generated_number_is_a_literal_of_a_type_that_holds_it() {
         assert!(rust.contains(literal), "{literal} is not generated");
     }
 }
+
+/// A referenced record renders as a map alias, which carries no constraint,
+/// so its values' constraints are among the other members' constraints.
+#[test]
+fn a_referenced_record_s_value_constraints_are_other_member_constraints() {
+    let document = with_defs(
+        r##"{
+            "ProbeRecord": { "type": "object",
+                "additionalProperties": { "type": "string", "minLength": 2 } },
+            "ProbeOpen": { "type": "object",
+                "properties": { "first": { "$ref": "#/$defs/ProbeRecord" } },
+                "additionalProperties": { "$ref": "#/$defs/ProbeRecord" } }
+        }"##,
+    );
+    let definition = testing::definition(document).expect("valid");
+    let rust = build_outputs(&definition, &notebook_config())
+        .expect("renders")
+        .rust_model;
+    let declared = rust
+        .split("impl DeclaredMembers for ProbeOpen {")
+        .nth(1)
+        .and_then(|rest| rest.split("\n}\n").next())
+        .expect("ProbeOpen declares its members");
+    assert!(
+        declared.contains(r#"path: &["additionalProperties"],"#)
+            && declared.contains(r#"keyword: "minLength","#)
+            && declared.contains("value: SchemaConstraintValue::Integer(2),"),
+        "{declared}"
+    );
+}
