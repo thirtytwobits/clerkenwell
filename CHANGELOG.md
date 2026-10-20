@@ -40,7 +40,8 @@ names the contracts.
 - The schema derived for a `$defs` string enum or primitive union carries its validation keywords
   and `default`.
 - The generated Rust model declares the helper enum of an inline string enum within a property's
-  or record's array items and record values, at any depth.
+  or record's array items and record values, at any depth, and each helper enum carries its
+  schema's validation keywords and `default`.
 
 ## 0.9.0
 

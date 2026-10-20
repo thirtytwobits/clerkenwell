@@ -88,6 +88,7 @@ pub enum TaskStateDoneChecks {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, PartialEq, Eq)]
+#[schemars(extend("default" = "chore"))]
 pub enum TaskRecordType {
     #[serde(rename = "chore")]
     Chore,
@@ -118,6 +119,7 @@ pub enum TaskBoardPatchKind {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, PartialEq, Eq)]
+#[schemars(extend("default" = "system"))]
 pub enum WorkspaceSettingsTheme {
     #[serde(rename = "light")]
     Light,
@@ -134,6 +136,7 @@ pub enum WorkspaceSettingsPatchKind {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, PartialEq, Eq)]
+#[schemars(extend("default" = "system"))]
 pub enum WorkspaceSettingsPatchTheme {
     #[serde(rename = "light")]
     Light,

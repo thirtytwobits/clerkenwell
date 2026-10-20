@@ -23,6 +23,9 @@ pub(crate) struct RustPropertyEnum {
     pub def: String,
     pub source: String,
     pub values: Vec<String>,
+    /// The string enum's schema, whose validation keywords and default the
+    /// enum carries.
+    pub schema: Object,
 }
 
 /// Every object property, and every property of a tagged-union variant, with a
@@ -57,7 +60,7 @@ pub(crate) fn collect_rust_property_enums(definition: &Definition) -> Vec<RustPr
         }
         for (owner, path, properties) in owners {
             for (property_name, property_schema) in properties.iter() {
-                let Some(values) = property_schema.as_object().and_then(property_enum_values)
+                let Some(schema) = property_schema.as_object().and_then(property_enum_schema)
                 else {
                     continue;
                 };
@@ -65,7 +68,8 @@ pub(crate) fn collect_rust_property_enums(definition: &Definition) -> Vec<RustPr
                     name: rust_property_enum_name(&owner, property_name),
                     def: definition_name.to_owned(),
                     source: format!("{path}.{property_name}"),
-                    values,
+                    values: string_enum_values(schema).expect("an enum schema"),
+                    schema: schema.clone(),
                 });
             }
         }
@@ -75,12 +79,13 @@ pub(crate) fn collect_rust_property_enums(definition: &Definition) -> Vec<RustPr
             .map(|values| ("value", values))
             .or_else(|| other_members_schema(schema).map(|values| (OTHER_MEMBERS_FIELD, values)));
         if let Some((name, values)) = values {
-            if let Some(values) = property_enum_values(values) {
+            if let Some(schema) = property_enum_schema(values) {
                 enums.push(RustPropertyEnum {
                     name: rust_property_enum_name(definition_name, name),
                     def: definition_name.to_owned(),
                     source: format!("$defs.{definition_name}.additionalProperties"),
-                    values,
+                    values: string_enum_values(schema).expect("an enum schema"),
+                    schema: schema.clone(),
                 });
             }
         }
@@ -88,18 +93,18 @@ pub(crate) fn collect_rust_property_enums(definition: &Definition) -> Vec<RustPr
     enums
 }
 
-/// The values of a property's string enum, declared directly or within its
-/// array items and record values at any depth, each of which the Rust type
-/// names after the property.
-fn property_enum_values(property_schema: &Object) -> Option<Vec<String>> {
-    string_enum_values(property_schema)
-        .or_else(|| {
-            has_type(property_schema, "array")
-                .then(|| object_at(property_schema, "items"))
-                .flatten()
-                .and_then(property_enum_values)
-        })
-        .or_else(|| record_values_schema(property_schema).and_then(property_enum_values))
+/// A property's string enum schema, declared directly or within its array
+/// items and record values at any depth, each of which the Rust type names
+/// after the property.
+fn property_enum_schema(property_schema: &Object) -> Option<&Object> {
+    if string_enum_values(property_schema).is_some() {
+        return Some(property_schema);
+    }
+    has_type(property_schema, "array")
+        .then(|| object_at(property_schema, "items"))
+        .flatten()
+        .and_then(property_enum_schema)
+        .or_else(|| record_values_schema(property_schema).and_then(property_enum_schema))
 }
 
 /// The values of `schema`'s string enum.
@@ -198,7 +203,10 @@ pub fn render_model_module(definition: &Definition, project: &Project) -> Result
         .into_iter()
         .filter(|property_enum| !SHARED.contains(&property_enum.def.as_str()))
     {
-        lines.push(render_enum(&property_enum.name, &property_enum.values));
+        lines.push(with_constraints(
+            render_enum(&property_enum.name, &property_enum.values),
+            &property_enum.schema,
+        ));
         lines.push(String::new());
     }
 

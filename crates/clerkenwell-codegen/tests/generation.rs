@@ -923,3 +923,24 @@ fn a_default_beside_an_other_members_reference_is_a_constraint() {
         "{declared}"
     );
 }
+
+/// A helper enum carries the validation keywords and default of the schema
+/// it was declared from, so a record's or an open object's values derive
+/// them though no field attribute reaches them.
+#[test]
+fn a_helper_enum_carries_its_schema_constraints() {
+    let document = with_defs(
+        r#"{ "ProbeRecord": { "type": "object", "additionalProperties":
+            { "type": "string", "enum": ["low", "high"], "minLength": 3, "default": "low" } } }"#,
+    );
+    let definition = testing::definition(document).expect("valid");
+    let rust = build_outputs(&definition, &notebook_config())
+        .expect("renders")
+        .rust_model;
+    assert!(
+        rust.contains(
+            "#[schemars(extend(\"default\" = \"low\"), extend(\"minLength\" = 3))]\npub enum ProbeRecordValue {"
+        ),
+        "{rust}"
+    );
+}

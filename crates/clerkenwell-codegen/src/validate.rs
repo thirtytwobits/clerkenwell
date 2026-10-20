@@ -14,7 +14,7 @@ use crate::names::{name_constant_identifier, pascal_identifier};
 use crate::rust::collect_rust_property_enums;
 use crate::schema::{
     has_type, object_at, other_members_schema, primitive_union_types, read_string_array,
-    record_values_schema, resolve_ref, schema_ref_name,
+    record_values_schema, resolve_ref, schema_ref_name, value_meets_bounds,
 };
 
 /// The meta-schema every definition document must satisfy.
@@ -1395,14 +1395,20 @@ fn admits(
         return Ok(false);
     }
 
-    // The values of a member that enumerates them are checked one by one.
-    let member_values: Option<&[Json]> = match (member.get("enum"), member.get("const")) {
-        (Some(Json::Array(values)), _) => Some(values),
-        (_, Some(constant)) => Some(std::slice::from_ref(constant)),
+    // The values of a member that enumerates them, less those its own bounds
+    // exclude, are checked one by one.
+    let member_values: Option<Vec<&Json>> = match (member.get("enum"), member.get("const")) {
+        (Some(Json::Array(values)), _) => Some(
+            values
+                .iter()
+                .filter(|value| value_meets_bounds(member, value))
+                .collect(),
+        ),
+        (_, Some(constant)) => Some(vec![constant]),
         _ => None,
     };
     if let Some(admitted) = values.get("enum").and_then(Json::as_array) {
-        let Some(member_values) = member_values else {
+        let Some(member_values) = &member_values else {
             return Ok(false);
         };
         if !member_values.iter().all(|value| admitted.contains(value)) {
@@ -1410,47 +1416,48 @@ fn admits(
         }
     }
     if let Some(constant) = values.get("const") {
-        let Some(member_values) = member_values else {
+        let Some(member_values) = &member_values else {
             return Ok(false);
         };
-        if !member_values.iter().all(|value| value == constant) {
+        if !member_values.iter().all(|value| *value == constant) {
             return Ok(false);
         }
     }
-    // A bound constrains only the values of its own type, so it binds a
-    // member whose values include that type.
-    let numeric = member_types
-        .iter()
-        .any(|member_type| matches!(*member_type, "integer" | "number"));
-    let textual = member_types.contains(&"string");
-    for (bound, tighter, applies) in [
-        ("minimum", true, numeric),
-        ("maximum", false, numeric),
-        ("minLength", true, textual),
-    ] {
-        let Some(limit) = values.get(bound).and_then(Json::as_f64).filter(|_| applies) else {
-            continue;
-        };
-        let within = |value: f64| {
-            if tighter {
-                value >= limit
-            } else {
-                value <= limit
-            }
-        };
-        let held = match member_values {
-            Some(member_values) => member_values.iter().all(|value| {
-                let measured = if bound == "minLength" {
-                    value.as_str().map(|text| text.chars().count() as f64)
-                } else {
-                    value.as_f64()
-                };
-                measured.is_none_or(within)
-            }),
-            None => member.get(bound).and_then(Json::as_f64).is_some_and(within),
-        };
-        if !held {
+    if let Some(member_values) = &member_values {
+        if !member_values
+            .iter()
+            .all(|value| value_meets_bounds(values, value))
+        {
             return Ok(false);
+        }
+    } else {
+        // A bound constrains only the values of its own type, so it binds a
+        // member whose values include that type.
+        let numeric = member_types
+            .iter()
+            .any(|member_type| matches!(*member_type, "integer" | "number"));
+        let textual = member_types.contains(&"string");
+        for (bound, tighter, applies) in [
+            ("minimum", true, numeric),
+            ("maximum", false, numeric),
+            ("minLength", true, textual),
+        ] {
+            let Some(limit) = values.get(bound).and_then(Json::as_f64).filter(|_| applies) else {
+                continue;
+            };
+            let held = member
+                .get(bound)
+                .and_then(Json::as_f64)
+                .is_some_and(|value| {
+                    if tighter {
+                        value >= limit
+                    } else {
+                        value <= limit
+                    }
+                });
+            if !held {
+                return Ok(false);
+            }
         }
     }
     if values_types.len() > 1 || member_types.len() > 1 {
@@ -1553,16 +1560,9 @@ fn check_validation_keywords(schema: &Object, types: &[&str], context: &str) -> 
 
     if let Some(constant) = schema.get("const") {
         for bound in ["minLength", "minimum", "maximum"] {
-            let Some(limit) = schema.get(bound).and_then(Json::as_f64) else {
-                continue;
-            };
-            let met = match (bound, constant) {
-                ("minLength", Json::String(text)) => text.chars().count() as f64 >= limit,
-                ("minimum", Json::Number(value)) => *value >= limit,
-                ("maximum", Json::Number(value)) => *value <= limit,
-                _ => true,
-            };
-            if !met {
+            let mut bounded = Object::new();
+            bounded.insert_some(bound, schema.get(bound).cloned());
+            if !value_meets_bounds(&bounded, constant) {
                 return refuse(format!("{context}.const does not meet its {bound}."));
             }
         }

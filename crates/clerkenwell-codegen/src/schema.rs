@@ -37,6 +37,20 @@ pub(crate) fn other_members_schema(schema: &Object) -> Option<&Object> {
     object_at(schema, "additionalProperties")
 }
 
+/// Whether `value` meets the `minLength`, `minimum` and `maximum` of
+/// `schema` that apply to its type.
+pub(crate) fn value_meets_bounds(schema: &Object, value: &Json) -> bool {
+    let bound = |keyword: &str| schema.get(keyword).and_then(Json::as_f64);
+    if let Some(text) = value.as_str() {
+        return bound("minLength").is_none_or(|limit| text.chars().count() as f64 >= limit);
+    }
+    let Some(number) = value.as_f64() else {
+        return true;
+    };
+    bound("minimum").is_none_or(|limit| number >= limit)
+        && bound("maximum").is_none_or(|limit| number <= limit)
+}
+
 /// The member types of a primitive union (`"type": ["string", "integer"]`), or
 /// `None` when `type` is not an array.
 pub(crate) fn primitive_union_types(schema: &Object) -> Result<Option<Vec<&str>>> {

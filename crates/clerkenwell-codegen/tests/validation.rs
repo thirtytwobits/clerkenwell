@@ -1365,3 +1365,17 @@ fn a_constant_meets_its_bounds() {
             .unwrap_or_else(|error| panic!("{schema}: {error}"));
     }
 }
+
+/// An enumerated member's values are those its own bounds leave it.
+#[test]
+fn an_open_object_admits_an_enumerated_member_by_the_values_its_bounds_leave() {
+    validate(with_defs(&format!(
+        r#"{{ "ProbeOpen": {} }}"#,
+        open_object(
+            r#"{ "member": { "type": "string", "enum": ["a", "valid"], "minLength": 2 } }"#,
+            "[]",
+            r#"{ "type": "string", "minLength": 2 }"#,
+        )
+    )))
+    .expect("the member's bounds leave it only values of the other members");
+}

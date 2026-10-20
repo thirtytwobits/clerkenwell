@@ -8,7 +8,7 @@ use crate::json::{Json, Object};
 use crate::names::kebab_identifier;
 use crate::schema::{
     has_type, object_at, other_members_schema, primitive_union_types, read_string_array,
-    resolve_ref, stringify_or_undefined,
+    resolve_ref, stringify_or_undefined, value_meets_bounds,
 };
 use crate::validate::{collaboration_path_presence, contract_property};
 
@@ -509,7 +509,10 @@ fn sample_within(
         return Ok(constant.clone());
     }
     if let Some(values) = schema.get("enum").and_then(Json::as_array) {
-        let Some(value) = values.iter().find(|value| meets_bounds(schema, value)) else {
+        let Some(value) = values
+            .iter()
+            .find(|value| value_meets_bounds(schema, value))
+        else {
             return refuse(
                 "Cannot generate a fixture for an enum none of whose values meets its bounds.",
             );
@@ -625,20 +628,6 @@ fn sample_within(
             ))
         }
     })
-}
-
-/// Whether `value` meets the `minLength`, `minimum` and `maximum` of
-/// `schema` that apply to its type.
-fn meets_bounds(schema: &Object, value: &Json) -> bool {
-    let bound = |keyword: &str| schema.get(keyword).and_then(Json::as_f64);
-    if let Some(text) = value.as_str() {
-        return bound("minLength").is_none_or(|limit| text.chars().count() as f64 >= limit);
-    }
-    let Some(number) = value.as_f64() else {
-        return true;
-    };
-    bound("minimum").is_none_or(|limit| number >= limit)
-        && bound("maximum").is_none_or(|limit| number <= limit)
 }
 
 /// 1, or the bound nearest it of a schema that excludes 1; an integer
