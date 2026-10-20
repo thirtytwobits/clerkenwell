@@ -93,7 +93,7 @@ fn generated_rust_satisfies_rustfmt() {
     assert!(status.success(), "the generated Rust is not rustfmt-clean");
 }
 
-/// The generated Rust imports `JsonValue` and `HashMap` exactly when its types
+/// The generated Rust imports `JsonValue` and `BTreeMap` exactly when its types
 /// use them: the notebook uses both, the notes example neither.
 #[test]
 fn generated_rust_imports_only_what_it_uses() {
@@ -110,7 +110,7 @@ fn generated_rust_imports_only_what_it_uses() {
             .rust_model;
         for (import, name) in [
             ("use serde_json::Value as JsonValue;", "JsonValue"),
-            ("use std::collections::HashMap;", "HashMap"),
+            ("use std::collections::BTreeMap;", "BTreeMap"),
         ] {
             let imported = rust.lines().any(|line| line == import);
             let used = rust
