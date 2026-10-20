@@ -944,3 +944,25 @@ fn a_helper_enum_carries_its_schema_constraints() {
         "{rust}"
     );
 }
+
+/// A fixture holds a string of at most 2^20 characters; generation refuses a
+/// schema whose minLength asks for more rather than allocate it.
+#[test]
+fn a_fixture_string_longer_than_a_fixture_holds_is_refused() {
+    for min_length in ["1048577", "1e100"] {
+        let mut document = notebook_document();
+        set(
+            &mut document,
+            "/$defs/NoteSummary/properties/title/minLength",
+            json(min_length),
+        );
+        let definition = testing::definition(document).expect("valid");
+        match build_outputs(&definition, &notebook_config()) {
+            Err(Error::Definition(message)) => assert!(
+                message.contains("minLength exceeds the 1048576 characters a fixture string holds"),
+                "{message}"
+            ),
+            other => panic!("minLength {min_length}: expected a refusal, got {other:?}"),
+        }
+    }
+}

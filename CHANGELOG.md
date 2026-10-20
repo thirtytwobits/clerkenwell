@@ -36,7 +36,8 @@ names the contracts.
 ### Fixed
 
 - Generated fixtures keep each value's `const`, meet its `minimum`, `maximum` and `minLength`,
-  and take an enum value, and a union member, that meets them.
+  and take an enum value, and a union member, that meets them. Generation refuses a string schema
+  whose `minLength` exceeds the 1048576 characters a fixture string holds.
 - The schema derived for a `$defs` string enum or primitive union carries its validation keywords
   and `default`.
 - The generated Rust model declares the helper enum of an inline string enum within a property's

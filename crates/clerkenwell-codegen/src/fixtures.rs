@@ -467,6 +467,9 @@ fn first_object_item(collection: Option<&Json>) -> Option<&Object> {
     collection?.as_array()?.first()?.as_object()
 }
 
+/// The most characters a fixture string holds.
+const FIXTURE_STRING_LIMIT: usize = 1 << 20;
+
 /// A sample value of `schema`: required properties only, the first enum value,
 /// the first union member, the first tagged variant.
 fn sample_schema_value(definition: &Definition, schema: &Object) -> Result<Json> {
@@ -543,7 +546,13 @@ fn sample_within(
             let min_length = schema
                 .get("minLength")
                 .and_then(Json::as_f64)
-                .unwrap_or(0.0) as usize;
+                .unwrap_or(0.0);
+            if min_length > FIXTURE_STRING_LIMIT as f64 {
+                return refuse(format!(
+                    "Cannot generate a fixture for a string schema whose minLength exceeds the {FIXTURE_STRING_LIMIT} characters a fixture string holds."
+                ));
+            }
+            let min_length = min_length as usize;
             let length = sample.chars().count();
             sample.push_str(&"x".repeat(min_length.saturating_sub(length)));
             sample.into()
