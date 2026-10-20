@@ -764,7 +764,12 @@ fn contract_fixtures_honour_constraints_and_recursive_open_objects() {
                 },
                 "required": ["count", "code", "mode", "ratio"],
                 "additionalProperties": { "$ref": "#/$defs/ProbeScalar" } },
-            "ProbeScalar": { "type": ["integer", "string", "number"], "minimum": 10 }
+            "ProbeScalar": { "type": ["integer", "string", "number"], "minimum": 10 },
+            "ProbeLevel": { "type": "string", "enum": ["a", "valid"], "minLength": 2 },
+            "ProbeLevels": { "type": "object",
+                "properties": { "first": { "$ref": "#/$defs/ProbeLevel" } },
+                "required": ["first"],
+                "additionalProperties": { "$ref": "#/$defs/ProbeLevel" } }
         }"##,
     );
     set(
@@ -786,6 +791,16 @@ fn contract_fixtures_honour_constraints_and_recursive_open_objects() {
         &mut document,
         "/$defs/NoteSummary/required",
         json(r#""constrained""#),
+    );
+    set(
+        &mut document,
+        "/$defs/NoteSummary/properties/levels",
+        json(r##"{ "$ref": "#/$defs/ProbeLevels" }"##),
+    );
+    push(
+        &mut document,
+        "/$defs/NoteSummary/required",
+        json(r#""levels""#),
     );
     let definition = testing::definition(document).expect("valid");
     let outputs = build_outputs(&definition, &notebook_config()).expect("renders");
@@ -818,7 +833,33 @@ fn contract_fixtures_honour_constraints_and_recursive_open_objects() {
         }
     }
 
+    let mut levels = Vec::new();
+    objects_holding(&fixtures, "first", &mut levels);
+    assert!(!levels.is_empty(), "no sample of ProbeLevels");
+    for sample in levels {
+        for (name, value) in sample.as_object().expect("an object") {
+            assert_eq!(value, "valid", "{name} in {sample}");
+        }
+    }
+
     let mut trees = Vec::new();
     objects_holding(&fixtures, "tree", &mut trees);
     assert!(trees.iter().all(|holder| holder["tree"].is_object()));
+}
+
+/// A named string enum's validation keywords are attributes of its type, so
+/// the schema derived for each use of it carries them.
+#[test]
+fn a_named_enum_carries_its_constraints() {
+    let document = with_defs(
+        r#"{ "ProbeLevel": { "type": "string", "enum": ["low", "high"], "minLength": 3 } }"#,
+    );
+    let definition = testing::definition(document).expect("valid");
+    let rust = build_outputs(&definition, &notebook_config())
+        .expect("renders")
+        .rust_model;
+    assert!(
+        rust.contains("#[schemars(extend(\"minLength\" = 3))]\npub enum ProbeLevel {"),
+        "{rust}"
+    );
 }

@@ -509,7 +509,12 @@ fn sample_within(
         return Ok(constant.clone());
     }
     if let Some(values) = schema.get("enum").and_then(Json::as_array) {
-        return Ok(values.first().cloned().unwrap_or(Json::Null));
+        let Some(value) = values.iter().find(|value| meets_bounds(schema, value)) else {
+            return refuse(
+                "Cannot generate a fixture for an enum none of whose values meets its bounds.",
+            );
+        };
+        return Ok(value.clone());
     }
     if let Some(members) = primitive_union_types(schema)? {
         let mut member = schema.clone();
@@ -613,6 +618,20 @@ fn sample_within(
             ))
         }
     })
+}
+
+/// Whether `value` meets the `minLength`, `minimum` and `maximum` of
+/// `schema` that apply to its type.
+fn meets_bounds(schema: &Object, value: &Json) -> bool {
+    let bound = |keyword: &str| schema.get(keyword).and_then(Json::as_f64);
+    if let Some(text) = value.as_str() {
+        return bound("minLength").is_none_or(|limit| text.chars().count() as f64 >= limit);
+    }
+    let Some(number) = value.as_f64() else {
+        return true;
+    };
+    bound("minimum").is_none_or(|limit| number >= limit)
+        && bound("maximum").is_none_or(|limit| number <= limit)
 }
 
 /// 1, or the bound nearest it of a schema that excludes 1; an integer

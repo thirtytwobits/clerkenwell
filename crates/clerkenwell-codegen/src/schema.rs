@@ -21,7 +21,7 @@ pub(crate) fn has_type(schema: &Object, expected: &str) -> bool {
 /// The values schema of a record: `additionalProperties` of an object schema
 /// that declares no `properties`.
 pub(crate) fn record_values_schema(schema: &Object) -> Option<&Object> {
-    if schema.get("properties").is_some() {
+    if !has_type(schema, "object") || schema.get("properties").is_some() {
         return None;
     }
     object_at(schema, "additionalProperties")
@@ -30,6 +30,9 @@ pub(crate) fn record_values_schema(schema: &Object) -> Option<&Object> {
 /// The schema of an open object's other members: `additionalProperties` of an
 /// object schema that declares `properties` beside it.
 pub(crate) fn other_members_schema(schema: &Object) -> Option<&Object> {
+    if !has_type(schema, "object") {
+        return None;
+    }
     object_at(schema, "properties")?;
     object_at(schema, "additionalProperties")
 }

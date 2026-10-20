@@ -195,6 +195,7 @@ pub type RawPayload = JsonValue;
 
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, PartialEq)]
 #[serde(untagged)]
+#[schemars(extend("default" = 0))]
 pub enum SortKey {
     String(String),
     Integer(i64),
@@ -202,6 +203,7 @@ pub enum SortKey {
 
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, PartialEq)]
 #[serde(untagged)]
+#[schemars(extend("minimum" = 0))]
 pub enum Quantity {
     Integer(i64),
     Number(f64),

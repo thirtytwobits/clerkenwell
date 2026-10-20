@@ -1174,3 +1174,45 @@ fn an_open_object_admits_an_enumerated_member_by_its_values() {
         );
     }
 }
+
+/// A structural keyword shapes only the type it belongs to; on another type
+/// it would shape nothing either binding renders.
+#[test]
+fn a_structural_keyword_is_refused_on_a_type_it_does_not_apply_to() {
+    let cases = [
+        (
+            r#"{ "type": "string", "additionalProperties": { "type": "string", "minLength": 2 } }"#,
+            "$defs.ProbeScalar.additionalProperties applies only to object schemas",
+        ),
+        (
+            r#"{ "type": "integer", "properties": {} }"#,
+            "$defs.ProbeScalar.properties applies only to object schemas",
+        ),
+        (
+            r#"{ "type": "boolean", "required": [] }"#,
+            "$defs.ProbeScalar.required applies only to object schemas",
+        ),
+        (
+            r#"{ "type": "number", "items": { "type": "string" } }"#,
+            "$defs.ProbeScalar.items applies only to array schemas",
+        ),
+        (
+            r#"{ "type": ["string", "integer"], "additionalProperties": { "type": "string" } }"#,
+            "$defs.ProbeScalar.additionalProperties applies only to object schemas",
+        ),
+        (
+            r#"{ "type": "array", "items": { "type": "string" }, "properties": {} }"#,
+            "$defs.ProbeScalar.properties applies only to object schemas",
+        ),
+        (
+            r#"{ "type": "object", "additionalProperties": false, "properties": {}, "items": { "type": "string" } }"#,
+            "$defs.ProbeScalar.items applies only to array schemas",
+        ),
+    ];
+    for (schema, expected) in cases {
+        assert_mentions(
+            &refusal(with_defs(&format!(r#"{{ "ProbeScalar": {schema} }}"#))),
+            &[expected],
+        );
+    }
+}

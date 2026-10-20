@@ -1132,13 +1132,15 @@ fn check_schema_node(definition: &Definition, schema: Option<&Json>, context: &s
         return check_tagged_union(definition, schema, context);
     }
 
-    if primitive_union_types(schema)?.is_some() {
+    if let Some(members) = primitive_union_types(schema)? {
+        check_applicable_keywords(schema, &members, context)?;
         return check_default_value(schema, context);
     }
 
     let Some(schema_type) = schema.get("type").and_then(Json::as_str) else {
         return refuse(format!("{context} must declare a string type."));
     };
+    check_applicable_keywords(schema, &[schema_type], context)?;
 
     check_validation_keywords(schema, context)?;
     check_default_value(schema, context)?;
@@ -1209,6 +1211,23 @@ fn check_schema_node(definition: &Definition, schema: Option<&Json>, context: &s
             string_literal(other)
         )),
     }
+}
+
+/// Refuses a structural keyword on a schema none of whose `types` it shapes.
+fn check_applicable_keywords(schema: &Object, types: &[&str], context: &str) -> Result<()> {
+    for (keyword, shaped) in [
+        ("properties", "object"),
+        ("additionalProperties", "object"),
+        ("required", "object"),
+        ("items", "array"),
+    ] {
+        if schema.get(keyword).is_some() && !types.contains(&shaped) {
+            return refuse(format!(
+                "{context}.{keyword} applies only to {shaped} schemas."
+            ));
+        }
+    }
+    Ok(())
 }
 
 /// An open object declares at least one member, each a value of its other

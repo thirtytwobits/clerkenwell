@@ -1693,7 +1693,8 @@
       "type": "object"
     },
     {
-      "description": "A count or a measure.",
+      "description": "A count or a measure, never negative.",
+      "minimum": 0,
       "name": "Quantity",
       "type": [
         "integer",

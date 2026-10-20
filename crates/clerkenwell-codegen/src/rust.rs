@@ -780,15 +780,21 @@ fn render_definition(definition_name: &str, schema: &Object) -> Result<String> {
         ));
     }
     if let Some(members) = primitive_union_types(schema)? {
-        return primitive_union(definition_name, &members);
+        return Ok(with_constraints(
+            primitive_union(definition_name, &members)?,
+            schema,
+        ));
     }
     if let Some(values) = schema.get("enum").and_then(Json::as_array) {
-        return Ok(render_enum(
-            &type_name,
-            &values
-                .iter()
-                .map(|value| value.as_str().unwrap().to_owned())
-                .collect::<Vec<_>>(),
+        return Ok(with_constraints(
+            render_enum(
+                &type_name,
+                &values
+                    .iter()
+                    .map(|value| value.as_str().unwrap().to_owned())
+                    .collect::<Vec<_>>(),
+            ),
+            schema,
         ));
     }
     if !has_type(schema, "object") {
@@ -929,6 +935,31 @@ fn collect_constraints<'a>(schema: &'a Object, path: &mut Vec<&'a str>, found: &
         collect_constraints(nested, path, found);
         path.pop();
     }
+}
+
+/// A `$defs` enum or union with a `#[schemars(...)]` attribute carrying its
+/// validation keywords and default, so the schema derived for each use of the
+/// type carries them.
+fn with_constraints(rendered: String, schema: &Object) -> String {
+    let arguments: Vec<String> = ["const", "default", "minLength", "minimum", "maximum"]
+        .into_iter()
+        .filter_map(|keyword| {
+            let value = schema.get(keyword)?;
+            let literal = match keyword {
+                "minimum" | "maximum" => bound_literal(value),
+                _ => value.stringify(),
+            };
+            Some(format!("extend({} = {literal})", string_literal(keyword)))
+        })
+        .collect();
+    if arguments.is_empty() {
+        return rendered;
+    }
+    rendered.replacen(
+        "\npub enum ",
+        &format!("\n#[schemars({})]\npub enum ", arguments.join(", ")),
+        1,
+    )
 }
 
 fn primitive_union(definition_name: &str, members: &[&str]) -> Result<String> {
@@ -1118,21 +1149,7 @@ fn schemars_arguments(schema: &Object) -> Vec<String> {
     }
     for name in ["minimum", "maximum"] {
         if let Some(bound) = schema.get(name) {
-            let value = bound.as_f64().expect("validated numeric bound");
-            let suffix =
-                if value.fract() == 0.0 && (value < i32::MIN as f64 || value > i32::MAX as f64) {
-                    if value >= i64::MIN as f64 && value < -(i64::MIN as f64) {
-                        "i64"
-                    } else {
-                        "f64"
-                    }
-                } else {
-                    ""
-                };
-            arguments.push(format!(
-                "extend(\"{name}\" = {}{suffix})",
-                bound.stringify()
-            ));
+            arguments.push(format!("extend(\"{name}\" = {})", bound_literal(bound)));
         }
     }
     if let Some(items) = object_at(schema, "items") {
@@ -1142,6 +1159,22 @@ fn schemars_arguments(schema: &Object) -> Vec<String> {
         }
     }
     arguments
+}
+
+/// A numeric bound as an `extend` value: suffixed where an integer outside
+/// `i32` would not otherwise compile.
+fn bound_literal(bound: &Json) -> String {
+    let value = bound.as_f64().expect("validated numeric bound");
+    let suffix = if value.fract() == 0.0 && (value < i32::MIN as f64 || value > i32::MAX as f64) {
+        if value >= i64::MIN as f64 && value < -(i64::MIN as f64) {
+            "i64"
+        } else {
+            "f64"
+        }
+    } else {
+        ""
+    };
+    format!("{}{suffix}", bound.stringify())
 }
 
 /// The Rust type of a field of `definition_name`. A field holding its own

@@ -262,3 +262,13 @@ fn an_open_object_schema_declares_its_members_and_types_the_others() {
     assert_eq!(schema["additionalProperties"]["minLength"], 1);
     assert_eq!(schema["required"], serde_json::json!(["theme"]));
 }
+
+/// A named primitive union's derived schema carries its validation keywords
+/// and annotations.
+#[test]
+fn a_named_union_schema_carries_its_constraints() {
+    let quantity = serde_json::to_value(schemars::schema_for!(model::Quantity)).expect("a schema");
+    assert_eq!(quantity["minimum"], 0);
+    let sort_key = serde_json::to_value(schemars::schema_for!(model::SortKey)).expect("a schema");
+    assert_eq!(sort_key["default"], 0);
+}

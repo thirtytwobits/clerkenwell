@@ -1060,7 +1060,8 @@
         "integer",
         "number"
       ],
-      "description": "A count or a measure."
+      "minimum": 0,
+      "description": "A count or a measure, never negative."
     },
     "EmptyResult": {
       "type": "object",

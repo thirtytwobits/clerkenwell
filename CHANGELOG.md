@@ -15,8 +15,9 @@ names the contracts.
 - The generated Rust model re-exports `clerkenwell-schema`'s `OtherMembers`, `DeclaredMembers`,
   `DeclaredMemberError`, `SchemaConstraint` and `SchemaConstraintValue` (#89), and
   `clerkenwell-codegen` refuses a `$defs` entry that generates one of those names.
-- `clerkenwell-codegen` refuses `required` on a record, and a tagged-union variant whose
-  `additionalProperties` is a schema.
+- `clerkenwell-codegen` refuses `required` on a record, a tagged-union variant whose
+  `additionalProperties` is a schema, `properties`, `additionalProperties` and `required` on a
+  schema that is not an object, and `items` on one that is not an array.
 
 ### Added
 
@@ -31,8 +32,10 @@ names the contracts.
 
 ### Fixed
 
-- Generated fixtures keep each value's `const` and meet its `minimum`, `maximum` and
-  `minLength`.
+- Generated fixtures keep each value's `const`, meet its `minimum`, `maximum` and `minLength`,
+  and take an enum value that meets them.
+- The schema derived for a `$defs` string enum or primitive union carries its validation keywords
+  and `default`.
 - The generated Rust model declares the helper enum of an inline string enum within a property's
   or record's array items and record values, at any depth.
 
