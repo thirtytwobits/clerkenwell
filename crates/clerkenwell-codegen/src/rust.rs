@@ -1227,20 +1227,23 @@ fn json_tokens(value: &Json) -> String {
                 .collect::<Vec<_>>()
                 .join(",")
         ),
+        Json::Number(number) => number_literal(*number),
         _ => value.stringify(),
     }
 }
 
-/// A numeric bound as an `extend` value: suffixed where an integer outside
-/// `i32` would not otherwise compile.
+/// A numeric bound as an `extend` value.
 fn bound_literal(bound: &Json) -> String {
-    let value = bound.as_f64().expect("validated numeric bound");
-    if value.fract() != 0.0 || (value >= i32::MIN as f64 && value <= i32::MAX as f64) {
-        return bound.stringify();
-    }
+    number_literal(bound.as_f64().expect("validated numeric bound"))
+}
+
+/// `value` as a literal of a type that holds it: an integer within `i32` as
+/// written, one within `i64` suffixed, and any other number as a float.
+fn number_literal(value: f64) -> String {
     match i64_literal(value) {
+        Some(integer) if i32::try_from(integer).is_ok() => integer.to_string(),
         Some(integer) => format!("{integer}i64"),
-        None => format!("{}f64", bound.stringify()),
+        None => format!("{value:?}"),
     }
 }
 

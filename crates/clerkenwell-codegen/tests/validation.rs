@@ -1366,7 +1366,9 @@ fn a_constant_meets_its_bounds() {
     }
 }
 
-/// An enumerated member's values are those its own bounds leave it.
+/// An enumerated member's values are those its own bounds leave it, for
+/// the other members' bounds; both bindings render every value it lists, so
+/// each is one of the other members' enumerated values.
 #[test]
 fn an_open_object_admits_an_enumerated_member_by_the_values_its_bounds_leave() {
     validate(with_defs(&format!(
@@ -1378,6 +1380,17 @@ fn an_open_object_admits_an_enumerated_member_by_the_values_its_bounds_leave() {
         )
     )))
     .expect("the member's bounds leave it only values of the other members");
+    assert_mentions(
+        &refusal(with_defs(&format!(
+            r#"{{ "ProbeOpen": {} }}"#,
+            open_object(
+                r#"{ "member": { "type": "string", "enum": ["a", "valid"], "minLength": 2 } }"#,
+                "[]",
+                r#"{ "type": "string", "enum": ["valid"] }"#,
+            )
+        ))),
+        &["$defs.ProbeOpen.properties.member is not a value"],
+    );
 }
 
 /// A member that lists its values is admitted by the type of those values,

@@ -1097,3 +1097,30 @@ fn an_integer_fixture_is_an_i64() {
         other => panic!("expected a refusal, got {other:?}"),
     }
 }
+
+/// A number the Rust model writes is a literal of a type that holds it: an
+/// integer within `i32` as written, within `i64` suffixed, and beyond as a
+/// float.
+#[test]
+fn a_generated_number_is_a_literal_of_a_type_that_holds_it() {
+    let document = with_defs(
+        r#"{
+            "ProbeSmall": { "type": ["integer", "number"], "default": 7 },
+            "ProbeWide": { "type": ["integer", "number"], "default": 10000000000 },
+            "ProbeHuge": { "type": ["integer", "number"], "default": 1e20, "minimum": 1e20 },
+            "ProbeFraction": { "type": ["integer", "number"], "default": 2.5 }
+        }"#,
+    );
+    let definition = testing::definition(document).expect("valid");
+    let rust = build_outputs(&definition, &notebook_config())
+        .expect("renders")
+        .rust_model;
+    for literal in [
+        r#"extend("default" = 7)"#,
+        r#"extend("default" = 10000000000i64)"#,
+        r#"extend("default" = 1e20), extend("minimum" = 1e20)"#,
+        r#"extend("default" = 2.5)"#,
+    ] {
+        assert!(rust.contains(literal), "{literal} is not generated");
+    }
+}

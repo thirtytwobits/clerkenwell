@@ -1419,11 +1419,15 @@ fn admits(
     if !typed {
         return Ok(false);
     }
+    // Both bindings render every value a member lists, its own bounds aside,
+    // so each is one of the values an enumerated other member admits.
     if let Some(admitted) = values.get("enum").and_then(Json::as_array) {
-        let Some(member_values) = &member_values else {
-            return Ok(false);
+        let listed: Vec<&Json> = match (member.get("enum"), member.get("const")) {
+            (Some(Json::Array(listed)), _) => listed.iter().collect(),
+            (_, Some(constant)) => vec![constant],
+            _ => return Ok(false),
         };
-        if !member_values.iter().all(|value| admitted.contains(value)) {
+        if !listed.iter().all(|value| admitted.contains(value)) {
             return Ok(false);
         }
     }

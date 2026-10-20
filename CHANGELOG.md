@@ -45,7 +45,7 @@ names the contracts.
   indirection, through an alias or another struct, and writes a numeric bound at the edge of `i64`
   as the integer it is.
 - The generated Rust model writes its strings as Rust string literals, control characters
-  included.
+  included, and each number as a literal of a type that holds it.
 - A `default` beside a reference is checked against the schema its chain of references ends at.
 - The generated Rust model declares the helper enum of an inline string enum within a property's
   or record's array items and record values, at any depth, and each helper enum carries its
