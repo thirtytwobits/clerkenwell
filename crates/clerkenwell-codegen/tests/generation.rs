@@ -641,7 +641,8 @@ fn the_configured_header_and_command_open_every_generated_code_file() {
 
 /// Every helper enum the Rust model names is declared: an inline string enum
 /// as a record's values, as an open object's other members, and as the
-/// values of a record-valued property.
+/// values of a record-valued property, directly or within arrays and records
+/// at any depth.
 #[test]
 fn the_enum_of_an_inline_typed_value_is_declared() {
     let document = with_defs(
@@ -653,7 +654,18 @@ fn the_enum_of_an_inline_typed_value_is_declared() {
                 "additionalProperties": { "type": "string", "enum": ["low", "high"] } },
             "ProbeHolder": { "type": "object", "additionalProperties": false,
                 "properties": { "labels": { "type": "object",
-                    "additionalProperties": { "type": "string", "enum": ["low", "high"] } } } }
+                    "additionalProperties": { "type": "string", "enum": ["low", "high"] } },
+                    "grid": { "type": "array", "items": { "type": "object",
+                        "additionalProperties": { "type": "array",
+                            "items": { "type": "string", "enum": ["low", "high"] } } } } } },
+            "ProbeOpenList": { "type": "object",
+                "properties": { "levels": { "type": "array",
+                    "items": { "type": "string", "enum": ["low"] } } },
+                "additionalProperties": { "type": "array",
+                    "items": { "type": "string", "enum": ["low", "high"] } } },
+            "ProbeRecordGrid": { "type": "object",
+                "additionalProperties": { "type": "object",
+                    "additionalProperties": { "type": "string", "enum": ["low", "high"] } } }
         }"#,
     );
     let definition = testing::definition(document).expect("valid");
@@ -672,6 +684,18 @@ fn the_enum_of_an_inline_typed_value_is_declared() {
         (
             "BTreeMap<String, ProbeHolderLabels>",
             "pub enum ProbeHolderLabels {",
+        ),
+        (
+            "Vec<BTreeMap<String, Vec<ProbeHolderGrid>>>",
+            "pub enum ProbeHolderGrid {",
+        ),
+        (
+            "OtherMembers<ProbeOpenList, Vec<ProbeOpenListOtherMembers>>",
+            "pub enum ProbeOpenListOtherMembers {",
+        ),
+        (
+            "BTreeMap<String, BTreeMap<String, ProbeRecordGridValue>>",
+            "pub enum ProbeRecordGridValue {",
         ),
     ] {
         assert!(rust.contains(named), "{named} is not named:\n{rust}");

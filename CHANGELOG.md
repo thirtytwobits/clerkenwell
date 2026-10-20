@@ -32,8 +32,8 @@ names the contracts.
 
 - Generated fixtures keep each value's `const` and meet its `minimum`, `maximum` and
   `minLength`.
-- The generated Rust model declares the helper enum of a record whose values are an inline string
-  enum.
+- The generated Rust model declares the helper enum of an inline string enum within a property's
+  or record's array items and record values, at any depth.
 
 ## 0.9.0
 

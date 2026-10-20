@@ -75,7 +75,7 @@ pub(crate) fn collect_rust_property_enums(definition: &Definition) -> Vec<RustPr
             .map(|values| ("value", values))
             .or_else(|| other_members_schema(schema).map(|values| (OTHER_MEMBERS_FIELD, values)));
         if let Some((name, values)) = values {
-            if let Some(values) = string_enum_values(values) {
+            if let Some(values) = property_enum_values(values) {
                 enums.push(RustPropertyEnum {
                     name: rust_property_enum_name(definition_name, name),
                     def: definition_name.to_owned(),
@@ -88,17 +88,18 @@ pub(crate) fn collect_rust_property_enums(definition: &Definition) -> Vec<RustPr
     enums
 }
 
-/// The values of a property's string enum, declared directly, as its array
-/// items, or as its record values.
+/// The values of a property's string enum, declared directly or within its
+/// array items and record values at any depth, each of which the Rust type
+/// names after the property.
 fn property_enum_values(property_schema: &Object) -> Option<Vec<String>> {
     string_enum_values(property_schema)
         .or_else(|| {
             has_type(property_schema, "array")
                 .then(|| object_at(property_schema, "items"))
                 .flatten()
-                .and_then(string_enum_values)
+                .and_then(property_enum_values)
         })
-        .or_else(|| record_values_schema(property_schema).and_then(string_enum_values))
+        .or_else(|| record_values_schema(property_schema).and_then(property_enum_values))
 }
 
 /// The values of `schema`'s string enum.
