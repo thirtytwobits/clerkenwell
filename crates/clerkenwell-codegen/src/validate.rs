@@ -1321,7 +1321,10 @@ fn admits(
         }
     }
     if let Some(constant) = values.get("const") {
-        if member.get("const") != Some(constant) {
+        let Some(member_values) = member_values else {
+            return Ok(false);
+        };
+        if !member_values.iter().all(|value| value == constant) {
             return Ok(false);
         }
     }

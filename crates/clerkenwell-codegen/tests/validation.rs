@@ -1138,6 +1138,14 @@ fn an_open_object_admits_an_enumerated_member_by_its_values() {
             r#"{ "type": "integer", "const": 12 }"#,
             r#"{ "type": "integer", "minimum": 10, "maximum": 12 }"#,
         ),
+        (
+            r#"{ "type": "string", "enum": ["x"] }"#,
+            r#"{ "type": "string", "const": "x" }"#,
+        ),
+        (
+            r#"{ "type": "string", "const": "x" }"#,
+            r#"{ "type": "string", "const": "x" }"#,
+        ),
     ] {
         validate(probe(member, other_members))
             .unwrap_or_else(|error| panic!("{member} beside {other_members}: {error}"));
@@ -1150,6 +1158,14 @@ fn an_open_object_admits_an_enumerated_member_by_its_values() {
         (
             r#"{ "type": "integer", "const": 13 }"#,
             r#"{ "type": "integer", "maximum": 12 }"#,
+        ),
+        (
+            r#"{ "type": "string", "enum": ["x", "y"] }"#,
+            r#"{ "type": "string", "const": "x" }"#,
+        ),
+        (
+            r#"{ "type": "string" }"#,
+            r#"{ "type": "string", "const": "x" }"#,
         ),
     ] {
         assert_mentions(
