@@ -55,6 +55,8 @@ pub(crate) fn check_semantics(definition: &Definition) -> Result<()> {
         );
     }
 
+    check_reference_chains(definition)?;
+
     // Every `$defs` entry must be renderable, and generated type names must be
     // collision-free after identifier normalisation.
     let mut generated_type_names: HashMap<String, &str> = HashMap::new();
@@ -798,15 +800,16 @@ fn check_collaboration_storage(context: &str, storage: &Object) -> Result<()> {
     }
 }
 
-/// `schema`, or the definition it references.
+/// `schema`, or the schema at the end of its chain of references.
 pub(crate) fn dereference<'a>(
     definition: &'a Definition,
     schema: &'a Object,
 ) -> Result<&'a Object> {
-    if !matches!(schema.get("$ref"), Some(Json::String(_))) {
-        return Ok(schema);
+    let mut schema = schema;
+    while matches!(schema.get("$ref"), Some(Json::String(_))) {
+        schema = resolve_ref(definition, schema, "collaboration schema")?;
     }
-    resolve_ref(definition, schema, "collaboration schema")
+    Ok(schema)
 }
 
 /// How the entity schema requires the value at a collaboration path.
@@ -1173,6 +1176,7 @@ fn check_schema_node(definition: &Definition, schema: Option<&Json>, context: &s
 
     if let Some(members) = primitive_union_types(schema)? {
         check_applicable_keywords(schema, &members, context)?;
+        check_validation_keywords(schema, &members, context)?;
         return check_default_value(schema, context);
     }
 
@@ -1181,7 +1185,7 @@ fn check_schema_node(definition: &Definition, schema: Option<&Json>, context: &s
     };
     check_applicable_keywords(schema, &[schema_type], context)?;
 
-    check_validation_keywords(schema, context)?;
+    check_validation_keywords(schema, &[schema_type], context)?;
     check_default_value(schema, context)?;
 
     match schema_type {
@@ -1250,6 +1254,29 @@ fn check_schema_node(definition: &Definition, schema: Option<&Json>, context: &s
             string_literal(other)
         )),
     }
+}
+
+/// Refuses a `$defs` entry whose chain of references returns to an entry
+/// already on it, so following references always ends at a schema.
+fn check_reference_chains(definition: &Definition) -> Result<()> {
+    for (definition_name, schema) in definition.defs().iter() {
+        let mut chain = vec![definition_name.to_owned()];
+        let mut current = schema.as_object();
+        while let Some(reference) = current.filter(|schema| schema.get("$ref").is_some()) {
+            let context = format!("$defs.{}", chain.last().expect("the chain starts named"));
+            let name = schema_ref_name(definition, reference, &context)?;
+            if chain.contains(&name) {
+                chain.push(name);
+                return refuse(format!(
+                    "$defs.{definition_name} is a cycle of references: {}.",
+                    chain.join(" -> ")
+                ));
+            }
+            current = definition.def(&name);
+            chain.push(name);
+        }
+    }
+    Ok(())
 }
 
 /// Refuses a structural keyword on a schema none of whose `types` it shapes.
@@ -1453,14 +1480,14 @@ fn is_integer(value: &Json) -> bool {
         .is_some_and(|number| number.is_finite() && number.trunc() == number)
 }
 
-/// Checks the validation-only keywords against the type they constrain.
-fn check_validation_keywords(schema: &Object, context: &str) -> Result<()> {
-    let schema_type = schema.get("type").and_then(Json::as_str);
+/// Checks the validation-only keywords against the types they constrain.
+fn check_validation_keywords(schema: &Object, types: &[&str], context: &str) -> Result<()> {
+    let numeric = types
+        .iter()
+        .any(|member| matches!(*member, "integer" | "number"));
     for name in ["minimum", "maximum"] {
         if let Some(bound) = schema.get(name) {
-            if !matches!(schema_type, Some("integer" | "number"))
-                || !bound.as_f64().is_some_and(f64::is_finite)
-            {
+            if !numeric || !bound.as_f64().is_some_and(f64::is_finite) {
                 return refuse(format!(
                     "{context}.{name} requires a finite numeric bound on a numeric schema."
                 ));
@@ -1480,35 +1507,48 @@ fn check_validation_keywords(schema: &Object, context: &str) -> Result<()> {
         if schema.get("enum").is_some() {
             return refuse(format!("{context} may not declare both const and enum."));
         }
-        let expected = match schema_type {
-            Some("integer" | "number") => "number",
-            Some("string") => "string",
-            Some("boolean") => "boolean",
-            _ => {
-                return refuse(format!(
-                    "{context}.const is supported only on scalar schemas."
-                ))
-            }
-        };
-        let matches = match expected {
+        let fits = |member: &str| match member {
+            "integer" => is_integer(constant),
             "number" => constant.as_f64().is_some(),
             "string" => constant.as_str().is_some(),
-            _ => constant.as_bool().is_some(),
+            "boolean" => constant.as_bool().is_some(),
+            _ => false,
         };
-        if !matches {
-            return refuse(format!(
-                "{context}.const must be a {expected} to match its declared type."
-            ));
-        }
-        if schema_type == Some("integer") && !is_integer(constant) {
-            return refuse(format!(
-                "{context}.const must be an integer to match its declared type."
-            ));
+        match types {
+            [single] => {
+                let expected = match *single {
+                    "integer" | "number" => "number",
+                    "string" => "string",
+                    "boolean" => "boolean",
+                    _ => {
+                        return refuse(format!(
+                            "{context}.const is supported only on scalar schemas."
+                        ))
+                    }
+                };
+                if !fits(expected) {
+                    return refuse(format!(
+                        "{context}.const must be a {expected} to match its declared type."
+                    ));
+                }
+                if !fits(single) {
+                    return refuse(format!(
+                        "{context}.const must be an integer to match its declared type."
+                    ));
+                }
+            }
+            _ => {
+                if !types.iter().any(|member| fits(member)) {
+                    return refuse(format!(
+                        "{context}.const must be a value of one of its types."
+                    ));
+                }
+            }
         }
     }
 
     if let Some(min_length) = schema.get("minLength") {
-        if schema_type != Some("string") {
+        if !types.contains(&"string") {
             return refuse(format!(
                 "{context}.minLength is supported only on string schemas."
             ));

@@ -761,10 +761,11 @@ fn contract_fixtures_honour_constraints_and_recursive_open_objects() {
                 "properties": {
                     "count": { "type": "integer", "minimum": 12, "maximum": 20 },
                     "code": { "type": "string", "minLength": 12 },
+                    "long": { "type": "string", "minLength": 200000 },
                     "mode": { "type": "string", "const": "fixed" },
                     "ratio": { "type": "number", "minimum": 12.5, "maximum": 13 }
                 },
-                "required": ["count", "code", "mode", "ratio"],
+                "required": ["count", "code", "mode", "ratio", "long"],
                 "additionalProperties": { "$ref": "#/$defs/ProbeScalar" } },
             "ProbeScalar": { "type": ["integer", "string", "number"], "minimum": 10 },
             "ProbeLevel": { "type": "string", "enum": ["a", "valid"], "minLength": 2 },
@@ -833,11 +834,20 @@ fn contract_fixtures_honour_constraints_and_recursive_open_objects() {
             sample["code"].as_str().expect("a code").chars().count() >= 12,
             "{sample}"
         );
+        assert!(
+            sample["long"]
+                .as_str()
+                .expect("a long string")
+                .chars()
+                .count()
+                >= 200_000,
+            "a long string is too short"
+        );
         assert_eq!(sample["mode"], "fixed");
         let ratio = sample["ratio"].as_f64().expect("a ratio");
         assert!((12.5..=13.0).contains(&ratio), "{sample}");
         for (name, value) in sample.as_object().expect("an object") {
-            if ["count", "code", "mode", "ratio"].contains(&name.as_str()) {
+            if ["count", "code", "mode", "ratio", "long"].contains(&name.as_str()) {
                 continue;
             }
             if let Some(number) = value.as_f64() {
@@ -882,5 +892,34 @@ fn a_named_enum_carries_its_constraints() {
     assert!(
         rust.contains("#[schemars(extend(\"minLength\" = 3))]\npub enum ProbeLevel {"),
         "{rust}"
+    );
+}
+
+/// A `default` beside an open object's reference to its other members' type
+/// is among its other-member constraints: the referenced type carries only
+/// its own.
+#[test]
+fn a_default_beside_an_other_members_reference_is_a_constraint() {
+    let document = with_defs(
+        r##"{
+            "ProbeLevel": { "type": "string", "enum": ["low", "high"] },
+            "ProbeOpen": { "type": "object",
+                "properties": { "first": { "$ref": "#/$defs/ProbeLevel" } },
+                "additionalProperties": { "$ref": "#/$defs/ProbeLevel", "default": "high" } }
+        }"##,
+    );
+    let definition = testing::definition(document).expect("valid");
+    let rust = build_outputs(&definition, &notebook_config())
+        .expect("renders")
+        .rust_model;
+    let declared = rust
+        .split("impl DeclaredMembers for ProbeOpen {")
+        .nth(1)
+        .and_then(|rest| rest.split("\n}\n").next())
+        .expect("ProbeOpen declares its members");
+    assert!(declared.contains(r#"keyword: "default","#), "{declared}");
+    assert!(
+        declared.contains(r#"value: SchemaConstraintValue::String("high"),"#),
+        "{declared}"
     );
 }

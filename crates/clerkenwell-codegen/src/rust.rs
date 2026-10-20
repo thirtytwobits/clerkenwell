@@ -891,12 +891,13 @@ fn render_definition(definition_name: &str, schema: &Object) -> Result<String> {
 /// carry. Its Rust type is built of `Vec` and `BTreeMap` down to each
 /// constrained scalar.
 fn collect_constraints<'a>(schema: &'a Object, path: &mut Vec<&'a str>, found: &mut Vec<Expr>) {
-    if schema.get("$ref").is_some() {
-        return;
-    }
+    // A reference carries only annotations; the referenced type carries its
+    // own constraints, and a `default` beside the reference is this use's.
+    let reference = schema.get("$ref").is_some();
     for keyword in crate::validate::VALIDATION_SCHEMA_KEYS
         .iter()
         .chain(&["default"])
+        .filter(|keyword| !reference || **keyword == "default")
     {
         let Some(value) = schema.get(keyword) else {
             continue;

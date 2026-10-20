@@ -540,10 +540,9 @@ fn sample_within(
             let min_length = schema
                 .get("minLength")
                 .and_then(Json::as_f64)
-                .unwrap_or(0.0);
-            while (sample.chars().count() as f64) < min_length {
-                sample.push('x');
-            }
+                .unwrap_or(0.0) as usize;
+            let length = sample.chars().count();
+            sample.push_str(&"x".repeat(min_length.saturating_sub(length)));
             sample.into()
         }
         Some(numeric @ ("integer" | "number")) => {

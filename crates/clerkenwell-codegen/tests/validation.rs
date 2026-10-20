@@ -1243,3 +1243,76 @@ fn a_keyed_sequence_holds_closed_objects() {
         &["collaboration.entities.Board.fields.columns is a keyed sequence, whose items must be closed objects"],
     );
 }
+
+/// A union's validation keywords are checked against its member types: a
+/// bound needs a numeric member, `minLength` a string member, and `const` a
+/// value of one of its types.
+#[test]
+fn a_union_validation_keyword_is_checked_against_its_types() {
+    let refused = [
+        (
+            r#"{ "type": ["string", "integer"], "minimum": "x" }"#,
+            "$defs.ProbeUnion.minimum requires a finite numeric bound on a numeric schema",
+        ),
+        (
+            r#"{ "type": ["string", "boolean"], "maximum": 3 }"#,
+            "$defs.ProbeUnion.maximum requires a finite numeric bound on a numeric schema",
+        ),
+        (
+            r#"{ "type": ["integer", "number"], "minimum": 3, "maximum": 2 }"#,
+            "$defs.ProbeUnion.minimum exceeds maximum",
+        ),
+        (
+            r#"{ "type": ["integer", "boolean"], "minLength": 1 }"#,
+            "$defs.ProbeUnion.minLength is supported only on string schemas",
+        ),
+        (
+            r#"{ "type": ["string", "integer"], "minLength": -1 }"#,
+            "$defs.ProbeUnion.minLength must be a non-negative integer",
+        ),
+        (
+            r#"{ "type": ["string", "integer"], "const": true }"#,
+            "$defs.ProbeUnion.const must be a value of one of its types",
+        ),
+        (
+            r#"{ "type": ["boolean", "integer"], "const": 1.5 }"#,
+            "$defs.ProbeUnion.const must be a value of one of its types",
+        ),
+    ];
+    for (schema, expected) in refused {
+        assert_mentions(
+            &refusal(with_defs(&format!(r#"{{ "ProbeUnion": {schema} }}"#))),
+            &[expected],
+        );
+    }
+    for schema in [
+        r#"{ "type": ["string", "integer"], "minimum": 0, "minLength": 1 }"#,
+        r#"{ "type": ["string", "integer"], "const": 3 }"#,
+        r#"{ "type": ["boolean", "number"], "const": 1.5 }"#,
+    ] {
+        validate(with_defs(&format!(r#"{{ "ProbeUnion": {schema} }}"#)))
+            .unwrap_or_else(|error| panic!("{schema}: {error}"));
+    }
+}
+
+/// A `$defs` entry that is a reference names the schema at the end of its
+/// chain of references; a chain that returns to an entry names none.
+#[test]
+fn a_chain_of_references_ends_at_a_schema() {
+    let message = refusal(with_defs(
+        r##"{ "ProbeA": { "$ref": "#/$defs/ProbeB" }, "ProbeB": { "$ref": "#/$defs/ProbeA" } }"##,
+    ));
+    assert!(message.contains("is a cycle of references"), "{message}");
+
+    // A keyed sequence's closed item reached through two references.
+    let mut document = with_defs(
+        r##"{ "ProbeColumn": { "$ref": "#/$defs/ProbeColumnAlias" },
+            "ProbeColumnAlias": { "$ref": "#/$defs/BoardColumn" } }"##,
+    );
+    set(
+        &mut document,
+        "/$defs/BoardDocument/properties/columns/items",
+        json(r##"{ "$ref": "#/$defs/ProbeColumn" }"##),
+    );
+    validate(document).expect("a closed item reached through aliases is a keyed sequence's item");
+}
