@@ -1024,3 +1024,76 @@ fn an_integer_constraint_at_the_i64_boundary_is_exact() {
         "the field bound is not exact"
     );
 }
+
+/// A string the Rust model writes is a Rust string literal, control
+/// characters included.
+#[test]
+fn a_control_character_in_a_generated_string_is_a_rust_escape() {
+    let document = with_defs(
+        r#"{
+            "ProbeOpen": { "type": "object",
+                "properties": { "member": { "type": "string", "const": "\u0008x" } },
+                "additionalProperties": { "type": "string", "const": "\u0008x",
+                    "default": "\u0008x" } },
+            "ProbeUnion": { "type": ["string", "integer"], "default": "\u000c" },
+            "ProbeHolder": { "type": "object", "additionalProperties": false,
+                "properties": { "label": { "type": "string", "default": "\u0008" } } }
+        }"#,
+    );
+    let definition = testing::definition(document).expect("valid");
+    assert_rustfmt_clean(&definition, &notebook_config());
+}
+
+/// The Rust model holds a JSON Schema integer as an `i64`, so an integer
+/// fixture is one: generation refuses an integer schema whose bounds leave
+/// it none, and a union samples another member instead.
+#[test]
+fn an_integer_fixture_is_an_i64() {
+    let mut document =
+        with_defs(r#"{ "ProbeWide": { "type": ["integer", "number"], "minimum": 1e19 } }"#);
+    set(
+        &mut document,
+        "/$defs/NoteSummary/properties/wide",
+        json(r##"{ "$ref": "#/$defs/ProbeWide" }"##),
+    );
+    push(
+        &mut document,
+        "/$defs/NoteSummary/required",
+        json(r#""wide""#),
+    );
+    let definition = testing::definition(document).expect("valid");
+    let outputs = build_outputs(&definition, &notebook_config()).expect("renders");
+    let fixtures: serde_json::Value =
+        serde_json::from_str(&outputs.contract_fixtures).expect("fixtures are JSON");
+    let mut wide = Vec::new();
+    objects_holding(&fixtures, "wide", &mut wide);
+    assert!(!wide.is_empty(), "no sample of ProbeWide");
+    for holder in wide {
+        assert!(
+            holder["wide"].as_f64().expect("a number") >= 1e19,
+            "{holder}"
+        );
+    }
+
+    let mut document = notebook_document();
+    set(
+        &mut document,
+        "/$defs/NoteSummary/properties/huge",
+        json(r#"{ "type": "integer", "minimum": 1e19 }"#),
+    );
+    push(
+        &mut document,
+        "/$defs/NoteSummary/required",
+        json(r#""huge""#),
+    );
+    let definition = testing::definition(document).expect("valid");
+    match build_outputs(&definition, &notebook_config()) {
+        Err(Error::Definition(message)) => {
+            assert!(
+                message.contains("admit no integer an i64 holds"),
+                "{message}"
+            )
+        }
+        other => panic!("expected a refusal, got {other:?}"),
+    }
+}

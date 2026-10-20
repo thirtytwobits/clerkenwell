@@ -1401,3 +1401,60 @@ fn an_open_object_admits_a_listed_member_by_the_types_of_its_values() {
         &["$defs.ProbeOpen.properties.member is not a value"],
     );
 }
+
+/// A `default` beside a reference is a value of the schema its chain of
+/// references ends at.
+#[test]
+fn a_default_beside_a_reference_is_checked_at_the_end_of_its_chain() {
+    let probe = |default: &str| {
+        with_defs(&format!(
+            r##"{{
+                "ProbeTarget": {{ "type": "string", "enum": ["valid", "other"] }},
+                "ProbeAlias": {{ "$ref": "#/$defs/ProbeTarget" }},
+                "ProbeHolder": {{ "type": "object", "additionalProperties": false,
+                    "properties": {{ "level": {{ "$ref": "#/$defs/ProbeAlias", "default": {default} }} }} }}
+            }}"##
+        ))
+    };
+    validate(probe(r#""valid""#)).expect("a default of the aliased enum");
+    assert_mentions(
+        &refusal(probe(r#""nope""#)),
+        &["default must be one of the values its enum admits"],
+    );
+}
+
+/// An integer schema's bounds are the integers they leave: a fractional
+/// bound is its ceiling as a minimum and its floor as a maximum.
+#[test]
+fn an_open_object_compares_integer_bounds_by_the_integers_they_leave() {
+    let probe = |member: &str, other_members: &str| {
+        with_defs(&format!(
+            r#"{{ "ProbeOpen": {} }}"#,
+            open_object(&format!(r#"{{ "member": {member} }}"#), "[]", other_members)
+        ))
+    };
+    for (member, other_members) in [
+        (
+            r#"{ "type": "integer", "minimum": 1.1 }"#,
+            r#"{ "type": "integer", "minimum": 1.5 }"#,
+        ),
+        (
+            r#"{ "type": "integer", "minimum": 1.1 }"#,
+            r#"{ "type": "number", "minimum": 1.5 }"#,
+        ),
+        (
+            r#"{ "type": "integer", "maximum": 2.9 }"#,
+            r#"{ "type": "integer", "maximum": 2.5 }"#,
+        ),
+    ] {
+        validate(probe(member, other_members))
+            .unwrap_or_else(|error| panic!("{member} beside {other_members}: {error}"));
+    }
+    assert_mentions(
+        &refusal(probe(
+            r#"{ "type": "number", "minimum": 1.1 }"#,
+            r#"{ "type": "number", "minimum": 1.5 }"#,
+        )),
+        &["$defs.ProbeOpen.properties.member is not a value"],
+    );
+}

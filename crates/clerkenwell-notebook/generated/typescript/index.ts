@@ -73,8 +73,7 @@ export type NoteExtras = Record<string, unknown>;
 export type NoteAppearance = {
   "theme": "light" | "dark";
   "accent"?: string;
-} & {
-  [member: string]: string;
+  [member: string]: string | undefined;
 };
 
 export type NoteLayout = {

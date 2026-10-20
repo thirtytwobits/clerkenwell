@@ -640,7 +640,8 @@ fn sample_within(
 }
 
 /// 1, or the bound nearest it of a schema that excludes 1; an integer
-/// schema's sample is an integer.
+/// schema's sample is an integer an `i64` holds, as the Rust model's integers
+/// are.
 fn bounded_sample(schema: &Object, integer: bool) -> Result<f64> {
     let mut sample: f64 = 1.0;
     if let Some(minimum) = schema.get("minimum").and_then(Json::as_f64) {
@@ -659,11 +660,12 @@ fn bounded_sample(schema: &Object, integer: bool) -> Result<f64> {
             .and_then(Json::as_f64)
             .is_none_or(|limit| holds(sample, limit))
     };
-    if !within("minimum", |value, limit| value >= limit)
-        || !within("maximum", |value, limit| value <= limit)
-    {
+    let held = within("minimum", |value, limit| value >= limit)
+        && within("maximum", |value, limit| value <= limit);
+    let representable = !integer || (sample >= i64::MIN as f64 && sample < -(i64::MIN as f64));
+    if !held || !representable {
         return refuse(
-            "Cannot generate a fixture for an integer schema whose bounds admit no integer.",
+            "Cannot generate a fixture for an integer schema whose bounds admit no integer an i64 holds.",
         );
     }
     Ok(sample)

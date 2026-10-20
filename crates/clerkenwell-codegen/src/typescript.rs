@@ -519,22 +519,20 @@ fn schema_to_typescript(schema: &Object) -> Result<String> {
                     schema_to_typescript(property_schema)?
                 ));
             }
-            let declared = format!("{{\n{}\n}}", fields.join("\n"));
-            // An intersection, not an index signature beside the declared
-            // members: TypeScript checks an optional member's `undefined`
-            // against an index signature declared with it.
-            match other_members_schema(schema) {
-                Some(additional) => Ok(format!(
-                    "{declared} & {{\n  [member: string]: {};\n}}",
+            // An other member may be `undefined`, as an optional declared
+            // member may: JSON leaves out both.
+            if let Some(additional) = other_members_schema(schema) {
+                fields.push(format!(
+                    "  [member: string]: {} | undefined;",
                     schema_to_typescript(additional)?
-                )),
-                None => Ok(declared),
+                ));
             }
+            Ok(format!("{{\n{}\n}}", fields.join("\n")))
         }
         Some("array") => {
             let items = object_at(schema, "items").expect("validation requires array items");
             let item_type = schema_to_typescript(items)?;
-            Ok(if item_type.contains(" | ") || item_type.contains(" & ") {
+            Ok(if item_type.contains(" | ") {
                 format!("({item_type})[]")
             } else {
                 format!("{item_type}[]")

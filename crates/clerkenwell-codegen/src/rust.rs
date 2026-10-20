@@ -7,7 +7,7 @@ use crate::config::Project;
 use crate::definition::{Definition, Materialization};
 use crate::error::{refuse, Result};
 use crate::expand::SHARED;
-use crate::json::{number_to_string, string_literal, Json, Object};
+use crate::json::{number_to_string, Json, Object};
 use crate::layout::{self, Expr};
 use crate::names::{
     constant_name, name_constant_identifier, pascal_identifier, rust_field_identifier,
@@ -328,7 +328,7 @@ fn transport_enum(enum_name: &str, tag: &str, entries: &[(&str, String)]) -> Str
         "#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]".to_owned(),
         format!(
             "#[serde(tag = {}, content = \"value\", deny_unknown_fields)]",
-            string_literal(tag)
+            rust_string(tag)
         ),
         // Variants wrap arbitrary schema-defined payloads, so their sizes vary
         // by design.
@@ -390,7 +390,7 @@ fn transport_enum(enum_name: &str, tag: &str, entries: &[(&str, String)]) -> Str
 }
 
 fn literal(value: &str) -> Expr {
-    Expr::atom(string_literal(value))
+    Expr::atom(rust_string(value))
 }
 
 fn literals(values: &[&str]) -> Expr {
@@ -713,7 +713,7 @@ fn collaboration_metadata(definition: &Definition) -> String {
                 (
                     "authoring_document",
                     Expr::atom(match entity.authoring_document() {
-                        Some(document) => format!("Some({})", string_literal(document)),
+                        Some(document) => format!("Some({})", rust_string(document)),
                         None => "None".to_owned(),
                     }),
                 ),
@@ -932,11 +932,11 @@ fn collect_constraints<'a>(schema: &'a Object, path: &mut Vec<&'a str>, found: &
         let value = match value {
             Json::Bool(value) => format!("SchemaConstraintValue::Boolean({value})"),
             Json::String(value) => {
-                format!("SchemaConstraintValue::String({})", string_literal(value))
+                format!("SchemaConstraintValue::String({})", rust_string(value))
             }
             Json::Null | Json::Array(_) | Json::Object(_) => format!(
                 "SchemaConstraintValue::Json({})",
-                string_literal(&value.stringify())
+                rust_string(&value.stringify())
             ),
             _ => {
                 let number = value.as_f64().expect("validation keeps scalar constraints");
@@ -978,9 +978,9 @@ fn with_constraints(rendered: String, schema: &Object) -> String {
             let value = schema.get(keyword)?;
             let literal = match keyword {
                 "minimum" | "maximum" => bound_literal(value),
-                _ => value.stringify(),
+                _ => json_tokens(value),
             };
-            Some(format!("extend({} = {literal})", string_literal(keyword)))
+            Some(format!("extend({} = {literal})", rust_string(keyword)))
         })
         .collect();
     if arguments.is_empty() {
@@ -1004,7 +1004,7 @@ fn primitive_union(definition_name: &str, members: &[&str]) -> Result<String> {
             other => {
                 return refuse(format!(
                     "Cannot render unsupported Rust primitive union member {}.",
-                    string_literal(other)
+                    rust_string(other)
                 ))
             }
         };
@@ -1101,7 +1101,7 @@ fn tagged_union(definition: &Definition, definition_name: &str, schema: &Object)
             .to_owned(),
         format!(
             "#[serde(tag = {}, deny_unknown_fields)]",
-            string_literal(discriminator)
+            rust_string(discriminator)
         ),
         format!("pub enum {} {{", pascal_identifier(definition_name)),
         rendered.join("\n"),
@@ -1169,7 +1169,7 @@ fn render_field(
 /// `#[serde(rename = "value")]`, its argument on a line of its own when the
 /// attribute is too wide, as rustfmt breaks it.
 fn rename_attribute(indent: &str, value: &str) -> String {
-    let argument = format!("rename = {}", string_literal(value));
+    let argument = format!("rename = {}", rust_string(value));
     let line = format!("{indent}#[serde({argument})]");
     if layout::fits_attribute(&line) {
         line
@@ -1183,10 +1183,10 @@ fn rename_attribute(indent: &str, value: &str) -> String {
 fn schemars_arguments(schema: &Object) -> Vec<String> {
     let mut arguments = Vec::new();
     if let Some(constant) = schema.get("const") {
-        arguments.push(format!("extend(\"const\" = {})", constant.stringify()));
+        arguments.push(format!("extend(\"const\" = {})", json_tokens(constant)));
     }
     if let Some(default) = schema.get("default") {
-        arguments.push(format!("extend(\"default\" = {})", default.stringify()));
+        arguments.push(format!("extend(\"default\" = {})", json_tokens(default)));
     }
     if let Some(min_length) = schema.get("minLength").and_then(Json::as_f64) {
         arguments.push(format!("length(min = {})", number_to_string(min_length)));
@@ -1203,6 +1203,32 @@ fn schemars_arguments(schema: &Object) -> Vec<String> {
         }
     }
     arguments
+}
+
+/// `value` as a Rust string literal.
+fn rust_string(value: &str) -> String {
+    format!("{value:?}")
+}
+
+/// `value` as the tokens of a `json!` value, its strings Rust string
+/// literals.
+fn json_tokens(value: &Json) -> String {
+    match value {
+        Json::String(text) => rust_string(text),
+        Json::Array(items) => format!(
+            "[{}]",
+            items.iter().map(json_tokens).collect::<Vec<_>>().join(",")
+        ),
+        Json::Object(members) => format!(
+            "{{{}}}",
+            members
+                .iter()
+                .map(|(name, member)| format!("{}:{}", rust_string(name), json_tokens(member)))
+                .collect::<Vec<_>>()
+                .join(",")
+        ),
+        _ => value.stringify(),
+    }
 }
 
 /// A numeric bound as an `extend` value: suffixed where an integer outside
@@ -1344,7 +1370,7 @@ fn string_slice_constant(name: &str, values: &[&str]) -> String {
 /// after `NAME:` when even the head is.
 fn string_constant(name: &str, value: &str) -> String {
     let head = format!("pub const {name}: &str =");
-    let literal = string_literal(value);
+    let literal = rust_string(value);
     let inline = format!("{head} {literal};");
     if utf16_len(&inline) <= 100 {
         return inline;

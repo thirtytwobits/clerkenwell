@@ -29,20 +29,24 @@ names the contracts.
   generated Rust struct holds the other members in a flattened `other_members:
   OtherMembers<Self, T>`, which refuses a declared member's name and carries the other members'
   validation keywords and `default` into the derived `schemars` schema, and the generated TypeScript
-  type intersects the declared members with an index signature for the others. Schema imports
-  carry the shape. A collaboration field stores an open object whole, and a collaborative
+  type declares the others with an index signature, whose values may be `undefined` as an optional
+  member's may. Schema imports carry the shape. A collaboration field stores an open object whole, and a collaborative
   entity's schema is a closed object.
 
 ### Fixed
 
 - Generated fixtures keep each value's `const`, meet its `minimum`, `maximum` and `minLength`,
-  and take an enum value, and a union member, that meets them. Generation refuses a string schema
-  whose `minLength` exceeds the 1048576 characters a fixture string holds.
+  and take an enum value, and a union member, that meets them; an integer fixture is one an `i64`
+  holds. Generation refuses a string schema whose `minLength` exceeds the 1048576 characters a
+  fixture string holds.
 - The schema derived for a `$defs` string enum or primitive union carries its validation keywords
   and `default`.
 - The generated Rust model boxes a field whose type holds its own struct again without an
   indirection, through an alias or another struct, and writes a numeric bound at the edge of `i64`
   as the integer it is.
+- The generated Rust model writes its strings as Rust string literals, control characters
+  included.
+- A `default` beside a reference is checked against the schema its chain of references ends at.
 - The generated Rust model declares the helper enum of an inline string enum within a property's
   or record's array items and record values, at any depth, and each helper enum carries its
   schema's validation keywords and `default`.

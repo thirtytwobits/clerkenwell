@@ -157,6 +157,6 @@ fn imports_an_object_with_declared_and_other_members() {
         .rust_model
         .contains("impl DeclaredMembers for SharedInput {"));
     assert!(outputs.typescript_model.contains(
-        "export type SharedInput = {\n  \"type\": \"object\";\n} & {\n  [member: string]: unknown;\n};"
+        "export type SharedInput = {\n  \"type\": \"object\";\n  [member: string]: unknown | undefined;\n};"
     ));
 }

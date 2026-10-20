@@ -1147,9 +1147,9 @@ fn check_schema_node(definition: &Definition, schema: Option<&Json>, context: &s
                 "{context} may not combine $ref with validation keywords."
             ));
         }
-        let name = schema_ref_name(definition, schema, context)?;
+        schema_ref_name(definition, schema, context)?;
         if let Some(default) = schema.get("default") {
-            let mut referenced = definition.def(&name).unwrap().clone();
+            let mut referenced = dereference(definition, schema)?.clone();
             referenced.insert("default", default.clone());
             check_default_value(&referenced, context)?;
         }
@@ -1457,9 +1457,21 @@ fn admits(
             let Some(limit) = values.get(bound).and_then(Json::as_f64).filter(|_| applies) else {
                 continue;
             };
+            // An integer schema's bound is the integer it leaves.
+            let integral = |types: &[&str], value: f64| {
+                if bound == "minLength" || !types.iter().all(|kind| *kind == "integer") {
+                    value
+                } else if tighter {
+                    value.ceil()
+                } else {
+                    value.floor()
+                }
+            };
+            let limit = integral(&values_types, limit);
             let held = member
                 .get(bound)
                 .and_then(Json::as_f64)
+                .map(|value| integral(&member_types, value))
                 .is_some_and(|value| {
                     if tighter {
                         value >= limit
