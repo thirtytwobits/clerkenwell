@@ -8,13 +8,16 @@ names the contracts.
 
 ### Breaking
 
-- The generated Rust model writes each record, a `$defs` entry or field with
-  `additionalProperties`, as `BTreeMap<String, T>`, so a record serialises its keys in key order
-  (#88). The model imports `BTreeMap`, and `clerkenwell-codegen` refuses a `$defs` entry that
-  generates that name.
+- The generated Rust model writes each record field as `BTreeMap<String, T>` and each record
+  `$defs` entry `Name` as `RecordMembers<NameConstraints, T>`, a map that dereferences to
+  `BTreeMap<String, T>`, so a record serialises its keys in key order (#88). `NameConstraints`
+  names the validation keywords and `default` of the record's values. The model imports
+  `BTreeMap`, and `clerkenwell-codegen` refuses a `$defs` entry that generates that name or a
+  record's `NameConstraints`.
 - The generated Rust model re-exports `clerkenwell-schema`'s `OtherMembers`, `DeclaredMembers`,
-  `DeclaredMemberError`, `SchemaConstraint` and `SchemaConstraintValue` (#89), and
-  `clerkenwell-codegen` refuses a `$defs` entry that generates one of those names.
+  `DeclaredMemberError`, `RecordMembers`, `RecordConstraints`, `SchemaConstraint` and
+  `SchemaConstraintValue` (#89), and `clerkenwell-codegen` refuses a `$defs` entry that generates
+  one of those names.
 - `clerkenwell-codegen` refuses:
   - `required` on a record, and a tagged-union variant whose `additionalProperties` is a schema;
   - `properties`, `additionalProperties` and `required` on a schema that is not an object, and
@@ -49,6 +52,9 @@ names the contracts.
   fixture string holds.
 - The schema derived for a `$defs` string enum or primitive union carries its validation keywords
   and `default`.
+- The schema derived for a record, a `$defs` entry or a record-valued property, carries the
+  validation keywords and `default` of its values, within array items and nested records at any
+  depth.
 - The generated Rust model boxes a field whose type holds its own struct again without an
   indirection, through an alias or another struct, and writes a numeric bound at the edge of `i64`
   as the integer it is.

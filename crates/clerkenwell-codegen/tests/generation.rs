@@ -694,7 +694,7 @@ fn the_enum_of_an_inline_typed_value_is_declared() {
         .rust_model;
     for (named, declared) in [
         (
-            "BTreeMap<String, ProbeRecordValue>",
+            "RecordMembers<ProbeRecordConstraints, ProbeRecordValue>",
             "pub enum ProbeRecordValue {",
         ),
         (
@@ -714,7 +714,7 @@ fn the_enum_of_an_inline_typed_value_is_declared() {
             "pub enum ProbeOpenListOtherMembers {",
         ),
         (
-            "BTreeMap<String, BTreeMap<String, ProbeRecordGridValue>>",
+            "RecordMembers<ProbeRecordGridConstraints, BTreeMap<String, ProbeRecordGridValue>>",
             "pub enum ProbeRecordGridValue {",
         ),
     ] {
@@ -878,7 +878,7 @@ fn contract_fixtures_honour_constraints_and_recursive_open_objects() {
     assert!(trees.iter().all(|holder| holder["tree"].is_object()));
 }
 
-/// A named string enum's validation keywords are attributes of its type, so
+/// A named string enum's validation keywords are transforms of its type, so
 /// the schema derived for each use of it carries them.
 #[test]
 fn a_named_enum_carries_its_constraints() {
@@ -890,7 +890,10 @@ fn a_named_enum_carries_its_constraints() {
         .expect("renders")
         .rust_model;
     assert!(
-        rust.contains("#[schemars(extend(\"minLength\" = 3))]\npub enum ProbeLevel {"),
+        rust.contains(
+            r#"#[schemars(transform = SchemaConstraint::new("", "minLength", SchemaConstraintValue::Integer(3)))]
+pub enum ProbeLevel {"#
+        ),
         "{rust}"
     );
 }
@@ -939,7 +942,9 @@ fn a_helper_enum_carries_its_schema_constraints() {
         .rust_model;
     assert!(
         rust.contains(
-            "#[schemars(extend(\"default\" = \"low\"), extend(\"minLength\" = 3))]\npub enum ProbeRecordValue {"
+            r#"#[schemars(transform = SchemaConstraint::new("", "minLength", SchemaConstraintValue::Integer(3)))]
+#[schemars(transform = SchemaConstraint::new("", "default", SchemaConstraintValue::String("low")))]
+pub enum ProbeRecordValue {"#
         ),
         "{rust}"
     );
@@ -1016,11 +1021,13 @@ fn an_integer_constraint_at_the_i64_boundary_is_exact() {
         .expect("renders")
         .rust_model;
     assert!(
-        rust.contains("SchemaConstraintValue::Integer(-9223372036854775808)"),
+        rust.contains("value: SchemaConstraintValue::Integer(-9223372036854775808),"),
         "{rust}"
     );
     assert!(
-        rust.contains(r#"extend("minimum" = -9223372036854775808i64)"#),
+        rust.contains(
+            r#"SchemaConstraint::new("", "minimum", SchemaConstraintValue::Integer(-9223372036854775808))"#
+        ),
         "the field bound is not exact"
     );
 }
@@ -1099,8 +1106,7 @@ fn an_integer_fixture_is_an_i64() {
 }
 
 /// A number the Rust model writes is a literal of a type that holds it: an
-/// integer within `i32` as written, within `i64` suffixed, and beyond as a
-/// float.
+/// integer within `i64` as an integer, and any other number as a float.
 #[test]
 fn a_generated_number_is_a_literal_of_a_type_that_holds_it() {
     let document = with_defs(
@@ -1116,19 +1122,20 @@ fn a_generated_number_is_a_literal_of_a_type_that_holds_it() {
         .expect("renders")
         .rust_model;
     for literal in [
-        r#"extend("default" = 7)"#,
-        r#"extend("default" = 10000000000i64)"#,
-        r#"extend("default" = 1e20), extend("minimum" = 1e20)"#,
-        r#"extend("default" = 2.5)"#,
+        r#""default", SchemaConstraintValue::Integer(7))"#,
+        r#""default", SchemaConstraintValue::Integer(10000000000))"#,
+        r#""minimum", SchemaConstraintValue::Number(1e20))"#,
+        r#""default", SchemaConstraintValue::Number(1e20))"#,
+        r#""default", SchemaConstraintValue::Number(2.5))"#,
     ] {
         assert!(rust.contains(literal), "{literal} is not generated");
     }
 }
 
-/// A referenced record renders as a map alias, which carries no constraint,
-/// so its values' constraints are among the other members' constraints.
+/// A record names its values' constraints, so a site referencing the record
+/// repeats none of them.
 #[test]
-fn a_referenced_record_s_value_constraints_are_other_member_constraints() {
+fn a_referenced_record_carries_its_value_constraints() {
     let document = with_defs(
         r##"{
             "ProbeRecord": { "type": "object",
@@ -1142,15 +1149,110 @@ fn a_referenced_record_s_value_constraints_are_other_member_constraints() {
     let rust = build_outputs(&definition, &notebook_config())
         .expect("renders")
         .rust_model;
+    let carried = rust
+        .split("impl RecordConstraints for ProbeRecordConstraints {")
+        .nth(1)
+        .and_then(|rest| rest.split("\n}\n").next())
+        .expect("ProbeRecord names its constraints");
+    assert!(
+        carried.contains(r#"path: "","#)
+            && carried.contains(r#"keyword: "minLength","#)
+            && carried.contains("value: SchemaConstraintValue::Integer(2),"),
+        "{carried}"
+    );
     let declared = rust
         .split("impl DeclaredMembers for ProbeOpen {")
         .nth(1)
         .and_then(|rest| rest.split("\n}\n").next())
         .expect("ProbeOpen declares its members");
-    assert!(
-        declared.contains(r#"path: &["additionalProperties"],"#)
-            && declared.contains(r#"keyword: "minLength","#)
-            && declared.contains("value: SchemaConstraintValue::Integer(2),"),
-        "{declared}"
+    assert!(!declared.contains("OTHER_MEMBER_CONSTRAINTS"), "{declared}");
+    let fields = rust
+        .split("pub struct ProbeOpen {")
+        .nth(1)
+        .and_then(|rest| rest.split("\n}\n").next())
+        .expect("ProbeOpen is a struct");
+    assert!(!fields.contains("SchemaConstraint"), "{fields}");
+}
+
+/// Every record carries the constraints of the scalars within its values, at
+/// their JSON Pointers: directly, in array items and in nested records, as a
+/// record `$defs` entry, as a record-valued property and within an array.
+#[test]
+fn a_record_carries_its_values_constraints_at_every_depth() {
+    let document = with_defs(
+        r#"{
+            "ProbeRecord": { "type": "object",
+                "additionalProperties": { "type": "string", "const": "x" } },
+            "ProbeRecordList": { "type": "object",
+                "additionalProperties": { "type": "array",
+                    "items": { "type": "integer", "minimum": 1 } } },
+            "ProbeRecordGrid": { "type": "object",
+                "additionalProperties": { "type": "object",
+                    "additionalProperties": { "type": "number", "maximum": 2.5 } } },
+            "ProbeHolder": { "type": "object", "additionalProperties": false,
+                "properties": {
+                    "labels": { "type": "object",
+                        "additionalProperties": { "type": "string", "minLength": 3 } },
+                    "lists": { "type": "object",
+                        "additionalProperties": { "type": "array",
+                            "items": { "type": "string", "minLength": 4 } } },
+                    "grid": { "type": "array", "items": { "type": "object",
+                        "additionalProperties": { "type": "object",
+                            "additionalProperties": { "type": "integer", "maximum": 5 } } } } } }
+        }"#,
     );
+    let definition = testing::definition(document).expect("valid");
+    let rust = build_outputs(&definition, &notebook_config())
+        .expect("renders")
+        .rust_model;
+    for (record, path, keyword, value) in [
+        ("ProbeRecord", "", "const", r#"String("x")"#),
+        ("ProbeRecordList", "/items", "minimum", "Integer(1)"),
+        (
+            "ProbeRecordGrid",
+            "/additionalProperties",
+            "maximum",
+            "Number(2.5)",
+        ),
+    ] {
+        let carried = rust
+            .split(&format!(
+                "impl RecordConstraints for {record}Constraints {{"
+            ))
+            .nth(1)
+            .and_then(|rest| rest.split("\n}\n").next())
+            .unwrap_or_else(|| panic!("{record} names its constraints"));
+        for field in [
+            format!("path: {path:?},"),
+            format!("keyword: {keyword:?},"),
+            format!("value: SchemaConstraintValue::{value},"),
+        ] {
+            assert!(carried.contains(&field), "{record}: {field}\n{carried}");
+        }
+    }
+    for (path, keyword, value) in [
+        ("/additionalProperties", "minLength", "Integer(3)"),
+        ("/additionalProperties/items", "minLength", "Integer(4)"),
+        (
+            "/items/additionalProperties/additionalProperties",
+            "maximum",
+            "Integer(5)",
+        ),
+    ] {
+        let attribute = format!(
+            "#[schemars(transform = SchemaConstraint::new({path:?}, {keyword:?}, SchemaConstraintValue::{value}))]"
+        );
+        assert!(rust.contains(&attribute), "{attribute} is not generated");
+    }
+}
+
+/// A record whose alias is wider than a line stays rustfmt-clean.
+#[test]
+fn a_record_with_a_long_name_satisfies_rustfmt() {
+    let document = with_defs(
+        r#"{ "ProbeRecordWhoseNameIsLongEnoughToFillAWholeLine": { "type": "object",
+            "additionalProperties": { "type": "string", "minLength": 1 } } }"#,
+    );
+    let definition = testing::definition(document).expect("valid");
+    assert_rustfmt_clean(&definition, &notebook_config());
 }

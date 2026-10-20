@@ -116,17 +116,17 @@ impl DeclaredMembers for Grid {
     const DECLARED_MEMBERS: &'static [&'static str] = &["name"];
     const OTHER_MEMBER_CONSTRAINTS: &'static [SchemaConstraint] = &[
         SchemaConstraint {
-            path: &["items"],
+            path: "/items",
             keyword: "minLength",
             value: SchemaConstraintValue::Integer(2),
         },
         SchemaConstraint {
-            path: &["items"],
+            path: "/items",
             keyword: "const",
             value: SchemaConstraintValue::String("xy"),
         },
         SchemaConstraint {
-            path: &[],
+            path: "",
             keyword: "default",
             value: SchemaConstraintValue::Json(r#"["xy", "xy"]"#),
         },

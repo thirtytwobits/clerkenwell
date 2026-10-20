@@ -11,7 +11,7 @@ use crate::json::{number_to_string, Json, Object};
 use crate::layout::{self, Expr};
 use crate::names::{
     constant_name, name_constant_identifier, pascal_identifier, rust_field_identifier,
-    rust_property_enum_name, utf16_len,
+    rust_property_enum_name, rust_record_constraints_name, utf16_len,
 };
 use crate::schema::{
     has_type, object_at, other_members_schema, primitive_union_types, read_string_array,
@@ -133,7 +133,7 @@ fn variant_enum_owner(definition_name: &str, tag: &str) -> String {
 }
 
 /// The `clerkenwell_schema` items the model re-exports.
-const SCHEMA_REEXPORTS: [&str; 25] = [
+const SCHEMA_REEXPORTS: [&str; 27] = [
     "ActorKind",
     "AuthoringPeerBlock",
     "AuthoringState",
@@ -157,6 +157,8 @@ const SCHEMA_REEXPORTS: [&str; 25] = [
     "GeneratedSnapshotMode",
     "GeneratedWriterConflict",
     "OtherMembers",
+    "RecordConstraints",
+    "RecordMembers",
     "SchemaConstraint",
     "SchemaConstraintValue",
 ];
@@ -821,7 +823,8 @@ fn render_definition(
         return tagged_union(definition, definition_name, schema);
     }
     // A record-shaped `$def` names one open map, so a value schema used at many
-    // sites is written once.
+    // sites is written once. Its `RecordConstraints` names its values'
+    // constraints.
     if let Some(additional) = record_values_schema(schema) {
         let value = rust_type(
             definition,
@@ -831,7 +834,24 @@ fn render_definition(
             additional,
             false,
         )?;
-        return Ok(format!("pub type {type_name} = BTreeMap<String, {value}>;"));
+        let record_constraints = rust_record_constraints_name(definition_name);
+        let value_constraints = layout::item_at(
+            4,
+            "const VALUE_CONSTRAINTS: &'static [SchemaConstraint] =",
+            &Expr::slice(
+                constraints(additional)
+                    .iter()
+                    .map(Constraint::expr)
+                    .collect(),
+            ),
+        );
+        return Ok(format!(
+            "{}\n\npub enum {record_constraints} {{}}\n\nimpl RecordConstraints for {record_constraints} {{\n{value_constraints}\n}}",
+            type_alias(
+                &type_name,
+                &format!("RecordMembers<{record_constraints}, {value}>")
+            )
+        ));
     }
     let Some(properties) = object_at(schema, "properties") else {
         return refuse(format!(
@@ -887,8 +907,10 @@ fn render_definition(
             "const DECLARED_MEMBERS: &'static [&'static str] =",
             &literals(&declared),
         )];
-        let mut constraints = Vec::new();
-        collect_constraints(definition, additional, &mut Vec::new(), &mut constraints)?;
+        let constraints: Vec<Expr> = constraints(additional)
+            .iter()
+            .map(Constraint::expr)
+            .collect();
         if !constraints.is_empty() {
             items.push(layout::item_at(
                 4,
@@ -913,26 +935,53 @@ fn render_definition(
     ))
 }
 
-/// The validation keywords and defaults within `schema`, at `path`, as
-/// `SchemaConstraint` values: those the schema of its Rust type does not
-/// carry. Its Rust type is built of `Vec` and `BTreeMap` down to each
-/// constrained scalar.
-fn collect_constraints<'a>(
-    definition: &'a Definition,
-    schema: &'a Object,
-    path: &mut Vec<&'a str>,
-    found: &mut Vec<Expr>,
-) -> Result<()> {
-    // A reference carries only annotations, and a `default` beside it is this
-    // use's. A referenced type carries its own constraints, but for a record,
-    // which is a map alias.
-    let reference = schema.get("$ref").is_some();
-    if reference {
-        let referenced = crate::validate::dereference(definition, schema)?;
-        if record_values_schema(referenced).is_some() {
-            collect_constraints(definition, referenced, path, found)?;
-        }
+/// A validation keyword or default within a schema, as a `SchemaConstraint`
+/// writes it.
+struct Constraint {
+    /// The JSON Pointer, within the schema, of the schema it belongs to.
+    path: String,
+    keyword: &'static str,
+    /// Its `SchemaConstraintValue`.
+    value: String,
+}
+
+impl Constraint {
+    /// The `SchemaConstraint` struct expression.
+    fn expr(&self) -> Expr {
+        Expr::Struct(
+            "SchemaConstraint".to_owned(),
+            vec![
+                ("path".to_owned(), literal(&self.path)),
+                ("keyword".to_owned(), literal(self.keyword)),
+                ("value".to_owned(), Expr::atom(&self.value)),
+            ],
+        )
     }
+
+    /// A `schemars` attribute transforming the schema derived for the item it
+    /// annotates. `schemars` parses a transform as a call, not as a struct
+    /// expression.
+    fn attribute(&self, indent: &str) -> String {
+        format!(
+            "{indent}#[schemars(transform = SchemaConstraint::new({}, {}, {}))]",
+            rust_string(&self.path),
+            rust_string(self.keyword),
+            self.value
+        )
+    }
+}
+
+/// The validation keywords and defaults of `schema` and of the array items
+/// and record values within it. A reference carries only its `default`; the
+/// referenced type carries its own constraints.
+fn constraints(schema: &Object) -> Vec<Constraint> {
+    let mut found = Vec::new();
+    collect_constraints(schema, String::new(), &mut found);
+    found
+}
+
+fn collect_constraints(schema: &Object, path: String, found: &mut Vec<Constraint>) {
+    let reference = schema.get("$ref").is_some();
     for keyword in crate::validate::VALIDATION_SCHEMA_KEYS
         .iter()
         .chain(&["default"])
@@ -958,15 +1007,11 @@ fn collect_constraints<'a>(
                 }
             }
         };
-        let path_literals: Vec<&str> = path.clone();
-        found.push(Expr::Struct(
-            "SchemaConstraint".to_owned(),
-            vec![
-                ("path".to_owned(), literals(&path_literals)),
-                ("keyword".to_owned(), literal(keyword)),
-                ("value".to_owned(), Expr::atom(value)),
-            ],
-        ));
+        found.push(Constraint {
+            path: path.clone(),
+            keyword,
+            value,
+        });
     }
     let nested = if has_type(schema, "array") {
         object_at(schema, "items").map(|items| ("items", items))
@@ -974,36 +1019,29 @@ fn collect_constraints<'a>(
         record_values_schema(schema).map(|values| ("additionalProperties", values))
     };
     if let Some((keyword, nested)) = nested {
-        path.push(keyword);
-        collect_constraints(definition, nested, path, found)?;
-        path.pop();
+        collect_constraints(nested, format!("{path}/{keyword}"), found);
     }
-    Ok(())
 }
 
-/// A `$defs` enum or union with a `#[schemars(...)]` attribute carrying its
-/// validation keywords and default, so the schema derived for each use of the
-/// type carries them.
+/// A `$defs` enum or union with attributes carrying its validation keywords
+/// and default, so the schema derived for each use of the type carries them.
 fn with_constraints(rendered: String, schema: &Object) -> String {
-    let arguments: Vec<String> = ["const", "default", "minLength", "minimum", "maximum"]
-        .into_iter()
-        .filter_map(|keyword| {
-            let value = schema.get(keyword)?;
-            let literal = match keyword {
-                "minimum" | "maximum" => bound_literal(value),
-                _ => json_tokens(value),
-            };
-            Some(format!("extend({} = {literal})", rust_string(keyword)))
-        })
+    let attributes: String = constraints(schema)
+        .iter()
+        .map(|constraint| format!("{}\n", constraint.attribute("")))
         .collect();
-    if arguments.is_empty() {
-        return rendered;
+    rendered.replacen("\npub enum ", &format!("\n{attributes}pub enum "), 1)
+}
+
+/// `pub type name = target;`, the target on the next line when the line is
+/// too wide.
+fn type_alias(name: &str, target: &str) -> String {
+    let line = format!("pub type {name} = {target};");
+    if layout::fits(&line) {
+        line
+    } else {
+        format!("pub type {name} =\n    {target};")
     }
-    rendered.replacen(
-        "\npub enum ",
-        &format!("\n#[schemars({})]\npub enum ", arguments.join(", ")),
-        1,
-    )
 }
 
 fn primitive_union(definition_name: &str, members: &[&str]) -> Result<String> {
@@ -1152,10 +1190,11 @@ fn render_field(
             "{indent}#[serde(skip_serializing_if = \"Option::is_none\")]"
         ));
     }
-    let validation = schemars_arguments(property_schema);
-    if !validation.is_empty() {
-        attributes.push(format!("{indent}#[schemars({})]", validation.join(", ")));
-    }
+    attributes.extend(
+        constraints(property_schema)
+            .iter()
+            .map(|constraint| constraint.attribute(indent)),
+    );
     let base = rust_type(
         owner.definition,
         owner.definition_name,
@@ -1191,73 +1230,9 @@ fn rename_attribute(indent: &str, value: &str) -> String {
     }
 }
 
-/// Validation keywords reach the generated schema through `schemars`
-/// attributes; `inner` applies to array items.
-fn schemars_arguments(schema: &Object) -> Vec<String> {
-    let mut arguments = Vec::new();
-    if let Some(constant) = schema.get("const") {
-        arguments.push(format!("extend(\"const\" = {})", json_tokens(constant)));
-    }
-    if let Some(default) = schema.get("default") {
-        arguments.push(format!("extend(\"default\" = {})", json_tokens(default)));
-    }
-    if let Some(min_length) = schema.get("minLength").and_then(Json::as_f64) {
-        arguments.push(format!("length(min = {})", number_to_string(min_length)));
-    }
-    for name in ["minimum", "maximum"] {
-        if let Some(bound) = schema.get(name) {
-            arguments.push(format!("extend(\"{name}\" = {})", bound_literal(bound)));
-        }
-    }
-    if let Some(items) = object_at(schema, "items") {
-        let inner = schemars_arguments(items);
-        if !inner.is_empty() {
-            arguments.push(format!("inner({})", inner.join(", ")));
-        }
-    }
-    arguments
-}
-
 /// `value` as a Rust string literal.
 fn rust_string(value: &str) -> String {
     format!("{value:?}")
-}
-
-/// `value` as the tokens of a `json!` value, its strings Rust string
-/// literals.
-fn json_tokens(value: &Json) -> String {
-    match value {
-        Json::String(text) => rust_string(text),
-        Json::Array(items) => format!(
-            "[{}]",
-            items.iter().map(json_tokens).collect::<Vec<_>>().join(",")
-        ),
-        Json::Object(members) => format!(
-            "{{{}}}",
-            members
-                .iter()
-                .map(|(name, member)| format!("{}:{}", rust_string(name), json_tokens(member)))
-                .collect::<Vec<_>>()
-                .join(",")
-        ),
-        Json::Number(number) => number_literal(*number),
-        _ => value.stringify(),
-    }
-}
-
-/// A numeric bound as an `extend` value.
-fn bound_literal(bound: &Json) -> String {
-    number_literal(bound.as_f64().expect("validated numeric bound"))
-}
-
-/// `value` as a literal of a type that holds it: an integer within `i32` as
-/// written, one within `i64` suffixed, and any other number as a float.
-fn number_literal(value: f64) -> String {
-    match i64_literal(value) {
-        Some(integer) if i32::try_from(integer).is_ok() => integer.to_string(),
-        Some(integer) => format!("{integer}i64"),
-        None => format!("{value:?}"),
-    }
 }
 
 /// `value` as the `i64` it is exactly, if it is one.
@@ -1268,7 +1243,8 @@ fn i64_literal(value: f64) -> Option<i64> {
 
 /// Whether a value of `schema` holds a value of `target`'s type without an
 /// indirection: through references, struct fields and tagged-union variant
-/// fields, but not `Vec`, `BTreeMap` or `OtherMembers`. Such a field is boxed.
+/// fields, but not `Vec`, `BTreeMap`, `RecordMembers` or `OtherMembers`. Such
+/// a field is boxed.
 fn reaches_directly(
     definition: &Definition,
     schema: &Object,
