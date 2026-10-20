@@ -1504,6 +1504,12 @@ fn an_integer_constant_is_an_i64() {
         r#"{ "ProbeConstant": { "type": ["integer", "number"], "const": 1e20 } }"#,
     ))
     .expect("a union's number member holds the constant");
+    assert_mentions(
+        &refusal(with_defs(
+            r#"{ "ProbeConstant": { "type": ["integer", "string"], "const": 1e20 } }"#,
+        )),
+        &["$defs.ProbeConstant.const must be an integer an i64 holds"],
+    );
 }
 
 /// A field holding an object stores it whole, as `structuredJson` over that
@@ -1550,4 +1556,30 @@ fn enum_values_generating_one_rust_variant_are_refused() {
             &["enum values \"a-b\" and \"a_b\" both generate the Rust variant AB"],
         );
     }
+}
+
+/// An enum whose bounds exclude every value it lists has no values.
+#[test]
+fn an_enum_with_no_value_within_its_bounds_is_refused() {
+    assert_mentions(
+        &refusal(with_defs(
+            r#"{ "ProbeLevel": { "type": "string", "enum": ["a"], "minLength": 2 } }"#,
+        )),
+        &["$defs.ProbeLevel.enum has no value that meets its bounds"],
+    );
+    assert_mentions(
+        &refusal(with_defs(&format!(
+            r#"{{ "ProbeOpen": {} }}"#,
+            open_object(
+                r#"{ "member": { "type": "string", "enum": ["a"], "minLength": 2 } }"#,
+                "[]",
+                r#"{ "type": "integer" }"#,
+            )
+        ))),
+        &["$defs.ProbeOpen.properties.member.enum has no value that meets its bounds"],
+    );
+    validate(with_defs(
+        r#"{ "ProbeLevel": { "type": "string", "enum": ["a", "valid"], "minLength": 2 } }"#,
+    ))
+    .expect("an enum keeping a value within its bounds");
 }

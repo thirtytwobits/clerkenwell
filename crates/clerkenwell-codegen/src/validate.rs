@@ -1609,12 +1609,6 @@ fn check_validation_keywords(schema: &Object, types: &[&str], context: &str) -> 
                         "{context}.const must be an integer to match its declared type."
                     ));
                 }
-                let representable = constant
-                    .as_f64()
-                    .is_some_and(|value| value >= i64::MIN as f64 && value < -(i64::MIN as f64));
-                if *single == "integer" && !representable {
-                    return refuse(format!("{context}.const must be an integer an i64 holds."));
-                }
             }
             _ => {
                 if !types.iter().any(|member| fits(member)) {
@@ -1623,6 +1617,14 @@ fn check_validation_keywords(schema: &Object, types: &[&str], context: &str) -> 
                     ));
                 }
             }
+        }
+        // A numeric constant only an integer member holds is an `i64`, as the
+        // Rust model's integers are.
+        let representable = constant
+            .as_f64()
+            .is_none_or(|value| value >= i64::MIN as f64 && value < -(i64::MIN as f64));
+        if types.contains(&"integer") && !types.contains(&"number") && !representable {
+            return refuse(format!("{context}.const must be an integer an i64 holds."));
         }
     }
 
@@ -1645,6 +1647,13 @@ fn check_validation_keywords(schema: &Object, types: &[&str], context: &str) -> 
         if !is_integer(min_length) || min_length.as_f64().is_some_and(|value| value < 0.0) {
             return refuse(format!(
                 "{context}.minLength must be a non-negative integer."
+            ));
+        }
+    }
+    if let Some(values) = schema.get("enum").and_then(Json::as_array) {
+        if !values.iter().any(|value| value_meets_bounds(schema, value)) {
+            return refuse(format!(
+                "{context}.enum has no value that meets its bounds."
             ));
         }
     }

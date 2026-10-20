@@ -15,15 +15,20 @@ names the contracts.
 - The generated Rust model re-exports `clerkenwell-schema`'s `OtherMembers`, `DeclaredMembers`,
   `DeclaredMemberError`, `SchemaConstraint` and `SchemaConstraintValue` (#89), and
   `clerkenwell-codegen` refuses a `$defs` entry that generates one of those names.
-- `clerkenwell-codegen` refuses `required` on a record, a tagged-union variant whose
-  `additionalProperties` is a schema, `properties`, `additionalProperties` and `required` on a
-  schema that is not an object, `items` on one that is not an array, a keyed sequence whose
-  items are not closed objects, a `$defs` entry whose chain of references returns to itself, and
-  a primitive union's `minimum`, `maximum`, `minLength` or `const` that none of its types admits,
-  a `const` that does not meet its schema's bounds, an integer `const` an `i64` does not hold, a
-  string enum two of whose values generate one Rust variant, and a collaboration field holding an
-  object whose codec is not `structuredJson` over that object's schema, or `propertyText` for a
-  closed object.
+- `clerkenwell-codegen` refuses:
+  - `required` on a record, and a tagged-union variant whose `additionalProperties` is a schema;
+  - `properties`, `additionalProperties` and `required` on a schema that is not an object, and
+    `items` on one that is not an array;
+  - a keyed sequence whose items are not closed objects;
+  - a `$defs` entry whose chain of references returns to itself;
+  - a primitive union's `minimum`, `maximum`, `minLength` or `const` that none of its types
+    admits;
+  - a `const` that does not meet its schema's bounds, and a numeric `const` an `i64` does not hold
+    where only an integer type holds it;
+  - a string enum two of whose values generate one Rust variant, or none of whose values meets
+    its bounds;
+  - a collaboration field holding an object whose codec is not `structuredJson` over that
+    object's schema, or `propertyText` for a closed object.
 
 ### Added
 
