@@ -1144,12 +1144,14 @@
     },
     {
       "additionalProperties": {
+        "minLength": 1,
         "type": "string"
       },
-      "description": "A theme and accent, and any other appearance settings, each a string.",
+      "description": "A theme and accent, and any other appearance settings, each a non-empty string.",
       "name": "NoteAppearance",
       "properties": {
         "accent": {
+          "minLength": 1,
           "type": "string"
         },
         "theme": {

@@ -1170,16 +1170,18 @@
           ]
         },
         "accent": {
-          "type": "string"
+          "type": "string",
+          "minLength": 1
         }
       },
       "required": [
         "theme"
       ],
       "additionalProperties": {
-        "type": "string"
+        "type": "string",
+        "minLength": 1
       },
-      "description": "A theme and accent, and any other appearance settings, each a string."
+      "description": "A theme and accent, and any other appearance settings, each a non-empty string."
     },
     "NoteLayout": {
       "type": "object",

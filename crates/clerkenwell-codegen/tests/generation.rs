@@ -95,19 +95,38 @@ fn an_open_object_with_many_declared_members_satisfies_rustfmt() {
     let long: Vec<&str> = long.iter().map(String::as_str).collect();
     for names in [&short[..], &long[..]] {
         for count in 1..=names.len() {
-            assert_open_object_rustfmt_clean(&names[..count]);
+            assert_open_object_rustfmt_clean(&names[..count], r#"{ "type": "string" }"#);
         }
     }
 }
 
-fn assert_open_object_rustfmt_clean(names: &[&str]) {
-    let properties: Vec<String> = names
+/// An open object's other-member constraints are laid out as rustfmt lays
+/// them out.
+#[test]
+fn an_open_object_with_constrained_other_members_satisfies_rustfmt() {
+    for other_members in [
+        r#"{ "type": "string", "minLength": 2 }"#,
+        r#"{ "type": "string", "minLength": 2, "const": "a-rather-long-constant-value" }"#,
+        r#"{ "type": "array", "items": { "type": "array",
+            "items": { "type": "string", "minLength": 2 } } }"#,
+    ] {
+        assert_open_object_rustfmt_clean(&[], other_members);
+    }
+}
+
+/// `names` declared as members beside `other_members`; with no names, one
+/// member of the other members' own schema.
+fn assert_open_object_rustfmt_clean(names: &[&str], other_members: &str) {
+    let mut properties: Vec<String> = names
         .iter()
         .map(|name| format!(r#""{name}": {{ "type": "string" }}"#))
         .collect();
+    if properties.is_empty() {
+        properties.push(format!(r#""member": {other_members}"#));
+    }
     let document = with_defs(&format!(
         r#"{{ "ProbeOpen": {{ "type": "object", "properties": {{ {} }},
-            "additionalProperties": {{ "type": "string" }} }} }}"#,
+            "additionalProperties": {other_members} }} }}"#,
         properties.join(", ")
     ));
     let definition = testing::definition(document).expect("valid");

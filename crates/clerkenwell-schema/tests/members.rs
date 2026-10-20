@@ -3,7 +3,7 @@
 
 use std::collections::BTreeMap;
 
-use clerkenwell_schema::{DeclaredMembers, OtherMembers};
+use clerkenwell_schema::{DeclaredMembers, OtherMembers, SchemaConstraint, SchemaConstraintValue};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
@@ -103,4 +103,37 @@ fn the_schema_declares_the_members_and_types_the_others() {
         Value::from("string")
     );
     assert_eq!(schema["required"], json!(["kind"]));
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+struct Grid {
+    name: String,
+    #[serde(flatten)]
+    other_members: OtherMembers<Grid, Vec<String>>,
+}
+
+impl DeclaredMembers for Grid {
+    const DECLARED_MEMBERS: &'static [&'static str] = &["name"];
+    const OTHER_MEMBER_CONSTRAINTS: &'static [SchemaConstraint] = &[
+        SchemaConstraint {
+            path: &["items"],
+            keyword: "minLength",
+            value: SchemaConstraintValue::Integer(2),
+        },
+        SchemaConstraint {
+            path: &["items"],
+            keyword: "const",
+            value: SchemaConstraintValue::String("xy"),
+        },
+    ];
+}
+
+#[test]
+fn the_schema_carries_the_other_members_constraints() {
+    let schema = serde_json::to_value(schemars::schema_for!(Grid)).expect("a schema");
+    let items = &schema["additionalProperties"]["items"];
+    assert_eq!(items["type"], "string");
+    assert_eq!(items["minLength"], 2);
+    assert_eq!(items["const"], "xy");
+    assert!(schema["properties"]["name"].get("minLength").is_none());
 }

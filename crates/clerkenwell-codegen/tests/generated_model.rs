@@ -249,7 +249,7 @@ fn an_open_object_round_trips_every_member() {
 }
 
 /// The schema `schemars` derives for an open object declares its members and
-/// types the others.
+/// types the others, with the constraints of their schema.
 #[test]
 fn an_open_object_schema_declares_its_members_and_types_the_others() {
     let schema =
@@ -259,5 +259,6 @@ fn an_open_object_schema_declares_its_members_and_types_the_others() {
     declared.sort_unstable();
     assert_eq!(declared, ["accent", "theme"]);
     assert_eq!(schema["additionalProperties"]["type"], "string");
+    assert_eq!(schema["additionalProperties"]["minLength"], 1);
     assert_eq!(schema["required"], serde_json::json!(["theme"]));
 }

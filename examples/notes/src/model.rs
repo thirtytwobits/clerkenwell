@@ -11,6 +11,7 @@ pub use clerkenwell_schema::{
     GeneratedCollaborationValueCodec, GeneratedCommandSpec, GeneratedEntityAuthoringSpec,
     GeneratedMaterializationPlan, GeneratedMutationSpec, GeneratedProjectionSpec,
     GeneratedRemoveMode, GeneratedSnapshotMode, GeneratedWriterConflict, OtherMembers,
+    SchemaConstraint, SchemaConstraintValue,
 };
 use serde::{Deserialize, Serialize};
 

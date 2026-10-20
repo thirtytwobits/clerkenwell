@@ -1060,7 +1060,7 @@ const TYPE_SCHEMA_KEYS: &[&str] = &[
 
 /// Keywords that constrain a value without changing its type. The type
 /// renderers ignore them; they ride into the schema-shaped artefacts.
-const VALIDATION_SCHEMA_KEYS: &[&str] = &["const", "minLength", "minimum", "maximum"];
+pub(crate) const VALIDATION_SCHEMA_KEYS: &[&str] = &["const", "minLength", "minimum", "maximum"];
 
 /// Informational: what the owner supplies when the field is absent.
 const ANNOTATION_SCHEMA_KEYS: &[&str] = &["default"];
@@ -1306,11 +1306,15 @@ fn admits(
         return Ok(false);
     }
 
+    // The values of a member that enumerates them are checked one by one.
+    let member_values: Option<&[Json]> = match (member.get("enum"), member.get("const")) {
+        (Some(Json::Array(values)), _) => Some(values),
+        (_, Some(constant)) => Some(std::slice::from_ref(constant)),
+        _ => None,
+    };
     if let Some(admitted) = values.get("enum").and_then(Json::as_array) {
-        let member_values = match (member.get("enum"), member.get("const")) {
-            (Some(Json::Array(values)), _) => values.clone(),
-            (_, Some(constant)) => vec![constant.clone()],
-            _ => return Ok(false),
+        let Some(member_values) = member_values else {
+            return Ok(false);
         };
         if !member_values.iter().all(|value| admitted.contains(value)) {
             return Ok(false);
@@ -1335,16 +1339,24 @@ fn admits(
         let Some(limit) = values.get(bound).and_then(Json::as_f64).filter(|_| applies) else {
             continue;
         };
-        let held = member
-            .get(bound)
-            .and_then(Json::as_f64)
-            .is_some_and(|value| {
-                if tighter {
-                    value >= limit
+        let within = |value: f64| {
+            if tighter {
+                value >= limit
+            } else {
+                value <= limit
+            }
+        };
+        let held = match member_values {
+            Some(member_values) => member_values.iter().all(|value| {
+                let measured = if bound == "minLength" {
+                    value.as_str().map(|text| text.chars().count() as f64)
                 } else {
-                    value <= limit
-                }
-            });
+                    value.as_f64()
+                };
+                measured.is_none_or(within)
+            }),
+            None => member.get(bound).and_then(Json::as_f64).is_some_and(within),
+        };
         if !held {
             return Ok(false);
         }

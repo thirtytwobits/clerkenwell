@@ -122,7 +122,8 @@ fn strip_validation_keywords(schema: &mut Json) {
 
 /// The type renderers switch on `type` and ignore everything else, which is
 /// what lets a constraint ride through without widening a generated type. The
-/// constraints reach the Rust output only as `schemars` attributes.
+/// constraints reach the Rust output only as `schemars` attributes and as an
+/// open object's `OTHER_MEMBER_CONSTRAINTS`.
 #[test]
 fn validation_only_keywords_leave_the_generated_types_alone() {
     let config = notebook_config();
@@ -154,8 +155,21 @@ fn validation_only_keywords_leave_the_generated_types_alone() {
     assert_eq!(with.typescript_model, without.typescript_model);
     assert_ne!(with.rust_model, without.rust_model);
     let types_only = |rust: &str| -> Vec<String> {
+        let mut in_constraints = false;
         rust.lines()
-            .filter(|line| !line.trim_start().starts_with("#[schemars("))
+            .filter(|line| {
+                if line
+                    .trim_start()
+                    .starts_with("const OTHER_MEMBER_CONSTRAINTS")
+                {
+                    in_constraints = true;
+                }
+                let constraint = in_constraints;
+                if in_constraints && line.ends_with(';') {
+                    in_constraints = false;
+                }
+                !constraint && !line.trim_start().starts_with("#[schemars(")
+            })
             .map(str::to_owned)
             .collect()
     };
@@ -1096,6 +1110,50 @@ fn an_open_object_admits_a_union_member_only_within_the_union_constraints() {
     ] {
         assert_mentions(
             &refusal(probe(refused)),
+            &["$defs.ProbeOpen.properties.member is not a value"],
+        );
+    }
+}
+
+/// A member that enumerates its values is admitted when each value meets the
+/// other members' bounds.
+#[test]
+fn an_open_object_admits_an_enumerated_member_by_its_values() {
+    let probe = |member: &str, other_members: &str| {
+        with_defs(&format!(
+            r#"{{ "ProbeOpen": {} }}"#,
+            open_object(&format!(r#"{{ "member": {member} }}"#), "[]", other_members)
+        ))
+    };
+    for (member, other_members) in [
+        (
+            r#"{ "type": "string", "enum": ["ab", "abc"] }"#,
+            r#"{ "type": "string", "minLength": 2 }"#,
+        ),
+        (
+            r#"{ "type": "string", "const": "abc" }"#,
+            r#"{ "type": "string", "minLength": 3 }"#,
+        ),
+        (
+            r#"{ "type": "integer", "const": 12 }"#,
+            r#"{ "type": "integer", "minimum": 10, "maximum": 12 }"#,
+        ),
+    ] {
+        validate(probe(member, other_members))
+            .unwrap_or_else(|error| panic!("{member} beside {other_members}: {error}"));
+    }
+    for (member, other_members) in [
+        (
+            r#"{ "type": "string", "enum": ["a", "abc"] }"#,
+            r#"{ "type": "string", "minLength": 2 }"#,
+        ),
+        (
+            r#"{ "type": "integer", "const": 13 }"#,
+            r#"{ "type": "integer", "maximum": 12 }"#,
+        ),
+    ] {
+        assert_mentions(
+            &refusal(probe(member, other_members)),
             &["$defs.ProbeOpen.properties.member is not a value"],
         );
     }

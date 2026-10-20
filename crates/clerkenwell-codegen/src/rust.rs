@@ -125,7 +125,7 @@ fn variant_enum_owner(definition_name: &str, tag: &str) -> String {
 }
 
 /// The `clerkenwell_schema` items the model re-exports.
-const SCHEMA_REEXPORTS: [&str; 23] = [
+const SCHEMA_REEXPORTS: [&str; 25] = [
     "ActorKind",
     "AuthoringPeerBlock",
     "AuthoringState",
@@ -149,6 +149,8 @@ const SCHEMA_REEXPORTS: [&str; 23] = [
     "GeneratedSnapshotMode",
     "GeneratedWriterConflict",
     "OtherMembers",
+    "SchemaConstraint",
+    "SchemaConstraintValue",
 ];
 
 /// The Rust field of a generated open object that holds its other members.
@@ -847,14 +849,24 @@ fn render_definition(definition_name: &str, schema: &Object) -> Result<String> {
             )
         ));
         let declared: Vec<&str> = properties.keys().collect();
+        let mut items = vec![layout::item_at(
+            4,
+            "const DECLARED_MEMBERS: &'static [&'static str] =",
+            &literals(&declared),
+        )];
+        let mut constraints = Vec::new();
+        collect_constraints(additional, &mut Vec::new(), &mut constraints);
+        if !constraints.is_empty() {
+            items.push(layout::item_at(
+                4,
+                "const OTHER_MEMBER_CONSTRAINTS: &'static [SchemaConstraint] =",
+                &Expr::slice(constraints),
+            ));
+        }
         return Ok(format!(
             "{derive}\npub struct {type_name} {{\n{}\n}}\n\nimpl DeclaredMembers for {type_name} {{\n{}\n}}",
             fields.join("\n"),
-            layout::item_at(
-                4,
-                "const DECLARED_MEMBERS: &'static [&'static str] =",
-                &literals(&declared)
-            )
+            items.join("\n")
         ));
     }
     let derive = format!("{derive}\n#[serde(deny_unknown_fields)]");
@@ -866,6 +878,57 @@ fn render_definition(definition_name: &str, schema: &Object) -> Result<String> {
         "{derive}\npub struct {type_name} {{\n{}\n}}",
         fields.join("\n")
     ))
+}
+
+/// The validation keywords within `schema`, at `path`, as `SchemaConstraint`
+/// values: those the schema of its Rust type does not carry. Its Rust type is
+/// built of `Vec` and `BTreeMap` down to each constrained scalar.
+fn collect_constraints<'a>(schema: &'a Object, path: &mut Vec<&'a str>, found: &mut Vec<Expr>) {
+    if schema.get("$ref").is_some() {
+        return;
+    }
+    for keyword in crate::validate::VALIDATION_SCHEMA_KEYS {
+        let Some(value) = schema.get(keyword) else {
+            continue;
+        };
+        let value = match value {
+            Json::Bool(value) => format!("SchemaConstraintValue::Boolean({value})"),
+            Json::String(value) => {
+                format!("SchemaConstraintValue::String({})", string_literal(value))
+            }
+            _ => {
+                let number = value.as_f64().expect("validation keeps scalar constraints");
+                if number.fract() == 0.0 && number >= i64::MIN as f64 && number < -(i64::MIN as f64)
+                {
+                    format!(
+                        "SchemaConstraintValue::Integer({})",
+                        number_to_string(number)
+                    )
+                } else {
+                    format!("SchemaConstraintValue::Number({number:?})")
+                }
+            }
+        };
+        let path_literals: Vec<&str> = path.clone();
+        found.push(Expr::Struct(
+            "SchemaConstraint".to_owned(),
+            vec![
+                ("path".to_owned(), literals(&path_literals)),
+                ("keyword".to_owned(), literal(keyword)),
+                ("value".to_owned(), Expr::atom(value)),
+            ],
+        ));
+    }
+    let nested = if has_type(schema, "array") {
+        object_at(schema, "items").map(|items| ("items", items))
+    } else {
+        record_values_schema(schema).map(|values| ("additionalProperties", values))
+    };
+    if let Some((keyword, nested)) = nested {
+        path.push(keyword);
+        collect_constraints(nested, path, found);
+        path.pop();
+    }
 }
 
 fn primitive_union(definition_name: &str, members: &[&str]) -> Result<String> {

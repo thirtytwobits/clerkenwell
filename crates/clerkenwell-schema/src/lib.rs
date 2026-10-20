@@ -16,7 +16,9 @@ pub use authoring::{
     CollaborationExchangeMode,
 };
 pub use clerkenwell_events::ActorKind;
-pub use members::{DeclaredMemberError, DeclaredMembers, OtherMembers};
+pub use members::{
+    DeclaredMemberError, DeclaredMembers, OtherMembers, SchemaConstraint, SchemaConstraintValue,
+};
 
 /// How an entity's content is authored.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
