@@ -16,47 +16,14 @@ use schemars::{JsonSchema, Schema, SchemaGenerator};
 use serde::de::Error as _;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
+use crate::constraints::SchemaConstraint;
+
 /// The members an open object declares, by their wire names, and the
 /// validation keywords and defaults its other members' schema carries beyond
 /// their Rust type's.
 pub trait DeclaredMembers {
     const DECLARED_MEMBERS: &'static [&'static str];
     const OTHER_MEMBER_CONSTRAINTS: &'static [SchemaConstraint] = &[];
-}
-
-/// A validation keyword or `default` of an open object's other members'
-/// schema, at `path` within it: the `items` and `additionalProperties`
-/// keywords leading to the schema it belongs to.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct SchemaConstraint {
-    pub path: &'static [&'static str],
-    pub keyword: &'static str,
-    pub value: SchemaConstraintValue,
-}
-
-/// The value of a [`SchemaConstraint`]'s keyword: a scalar, or any other
-/// JSON value as its text.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum SchemaConstraintValue {
-    Boolean(bool),
-    Integer(i64),
-    Number(f64),
-    String(&'static str),
-    Json(&'static str),
-}
-
-impl From<SchemaConstraintValue> for serde_json::Value {
-    fn from(value: SchemaConstraintValue) -> Self {
-        match value {
-            SchemaConstraintValue::Boolean(value) => value.into(),
-            SchemaConstraintValue::Integer(value) => value.into(),
-            SchemaConstraintValue::Number(value) => value.into(),
-            SchemaConstraintValue::String(value) => value.into(),
-            SchemaConstraintValue::Json(text) => {
-                serde_json::from_str(text).expect("a constraint's JSON text is JSON")
-            }
-        }
-    }
 }
 
 /// An open object's members other than those `Owner` declares, in key order.
@@ -241,15 +208,7 @@ impl<Owner: DeclaredMembers, V: JsonSchema> JsonSchema for OtherMembers<Owner, V
     fn json_schema(generator: &mut SchemaGenerator) -> Schema {
         let mut schema = BTreeMap::<String, V>::json_schema(generator);
         for constraint in Owner::OTHER_MEMBER_CONSTRAINTS {
-            let pointer: String = std::iter::once("additionalProperties")
-                .chain(constraint.path.iter().copied())
-                .map(|keyword| format!("/{keyword}"))
-                .collect();
-            let target = schema
-                .pointer_mut(&pointer)
-                .and_then(serde_json::Value::as_object_mut)
-                .expect("a constraint's path names an object schema within its type's");
-            target.insert(constraint.keyword.to_owned(), constraint.value.into());
+            constraint.write(&mut schema, "/additionalProperties");
         }
         schema
     }

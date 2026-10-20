@@ -11,7 +11,7 @@ pub use clerkenwell_schema::{
     GeneratedCollaborationValueCodec, GeneratedCommandSpec, GeneratedEntityAuthoringSpec,
     GeneratedMaterializationPlan, GeneratedMutationSpec, GeneratedProjectionSpec,
     GeneratedRemoveMode, GeneratedSnapshotMode, GeneratedWriterConflict, OtherMembers,
-    SchemaConstraint, SchemaConstraintValue,
+    RecordConstraints, RecordMembers, SchemaConstraint, SchemaConstraintValue,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
@@ -88,7 +88,7 @@ pub enum TaskStateDoneChecks {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, PartialEq, Eq)]
-#[schemars(extend("default" = "chore"))]
+#[schemars(transform = SchemaConstraint::new("", "default", SchemaConstraintValue::String("chore")))]
 pub enum TaskRecordType {
     #[serde(rename = "chore")]
     Chore,
@@ -119,7 +119,7 @@ pub enum TaskBoardPatchKind {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, PartialEq, Eq)]
-#[schemars(extend("default" = "system"))]
+#[schemars(transform = SchemaConstraint::new("", "default", SchemaConstraintValue::String("system")))]
 pub enum WorkspaceSettingsTheme {
     #[serde(rename = "light")]
     Light,
@@ -136,7 +136,7 @@ pub enum WorkspaceSettingsPatchKind {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, PartialEq, Eq)]
-#[schemars(extend("default" = "system"))]
+#[schemars(transform = SchemaConstraint::new("", "default", SchemaConstraintValue::String("system")))]
 pub enum WorkspaceSettingsPatchTheme {
     #[serde(rename = "light")]
     Light,
@@ -198,7 +198,7 @@ pub type RawPayload = JsonValue;
 
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, PartialEq)]
 #[serde(untagged)]
-#[schemars(extend("default" = 0))]
+#[schemars(transform = SchemaConstraint::new("", "default", SchemaConstraintValue::Integer(0)))]
 pub enum SortKey {
     String(String),
     Integer(i64),
@@ -206,7 +206,7 @@ pub enum SortKey {
 
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, PartialEq)]
 #[serde(untagged)]
-#[schemars(extend("minimum" = 0))]
+#[schemars(transform = SchemaConstraint::new("", "minimum", SchemaConstraintValue::Integer(0)))]
 pub enum Quantity {
     Integer(i64),
     Number(f64),
@@ -220,7 +220,7 @@ pub struct EmptyResult {}
 #[serde(deny_unknown_fields)]
 pub struct ReplicaUpdateParams {
     pub entity_id: String,
-    #[schemars(length(min = 1))]
+    #[schemars(transform = SchemaConstraint::new("", "minLength", SchemaConstraintValue::Integer(1)))]
     pub update: String,
     pub exchange_mode: ReplicaUpdateParamsExchangeMode,
 }
@@ -251,15 +251,31 @@ pub struct AttachmentPreview {
     pub page_count: Option<i64>,
 }
 
-pub type NoteProperties = BTreeMap<String, String>;
+pub type NoteProperties = RecordMembers<NotePropertiesConstraints, String>;
 
-pub type NoteExtras = BTreeMap<String, JsonValue>;
+pub enum NotePropertiesConstraints {}
+
+impl RecordConstraints for NotePropertiesConstraints {
+    const VALUE_CONSTRAINTS: &'static [SchemaConstraint] = &[SchemaConstraint {
+        path: "",
+        keyword: "minLength",
+        value: SchemaConstraintValue::Integer(1),
+    }];
+}
+
+pub type NoteExtras = RecordMembers<NoteExtrasConstraints, JsonValue>;
+
+pub enum NoteExtrasConstraints {}
+
+impl RecordConstraints for NoteExtrasConstraints {
+    const VALUE_CONSTRAINTS: &'static [SchemaConstraint] = &[];
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, PartialEq)]
 pub struct NoteAppearance {
     pub theme: NoteAppearanceTheme,
     #[serde(skip_serializing_if = "Option::is_none")]
-    #[schemars(length(min = 1))]
+    #[schemars(transform = SchemaConstraint::new("", "minLength", SchemaConstraintValue::Integer(1)))]
     pub accent: Option<String>,
     #[serde(flatten)]
     pub other_members: OtherMembers<NoteAppearance, String>,
@@ -269,12 +285,12 @@ impl DeclaredMembers for NoteAppearance {
     const DECLARED_MEMBERS: &'static [&'static str] = &["theme", "accent"];
     const OTHER_MEMBER_CONSTRAINTS: &'static [SchemaConstraint] = &[
         SchemaConstraint {
-            path: &[],
+            path: "",
             keyword: "minLength",
             value: SchemaConstraintValue::Integer(1),
         },
         SchemaConstraint {
-            path: &[],
+            path: "",
             keyword: "default",
             value: SchemaConstraintValue::String("plain"),
         },
@@ -326,14 +342,15 @@ pub struct NoteCoverImage {
 pub struct NoteDocument {
     pub note_id: String,
     pub etag: String,
-    #[schemars(length(min = 1))]
+    #[schemars(transform = SchemaConstraint::new("", "minLength", SchemaConstraintValue::Integer(1)))]
     pub title: String,
     pub body: MimeValue,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub summary: Option<String>,
     pub tags: Vec<String>,
     pub pinned: bool,
-    #[schemars(extend("minimum" = 0), extend("maximum" = 4294967295i64))]
+    #[schemars(transform = SchemaConstraint::new("", "minimum", SchemaConstraintValue::Integer(0)))]
+    #[schemars(transform = SchemaConstraint::new("", "maximum", SchemaConstraintValue::Integer(4294967295)))]
     pub priority: i64,
     pub weight: f64,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -430,7 +447,7 @@ pub struct NoteDetailPatch {
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct NoteCreateParams {
-    #[schemars(length(min = 1))]
+    #[schemars(transform = SchemaConstraint::new("", "minLength", SchemaConstraintValue::Integer(1)))]
     pub title: String,
 }
 
@@ -543,11 +560,11 @@ pub enum TaskState {
 #[serde(deny_unknown_fields)]
 pub struct TaskRecord {
     pub task_id: String,
-    #[schemars(length(min = 1))]
+    #[schemars(transform = SchemaConstraint::new("", "minLength", SchemaConstraintValue::Integer(1)))]
     pub title: String,
     pub revision: String,
     pub state: TaskState,
-    #[schemars(extend("default" = "chore"))]
+    #[schemars(transform = SchemaConstraint::new("", "default", SchemaConstraintValue::String("chore")))]
     pub r#type: TaskRecordType,
     #[serde(rename = "dueAt")]
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -558,14 +575,14 @@ pub struct TaskRecord {
     pub subtasks: Option<Vec<TaskRecord>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub links: Option<BTreeMap<String, TaskRecord>>,
-    #[schemars(inner(length(min = 1)))]
+    #[schemars(transform = SchemaConstraint::new("/items", "minLength", SchemaConstraintValue::Integer(1)))]
     pub checklist: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    #[schemars(extend("default" = 1.5))]
+    #[schemars(transform = SchemaConstraint::new("", "default", SchemaConstraintValue::Number(1.5)))]
     pub estimate_hours: Option<f64>,
-    #[schemars(extend("default" = false))]
+    #[schemars(transform = SchemaConstraint::new("", "default", SchemaConstraintValue::Boolean(false)))]
     pub blocked: bool,
-    #[schemars(extend("default" = []))]
+    #[schemars(transform = SchemaConstraint::new("", "default", SchemaConstraintValue::Json("[]")))]
     pub labels: Vec<TaskRecordLabels>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub metadata: Option<JsonValue>,
@@ -634,14 +651,15 @@ pub struct TaskSaveResult {
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct WorkspaceSettings {
-    #[schemars(extend("const" = "workspace"))]
+    #[schemars(transform = SchemaConstraint::new("", "const", SchemaConstraintValue::String("workspace")))]
     pub scope: String,
     pub revision: String,
-    #[schemars(extend("default" = "system"))]
+    #[schemars(transform = SchemaConstraint::new("", "default", SchemaConstraintValue::String("system")))]
     pub theme: WorkspaceSettingsTheme,
-    #[schemars(extend("default" = {}))]
+    #[schemars(transform = SchemaConstraint::new("", "default", SchemaConstraintValue::Json("{}")))]
+    #[schemars(transform = SchemaConstraint::new("/additionalProperties", "minLength", SchemaConstraintValue::Integer(1)))]
     pub shortcuts: BTreeMap<String, String>,
-    #[schemars(extend("default" = 30))]
+    #[schemars(transform = SchemaConstraint::new("", "default", SchemaConstraintValue::Integer(30)))]
     pub autosave_seconds: i64,
 }
 
@@ -649,14 +667,15 @@ pub struct WorkspaceSettings {
 #[serde(deny_unknown_fields)]
 pub struct WorkspaceSettingsPatch {
     pub kind: WorkspaceSettingsPatchKind,
-    #[schemars(extend("const" = "workspace"))]
+    #[schemars(transform = SchemaConstraint::new("", "const", SchemaConstraintValue::String("workspace")))]
     pub scope: String,
     pub revision: String,
-    #[schemars(extend("default" = "system"))]
+    #[schemars(transform = SchemaConstraint::new("", "default", SchemaConstraintValue::String("system")))]
     pub theme: WorkspaceSettingsPatchTheme,
-    #[schemars(extend("default" = {}))]
+    #[schemars(transform = SchemaConstraint::new("", "default", SchemaConstraintValue::Json("{}")))]
+    #[schemars(transform = SchemaConstraint::new("/additionalProperties", "minLength", SchemaConstraintValue::Integer(1)))]
     pub shortcuts: BTreeMap<String, String>,
-    #[schemars(extend("default" = 30))]
+    #[schemars(transform = SchemaConstraint::new("", "default", SchemaConstraintValue::Integer(30)))]
     pub autosave_seconds: i64,
 }
 
@@ -685,7 +704,7 @@ pub struct ActivityEntry {
 pub struct ActivityLog {
     pub scope: String,
     pub revision: String,
-    #[schemars(extend("const" = 1))]
+    #[schemars(transform = SchemaConstraint::new("", "const", SchemaConstraintValue::Integer(1)))]
     pub schema_version: i64,
     pub entries: Vec<ActivityEntry>,
 }
@@ -696,7 +715,7 @@ pub struct ActivityLogPatch {
     pub kind: ActivityLogPatchKind,
     pub scope: String,
     pub revision: String,
-    #[schemars(extend("const" = 1))]
+    #[schemars(transform = SchemaConstraint::new("", "const", SchemaConstraintValue::Integer(1)))]
     pub schema_version: i64,
     pub entries: Vec<ActivityEntry>,
 }
@@ -746,7 +765,7 @@ pub struct SyncHealthRecord {
     pub scope: String,
     pub revision: String,
     pub healthy: bool,
-    #[schemars(extend("const" = true))]
+    #[schemars(transform = SchemaConstraint::new("", "const", SchemaConstraintValue::Boolean(true)))]
     pub managed: bool,
     pub lag: Quantity,
     pub peers: Vec<String>,
@@ -784,14 +803,14 @@ pub struct TaskArchiveDoneParams {
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct TaskArchiveDoneResult {
-    #[schemars(extend("minimum" = 0))]
+    #[schemars(transform = SchemaConstraint::new("", "minimum", SchemaConstraintValue::Integer(0)))]
     pub archived: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct NotePreviewResult {
-    #[schemars(extend("minimum" = 0))]
+    #[schemars(transform = SchemaConstraint::new("", "minimum", SchemaConstraintValue::Integer(0)))]
     pub word_count: i64,
 }
 

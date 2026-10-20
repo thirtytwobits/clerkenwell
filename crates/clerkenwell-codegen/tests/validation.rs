@@ -122,8 +122,9 @@ fn strip_validation_keywords(schema: &mut Json) {
 
 /// The type renderers switch on `type` and ignore everything else, which is
 /// what lets a constraint ride through without widening a generated type. The
-/// constraints reach the Rust output only as `schemars` attributes and as an
-/// open object's `OTHER_MEMBER_CONSTRAINTS`.
+/// constraints reach the Rust output only as `schemars` attributes, as an
+/// open object's `OTHER_MEMBER_CONSTRAINTS` and as a record's
+/// `VALUE_CONSTRAINTS`.
 #[test]
 fn validation_only_keywords_leave_the_generated_types_alone() {
     let config = notebook_config();
@@ -158,9 +159,9 @@ fn validation_only_keywords_leave_the_generated_types_alone() {
         let mut in_constraints = false;
         rust.lines()
             .filter(|line| {
-                if line
-                    .trim_start()
-                    .starts_with("const OTHER_MEMBER_CONSTRAINTS")
+                let line = line.trim_start();
+                if line.starts_with("const OTHER_MEMBER_CONSTRAINTS")
+                    || line.starts_with("const VALUE_CONSTRAINTS")
                 {
                     in_constraints = true;
                 }
@@ -168,7 +169,7 @@ fn validation_only_keywords_leave_the_generated_types_alone() {
                 if in_constraints && line.ends_with(';') {
                     in_constraints = false;
                 }
-                !constraint && !line.trim_start().starts_with("#[schemars(")
+                !constraint && !line.starts_with("#[schemars(")
             })
             .map(str::to_owned)
             .collect()
@@ -388,6 +389,20 @@ fn every_semantic_rule_refuses_naming_the_definition_path() {
                 set(d, "/projections/note.summary", list);
             },
             &["projections.note.summary", "$defs.NoteSummary"],
+        ),
+        (
+            "record constraints output name",
+            |d| {
+                set(
+                    d,
+                    "/$defs/NotePropertiesConstraints",
+                    json(r#"{ "type": "string" }"#),
+                )
+            },
+            &[
+                "$defs.NotePropertiesConstraints",
+                "$defs.NoteProperties.additionalProperties",
+            ],
         ),
         (
             "command touches an unknown entity",

@@ -162,10 +162,31 @@ impl<Owner: DeclaredMembers, V> fn clerkenwell_schema::OtherMembers::insert(&mut
 impl<Owner, V> fn clerkenwell_schema::OtherMembers::into_map(self) -> BTreeMap<String, V>
 impl<Owner, V> fn clerkenwell_schema::OtherMembers::new() -> Self
 impl<Owner, V> fn clerkenwell_schema::OtherMembers::remove(&mut self, name: &str) -> Option<V>
+trait clerkenwell_schema::RecordConstraints
+const clerkenwell_schema::RecordConstraints::VALUE_CONSTRAINTS: &'static [SchemaConstraint]
+struct clerkenwell_schema::RecordMembers<Constraints, V> { .. }
+impl<Constraints, V: Clone> impl Clone for clerkenwell_schema::RecordMembers<Constraints, V>
+impl<Constraints, V> impl Default for clerkenwell_schema::RecordMembers<Constraints, V>
+impl<Constraints, V> impl Deref for clerkenwell_schema::RecordMembers<Constraints, V>
+impl<Constraints, V> impl DerefMut for clerkenwell_schema::RecordMembers<Constraints, V>
+impl<'de, Constraints, V: Deserialize<'de>> impl Deserialize<'de> for clerkenwell_schema::RecordMembers<Constraints, V>
+impl<Constraints, V: Eq> impl Eq for clerkenwell_schema::RecordMembers<Constraints, V>
+impl<Constraints, V> impl Extend<(String, V)> for clerkenwell_schema::RecordMembers<Constraints, V>
+impl<Constraints, V> impl From<BTreeMap<String, V>> for clerkenwell_schema::RecordMembers<Constraints, V>
+impl<Constraints, V> impl FromIterator<(String, V)> for clerkenwell_schema::RecordMembers<Constraints, V>
+impl<Constraints, V> impl IntoIterator for clerkenwell_schema::RecordMembers<Constraints, V>
+impl<Constraints: RecordConstraints, V: JsonSchema> impl JsonSchema for clerkenwell_schema::RecordMembers<Constraints, V>
+impl<Constraints, V: PartialEq> impl PartialEq for clerkenwell_schema::RecordMembers<Constraints, V>
+impl<Constraints, V: Serialize> impl Serialize for clerkenwell_schema::RecordMembers<Constraints, V>
+impl<Constraints, V: fmt::Debug> impl fmt::Debug for clerkenwell_schema::RecordMembers<Constraints, V>
+impl<Constraints, V> fn clerkenwell_schema::RecordMembers::into_map(self) -> BTreeMap<String, V>
+impl<Constraints, V> fn clerkenwell_schema::RecordMembers::new() -> Self
 struct clerkenwell_schema::SchemaConstraint
 derive clerkenwell_schema::SchemaConstraint: Clone, Copy, Debug, PartialEq
+impl Transform for clerkenwell_schema::SchemaConstraint
 field clerkenwell_schema::SchemaConstraint::keyword: &'static str
-field clerkenwell_schema::SchemaConstraint::path: &'static [&'static str]
+const fn clerkenwell_schema::SchemaConstraint::new(path: &'static str, keyword: &'static str, value: SchemaConstraintValue) -> Self
+field clerkenwell_schema::SchemaConstraint::path: &'static str
 field clerkenwell_schema::SchemaConstraint::value: SchemaConstraintValue
 enum clerkenwell_schema::SchemaConstraintValue
 derive clerkenwell_schema::SchemaConstraintValue: Clone, Copy, Debug, PartialEq

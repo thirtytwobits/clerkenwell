@@ -10,7 +10,7 @@ use crate::collate::code_unit_compare;
 use crate::definition::{CollaborationEntity, CollaborationField, Definition, Fields, Projection};
 use crate::error::{refuse, Result};
 use crate::json::{string_literal, Json, Object};
-use crate::names::{name_constant_identifier, pascal_identifier};
+use crate::names::{name_constant_identifier, pascal_identifier, rust_record_constraints_name};
 use crate::rust::collect_rust_property_enums;
 use crate::schema::{
     has_type, object_at, other_members_schema, primitive_union_types, read_string_array,
@@ -1001,11 +1001,17 @@ fn check_generated_output_names(definition: &Definition) -> Result<()> {
 
     // The generator's own shared declarations are Clerkenwell's types, which
     // the bindings import rather than declare.
-    for (definition_name, _) in definition.declared_def_entries() {
+    for (definition_name, schema) in definition.declared_def_entries() {
         register(
             pascal_identifier(definition_name),
             format!("$defs.{definition_name}"),
         )?;
+        if record_values_schema(schema).is_some() {
+            register(
+                rust_record_constraints_name(definition_name),
+                format!("$defs.{definition_name}.additionalProperties"),
+            )?;
+        }
     }
     for property_enum in collect_rust_property_enums(definition)
         .into_iter()

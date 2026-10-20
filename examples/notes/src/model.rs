@@ -11,7 +11,7 @@ pub use clerkenwell_schema::{
     GeneratedCollaborationValueCodec, GeneratedCommandSpec, GeneratedEntityAuthoringSpec,
     GeneratedMaterializationPlan, GeneratedMutationSpec, GeneratedProjectionSpec,
     GeneratedRemoveMode, GeneratedSnapshotMode, GeneratedWriterConflict, OtherMembers,
-    SchemaConstraint, SchemaConstraintValue,
+    RecordConstraints, RecordMembers, SchemaConstraint, SchemaConstraintValue,
 };
 use serde::{Deserialize, Serialize};
 
@@ -30,7 +30,7 @@ pub enum NoteDocumentStatus {
 pub struct NoteDocument {
     pub note_id: String,
     pub etag: String,
-    #[schemars(length(min = 1))]
+    #[schemars(transform = SchemaConstraint::new("", "minLength", SchemaConstraintValue::Integer(1)))]
     pub title: String,
     pub body: String,
     pub status: NoteDocumentStatus,
@@ -39,7 +39,7 @@ pub struct NoteDocument {
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct NoteCreateParams {
-    #[schemars(length(min = 1))]
+    #[schemars(transform = SchemaConstraint::new("", "minLength", SchemaConstraintValue::Integer(1)))]
     pub title: String,
 }
 
@@ -54,12 +54,12 @@ pub struct NoteMutationResult {
 #[serde(deny_unknown_fields)]
 pub struct ReplicaUpdateParams {
     pub note_id: String,
-    #[schemars(length(min = 1))]
+    #[schemars(transform = SchemaConstraint::new("", "minLength", SchemaConstraintValue::Integer(1)))]
     pub operation_id: String,
     pub exchange_mode: CollaborationExchangeMode,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub base_frontier_base64: Option<String>,
-    #[schemars(length(min = 1))]
+    #[schemars(transform = SchemaConstraint::new("", "minLength", SchemaConstraintValue::Integer(1)))]
     pub update_base64: String,
     pub peer_nonces: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]

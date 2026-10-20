@@ -144,6 +144,47 @@ fn declared_constraints_reach_the_derived_json_schema() {
     );
 }
 
+/// A record's values' validation keywords reach the JSON Schema a Rust
+/// consumer derives, both for a record `$defs` entry, alone and as a field,
+/// and for a record-valued property.
+#[test]
+fn a_record_s_value_constraints_reach_the_derived_json_schema() {
+    let document = notebook_document();
+    let derived = |schema: schemars::Schema| {
+        Json::parse(&serde_json::to_string(&schema).expect("serialises")).expect("JSON")
+    };
+    let declared = |pointer: &str| {
+        document
+            .pointer(pointer)
+            .cloned()
+            .unwrap_or_else(|| panic!("the example declares {pointer}"))
+    };
+
+    let properties = derived(schemars::schema_for!(model::NoteProperties));
+    assert_eq!(
+        properties.pointer("/additionalProperties/minLength"),
+        Some(&declared(
+            "/$defs/NoteProperties/additionalProperties/minLength"
+        ))
+    );
+
+    let document_schema = derived(schemars::schema_for!(model::NoteDocument));
+    assert_eq!(
+        document_schema.pointer("/properties/properties/additionalProperties/minLength"),
+        Some(&declared(
+            "/$defs/NoteProperties/additionalProperties/minLength"
+        ))
+    );
+
+    let settings = derived(schemars::schema_for!(model::WorkspaceSettings));
+    assert_eq!(
+        settings.pointer("/properties/shortcuts/additionalProperties/minLength"),
+        Some(&declared(
+            "/$defs/WorkspaceSettings/properties/shortcuts/additionalProperties/minLength"
+        ))
+    );
+}
+
 #[test]
 fn each_command_spec_names_the_entities_its_command_touches() {
     let document = notebook_document();

@@ -119,6 +119,11 @@ pub fn rust_property_enum_name(definition_name: &str, property_name: &str) -> St
     )
 }
 
+/// The type naming a record `$defs` entry's values' constraints.
+pub fn rust_record_constraints_name(definition_name: &str) -> String {
+    format!("{}Constraints", pascal_identifier(definition_name))
+}
+
 /// Length in UTF-16 code units, the unit ECMAScript measures strings in.
 pub fn utf16_len(value: &str) -> usize {
     value.encode_utf16().count()
