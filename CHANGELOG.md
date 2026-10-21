@@ -30,8 +30,11 @@ names the contracts.
     where only an integer type holds it;
   - a string enum two of whose values generate one Rust variant, or none of whose values meets
     its bounds;
-  - a collaboration field holding an object whose codec is not `structuredJson` over that
-    object's schema, or `propertyText` for a closed object.
+  - a collaboration field holding an object whose codec is not `structuredJson`, or
+    `propertyText` for a closed object;
+  - a collaboration field whose `value.schema` does not resolve to the `$defs` entry the entity
+    schema declares at its path, or, for a `structuredList`, to the `$defs` entry of one item of
+    the array there (#80).
 
 ### Added
 
