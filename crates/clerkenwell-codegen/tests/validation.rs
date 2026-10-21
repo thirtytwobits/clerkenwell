@@ -1621,6 +1621,58 @@ fn a_value_schema_is_the_entity_schema_at_its_path() {
     validate(document).expect("the value schema resolves to the declared schema");
 }
 
+/// Each member of an object is a Rust field of its own.
+#[test]
+fn members_generating_one_rust_field_are_refused() {
+    let members = r#"{ "file_name": { "type": "string" }, "fileName": { "type": "string" } }"#;
+    let cases = [
+        (
+            format!(
+                r#"{{ "ProbeAttachment": {{ "type": "object", "additionalProperties": false,
+                "properties": {members} }} }}"#
+            ),
+            "$defs.ProbeAttachment",
+        ),
+        (
+            format!(
+                r#"{{ "ProbeHolder": {{ "type": "object", "additionalProperties": false,
+                "properties": {{ "attachment": {{ "type": "object", "additionalProperties": false,
+                "properties": {members} }} }} }} }}"#
+            ),
+            "$defs.ProbeHolder.properties.attachment",
+        ),
+        (
+            format!(
+                r#"{{ "ProbeUnion": {{ "type": "object", "discriminator": "kind",
+                "oneOf": {{ "file": {{ "type": "object", "additionalProperties": false,
+                "properties": {members} }} }} }} }}"#
+            ),
+            "$defs.ProbeUnion.oneOf.file",
+        ),
+    ];
+    for (schema, context) in cases {
+        assert_mentions(
+            &refusal(with_defs(&schema)),
+            &[&format!(
+                "{context} declares \"file_name\" and \"fileName\", which both generate the Rust field file_name."
+            )],
+        );
+    }
+}
+
+/// Each tag of a tagged union is a Rust variant of its own.
+#[test]
+fn tags_generating_one_rust_variant_are_refused() {
+    assert_mentions(
+        &refusal(with_defs(
+            r#"{ "ProbeUnion": { "type": "object", "discriminator": "kind", "oneOf": {
+            "a-b": { "type": "object", "additionalProperties": false, "properties": {} },
+            "a_b": { "type": "object", "additionalProperties": false, "properties": {} } } } }"#,
+        )),
+        &["$defs.ProbeUnion.oneOf tags \"a-b\" and \"a_b\" both generate the Rust variant AB."],
+    );
+}
+
 /// Each value of a string enum is a Rust variant of its own.
 #[test]
 fn enum_values_generating_one_rust_variant_are_refused() {
