@@ -298,7 +298,9 @@ fn files(directory: &Path) -> BTreeMap<PathBuf, SystemTime> {
 }
 
 /// A pack only reads the workspace's client, so packs in concurrent test
-/// processes cannot read a file another one is writing.
+/// processes cannot read a file another one is writing. A rewrite with the
+/// same contents is a write, so the test compares modification times, not
+/// contents.
 #[test]
 fn packing_the_client_leaves_the_workspace_client_unchanged() {
     let before = files(&client());
