@@ -1,9 +1,11 @@
 //! A consumer's npm project drives conformance against the
 //! `@clerkenwell/client` it installed from the packed package.
 
+use std::collections::BTreeMap;
 use std::path::{Component, Path, PathBuf};
 use std::process::Command;
 use std::sync::OnceLock;
+use std::time::SystemTime;
 
 use clerkenwell_conformance::{workspace, Bindings, Conformance};
 use clerkenwell_notebook::GENERATED_COLLABORATION_SPECS;
@@ -28,30 +30,78 @@ fn npm(args: &[&str], directory: &Path) -> String {
     String::from_utf8(output.stdout).expect("npm prints text")
 }
 
-/// `@clerkenwell/client` packed as it is published.
+/// `@clerkenwell/client` packed as it is published, once for this process.
 fn packed_client() -> &'static Path {
     static PACKED: OnceLock<(tempfile::TempDir, PathBuf)> = OnceLock::new();
     &PACKED
         .get_or_init(|| {
             let destination = tempfile::tempdir().expect("a temporary directory");
-            let packed = npm(
-                &[
-                    "pack",
-                    "--json",
-                    "--pack-destination",
-                    destination.path().to_str().expect("a UTF-8 path"),
-                ],
-                &workspace().join("clients/typescript/client"),
-            );
-            let packed: Value = serde_json::from_str(&packed).expect("npm pack prints JSON");
-            let tarball = destination.path().join(
-                packed[0]["filename"]
-                    .as_str()
-                    .expect("npm pack names the tarball"),
-            );
+            let tarball = pack_client(destination.path());
             (destination, tarball)
         })
         .1
+}
+
+/// The workspace's `@clerkenwell/client`.
+fn client() -> PathBuf {
+    workspace().join("clients/typescript/client")
+}
+
+/// Packs `@clerkenwell/client` into `destination` and returns the tarball.
+/// The pack builds `dist` in a copy of the client, so it only reads the
+/// workspace's client. The copy keeps the client's place relative to the
+/// workspace's TypeScript configuration and lies inside the workspace's
+/// `node_modules`, from which its build resolves the workspace's packages.
+fn pack_client(destination: &Path) -> PathBuf {
+    let cache = workspace().join("node_modules/.cache/clerkenwell-conformance");
+    std::fs::create_dir_all(&cache).expect("a cache directory");
+    let build = tempfile::tempdir_in(&cache).expect("a temporary directory");
+    std::fs::copy(
+        workspace().join("tsconfig.base.json"),
+        build.path().join("tsconfig.base.json"),
+    )
+    .expect("a copy");
+    let copy = build.path().join("clients/typescript/client");
+    copy_sources(&client(), &copy);
+    let packed = npm(
+        &[
+            "pack",
+            "--json",
+            "--pack-destination",
+            destination.to_str().expect("a UTF-8 path"),
+        ],
+        &copy,
+    );
+    let packed: Value = serde_json::from_str(&packed).expect("npm pack prints JSON");
+    destination.join(
+        packed[0]["filename"]
+            .as_str()
+            .expect("npm pack names the tarball"),
+    )
+}
+
+/// Copies the package at `from` to `to`, leaving out the `dist` it builds.
+fn copy_sources(from: &Path, to: &Path) {
+    std::fs::create_dir_all(to).expect("a directory");
+    for entry in std::fs::read_dir(from).expect("a readable directory") {
+        let entry = entry.expect("a readable entry");
+        if entry.file_name() == "dist" || entry.file_name() == "node_modules" {
+            continue;
+        }
+        copy_tree(&entry.path(), &to.join(entry.file_name()));
+    }
+}
+
+fn copy_tree(from: &Path, to: &Path) {
+    if from.is_dir() {
+        std::fs::create_dir_all(to).expect("a directory");
+        for entry in std::fs::read_dir(from).expect("a readable directory") {
+            let entry = entry.expect("a readable entry");
+            copy_tree(&entry.path(), &to.join(entry.file_name()));
+        }
+    } else {
+        std::fs::copy(from, to).expect("a copy");
+    }
 }
 
 /// An npm project with the packed client and `tsx` installed, and the
@@ -224,4 +274,35 @@ fn a_project_without_the_client_is_refused() {
     std::fs::remove_dir_all(project.path().join("node_modules/@clerkenwell/client"))
         .expect("removable");
     Conformance::start_in(&bindings(project.path()), project.path());
+}
+
+/// Every file under `directory`, with when it was last modified.
+fn files(directory: &Path) -> BTreeMap<PathBuf, SystemTime> {
+    let mut files = BTreeMap::new();
+    let mut pending = vec![directory.to_path_buf()];
+    while let Some(directory) = pending.pop() {
+        for entry in std::fs::read_dir(&directory).expect("a readable directory") {
+            let entry = entry.expect("a readable entry");
+            let metadata = entry.metadata().expect("readable metadata");
+            if metadata.is_dir() {
+                pending.push(entry.path());
+            } else {
+                files.insert(
+                    entry.path(),
+                    metadata.modified().expect("a modification time"),
+                );
+            }
+        }
+    }
+    files
+}
+
+/// A pack only reads the workspace's client, so packs in concurrent test
+/// processes cannot read a file another one is writing.
+#[test]
+fn packing_the_client_leaves_the_workspace_client_unchanged() {
+    let before = files(&client());
+    let destination = tempfile::tempdir().expect("a temporary directory");
+    assert!(pack_client(destination.path()).is_file());
+    assert_eq!(files(&client()), before);
 }
