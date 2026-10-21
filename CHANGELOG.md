@@ -30,6 +30,8 @@ names the contracts.
     where only an integer type holds it;
   - a string enum two of whose values generate one Rust variant, or none of whose values meets
     its bounds;
+  - an object two of whose members generate one Rust field, and a tagged union two of whose
+    tags generate one Rust variant (#78);
   - a collaboration field holding an object whose codec is not `structuredJson`, or
     `propertyText` for a closed object;
   - a collaboration field whose `value.schema` does not resolve to the `$defs` entry the entity

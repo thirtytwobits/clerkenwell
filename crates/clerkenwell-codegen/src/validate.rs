@@ -10,7 +10,10 @@ use crate::collate::code_unit_compare;
 use crate::definition::{CollaborationEntity, CollaborationField, Definition, Fields, Projection};
 use crate::error::{refuse, Result};
 use crate::json::{string_literal, Json, Object};
-use crate::names::{name_constant_identifier, pascal_identifier, rust_record_constraints_name};
+use crate::names::{
+    name_constant_identifier, pascal_identifier, rust_field_identifier,
+    rust_record_constraints_name,
+};
 use crate::rust::collect_rust_property_enums;
 use crate::schema::{
     has_type, object_at, other_members_schema, primitive_union_types, read_string_array,
@@ -1237,21 +1240,17 @@ fn check_schema_node(definition: &Definition, schema: Option<&Json>, context: &s
                 "{context}.enum is supported only on string schemas."
             ));
         }
-        let mut variants: HashMap<String, &str> = HashMap::new();
-        for value in values
+        let values = values
             .as_array()
             .into_iter()
             .flatten()
-            .filter_map(Json::as_str)
-        {
-            let variant = pascal_identifier(value);
-            if let Some(previous) = variants.insert(variant.clone(), value) {
-                return refuse(format!(
-                    "{context}.enum values {} and {} both generate the Rust variant {variant}.",
-                    string_literal(previous),
-                    string_literal(value)
-                ));
-            }
+            .filter_map(Json::as_str);
+        if let Some((previous, value, variant)) = colliding(values, pascal_identifier) {
+            return refuse(format!(
+                "{context}.enum values {} and {} both generate the Rust variant {variant}.",
+                string_literal(previous),
+                string_literal(value)
+            ));
         }
     }
 
@@ -1311,6 +1310,15 @@ fn check_schema_node(definition: &Definition, schema: Option<&Json>, context: &s
                     ));
                 }
             }
+            if let Some((previous, property_name, field)) =
+                colliding(properties.keys(), rust_field_identifier)
+            {
+                return refuse(format!(
+                    "{context} declares {} and {}, which both generate the Rust field {field}.",
+                    string_literal(previous),
+                    string_literal(property_name)
+                ));
+            }
             for (property_name, property_schema) in properties.iter() {
                 check_schema_node(
                     definition,
@@ -1339,6 +1347,21 @@ fn check_schema_node(definition: &Definition, schema: Option<&Json>, context: &s
             string_literal(other)
         )),
     }
+}
+
+/// The first of `names` to generate the identifier an earlier one generates:
+/// the earlier name, the name and the identifier.
+fn colliding<'a>(
+    names: impl IntoIterator<Item = &'a str>,
+    generate: impl Fn(&str) -> String,
+) -> Option<(&'a str, &'a str, String)> {
+    let mut generated: HashMap<String, &str> = HashMap::new();
+    names.into_iter().find_map(|name| {
+        let identifier = generate(name);
+        generated
+            .insert(identifier.clone(), name)
+            .map(|previous| (previous, name, identifier))
+    })
 }
 
 /// Refuses a `$defs` entry whose chain of references returns to an entry
@@ -1398,7 +1421,7 @@ fn check_open_object(
     };
     for (property_name, property_schema) in properties.iter() {
         let context = format!("{context}.properties.{property_name}");
-        if crate::names::rust_field_identifier(property_name) == crate::rust::OTHER_MEMBERS_FIELD {
+        if rust_field_identifier(property_name) == crate::rust::OTHER_MEMBERS_FIELD {
             return refuse(format!(
                 "{context} is named as the Rust field holding the other members."
             ));
@@ -1741,6 +1764,13 @@ fn check_tagged_union(definition: &Definition, schema: &Object, context: &str) -
     if variants.is_empty() {
         return refuse(format!(
             "{context}.oneOf must declare at least one variant."
+        ));
+    }
+    if let Some((previous, tag, variant)) = colliding(variants.keys(), pascal_identifier) {
+        return refuse(format!(
+            "{context}.oneOf tags {} and {} both generate the Rust variant {variant}.",
+            string_literal(previous),
+            string_literal(tag)
         ));
     }
     for (tag, variant) in variants.iter() {
