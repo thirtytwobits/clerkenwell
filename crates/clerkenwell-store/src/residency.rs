@@ -7,22 +7,25 @@
 //! their version matches. A write that bypasses the service is therefore
 //! seen by its next read.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use clerkenwell_doc::CollaborationReplica;
 use serde_json::Value;
 
-use crate::{CollaborationRuntimeCounters, DurableCollaborationEnvelope, StoreResult};
+use crate::{
+    CollaborationRuntimeCounters, CollaborationVersion, DurableCollaborationEnvelope, StoreResult,
+};
 
-/// A document as the service holds it: the envelope stored at `version`, and
-/// the replica and materialised document built from it once a read needed
-/// them.
+/// A document as the service holds it: the envelope stored at `version`, the
+/// version of the document it accepted, and the replica and materialised
+/// document built from it once a read needed them.
 #[derive(Debug)]
 pub(crate) struct Resident {
     pub(crate) version: String,
     pub(crate) envelope: DurableCollaborationEnvelope,
+    pub(crate) accepted: CollaborationVersion,
     /// The storage port's stamp taken before these bytes were read, when the
     /// port could vouch for one.
     stamp: Mutex<Option<String>>,
@@ -35,13 +38,20 @@ fn locked<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 }
 
 impl Resident {
+    /// `envelope`, stored at `version`, whose checkpoint holds operations up
+    /// to the counter `peers` names for each peer.
     pub(crate) fn new(
         version: String,
         stamp: Option<String>,
         envelope: DurableCollaborationEnvelope,
+        peers: BTreeMap<u64, u64>,
     ) -> Self {
         Self {
             version,
+            accepted: CollaborationVersion {
+                incarnation: envelope.incarnation.clone(),
+                peers,
+            },
             envelope,
             stamp: Mutex::new(stamp),
             replica: Mutex::new(None),

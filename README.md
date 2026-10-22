@@ -39,12 +39,14 @@ Conflict: The Note edit by grace conflicts with the policy of: status.
 | modification number | the place of a modification behind a projection among all those the server saves; a subscription is sent each modification numbered after its snapshot, once |
 | authoring state | the projection each collaborative entity declares: the accepted document as operations a replica takes |
 | frontier | the version of a document a replica has seen, named by its latest operations |
+| incarnation | one history of a document, named when the document is given it: on creation, and when a migration rewrites it |
+| version | what a store has accepted of a document: its incarnation, and for each peer the counter after its last accepted operation; one version covers another of the same incarnation when it holds every operation the other holds |
 | etag | a digest of a document's accepted state |
 | fence | the etag or frontier a write was made from; the server refuses a write whose fence the accepted document has moved past |
 | conflict policy | how concurrent changes to one field are judged: `merge` keeps both, `lastWriterWins` keeps the later, `explicit` refuses the second and names the field, `immutable` refuses any change; a field may judge one kind of writer by another policy |
 | principal | who makes a change: an identity the application authenticated, and its kind (`human`, `agent`, `service` or `system`) |
 | peer block | the peers a principal's replicas write operations under, allocated by the server; an import names the blocks its operations are written under |
-| envelope | the stored record of one document: a checkpoint, the operations kept since it with the principal that made each, the principal each peer is bound to, and the document's generation |
+| envelope | the stored record of one document: a checkpoint, the operations kept since it with the principal that made each, the principal each peer is bound to, the document's incarnation and its generation |
 | audit | every recovery request and refused import a store received, with the principal that made it |
 | residency | the documents a store holds in memory, served while the storage confirms the stored bytes are unchanged |
 | exchange mode | whether a write creates a document (`bootstrap`) or edits one (`incremental`) |
