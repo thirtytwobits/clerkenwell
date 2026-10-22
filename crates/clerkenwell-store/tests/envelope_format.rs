@@ -150,17 +150,16 @@ fn an_envelope_in_another_format_is_refused_as_corrupt_and_left_as_it_is() {
 
 #[test]
 fn an_envelope_naming_no_incarnation_is_corrupt_and_left_as_it_is() {
-    let rewrites: [(&str, fn(&mut serde_json::Map<String, Value>)); 2] = [
-        ("empty", |envelope| {
-            envelope.insert("incarnation".to_string(), json!(""));
-        }),
-        ("absent", |envelope| {
-            envelope.remove("incarnation");
-        }),
-    ];
-    for (case, rewrite) in rewrites {
+    for (case, incarnation) in [("empty", Some(json!(""))), ("absent", None)] {
         let storage = seeded();
-        rewrite_envelope(&storage, rewrite);
+        rewrite_envelope(&storage, |envelope| match incarnation {
+            Some(incarnation) => {
+                envelope.insert("incarnation".to_string(), incarnation);
+            }
+            None => {
+                envelope.remove("incarnation");
+            }
+        });
         let kept = stored_bytes(&storage);
         let service = service(&storage);
 
