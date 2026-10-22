@@ -10,7 +10,7 @@ mod substrate;
 
 pub use policy::{conflicting_field_paths, creation_conflicting_field_paths};
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use clerkenwell_schema::{ActorKind, GeneratedCollaborationEntitySpec};
@@ -48,6 +48,8 @@ pub enum CollaborationReplicaError {
     },
     #[error("the supplied collaboration frontier is not present in the document history")]
     UnknownFrontier,
+    #[error("the collaboration version names counter {counter} for peer {peer}, which no operation reaches")]
+    InvalidVersion { peer: u64, counter: u64 },
     #[error("the collaboration update has causal dependencies that are not present")]
     MissingDependency,
     #[error("the collaboration update holds a history built apart from this document's")]
@@ -187,9 +189,24 @@ impl CollaborationReplica {
 
     /// Every peer `update_base64` holds operations of, in ascending order.
     pub fn peers_in_update(update_base64: &str) -> Result<Vec<u64>, CollaborationReplicaError> {
-        let mut peers: Vec<u64> = update_end_version(update_base64)?.keys().copied().collect();
-        peers.sort_unstable();
-        Ok(peers)
+        Ok(Self::version_of_update(update_base64)?
+            .into_keys()
+            .collect())
+    }
+
+    /// For each peer `update_base64` holds operations of, the counter after
+    /// its last one. The update's operations are not imported.
+    pub fn version_of_update(
+        update_base64: &str,
+    ) -> Result<BTreeMap<u64, u64>, CollaborationReplicaError> {
+        update_end_version(update_base64)?
+            .iter()
+            .map(|(peer, end)| {
+                u64::try_from(*end).map(|end| (*peer, end)).map_err(|_| {
+                    CollaborationReplicaError::Update(format!("peer {peer} ends at counter {end}"))
+                })
+            })
+            .collect()
     }
 
     /// The peers `update_base64` holds operations of that this replica
@@ -230,6 +247,32 @@ impl CollaborationReplica {
             .doc
             .frontiers_to_vv(&frontiers)
             .ok_or(CollaborationReplicaError::UnknownFrontier)?;
+        Ok(BASE64.encode(
+            self.doc
+                .export(ExportMode::updates(&version))
+                .map_err(encode_error)?,
+        ))
+    }
+
+    /// The operations this replica holds that a peer holding `version` lacks:
+    /// for each peer, those from the counter `version` names, and every one
+    /// of a peer it does not name. `version` may name peers and counters the
+    /// replica has never seen.
+    pub fn export_update_since_version_base64(
+        &self,
+        version: &BTreeMap<u64, u64>,
+    ) -> Result<String, CollaborationReplicaError> {
+        let version = version
+            .iter()
+            .map(|(peer, counter)| {
+                i32::try_from(*counter)
+                    .map(|counter| (*peer, counter))
+                    .map_err(|_| CollaborationReplicaError::InvalidVersion {
+                        peer: *peer,
+                        counter: *counter,
+                    })
+            })
+            .collect::<Result<VersionVector, _>>()?;
         Ok(BASE64.encode(
             self.doc
                 .export(ExportMode::updates(&version))

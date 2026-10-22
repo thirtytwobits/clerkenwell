@@ -28,6 +28,7 @@ mod envelope;
 mod error;
 mod peers;
 mod residency;
+mod version;
 
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use clerkenwell_doc::{CollaborationReplica, CollaborationReplicaError};
@@ -48,13 +49,15 @@ use std::sync::Mutex;
 use std::sync::{Arc, RwLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use uuid::Uuid;
+pub use version::{CollaborationHeld, CollaborationVersion};
 
 use envelope::{CollaborationOperation, DurableCollaborationEnvelope};
 use residency::{Residency, Resident};
+use version::new_incarnation;
 
 /// The envelope format this store reads and writes. An envelope in any other
 /// format is corrupt.
-pub const ENVELOPE_VERSION: u32 = 4;
+pub const ENVELOPE_VERSION: u32 = 5;
 
 #[cfg(test)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -113,6 +116,7 @@ impl CollaborationDocumentId {
 pub struct CollaborationDocumentSummary {
     pub document: CollaborationDocumentId,
     pub schema_version: u32,
+    pub version: CollaborationVersion,
     pub generation: u64,
     pub etag: String,
     pub checkpoint_sha256: String,
@@ -126,7 +130,8 @@ pub struct CollaborationDocumentSummary {
 }
 
 impl CollaborationDocumentSummary {
-    fn of(envelope: &DurableCollaborationEnvelope) -> Self {
+    fn of(resident: &Resident) -> Self {
+        let envelope = &resident.envelope;
         let retained = &envelope.retained_operations;
         Self {
             document: CollaborationDocumentId::new(
@@ -134,6 +139,7 @@ impl CollaborationDocumentSummary {
                 envelope.resource_id.clone(),
             ),
             schema_version: envelope.schema_version,
+            version: resident.accepted.clone(),
             generation: envelope.generation,
             etag: envelope.etag(),
             checkpoint_sha256: envelope.checkpoint_sha256.clone(),
@@ -161,6 +167,9 @@ pub struct CollaborationDocumentRead {
 #[derive(Debug, Clone)]
 struct CollaborationCommit {
     document: CollaborationDocumentId,
+    /// The incarnation of a history the commit gives the document. `None`
+    /// keeps the document's own, and mints one for a document that has none.
+    incarnation: Option<String>,
     schema_version: u32,
     operation_id: String,
     actor: Principal,
@@ -192,8 +201,8 @@ impl<E> From<StoreError> for ImportFailure<E> {
 
 #[derive(Debug, Clone)]
 enum CollaborationCommitOutcome {
-    Accepted(DurableCollaborationEnvelope),
-    Duplicate(DurableCollaborationEnvelope),
+    Accepted(Arc<Resident>),
+    Duplicate(Arc<Resident>),
     /// Another writer replaced the envelope after it was read.
     Stale,
 }
@@ -202,15 +211,19 @@ enum CollaborationCommitOutcome {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CollaborationAuthoringState {
     pub schema_version: u32,
+    /// The version the update brings the peer to.
+    pub version: CollaborationVersion,
     pub accepted_frontier_base64: String,
-    /// The accepted operations the peer lacks: those after the frontier it
-    /// holds, or every one when it holds none this document can place.
+    /// The accepted operations the peer lacks: those after the frontier or
+    /// version it holds, or every one when it holds none this document can
+    /// place.
     pub update_base64: String,
     /// Hashes the whole stored checkpoint, whatever the update carries.
     pub etag: String,
     /// Whether the update is every accepted operation because the frontier
-    /// the peer named is not this document's: the peer replaces what it holds
-    /// with the update rather than adding the update to it.
+    /// or version the peer named is not of this document's history: the peer
+    /// replaces what it holds with the update rather than adding the update
+    /// to it.
     pub replaces_held: bool,
 }
 
@@ -289,6 +302,8 @@ pub struct CollaborationImportResult {
     pub operation_id: String,
     pub duplicate: bool,
     pub schema_version: u32,
+    /// The version of the document the import left accepted.
+    pub version: CollaborationVersion,
     pub accepted_frontier_base64: String,
     /// The accepted operations the importer lacks: those beyond its base
     /// frontier and the update it sent.
@@ -786,6 +801,7 @@ impl CollaborationService {
     }
 
     /// `document`'s validated envelope, or `None` when it has none.
+    #[cfg(any(test, feature = "testing"))]
     pub(crate) fn load(
         &self,
         document: &CollaborationDocumentId,
@@ -802,7 +818,7 @@ impl CollaborationService {
     ) -> StoreResult<Option<CollaborationDocumentSummary>> {
         Ok(self
             .read_envelope(document)?
-            .map(|read| CollaborationDocumentSummary::of(&read.envelope)))
+            .map(|read| CollaborationDocumentSummary::of(&read)))
     }
 
     /// What every stored document of `entity` is, in resource order.
@@ -810,7 +826,7 @@ impl CollaborationService {
         let mut summaries = Vec::new();
         for source in self.storage.sources(entity)? {
             if let Some(read) = self.resident(&source, None)? {
-                summaries.push(CollaborationDocumentSummary::of(&read.envelope));
+                summaries.push(CollaborationDocumentSummary::of(&read));
             }
         }
         summaries.sort_by(|left, right| left.document.resource_id.cmp(&right.document.resource_id));
@@ -829,7 +845,7 @@ impl CollaborationService {
         };
         Ok(Some(CollaborationDocumentRead {
             document: (*Self::materialized(plan, document, &resident)?).clone(),
-            summary: CollaborationDocumentSummary::of(&resident.envelope),
+            summary: CollaborationDocumentSummary::of(&resident),
         }))
     }
 
@@ -903,7 +919,7 @@ impl CollaborationService {
             return Ok(Some(held));
         }
         let envelope = parse_envelope(document, source, &stored.bytes)?;
-        match document {
+        let peers = match document {
             Some(document) => validate_envelope(document, &envelope)?,
             None => validate_envelope(
                 &CollaborationDocumentId::new(
@@ -912,8 +928,8 @@ impl CollaborationService {
                 ),
                 &envelope,
             )?,
-        }
-        let resident = Arc::new(Resident::new(stored.version, stamp, envelope));
+        };
+        let resident = Arc::new(Resident::new(stored.version, stamp, envelope, peers));
         self.residency.hold(source, resident.clone());
         Ok(Some(resident))
     }
@@ -942,25 +958,24 @@ impl CollaborationService {
     }
 
     /// Stores `envelope` as `document`'s if the stored version is still
-    /// `expected`, returning the new version, or `None` when it has moved.
-    /// The service holds what it stored.
+    /// `expected`, returning the document as the service now holds it, or
+    /// `None` when the stored version has moved.
     fn swap(
         &self,
         document: &CollaborationDocumentId,
         expected: Option<&str>,
         envelope: &DurableCollaborationEnvelope,
-    ) -> StoreResult<Option<String>> {
-        validate_envelope(document, envelope)?;
+    ) -> StoreResult<Option<Arc<Resident>>> {
+        let peers = validate_envelope(document, envelope)?;
         let bytes = serde_json::to_vec_pretty(envelope)
             .map_err(|error| StoreError::internal(error.to_string()))?;
-        let stored = self.storage.compare_and_swap(document, expected, &bytes)?;
-        if let Some(version) = &stored {
-            self.residency.hold(
-                &self.storage.source(document),
-                Arc::new(Resident::new(version.clone(), None, envelope.clone())),
-            );
-        }
-        Ok(stored)
+        let Some(version) = self.storage.compare_and_swap(document, expected, &bytes)? else {
+            return Ok(None);
+        };
+        let resident = Arc::new(Resident::new(version, None, envelope.clone(), peers));
+        self.residency
+            .hold(&self.storage.source(document), resident.clone());
+        Ok(Some(resident))
     }
 
     /// Removes `document`'s envelope if its stored version is still
@@ -977,19 +992,20 @@ impl CollaborationService {
     /// reports it as a duplicate of one that envelope already holds.
     fn commit(
         &self,
-        current: Option<&Resident>,
+        current: Option<&Arc<Resident>>,
         commit: CollaborationCommit,
     ) -> StoreResult<CollaborationCommitOutcome> {
         let document = commit.document.clone();
         let operation_id = commit.operation_id.clone();
-        if let Some(Resident { envelope, .. }) = current {
+        if let Some(read) = current {
+            let envelope = &read.envelope;
             if let Some(existing) = envelope
                 .retained_operations
                 .iter()
                 .find(|operation| operation.operation_id == operation_id)
             {
                 if existing.update_sha256 == sha256_hex(&commit.imported_update) {
-                    return Ok(CollaborationCommitOutcome::Duplicate(envelope.clone()));
+                    return Ok(CollaborationCommitOutcome::Duplicate(read.clone()));
                 }
                 return Err(StoreError::invalid_request(format!(
                     "Collaboration operation id {operation_id:?} was reused with different content."
@@ -1004,7 +1020,7 @@ impl CollaborationService {
             if !commit.has_new_operations
                 || envelope.checkpoint_sha256 == sha256_hex(&commit.accepted_update)
             {
-                return Ok(CollaborationCommitOutcome::Duplicate(envelope.clone()));
+                return Ok(CollaborationCommitOutcome::Duplicate(read.clone()));
             }
         }
         let current_envelope = current.map(|read| &read.envelope);
@@ -1038,7 +1054,7 @@ impl CollaborationService {
         let envelope = self.next_envelope(current_envelope, &document, &commit);
         let expected = current.map(|read| read.version.as_str());
         Ok(match self.swap(&document, expected, &envelope)? {
-            Some(_) => {
+            Some(accepted) => {
                 self.announce(
                     ChangeKind::Committed,
                     Some(envelope.generation),
@@ -1056,7 +1072,7 @@ impl CollaborationService {
                         operation_id: Some(operation_id.clone()),
                     },
                 );
-                CollaborationCommitOutcome::Accepted(envelope)
+                CollaborationCommitOutcome::Accepted(accepted)
             }
             None => CollaborationCommitOutcome::Stale,
         })
@@ -1097,10 +1113,16 @@ impl CollaborationService {
         let retained_from = retained_operations
             .first()
             .map_or(sequence, |operation| operation.sequence);
+        let incarnation = commit
+            .incarnation
+            .clone()
+            .or_else(|| current.map(|state| state.incarnation.clone()))
+            .unwrap_or_else(new_incarnation);
         DurableCollaborationEnvelope {
             envelope_version: ENVELOPE_VERSION,
             entity: document.entity.clone(),
             resource_id: document.resource_id.clone(),
+            incarnation,
             schema_version: commit.schema_version,
             generation: current
                 .map_or(0, |state| state.generation)
@@ -1151,13 +1173,13 @@ impl CollaborationService {
         }))
     }
 
-    /// The accepted state for a peer that holds every operation up to
-    /// `held_frontier_base64`, or nothing when it is `None`.
+    /// The accepted state for a peer that holds what `held` names, or
+    /// nothing when it is `None`.
     pub fn authoring_state(
         &self,
         plan: &'static GeneratedCollaborationEntitySpec,
         document: &CollaborationDocumentId,
-        held_frontier_base64: Option<&str>,
+        held: Option<CollaborationHeld<'_>>,
     ) -> StoreResult<CollaborationAuthoringState> {
         let resident = self.read_envelope(document)?.ok_or_else(|| {
             StoreError::not_found(format!(
@@ -1173,19 +1195,33 @@ impl CollaborationService {
         // Building the replica checks the checkpoint the whole update is.
         let authoring = Self::replica(plan, document, &resident)?;
         let envelope = &resident.envelope;
-        let (lacking, replaces_held) = match held_frontier_base64 {
+        let everything = || (envelope.checkpoint_update_base64.clone(), true);
+        let (lacking, replaces_held) = match held {
             None => (envelope.checkpoint_update_base64.clone(), false),
-            Some(held) => match authoring.export_incremental_update_base64(held) {
-                Ok(lacking) => (lacking, false),
-                // A frontier from another history places nothing the peer holds.
-                Err(CollaborationReplicaError::UnknownFrontier) => {
-                    (envelope.checkpoint_update_base64.clone(), true)
+            Some(CollaborationHeld::Frontier(held)) => {
+                match authoring.export_incremental_update_base64(held) {
+                    Ok(lacking) => (lacking, false),
+                    // A frontier from another history places nothing the peer holds.
+                    Err(CollaborationReplicaError::UnknownFrontier) => everything(),
+                    Err(error) => return Err(replica_error(document, error)),
                 }
-                Err(error) => return Err(replica_error(document, error)),
-            },
+            }
+            // A version of another incarnation names nothing of this history.
+            Some(CollaborationHeld::Version(held))
+                if held.incarnation != resident.accepted.incarnation =>
+            {
+                everything()
+            }
+            Some(CollaborationHeld::Version(held)) => (
+                authoring
+                    .export_update_since_version_base64(&held.peers)
+                    .map_err(|error| replica_error(document, error))?,
+                false,
+            ),
         };
         Ok(CollaborationAuthoringState {
             schema_version: envelope.schema_version,
+            version: resident.accepted.clone(),
             accepted_frontier_base64: authoring.accepted_frontier_base64(),
             update_base64: lacking,
             etag: envelope.etag(),
@@ -1383,6 +1419,7 @@ impl CollaborationService {
                         envelope_version: ENVELOPE_VERSION,
                         entity: request.document.entity.clone(),
                         resource_id: request.document.resource_id.clone(),
+                        incarnation: new_incarnation(),
                         schema_version: request.schema_version,
                         generation: 0,
                         checkpoint_sequence: 0,
@@ -1566,9 +1603,12 @@ impl CollaborationService {
             #[cfg(test)]
             self.faults.fail_if(CollaborationFaultPoint::Validated)?;
             let outcome = self.commit(
-                read.as_deref(),
+                read.as_ref(),
                 CollaborationCommit {
                     document: request.document.clone(),
+                    // A document the import creates is the history `current`
+                    // was built from.
+                    incarnation: read.is_none().then(|| current.incarnation.clone()),
                     schema_version: request.schema_version,
                     operation_id: request.operation_id.clone(),
                     actor: request.actor.clone(),
@@ -1596,11 +1636,11 @@ impl CollaborationService {
             }
             // Report the durable checkpoint, including on retries. Exporting the
             // same history again need not reproduce its original snapshot bytes.
-            let durable_update = accepted.checkpoint_update(&request.document)?;
+            let durable_update = accepted.envelope.checkpoint_update(&request.document)?;
             let (authoring, materialized) = if durable_update == accepted_update {
                 (authoring, materialized)
             } else {
-                let durable = load_authoring_document(plan, &request.document, &accepted)?;
+                let durable = load_authoring_document(plan, &request.document, &accepted.envelope)?;
                 let value = durable
                     .materialized_document(&collaboration_etag(&durable_update))
                     .map_err(|error| replica_error(&request.document, error))?;
@@ -1612,8 +1652,8 @@ impl CollaborationService {
                 .residency
                 .get(&self.storage.source(&request.document))
                 .filter(|held| {
-                    held.envelope.generation == accepted.generation
-                        && held.envelope.checkpoint_sha256 == accepted.checkpoint_sha256
+                    held.envelope.generation == accepted.envelope.generation
+                        && held.envelope.checkpoint_sha256 == accepted.envelope.checkpoint_sha256
                 })
             {
                 held.offer(authoring.clone(), materialized.clone());
@@ -1629,12 +1669,13 @@ impl CollaborationService {
             return Ok(CollaborationImportResult {
                 operation_id: request.operation_id.clone(),
                 duplicate,
-                schema_version: accepted.schema_version,
+                schema_version: accepted.envelope.schema_version,
+                version: accepted.accepted.clone(),
                 accepted_frontier_base64: authoring.accepted_frontier_base64(),
                 missing_update_base64,
                 etag: collaboration_etag(&accepted_update),
                 materialized,
-                generation: accepted.generation,
+                generation: accepted.envelope.generation,
                 peer_id: debug.peer_id,
                 oplog_version: debug.oplog_version,
                 state_frontiers: debug.state_frontiers,
@@ -1667,12 +1708,26 @@ impl CollaborationService {
         std::thread::sleep(bound.mul_f64(random as f64 / u64::MAX as f64));
     }
 
-    /// Removes `document`'s envelope, whatever it holds, as `actor` asked.
-    pub fn delete(&self, actor: &Principal, document: &CollaborationDocumentId) -> StoreResult<()> {
+    /// Removes `document`'s envelope, whatever it holds, as `actor` asked,
+    /// and returns the version it removed: `None` when nothing was stored or
+    /// what was stored was not an envelope the store reads.
+    pub fn delete(
+        &self,
+        actor: &Principal,
+        document: &CollaborationDocumentId,
+    ) -> StoreResult<Option<CollaborationVersion>> {
         let source = self.storage.source(document);
         while let Some(stored) = self.storage.read(&source)? {
             if self.remove(document, &stored.version)? {
                 let deleted = parse_envelope(Some(document), &source, &stored.bytes).ok();
+                let removed = deleted.as_ref().and_then(|envelope| {
+                    validate_envelope(document, envelope)
+                        .ok()
+                        .map(|peers| CollaborationVersion {
+                            incarnation: envelope.incarnation.clone(),
+                            peers,
+                        })
+                });
                 self.announce(
                     ChangeKind::Deleted,
                     deleted.as_ref().map(|envelope| envelope.generation),
@@ -1688,10 +1743,10 @@ impl CollaborationService {
                         operation_id: None,
                     },
                 );
-                break;
+                return Ok(removed);
             }
         }
-        Ok(())
+        Ok(None)
     }
 
     /// Redacted metadata for the stored documents, in entity and resource
@@ -1971,7 +2026,8 @@ impl CollaborationService {
             None,
             true,
         )?;
-        self.delete(actor, document)
+        self.delete(actor, document)?;
+        Ok(())
     }
 
     fn audit_recovery_request(
@@ -2032,7 +2088,7 @@ impl CollaborationService {
         seed: &Value,
         validate: impl Fn(&Value) -> Result<(), E>,
     ) -> Result<CollaborationDocumentSummary, E> {
-        if let Some(current) = self.load(document)? {
+        if let Some(current) = self.read_envelope(document)? {
             return Ok(CollaborationDocumentSummary::of(&current));
         }
         let authoring = CollaborationReplica::from_document(plan, seed, self.system_peer(document))
@@ -2049,23 +2105,36 @@ impl CollaborationService {
             .materialized_document(&etag)
             .map_err(|error| replica_error(document, error))?;
         validate(&materialized)?;
-        Ok(CollaborationDocumentSummary::of(&self.seed(
-            plan,
-            document,
-            accepted_update,
-        )?))
+        let seeded = self.seed(plan, document, None, accepted_update)?;
+        Ok(CollaborationDocumentSummary::of(&seeded))
     }
 
+    /// Creates `document` holding the history `update_base64` is, made by
+    /// the service itself, and returns what the document is either way.
+    /// `incarnation` names the history when it was read from another store
+    /// that holds it; `None` gives the document a new one.
     pub fn bootstrap_update<E: From<StoreError>>(
         &self,
         plan: &'static GeneratedCollaborationEntitySpec,
         document: &CollaborationDocumentId,
         schema_version: u32,
         update_base64: &str,
+        incarnation: Option<&str>,
         validate: impl Fn(&Value) -> Result<(), E>,
     ) -> Result<CollaborationDocumentSummary, E> {
-        if let Some(current) = self.load(document)? {
+        if let Some(current) = self.read_envelope(document)? {
             return Ok(CollaborationDocumentSummary::of(&current));
+        }
+        if incarnation.is_some_and(|incarnation| incarnation.trim().is_empty()) {
+            return Err(StoreError::invalid_request(
+                "A collaboration incarnation must not be empty.",
+            )
+            .with_data(serde_json::json!({
+                "code": "invalid_collaboration_incarnation",
+                "entity": document.entity,
+                "resource_id": document.resource_id,
+            }))
+            .into());
         }
         let authoring =
             CollaborationReplica::from_versioned_update_base64(plan, schema_version, update_base64)
@@ -2078,11 +2147,13 @@ impl CollaborationService {
             .materialized_document(&etag)
             .map_err(|error| replica_error(document, error))?;
         validate(&materialized)?;
-        Ok(CollaborationDocumentSummary::of(&self.seed(
+        let seeded = self.seed(
             plan,
             document,
+            incarnation.map(str::to_owned),
             accepted_update,
-        )?))
+        )?;
+        Ok(CollaborationDocumentSummary::of(&seeded))
     }
 
     pub fn migrate<E: From<StoreError>>(
@@ -2113,7 +2184,7 @@ impl CollaborationService {
                 .ok_or_else(|| missing_state(document))?;
             let current = &read.envelope;
             if current.schema_version == plan.schema_version {
-                return Ok(CollaborationDocumentSummary::of(&read.envelope));
+                return Ok(CollaborationDocumentSummary::of(&read));
             }
             if current.schema_version != from_schema_version {
                 return Err(StoreError::invalid_request(format!(
@@ -2149,6 +2220,8 @@ impl CollaborationService {
                 Some(&read),
                 CollaborationCommit {
                     document: document.clone(),
+                    // The rewrite is a new history.
+                    incarnation: Some(new_incarnation()),
                     schema_version: plan.schema_version,
                     operation_id,
                     actor: self.system(),
@@ -2171,25 +2244,28 @@ impl CollaborationService {
     }
 
     /// Stores `accepted_update` as the first checkpoint of a document that
-    /// has none, made by the service itself, and returns the document's
-    /// envelope either way.
+    /// has none, made by the service itself, and returns the document as the
+    /// service holds it either way. `incarnation` names the history the
+    /// update is; `None` mints one.
     fn seed(
         &self,
         plan: &'static GeneratedCollaborationEntitySpec,
         document: &CollaborationDocumentId,
+        incarnation: Option<String>,
         accepted_update: Vec<u8>,
-    ) -> StoreResult<DurableCollaborationEnvelope> {
+    ) -> StoreResult<Arc<Resident>> {
         let operation_id = format!("seed:{}", sha256_hex(&accepted_update));
         let peers = CollaborationReplica::peers_in_update(&BASE64.encode(&accepted_update))
             .map_err(|error| replica_error(document, error))?;
         loop {
-            if let Some(current) = self.load(document)? {
+            if let Some(current) = self.read_envelope(document)? {
                 return Ok(current);
             }
             match self.commit(
                 None,
                 CollaborationCommit {
                     document: document.clone(),
+                    incarnation: incarnation.clone(),
                     schema_version: plan.schema_version,
                     operation_id: operation_id.clone(),
                     actor: self.system(),
@@ -2296,6 +2372,13 @@ fn replica_error(
             "resource_id": document.resource_id,
             "draft_retained": true,
         })),
+        error @ CollaborationReplicaError::InvalidVersion { .. } => {
+            StoreError::invalid_request(error.to_string()).with_data(serde_json::json!({
+                "code": "invalid_collaboration_version",
+                "entity": document.entity,
+                "resource_id": document.resource_id,
+            }))
+        }
         error => StoreError::invalid_request(error.to_string()).with_data(serde_json::json!({
             "code": "invalid_collaboration_update",
             "entity": document.entity,
@@ -2396,10 +2479,12 @@ fn parse_envelope(
     })
 }
 
+/// Checks `envelope` is `document`'s and whole, and returns, for each peer
+/// its checkpoint holds operations of, the counter after its last one.
 fn validate_envelope(
     document: &CollaborationDocumentId,
     envelope: &DurableCollaborationEnvelope,
-) -> StoreResult<()> {
+) -> StoreResult<BTreeMap<u64, u64>> {
     if envelope.entity != document.entity || envelope.resource_id != document.resource_id {
         return Err(corrupt_state(
             document,
@@ -2415,14 +2500,17 @@ fn validate_envelope(
             "collaboration schema version must be explicit",
         ));
     }
+    if envelope.incarnation.trim().is_empty() {
+        return Err(corrupt_state(document, "the envelope names no incarnation"));
+    }
     let _ = envelope.checkpoint_update(document)?;
-    let unbound: Vec<String> =
-        CollaborationReplica::peers_in_update(&envelope.checkpoint_update_base64)
-            .map_err(|error| corrupt_state(document, error.to_string()))?
-            .into_iter()
-            .filter(|peer| !envelope.peers.contains_key(peer))
-            .map(|peer| peer.to_string())
-            .collect();
+    let accepted = CollaborationReplica::version_of_update(&envelope.checkpoint_update_base64)
+        .map_err(|error| corrupt_state(document, error.to_string()))?;
+    let unbound: Vec<String> = accepted
+        .keys()
+        .filter(|peer| !envelope.peers.contains_key(peer))
+        .map(|peer| peer.to_string())
+        .collect();
     if !unbound.is_empty() {
         return Err(corrupt_state(
             document,
@@ -2458,7 +2546,7 @@ fn validate_envelope(
             "retained operation window does not end at the checkpoint sequence",
         ));
     }
-    Ok(())
+    Ok(accepted)
 }
 
 fn corrupt_state(document: &CollaborationDocumentId, message: impl Into<String>) -> StoreError {

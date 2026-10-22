@@ -12,7 +12,9 @@ use std::sync::Arc;
 
 use clerkenwell_events::Principal;
 use clerkenwell_schema::{AuthoringState, GeneratedCollaborationEntitySpec};
-use clerkenwell_store::{CollaborationDocumentId, CollaborationStores, StoreError, StoreErrorKind};
+use clerkenwell_store::{
+    CollaborationDocumentId, CollaborationHeld, CollaborationStores, StoreError, StoreErrorKind,
+};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
@@ -148,7 +150,7 @@ impl AuthoringStates {
             .authoring_state(
                 document.plan,
                 &document.id,
-                held.map(|held| held.frontier.as_str()),
+                held.map(|held| CollaborationHeld::Frontier(&held.frontier)),
             )
             .map_err(ProjectionRefusal::from)?;
         Ok(read.into_authoring_state(service.allocate_peers(principal, &document.id)))

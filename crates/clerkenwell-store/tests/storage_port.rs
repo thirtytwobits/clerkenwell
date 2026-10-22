@@ -104,6 +104,7 @@ fn drive(service: &CollaborationService, edits: &Edits) -> Value {
             &document,
             NOTE_PLAN.schema_version,
             &edits.seed_update,
+            None,
             accept,
         )
         .expect("seed");
@@ -256,6 +257,7 @@ fn an_import_that_keeps_losing_its_commit_is_refused_after_the_attempts_its_poli
             &note(),
             NOTE_PLAN.schema_version,
             &edits.seed_update,
+            None,
             accept,
         )
         .expect("seed");
@@ -294,6 +296,7 @@ fn an_envelope_keeps_the_latest_operations_its_policy_retains() {
             &note(),
             NOTE_PLAN.schema_version,
             &edits.seed_update,
+            None,
             accept,
         )
         .expect("seed");

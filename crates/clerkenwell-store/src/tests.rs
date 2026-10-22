@@ -446,7 +446,11 @@ fn a_peer_holding_an_accepted_frontier_receives_only_the_operations_after_it() {
         .authoring_state(&NOTE_PLAN, &document, None)
         .unwrap();
     let delivered = service
-        .authoring_state(&NOTE_PLAN, &document, Some(&held.accepted_frontier_base64))
+        .authoring_state(
+            &NOTE_PLAN,
+            &document,
+            Some(CollaborationHeld::Frontier(&held.accepted_frontier_base64)),
+        )
         .unwrap();
     assert_eq!(
         delivered.accepted_frontier_base64,
@@ -496,7 +500,9 @@ fn a_peer_holding_a_frontier_from_another_history_receives_every_operation_in_pl
         .authoring_state(
             &NOTE_PLAN,
             &document,
-            Some(&foreign.accepted_frontier_base64),
+            Some(CollaborationHeld::Frontier(
+                &foreign.accepted_frontier_base64,
+            )),
         )
         .unwrap();
     let peer = CollaborationReplica::from_versioned_update_base64(
@@ -862,6 +868,7 @@ fn a_commit_adding_operations_under_a_peer_bound_to_another_principal_is_refused
             Some(&resident),
             CollaborationCommit {
                 document: document.clone(),
+                incarnation: None,
                 schema_version: NOTE_PLAN.schema_version,
                 operation_id: "impostor".to_string(),
                 actor: Principal::new("impostor", ActorKind::Human),
@@ -904,6 +911,7 @@ fn opaque_envelope(
         envelope_version: ENVELOPE_VERSION,
         entity: entity.to_string(),
         resource_id: resource_id.to_string(),
+        incarnation: new_incarnation(),
         schema_version,
         generation: 1,
         checkpoint_sequence: 0,

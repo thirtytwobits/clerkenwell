@@ -149,6 +149,33 @@ fn an_envelope_in_another_format_is_refused_as_corrupt_and_left_as_it_is() {
 }
 
 #[test]
+fn an_envelope_naming_no_incarnation_is_corrupt_and_left_as_it_is() {
+    let rewrites: [(&str, fn(&mut serde_json::Map<String, Value>)); 2] = [
+        ("empty", |envelope| {
+            envelope.insert("incarnation".to_string(), json!(""));
+        }),
+        ("absent", |envelope| {
+            envelope.remove("incarnation");
+        }),
+    ];
+    for (case, rewrite) in rewrites {
+        let storage = seeded();
+        rewrite_envelope(&storage, rewrite);
+        let kept = stored_bytes(&storage);
+        let service = service(&storage);
+
+        let refused = service.summary(&note()).expect_err(case);
+        assert_eq!(
+            refusal_code(&refused),
+            Some("collaboration_state_corrupt"),
+            "{case}"
+        );
+        assert!(!service.verify(&note()).valid, "{case}");
+        assert_eq!(stored_bytes(&storage), kept, "{case}");
+    }
+}
+
+#[test]
 fn an_envelope_holding_operations_of_a_peer_bound_to_no_principal_is_corrupt() {
     let storage = seeded();
     rewrite_envelope(&storage, |envelope| {

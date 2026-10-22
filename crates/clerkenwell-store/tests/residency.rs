@@ -5,7 +5,8 @@ mod support;
 
 use clerkenwell_store::testing::{self, MemoryStorage};
 use clerkenwell_store::{
-    CollaborationDocumentId, CollaborationService, CollaborationStores, StoreError, StoreResult,
+    CollaborationDocumentId, CollaborationHeld, CollaborationService, CollaborationStores,
+    StoreError, StoreResult,
 };
 use serde_json::{json, Value};
 use support::{accept, client, key, operator, request, writer, NOTE_PLAN, PLANS, POLICY};
@@ -103,7 +104,9 @@ fn a_commit_is_served_to_the_next_read_as_it_was_accepted() {
         .authoring_state(
             &NOTE_PLAN,
             &note("note-1"),
-            Some(&before.accepted_frontier_base64),
+            Some(CollaborationHeld::Frontier(
+                &before.accepted_frontier_base64,
+            )),
         )
         .expect("authoring state");
     assert_eq!(after.etag, etag);

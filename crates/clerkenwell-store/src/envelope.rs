@@ -74,6 +74,9 @@ pub struct DurableCollaborationEnvelope {
     pub envelope_version: u32,
     pub entity: String,
     pub resource_id: String,
+    /// The history the checkpoint holds, minted when the document was given
+    /// it.
+    pub incarnation: String,
     pub schema_version: u32,
     pub generation: u64,
     pub checkpoint_sequence: u64,

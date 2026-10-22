@@ -37,8 +37,27 @@ names the contracts.
   - a collaboration field whose `value.schema` does not resolve to the `$defs` entry the entity
     schema declares at its path, or, for a `structuredList`, to the `$defs` entry of one item of
     the array there (#80).
+- Envelope format 5 records each document's incarnation (#96). `clerkenwell-store` refuses an
+  envelope in format 4 as corrupt.
+- `CollaborationService::authoring_state` takes what the peer holds as a `CollaborationHeld`: an
+  accepted frontier, or a version (#96). A version is answered with the operations it lacks, and
+  a version of another incarnation with every operation and `replaces_held`.
+- `CollaborationService::bootstrap_update` takes the incarnation of the history it is given, as
+  read from another store that holds it; `None` gives the document a new one (#96).
+- `CollaborationService::delete` returns the version it removed (#96).
+- `CollaborationReplicaError` gains `InvalidVersion`, for a version naming a counter no operation
+  reaches (#96).
 
 ### Added
+
+- `CollaborationVersion`: a document's incarnation, and for each peer the counter after its last
+  accepted operation (#96). `covers` says whether one version holds every operation another
+  holds, and is never true across incarnations. A document gets a new incarnation when it is
+  created and when a migration rewrites it. `CollaborationDocumentSummary`,
+  `CollaborationImportResult` and `CollaborationAuthoringState` carry the version.
+- `CollaborationReplica::version_of_update` reads the version an update reaches, and
+  `export_update_since_version_base64` exports the operations a peer holding a version lacks,
+  whatever peers the version names (#96).
 
 - An object schema may declare `properties` beside a typed `additionalProperties`: an open
   object (#89). Each declared member must be a value of the `additionalProperties` schema. The

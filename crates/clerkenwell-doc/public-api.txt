@@ -8,6 +8,7 @@ fn clerkenwell_doc::CollaborationReplica::adopt_versioned_update_base64(&mut sel
 fn clerkenwell_doc::CollaborationReplica::debug(&self) -> CollaborationReplicaDebug
 fn clerkenwell_doc::CollaborationReplica::export_incremental_update_base64(&self, accepted_frontier_base64: &str) -> Result<String, CollaborationReplicaError>
 fn clerkenwell_doc::CollaborationReplica::export_update_base64(&self) -> Result<String, CollaborationReplicaError>
+fn clerkenwell_doc::CollaborationReplica::export_update_since_version_base64(&self, version: &BTreeMap<u64, u64>) -> Result<String, CollaborationReplicaError>
 fn clerkenwell_doc::CollaborationReplica::from_document(plan: &'static GeneratedCollaborationEntitySpec, document: &Value, peer: u64) -> Result<Self, CollaborationReplicaError>
 fn clerkenwell_doc::CollaborationReplica::from_versioned_update_base64(plan: &'static GeneratedCollaborationEntitySpec, schema_version: u32, update_base64: &str) -> Result<Self, CollaborationReplicaError>
 fn clerkenwell_doc::CollaborationReplica::frontier_includes(&self, capture_base64: &str, required_base64: &str) -> Result<bool, CollaborationReplicaError>
@@ -25,6 +26,7 @@ fn clerkenwell_doc::CollaborationReplica::require_frontier_base64(&self, accepte
 fn clerkenwell_doc::CollaborationReplica::require_related_history(&self, update_base64: &str) -> Result<(), CollaborationReplicaError>
 fn clerkenwell_doc::CollaborationReplica::set_peer(&self, peer: u64) -> Result<(), CollaborationReplicaError>
 fn clerkenwell_doc::CollaborationReplica::text_at_frontier(&self, field_path: &str, identities: &HashMap<String, String>, frontier_base64: &str) -> Result<String, CollaborationReplicaError>
+fn clerkenwell_doc::CollaborationReplica::version_of_update(update_base64: &str) -> Result<BTreeMap<u64, u64>, CollaborationReplicaError>
 struct clerkenwell_doc::CollaborationReplicaDebug
 derive clerkenwell_doc::CollaborationReplicaDebug: Clone, Debug, Eq, PartialEq
 field clerkenwell_doc::CollaborationReplicaDebug::oplog_version: String
@@ -35,6 +37,7 @@ derive clerkenwell_doc::CollaborationReplicaError: Debug, Error
 variant clerkenwell_doc::CollaborationReplicaError::Encode(String)
 variant clerkenwell_doc::CollaborationReplicaError::InvalidBase64(String)
 variant clerkenwell_doc::CollaborationReplicaError::InvalidField { path: String, expected: &'static str }
+variant clerkenwell_doc::CollaborationReplicaError::InvalidVersion { peer: u64, counter: u64 }
 variant clerkenwell_doc::CollaborationReplicaError::MissingDependency
 variant clerkenwell_doc::CollaborationReplicaError::TextCaptureMismatch
 variant clerkenwell_doc::CollaborationReplicaError::UnknownFrontier
