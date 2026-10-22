@@ -15,7 +15,7 @@ base64 = "0.23"
 clap = { version = "4.5", features = ["derive"] }
 icu_collator = "2.1"
 indexmap = "2.12"
-jsonschema = { version = "0.58", default-features = false }
+jsonschema = { version = "0.59", default-features = false }
 loro = { git = "https://github.com/thirtytwobits/loro.git", rev = "ef1964a317d743ebd5c0419d35393ff980daa2fe" }
 schemars = "1.0.4"
 serde = { version = "1.0.228", features = ["derive"] }
