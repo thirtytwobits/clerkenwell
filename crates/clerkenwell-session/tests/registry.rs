@@ -4,36 +4,51 @@ use clerkenwell_schema::{
 };
 use clerkenwell_session::ProjectionRegistry;
 
+/// The schema of every parameter, result and snapshot here.
+const OBJECT_SCHEMA: &str = r#"{"type":"object"}"#;
+
 static PROJECTIONS: &[GeneratedProjectionSpec] = &[
     GeneratedProjectionSpec {
         name: "notes.list",
         depends_on: &["Note"],
         materialization: GeneratedMaterializationPlan::Reset,
+        params_schema: OBJECT_SCHEMA,
+        snapshot_schema: OBJECT_SCHEMA,
     },
     GeneratedProjectionSpec {
         name: "boards.list",
         depends_on: &["Board"],
         materialization: GeneratedMaterializationPlan::Reset,
+        params_schema: OBJECT_SCHEMA,
+        snapshot_schema: OBJECT_SCHEMA,
     },
 ];
 static MUTATIONS: &[GeneratedMutationSpec] = &[
     GeneratedMutationSpec {
         name: "note.delete",
         touches: &["Note"],
+        params_schema: OBJECT_SCHEMA,
+        result_schema: OBJECT_SCHEMA,
     },
     GeneratedMutationSpec {
         name: "board.pin",
         touches: &["Board", "Note"],
+        params_schema: OBJECT_SCHEMA,
+        result_schema: OBJECT_SCHEMA,
     },
 ];
 static COMMANDS: &[GeneratedCommandSpec] = &[
     GeneratedCommandSpec {
         name: "note.archiveAll",
         touches: &["Note"],
+        params_schema: OBJECT_SCHEMA,
+        result_schema: OBJECT_SCHEMA,
     },
     GeneratedCommandSpec {
         name: "board.preview",
         touches: &[],
+        params_schema: OBJECT_SCHEMA,
+        result_schema: OBJECT_SCHEMA,
     },
 ];
 static REGISTRY: ProjectionRegistry =

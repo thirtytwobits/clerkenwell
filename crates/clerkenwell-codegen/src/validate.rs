@@ -12,7 +12,7 @@ use crate::error::{refuse, Result};
 use crate::json::{string_literal, Json, Object};
 use crate::names::{
     name_constant_identifier, pascal_identifier, rust_field_identifier,
-    rust_record_constraints_name,
+    rust_record_constraints_name, schema_constant_identifier,
 };
 use crate::rust::collect_rust_property_enums;
 use crate::schema::{
@@ -254,6 +254,50 @@ pub(crate) fn check_semantics(definition: &Definition) -> Result<()> {
                 string_literal(name)
             ));
         }
+    }
+
+    // Each projection, mutation and command is an operation named
+    // `<namespace>.<name>` whose input is its params.
+    for (section, name, params) in definition
+        .projections()
+        .map(|projection| ("projections", projection.name, projection.params()))
+        .chain(
+            definition
+                .mutations()
+                .map(|mutation| ("mutations", mutation.name, mutation.params())),
+        )
+        .chain(
+            definition
+                .commands()
+                .map(|command| ("commands", command.name, command.params())),
+        )
+    {
+        check_operation_name(definition.namespace(), name, &format!("{section}.{name}"))?;
+        let context = format!("{section}.{name}.params");
+        if !has_type(resolve_ref(definition, params, &context)?, "object") {
+            return refuse(format!(
+                "{context} must reference a schema of type \"object\"."
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// The longest operation name: the MCP tool-name bound.
+const OPERATION_NAME_LIMIT: usize = 128;
+
+/// Refuses `<namespace>.<name>` unless it is 1 to 128 ASCII letters, digits,
+/// `_`, `-` and `.`, the MCP tool-name alphabet.
+fn check_operation_name(namespace: &str, name: &str, context: &str) -> Result<()> {
+    let operation = format!("{namespace}.{name}");
+    let in_alphabet = operation
+        .bytes()
+        .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-' | b'.'));
+    if !in_alphabet || operation.len() > OPERATION_NAME_LIMIT {
+        return refuse(format!(
+            "{context} names the operation {}, which must be at most {OPERATION_NAME_LIMIT} ASCII letters, digits, \"_\", \"-\" and \".\".",
+            string_literal(&operation)
+        ));
     }
     Ok(())
 }
@@ -1119,6 +1163,12 @@ fn check_generated_output_names(definition: &Definition) -> Result<()> {
             name_constant_identifier(projection.name, "PROJECTION"),
             source.clone(),
         )?;
+        for role in ["PARAMS", "SNAPSHOT"] {
+            register(
+                schema_constant_identifier(projection.name, "PROJECTION", role),
+                source.clone(),
+            )?;
+        }
         register(pascal_identifier(projection.name), source)?;
     }
     for mutation in definition.mutations() {
@@ -1127,6 +1177,12 @@ fn check_generated_output_names(definition: &Definition) -> Result<()> {
             name_constant_identifier(mutation.name, "MUTATION"),
             source.clone(),
         )?;
+        for role in ["PARAMS", "RESULT"] {
+            register(
+                schema_constant_identifier(mutation.name, "MUTATION", role),
+                source.clone(),
+            )?;
+        }
         register(pascal_identifier(mutation.name), source)?;
     }
     for command in definition.commands() {
@@ -1135,6 +1191,12 @@ fn check_generated_output_names(definition: &Definition) -> Result<()> {
             name_constant_identifier(command.name, "COMMAND"),
             source.clone(),
         )?;
+        for role in ["PARAMS", "RESULT"] {
+            register(
+                schema_constant_identifier(command.name, "COMMAND", role),
+                source.clone(),
+            )?;
+        }
         register(pascal_identifier(command.name), source)?;
     }
     Ok(())

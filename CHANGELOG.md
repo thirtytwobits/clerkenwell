@@ -4,6 +4,23 @@ Each release's section is the notes of its GitHub release. A release that change
 lists each change under **Breaking**; `cargo run -p clerkenwell-release -- breaking --help`
 names the contracts.
 
+## 0.11.0
+
+### Breaking
+
+- `GeneratedMutationSpec` and `GeneratedCommandSpec` carry `params_schema` and `result_schema`,
+  and `GeneratedProjectionSpec` carries `params_schema` and `snapshot_schema` (#100). Each is a
+  JSON Schema document as JSON text: the definition's schema, with the `$defs` entries it
+  reaches. A `"type": "json"` schema is written as a schema without `type`, and a tagged union
+  as a `oneOf` array whose variants each require the discriminator as a `const` of their tag.
+  The generated Rust model holds each document in a constant such as
+  `NOTE_CREATE_MUTATION_PARAMS_SCHEMA`.
+- `clerkenwell-codegen` refuses:
+  - a projection, mutation or command whose name, after the definition's `namespace` and a `.`,
+    is not 1 to 128 ASCII letters, digits, `_`, `-` and `.`;
+  - a projection, mutation or command whose `params` references a schema that is not of type
+    `"object"`.
+
 ## 0.10.0
 
 ### Breaking

@@ -16,6 +16,7 @@ mod error;
 mod expand;
 mod fixtures;
 mod json;
+mod json_schema;
 mod layout;
 mod names;
 mod normalize;

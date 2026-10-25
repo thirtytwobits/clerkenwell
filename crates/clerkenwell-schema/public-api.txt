@@ -110,6 +110,8 @@ variant clerkenwell_schema::GeneratedCollaborationValueCodec::StructuredJson
 struct clerkenwell_schema::GeneratedCommandSpec
 derive clerkenwell_schema::GeneratedCommandSpec: Clone, Copy, Debug, Eq, PartialEq
 field clerkenwell_schema::GeneratedCommandSpec::name: &'static str
+field clerkenwell_schema::GeneratedCommandSpec::params_schema: &'static str
+field clerkenwell_schema::GeneratedCommandSpec::result_schema: &'static str
 field clerkenwell_schema::GeneratedCommandSpec::touches: &'static [&'static str]
 struct clerkenwell_schema::GeneratedEntityAuthoringSpec
 derive clerkenwell_schema::GeneratedEntityAuthoringSpec: Clone, Copy, Debug, Eq, PartialEq
@@ -127,12 +129,16 @@ variant clerkenwell_schema::GeneratedMaterializationPlan::SequencedText { collec
 struct clerkenwell_schema::GeneratedMutationSpec
 derive clerkenwell_schema::GeneratedMutationSpec: Clone, Copy, Debug, Eq, PartialEq
 field clerkenwell_schema::GeneratedMutationSpec::name: &'static str
+field clerkenwell_schema::GeneratedMutationSpec::params_schema: &'static str
+field clerkenwell_schema::GeneratedMutationSpec::result_schema: &'static str
 field clerkenwell_schema::GeneratedMutationSpec::touches: &'static [&'static str]
 struct clerkenwell_schema::GeneratedProjectionSpec
 derive clerkenwell_schema::GeneratedProjectionSpec: Clone, Copy, Debug, Eq, PartialEq
 field clerkenwell_schema::GeneratedProjectionSpec::depends_on: &'static [&'static str]
 field clerkenwell_schema::GeneratedProjectionSpec::materialization: GeneratedMaterializationPlan
 field clerkenwell_schema::GeneratedProjectionSpec::name: &'static str
+field clerkenwell_schema::GeneratedProjectionSpec::params_schema: &'static str
+field clerkenwell_schema::GeneratedProjectionSpec::snapshot_schema: &'static str
 enum clerkenwell_schema::GeneratedRemoveMode
 derive clerkenwell_schema::GeneratedRemoveMode: Clone, Copy, Debug, Eq, PartialEq
 variant clerkenwell_schema::GeneratedRemoveMode::NullField(&'static str)

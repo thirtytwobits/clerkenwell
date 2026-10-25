@@ -8,10 +8,11 @@ use crate::definition::{Definition, Materialization};
 use crate::error::{refuse, Result};
 use crate::expand::SHARED;
 use crate::json::{number_to_string, Json, Object};
+use crate::json_schema::schema_document;
 use crate::layout::{self, Expr};
 use crate::names::{
     constant_name, name_constant_identifier, pascal_identifier, rust_field_identifier,
-    rust_property_enum_name, rust_record_constraints_name, utf16_len,
+    rust_property_enum_name, rust_record_constraints_name, schema_constant_identifier, utf16_len,
 };
 use crate::schema::{
     has_type, object_at, other_members_schema, primitive_union_types, read_string_array,
@@ -395,6 +396,53 @@ fn literal(value: &str) -> Expr {
     Expr::atom(rust_string(value))
 }
 
+fn schema_path(name: &str, kind: &str, role: &str) -> Expr {
+    Expr::atom(schema_constant_identifier(name, kind, role))
+}
+
+/// Each projection's, mutation's and command's schema documents, as constants
+/// holding their JSON.
+fn schema_constants(definition: &Definition) -> Vec<String> {
+    let projections = definition.projections().flat_map(|projection| {
+        [
+            (projection.name, "PROJECTION", "PARAMS", projection.params()),
+            (
+                projection.name,
+                "PROJECTION",
+                "SNAPSHOT",
+                projection.snapshot(),
+            ),
+        ]
+    });
+    let mutations = definition.mutations().flat_map(|mutation| {
+        [
+            (mutation.name, "MUTATION", "PARAMS", mutation.params()),
+            (mutation.name, "MUTATION", "RESULT", mutation.result()),
+        ]
+    });
+    let commands = definition.commands().flat_map(|command| {
+        [
+            (command.name, "COMMAND", "PARAMS", command.params()),
+            (command.name, "COMMAND", "RESULT", command.result()),
+        ]
+    });
+    projections
+        .chain(mutations)
+        .chain(commands)
+        .map(|(name, kind, role, reference)| {
+            layout::item(
+                &format!(
+                    "pub const {}: &str =",
+                    schema_constant_identifier(name, kind, role)
+                ),
+                &Expr::atom(raw_rust_string(
+                    &schema_document(definition, reference).stringify(),
+                )),
+            )
+        })
+        .collect()
+}
+
 fn literals(values: &[&str]) -> Expr {
     Expr::slice(values.iter().map(|value| literal(value)).collect())
 }
@@ -438,6 +486,14 @@ fn registry_metadata(definition: &Definition) -> String {
                         "materialization",
                         materialization_plan(projection.materialization()),
                     ),
+                    (
+                        "params_schema",
+                        schema_path(projection.name, "PROJECTION", "PARAMS"),
+                    ),
+                    (
+                        "snapshot_schema",
+                        schema_path(projection.name, "PROJECTION", "SNAPSHOT"),
+                    ),
                 ],
             )
         })
@@ -450,6 +506,14 @@ fn registry_metadata(definition: &Definition) -> String {
                 vec![
                     ("name", mutation_path(mutation.name)),
                     ("touches", literals(&mutation.touches())),
+                    (
+                        "params_schema",
+                        schema_path(mutation.name, "MUTATION", "PARAMS"),
+                    ),
+                    (
+                        "result_schema",
+                        schema_path(mutation.name, "MUTATION", "RESULT"),
+                    ),
                 ],
             )
         })
@@ -462,6 +526,14 @@ fn registry_metadata(definition: &Definition) -> String {
                 vec![
                     ("name", command_path(command.name)),
                     ("touches", literals(&command.touches())),
+                    (
+                        "params_schema",
+                        schema_path(command.name, "COMMAND", "PARAMS"),
+                    ),
+                    (
+                        "result_schema",
+                        schema_path(command.name, "COMMAND", "RESULT"),
+                    ),
                 ],
             )
         })
@@ -494,7 +566,11 @@ fn registry_metadata(definition: &Definition) -> String {
             )
         })
         .collect();
-    let lines = [
+    let mut lines = schema_constants(definition);
+    if !lines.is_empty() {
+        lines.push(String::new());
+    }
+    lines.extend([
         layout::item(
             "pub static GENERATED_PROJECTION_SPECS: &[GeneratedProjectionSpec] =",
             &Expr::slice(projections),
@@ -514,7 +590,7 @@ fn registry_metadata(definition: &Definition) -> String {
             "pub static GENERATED_ENTITY_AUTHORING_SPECS: &[GeneratedEntityAuthoringSpec] =",
             &Expr::slice(entities),
         ),
-    ];
+    ]);
     lines.join("\n")
 }
 
@@ -1233,6 +1309,19 @@ fn rename_attribute(indent: &str, value: &str) -> String {
 /// `value` as a Rust string literal.
 fn rust_string(value: &str) -> String {
     format!("{value:?}")
+}
+
+/// `value` as a raw string literal, with one more `#` than any run of `#`
+/// after a `"` in it.
+fn raw_rust_string(value: &str) -> String {
+    let longest = value
+        .split('"')
+        .skip(1)
+        .map(|after| after.bytes().take_while(|byte| *byte == b'#').count())
+        .max()
+        .unwrap_or(0);
+    let hashes = "#".repeat(longest + 1);
+    format!("r{hashes}\"{value}\"{hashes}")
 }
 
 /// `value` as the `i64` it is exactly, if it is one.
