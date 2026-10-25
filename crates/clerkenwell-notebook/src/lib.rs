@@ -1265,6 +1265,69 @@ impl ProjectionTransportCommandResult {
     }
 }
 
+pub const NOTES_LIST_PROJECTION_PARAMS_SCHEMA: &str =
+    r#"{"type":"object","additionalProperties":false,"properties":{}}"#;
+pub const NOTES_LIST_PROJECTION_SNAPSHOT_SCHEMA: &str = r##"{"type":"object","additionalProperties":false,"required":["notes"],"properties":{"notes":{"type":"array","items":{"$ref":"#/$defs/NoteSummary"}}},"$defs":{"NoteSummary":{"type":"object","additionalProperties":false,"required":["note_id","title","pinned"],"properties":{"note_id":{"type":"string"},"title":{"type":"string"},"pinned":{"type":"boolean"}}}}}"##;
+pub const NOTES_BY_ID_PROJECTION_PARAMS_SCHEMA: &str = r#"{"type":"object","additionalProperties":false,"required":["note_id"],"properties":{"note_id":{"type":"string"}}}"#;
+pub const NOTES_BY_ID_PROJECTION_SNAPSHOT_SCHEMA: &str = r##"{"type":"object","additionalProperties":false,"properties":{"note":{"$ref":"#/$defs/NoteDetail"}},"$defs":{"NoteDetail":{"type":"object","additionalProperties":false,"required":["note_id","title","tags","pinned"],"properties":{"note_id":{"type":"string"},"title":{"type":"string"},"tags":{"type":"array","items":{"type":"string"}},"pinned":{"type":"boolean"}}}}}"##;
+pub const TASKS_BY_ID_PROJECTION_PARAMS_SCHEMA: &str = r#"{"type":"object","additionalProperties":false,"required":["task_id"],"properties":{"task_id":{"type":"string"}}}"#;
+pub const TASKS_BY_ID_PROJECTION_SNAPSHOT_SCHEMA: &str = r##"{"type":"object","additionalProperties":false,"required":["task","related"],"properties":{"task":{"$ref":"#/$defs/TaskRecord"},"related":{"type":"array","items":{"$ref":"#/$defs/TaskRecord"}}},"$defs":{"SortKey":{"type":["string","integer"],"default":0},"TaskState":{"type":"object","oneOf":[{"type":"object","additionalProperties":false,"properties":{"phase":{"const":"open"}},"required":["phase"]},{"type":"object","additionalProperties":false,"required":["phase","reason"],"properties":{"phase":{"const":"blocked"},"reason":{"type":"string"},"severity":{"type":"string","enum":["minor","major"]}}},{"type":"object","additionalProperties":false,"required":["phase","completed_at"],"properties":{"phase":{"const":"done"},"completed_at":{"type":"string"},"reviewer":{"type":"string"},"checks":{"type":"array","items":{"type":"string","enum":["tests","review"]}},"evidence":{"description":"Whatever the reviewer attached; the task only records that it exists."}}},{"type":"object","additionalProperties":false,"required":["phase","to"],"properties":{"phase":{"const":"delegated"},"to":{"$ref":"#/$defs/TaskState"}}}]},"TaskRecord":{"type":"object","additionalProperties":false,"required":["task_id","title","revision","state","type","checklist","blocked","labels","sort_key"],"properties":{"task_id":{"type":"string"},"title":{"type":"string","minLength":1,"description":"Shown on the card."},"revision":{"type":"string"},"state":{"$ref":"#/$defs/TaskState"},"type":{"type":"string","enum":["chore","bug","feature"],"default":"chore"},"dueAt":{"type":"string"},"parent":{"$ref":"#/$defs/TaskRecord"},"subtasks":{"type":"array","items":{"$ref":"#/$defs/TaskRecord"}},"links":{"type":"object","additionalProperties":{"$ref":"#/$defs/TaskRecord"}},"checklist":{"type":"array","items":{"type":"string","minLength":1}},"estimate_hours":{"type":"number","default":1.5},"blocked":{"type":"boolean","default":false},"labels":{"type":"array","items":{"type":"string","enum":["urgent","later"]},"default":[]},"metadata":{"description":"Integrations annotate tasks with their own keys."},"sort_key":{"$ref":"#/$defs/SortKey"}}}}}"##;
+pub const TASKS_BOARD_PROJECTION_PARAMS_SCHEMA: &str = r#"{"type":"object","additionalProperties":false,"required":["board_id"],"properties":{"board_id":{"type":"string"}}}"#;
+pub const TASKS_BOARD_PROJECTION_SNAPSHOT_SCHEMA: &str = r##"{"type":"object","additionalProperties":false,"required":["tasks","sort"],"properties":{"tasks":{"type":"array","items":{"$ref":"#/$defs/TaskRecord"}},"sort":{"$ref":"#/$defs/SortKey"}},"$defs":{"SortKey":{"type":["string","integer"],"default":0},"TaskState":{"type":"object","oneOf":[{"type":"object","additionalProperties":false,"properties":{"phase":{"const":"open"}},"required":["phase"]},{"type":"object","additionalProperties":false,"required":["phase","reason"],"properties":{"phase":{"const":"blocked"},"reason":{"type":"string"},"severity":{"type":"string","enum":["minor","major"]}}},{"type":"object","additionalProperties":false,"required":["phase","completed_at"],"properties":{"phase":{"const":"done"},"completed_at":{"type":"string"},"reviewer":{"type":"string"},"checks":{"type":"array","items":{"type":"string","enum":["tests","review"]}},"evidence":{"description":"Whatever the reviewer attached; the task only records that it exists."}}},{"type":"object","additionalProperties":false,"required":["phase","to"],"properties":{"phase":{"const":"delegated"},"to":{"$ref":"#/$defs/TaskState"}}}]},"TaskRecord":{"type":"object","additionalProperties":false,"required":["task_id","title","revision","state","type","checklist","blocked","labels","sort_key"],"properties":{"task_id":{"type":"string"},"title":{"type":"string","minLength":1,"description":"Shown on the card."},"revision":{"type":"string"},"state":{"$ref":"#/$defs/TaskState"},"type":{"type":"string","enum":["chore","bug","feature"],"default":"chore"},"dueAt":{"type":"string"},"parent":{"$ref":"#/$defs/TaskRecord"},"subtasks":{"type":"array","items":{"$ref":"#/$defs/TaskRecord"}},"links":{"type":"object","additionalProperties":{"$ref":"#/$defs/TaskRecord"}},"checklist":{"type":"array","items":{"type":"string","minLength":1}},"estimate_hours":{"type":"number","default":1.5},"blocked":{"type":"boolean","default":false},"labels":{"type":"array","items":{"type":"string","enum":["urgent","later"]},"default":[]},"metadata":{"description":"Integrations annotate tasks with their own keys."},"sort_key":{"$ref":"#/$defs/SortKey"}}}}}"##;
+pub const WORKSPACE_CURRENT_PROJECTION_PARAMS_SCHEMA: &str =
+    r#"{"type":"object","additionalProperties":false,"properties":{}}"#;
+pub const WORKSPACE_CURRENT_PROJECTION_SNAPSHOT_SCHEMA: &str = r#"{"type":"object","additionalProperties":false,"required":["scope","revision","theme","shortcuts","autosave_seconds"],"properties":{"scope":{"type":"string","const":"workspace"},"revision":{"type":"string"},"theme":{"type":"string","enum":["light","dark","system"],"default":"system"},"shortcuts":{"type":"object","additionalProperties":{"type":"string","minLength":1},"default":{}},"autosave_seconds":{"type":"integer","default":30}}}"#;
+pub const ACTIVITY_STREAMS_PROJECTION_PARAMS_SCHEMA: &str =
+    r#"{"type":"object","additionalProperties":false,"properties":{}}"#;
+pub const ACTIVITY_STREAMS_PROJECTION_SNAPSHOT_SCHEMA: &str = r##"{"type":"object","additionalProperties":false,"required":["streams"],"properties":{"streams":{"type":"array","items":{"$ref":"#/$defs/ActivityStream"}}},"$defs":{"StreamOutput":{"type":"object","additionalProperties":false,"required":["sequence","text"],"properties":{"sequence":{"type":"integer"},"text":{"type":"string"}}},"ActivityStream":{"type":"object","additionalProperties":false,"required":["stream_id","output"],"properties":{"stream_id":{"type":"string"},"output":{"$ref":"#/$defs/StreamOutput"}}}}}"##;
+pub const ACTIVITY_HISTORY_PROJECTION_PARAMS_SCHEMA: &str =
+    r#"{"type":"object","additionalProperties":false,"properties":{}}"#;
+pub const ACTIVITY_HISTORY_PROJECTION_SNAPSHOT_SCHEMA: &str = r##"{"type":"object","additionalProperties":false,"required":["scope","revision","schema_version","entries"],"properties":{"scope":{"type":"string"},"revision":{"type":"string"},"schema_version":{"type":"integer","const":1},"entries":{"type":"array","items":{"$ref":"#/$defs/ActivityEntry"}}},"$defs":{"ActivityEntry":{"type":"object","additionalProperties":false,"required":["entry_id","kind","at","payload"],"properties":{"entry_id":{"type":"string"},"kind":{"type":"string","enum":["created","edited","deleted"]},"at":{"type":"string"},"payload":{}}}}}"##;
+pub const SYNC_HEALTH_PROJECTION_PARAMS_SCHEMA: &str =
+    r#"{"type":"object","additionalProperties":false,"properties":{}}"#;
+pub const SYNC_HEALTH_PROJECTION_SNAPSHOT_SCHEMA: &str = r##"{"type":"object","additionalProperties":false,"required":["scope","revision","healthy","managed","lag","peers"],"properties":{"scope":{"type":"string"},"revision":{"type":"string"},"healthy":{"type":"boolean"},"managed":{"type":"boolean","const":true},"lag":{"$ref":"#/$defs/Quantity"},"peers":{"type":"array","items":{"type":"string"}},"last_error":{"$ref":"#/$defs/RawPayload"}},"$defs":{"RawPayload":{"description":"A replica's own error report, forwarded verbatim for diagnosis."},"Quantity":{"type":["integer","number"],"minimum":0,"description":"A count or a measure, never negative."}}}"##;
+pub const NOTES_AUTHORING_STATE_PROJECTION_PARAMS_SCHEMA: &str = r#"{"type":"object","additionalProperties":false,"required":["note_id"],"properties":{"note_id":{"type":"string"}}}"#;
+pub const NOTES_AUTHORING_STATE_PROJECTION_SNAPSHOT_SCHEMA: &str = r##"{"type":"object","additionalProperties":false,"required":["schema_version","accepted_frontier_base64","update_base64","etag","exchange_modes","peer_block","replaces_held"],"properties":{"schema_version":{"type":"integer","minimum":0,"maximum":4294967295,"description":"The layout version the document's operations are written in."},"accepted_frontier_base64":{"type":"string","description":"The frontier of the accepted state this delivery leaves its client holding."},"update_base64":{"type":"string","description":"The accepted operations this delivery adds: every one in a snapshot, and in a patch those after the frontier its client held."},"etag":{"type":"string","description":"The accepted state's etag."},"exchange_modes":{"type":"array","items":{"$ref":"#/$defs/CollaborationExchangeMode"},"description":"How the store accepts an import of this document."},"peer_block":{"$ref":"#/$defs/AuthoringPeerBlock"},"replaces_held":{"type":"boolean","description":"Whether the client replaces what it holds with this delivery, because what it named holding is not of this document's history."}},"$defs":{"AuthoringPeerBlock":{"type":"object","additionalProperties":false,"required":["nonce","base","index_bits"],"description":"A block of peers allocated to the subscriber: every peer whose bits above the low index_bits are base's. An import names the block by its nonce.","properties":{"nonce":{"type":"string"},"base":{"type":"string","description":"The block's first peer, in decimal."},"index_bits":{"type":"integer","minimum":0,"maximum":4294967295}}},"CollaborationExchangeMode":{"type":"string","enum":["incremental","bootstrap"],"description":"Whether an import creates a document (bootstrap) or edits one (incremental)."}}}"##;
+pub const BOARDS_AUTHORING_STATE_PROJECTION_PARAMS_SCHEMA: &str = r#"{"type":"object","additionalProperties":false,"required":["board_id"],"properties":{"board_id":{"type":"string"}}}"#;
+pub const BOARDS_AUTHORING_STATE_PROJECTION_SNAPSHOT_SCHEMA: &str = r##"{"type":"object","additionalProperties":false,"required":["schema_version","accepted_frontier_base64","update_base64","etag","exchange_modes","peer_block","replaces_held"],"properties":{"schema_version":{"type":"integer","minimum":0,"maximum":4294967295,"description":"The layout version the document's operations are written in."},"accepted_frontier_base64":{"type":"string","description":"The frontier of the accepted state this delivery leaves its client holding."},"update_base64":{"type":"string","description":"The accepted operations this delivery adds: every one in a snapshot, and in a patch those after the frontier its client held."},"etag":{"type":"string","description":"The accepted state's etag."},"exchange_modes":{"type":"array","items":{"$ref":"#/$defs/CollaborationExchangeMode"},"description":"How the store accepts an import of this document."},"peer_block":{"$ref":"#/$defs/AuthoringPeerBlock"},"replaces_held":{"type":"boolean","description":"Whether the client replaces what it holds with this delivery, because what it named holding is not of this document's history."}},"$defs":{"AuthoringPeerBlock":{"type":"object","additionalProperties":false,"required":["nonce","base","index_bits"],"description":"A block of peers allocated to the subscriber: every peer whose bits above the low index_bits are base's. An import names the block by its nonce.","properties":{"nonce":{"type":"string"},"base":{"type":"string","description":"The block's first peer, in decimal."},"index_bits":{"type":"integer","minimum":0,"maximum":4294967295}}},"CollaborationExchangeMode":{"type":"string","enum":["incremental","bootstrap"],"description":"Whether an import creates a document (bootstrap) or edits one (incremental)."}}}"##;
+pub const NOTE_CREATE_MUTATION_PARAMS_SCHEMA: &str = r#"{"type":"object","additionalProperties":false,"required":["title"],"properties":{"title":{"type":"string","minLength":1}}}"#;
+pub const NOTE_CREATE_MUTATION_RESULT_SCHEMA: &str = r#"{"type":"object","additionalProperties":false,"required":["note_id","etag"],"properties":{"note_id":{"type":"string"},"etag":{"type":"string"}}}"#;
+pub const NOTE_IMPORT_UPDATE_MUTATION_PARAMS_SCHEMA: &str = r#"{"type":"object","additionalProperties":false,"required":["entity_id","update","exchange_mode"],"properties":{"entity_id":{"type":"string"},"update":{"type":"string","minLength":1},"exchange_mode":{"type":"string","enum":["incremental","bootstrap"]}}}"#;
+pub const NOTE_IMPORT_UPDATE_MUTATION_RESULT_SCHEMA: &str = r#"{"type":"object","additionalProperties":false,"required":["etag"],"properties":{"etag":{"type":"string"}}}"#;
+pub const NOTE_RENAME_MUTATION_PARAMS_SCHEMA: &str = r#"{"type":"object","additionalProperties":false,"required":["note_id","title"],"properties":{"note_id":{"type":"string"},"title":{"type":"string"}}}"#;
+pub const NOTE_RENAME_MUTATION_RESULT_SCHEMA: &str = r#"{"type":"object","additionalProperties":false,"required":["note_id","etag"],"properties":{"note_id":{"type":"string"},"etag":{"type":"string"}}}"#;
+pub const NOTE_DELETE_MUTATION_PARAMS_SCHEMA: &str = r#"{"type":"object","additionalProperties":false,"required":["note_id"],"properties":{"note_id":{"type":"string"}}}"#;
+pub const NOTE_DELETE_MUTATION_RESULT_SCHEMA: &str =
+    r#"{"type":"object","additionalProperties":false,"properties":{}}"#;
+pub const NOTE_PIN_MUTATION_PARAMS_SCHEMA: &str = r#"{"type":"object","additionalProperties":false,"required":["note_id","pinned"],"properties":{"note_id":{"type":"string"},"pinned":{"type":"boolean"}}}"#;
+pub const NOTE_PIN_MUTATION_RESULT_SCHEMA: &str = r#"{"type":"object","additionalProperties":false,"required":["note_id","etag"],"properties":{"note_id":{"type":"string"},"etag":{"type":"string"}}}"#;
+pub const NOTE_MOVE_TO_BOARD_MUTATION_PARAMS_SCHEMA: &str = r#"{"type":"object","additionalProperties":false,"required":["note_id","board_id","column_id"],"properties":{"note_id":{"type":"string"},"board_id":{"type":"string"},"column_id":{"type":"string"}}}"#;
+pub const NOTE_MOVE_TO_BOARD_MUTATION_RESULT_SCHEMA: &str = r#"{"type":"object","additionalProperties":false,"required":["note_id","etag"],"properties":{"note_id":{"type":"string"},"etag":{"type":"string"}}}"#;
+pub const BOARD_CREATE_MUTATION_PARAMS_SCHEMA: &str = r#"{"type":"object","additionalProperties":false,"required":["name"],"properties":{"name":{"type":"string"}}}"#;
+pub const BOARD_CREATE_MUTATION_RESULT_SCHEMA: &str = r#"{"type":"object","additionalProperties":false,"required":["board_id","etag"],"properties":{"board_id":{"type":"string"},"etag":{"type":"string"}}}"#;
+pub const BOARD_IMPORT_UPDATE_MUTATION_PARAMS_SCHEMA: &str = r#"{"type":"object","additionalProperties":false,"required":["entity_id","update","exchange_mode"],"properties":{"entity_id":{"type":"string"},"update":{"type":"string","minLength":1},"exchange_mode":{"type":"string","enum":["incremental","bootstrap"]}}}"#;
+pub const BOARD_IMPORT_UPDATE_MUTATION_RESULT_SCHEMA: &str = r#"{"type":"object","additionalProperties":false,"required":["etag"],"properties":{"etag":{"type":"string"}}}"#;
+pub const BOARD_RECONCILE_ARCHIVED_COLUMN_ORDER_MUTATION_PARAMS_SCHEMA: &str = r#"{"type":"object","additionalProperties":false,"required":["board_id"],"properties":{"board_id":{"type":"string"}}}"#;
+pub const BOARD_RECONCILE_ARCHIVED_COLUMN_ORDER_MUTATION_RESULT_SCHEMA: &str = r#"{"type":"object","additionalProperties":false,"required":["board_id","etag"],"properties":{"board_id":{"type":"string"},"etag":{"type":"string"}}}"#;
+pub const TASK_SAVE_MUTATION_PARAMS_SCHEMA: &str = r##"{"type":"object","additionalProperties":false,"required":["task"],"properties":{"task":{"$ref":"#/$defs/CurrentTask"},"expected_revision":{"type":"string"}},"$defs":{"SortKey":{"type":["string","integer"],"default":0},"TaskState":{"type":"object","oneOf":[{"type":"object","additionalProperties":false,"properties":{"phase":{"const":"open"}},"required":["phase"]},{"type":"object","additionalProperties":false,"required":["phase","reason"],"properties":{"phase":{"const":"blocked"},"reason":{"type":"string"},"severity":{"type":"string","enum":["minor","major"]}}},{"type":"object","additionalProperties":false,"required":["phase","completed_at"],"properties":{"phase":{"const":"done"},"completed_at":{"type":"string"},"reviewer":{"type":"string"},"checks":{"type":"array","items":{"type":"string","enum":["tests","review"]}},"evidence":{"description":"Whatever the reviewer attached; the task only records that it exists."}}},{"type":"object","additionalProperties":false,"required":["phase","to"],"properties":{"phase":{"const":"delegated"},"to":{"$ref":"#/$defs/TaskState"}}}]},"TaskRecord":{"type":"object","additionalProperties":false,"required":["task_id","title","revision","state","type","checklist","blocked","labels","sort_key"],"properties":{"task_id":{"type":"string"},"title":{"type":"string","minLength":1,"description":"Shown on the card."},"revision":{"type":"string"},"state":{"$ref":"#/$defs/TaskState"},"type":{"type":"string","enum":["chore","bug","feature"],"default":"chore"},"dueAt":{"type":"string"},"parent":{"$ref":"#/$defs/TaskRecord"},"subtasks":{"type":"array","items":{"$ref":"#/$defs/TaskRecord"}},"links":{"type":"object","additionalProperties":{"$ref":"#/$defs/TaskRecord"}},"checklist":{"type":"array","items":{"type":"string","minLength":1}},"estimate_hours":{"type":"number","default":1.5},"blocked":{"type":"boolean","default":false},"labels":{"type":"array","items":{"type":"string","enum":["urgent","later"]},"default":[]},"metadata":{"description":"Integrations annotate tasks with their own keys."},"sort_key":{"$ref":"#/$defs/SortKey"}}},"CurrentTask":{"$ref":"#/$defs/TaskRecord"}}}"##;
+pub const TASK_SAVE_MUTATION_RESULT_SCHEMA: &str = r#"{"type":"object","additionalProperties":false,"required":["revision"],"properties":{"revision":{"type":"string"}}}"#;
+pub const TASK_SCHEDULE_MUTATION_PARAMS_SCHEMA: &str = r#"{"type":"object","additionalProperties":false,"required":["task_id","due_at"],"properties":{"task_id":{"type":"string"},"due_at":{"type":"string"}}}"#;
+pub const TASK_SCHEDULE_MUTATION_RESULT_SCHEMA: &str = r#"{"type":"object","additionalProperties":false,"required":["revision"],"properties":{"revision":{"type":"string"}}}"#;
+pub const TASK_ARCHIVE_MUTATION_PARAMS_SCHEMA: &str = r#"{"type":"object","additionalProperties":false,"required":["task_id"],"properties":{"task_id":{"type":"string"}}}"#;
+pub const TASK_ARCHIVE_MUTATION_RESULT_SCHEMA: &str =
+    r#"{"type":"object","additionalProperties":false,"properties":{}}"#;
+pub const WORKSPACE_CONFIGURE_MUTATION_PARAMS_SCHEMA: &str = r#"{"type":"object","additionalProperties":false,"properties":{"theme":{"type":"string","enum":["light","dark","system"]}}}"#;
+pub const WORKSPACE_CONFIGURE_MUTATION_RESULT_SCHEMA: &str =
+    r#"{"type":"object","additionalProperties":false,"properties":{}}"#;
+pub const SYNC_RESET_MUTATION_PARAMS_SCHEMA: &str =
+    r#"{"type":"object","additionalProperties":false,"properties":{"peer":{"type":"string"}}}"#;
+pub const SYNC_RESET_MUTATION_RESULT_SCHEMA: &str =
+    r#"{"type":"object","additionalProperties":false,"properties":{}}"#;
+pub const NOTE_PREVIEW_COMMAND_PARAMS_SCHEMA: &str = r#"{"type":"object","additionalProperties":false,"required":["body"],"properties":{"body":{"type":"string"}}}"#;
+pub const NOTE_PREVIEW_COMMAND_RESULT_SCHEMA: &str = r#"{"type":"object","additionalProperties":false,"required":["word_count"],"properties":{"word_count":{"type":"integer","minimum":0}}}"#;
+pub const TASK_ARCHIVE_DONE_COMMAND_PARAMS_SCHEMA: &str = r#"{"type":"object","additionalProperties":false,"required":["board_id"],"properties":{"board_id":{"type":"string"}}}"#;
+pub const TASK_ARCHIVE_DONE_COMMAND_RESULT_SCHEMA: &str = r#"{"type":"object","additionalProperties":false,"required":["archived"],"properties":{"archived":{"type":"integer","minimum":0}}}"#;
+
 pub static GENERATED_PROJECTION_SPECS: &[GeneratedProjectionSpec] = &[
     GeneratedProjectionSpec {
         name: NOTES_LIST_PROJECTION,
@@ -1275,6 +1338,8 @@ pub static GENERATED_PROJECTION_SPECS: &[GeneratedProjectionSpec] = &[
             item_identity_field: "note_id",
             patch_identity_field: "note_id",
         },
+        params_schema: NOTES_LIST_PROJECTION_PARAMS_SCHEMA,
+        snapshot_schema: NOTES_LIST_PROJECTION_SNAPSHOT_SCHEMA,
     },
     GeneratedProjectionSpec {
         name: NOTES_BY_ID_PROJECTION,
@@ -1285,6 +1350,8 @@ pub static GENERATED_PROJECTION_SPECS: &[GeneratedProjectionSpec] = &[
             remove_mode: GeneratedRemoveMode::NullField("note"),
             update_fields: Some(("note", "changes")),
         },
+        params_schema: NOTES_BY_ID_PROJECTION_PARAMS_SCHEMA,
+        snapshot_schema: NOTES_BY_ID_PROJECTION_SNAPSHOT_SCHEMA,
     },
     GeneratedProjectionSpec {
         name: TASKS_BY_ID_PROJECTION,
@@ -1293,6 +1360,8 @@ pub static GENERATED_PROJECTION_SPECS: &[GeneratedProjectionSpec] = &[
             snapshot_mode: GeneratedSnapshotMode::Patch,
             snapshot_omit_fields: &[],
         },
+        params_schema: TASKS_BY_ID_PROJECTION_PARAMS_SCHEMA,
+        snapshot_schema: TASKS_BY_ID_PROJECTION_SNAPSHOT_SCHEMA,
     },
     GeneratedProjectionSpec {
         name: TASKS_BOARD_PROJECTION,
@@ -1301,11 +1370,15 @@ pub static GENERATED_PROJECTION_SPECS: &[GeneratedProjectionSpec] = &[
             snapshot_mode: GeneratedSnapshotMode::Field("snapshot"),
             snapshot_omit_fields: &[],
         },
+        params_schema: TASKS_BOARD_PROJECTION_PARAMS_SCHEMA,
+        snapshot_schema: TASKS_BOARD_PROJECTION_SNAPSHOT_SCHEMA,
     },
     GeneratedProjectionSpec {
         name: WORKSPACE_CURRENT_PROJECTION,
         depends_on: &["Workspace"],
         materialization: GeneratedMaterializationPlan::Reset,
+        params_schema: WORKSPACE_CURRENT_PROJECTION_PARAMS_SCHEMA,
+        snapshot_schema: WORKSPACE_CURRENT_PROJECTION_SNAPSHOT_SCHEMA,
     },
     GeneratedProjectionSpec {
         name: ACTIVITY_STREAMS_PROJECTION,
@@ -1320,6 +1393,8 @@ pub static GENERATED_PROJECTION_SPECS: &[GeneratedProjectionSpec] = &[
             patch_output_field: "delta",
             delta_text_field: "text_delta",
         },
+        params_schema: ACTIVITY_STREAMS_PROJECTION_PARAMS_SCHEMA,
+        snapshot_schema: ACTIVITY_STREAMS_PROJECTION_SNAPSHOT_SCHEMA,
     },
     GeneratedProjectionSpec {
         name: ACTIVITY_HISTORY_PROJECTION,
@@ -1328,6 +1403,8 @@ pub static GENERATED_PROJECTION_SPECS: &[GeneratedProjectionSpec] = &[
             snapshot_mode: GeneratedSnapshotMode::Patch,
             snapshot_omit_fields: &[],
         },
+        params_schema: ACTIVITY_HISTORY_PROJECTION_PARAMS_SCHEMA,
+        snapshot_schema: ACTIVITY_HISTORY_PROJECTION_SNAPSHOT_SCHEMA,
     },
     GeneratedProjectionSpec {
         name: SYNC_HEALTH_PROJECTION,
@@ -1336,6 +1413,8 @@ pub static GENERATED_PROJECTION_SPECS: &[GeneratedProjectionSpec] = &[
             snapshot_mode: GeneratedSnapshotMode::Field("health"),
             snapshot_omit_fields: &[],
         },
+        params_schema: SYNC_HEALTH_PROJECTION_PARAMS_SCHEMA,
+        snapshot_schema: SYNC_HEALTH_PROJECTION_SNAPSHOT_SCHEMA,
     },
     GeneratedProjectionSpec {
         name: NOTES_AUTHORING_STATE_PROJECTION,
@@ -1346,6 +1425,8 @@ pub static GENERATED_PROJECTION_SPECS: &[GeneratedProjectionSpec] = &[
             remove_mode: GeneratedRemoveMode::NullSnapshot,
             update_fields: None,
         },
+        params_schema: NOTES_AUTHORING_STATE_PROJECTION_PARAMS_SCHEMA,
+        snapshot_schema: NOTES_AUTHORING_STATE_PROJECTION_SNAPSHOT_SCHEMA,
     },
     GeneratedProjectionSpec {
         name: BOARDS_AUTHORING_STATE_PROJECTION,
@@ -1356,6 +1437,8 @@ pub static GENERATED_PROJECTION_SPECS: &[GeneratedProjectionSpec] = &[
             remove_mode: GeneratedRemoveMode::NullSnapshot,
             update_fields: None,
         },
+        params_schema: BOARDS_AUTHORING_STATE_PROJECTION_PARAMS_SCHEMA,
+        snapshot_schema: BOARDS_AUTHORING_STATE_PROJECTION_SNAPSHOT_SCHEMA,
     },
 ];
 
@@ -1363,58 +1446,86 @@ pub static GENERATED_MUTATION_SPECS: &[GeneratedMutationSpec] = &[
     GeneratedMutationSpec {
         name: NOTE_CREATE_MUTATION,
         touches: &["Note"],
+        params_schema: NOTE_CREATE_MUTATION_PARAMS_SCHEMA,
+        result_schema: NOTE_CREATE_MUTATION_RESULT_SCHEMA,
     },
     GeneratedMutationSpec {
         name: NOTE_IMPORT_UPDATE_MUTATION,
         touches: &["Note"],
+        params_schema: NOTE_IMPORT_UPDATE_MUTATION_PARAMS_SCHEMA,
+        result_schema: NOTE_IMPORT_UPDATE_MUTATION_RESULT_SCHEMA,
     },
     GeneratedMutationSpec {
         name: NOTE_RENAME_MUTATION,
         touches: &["Note"],
+        params_schema: NOTE_RENAME_MUTATION_PARAMS_SCHEMA,
+        result_schema: NOTE_RENAME_MUTATION_RESULT_SCHEMA,
     },
     GeneratedMutationSpec {
         name: NOTE_DELETE_MUTATION,
         touches: &["Note"],
+        params_schema: NOTE_DELETE_MUTATION_PARAMS_SCHEMA,
+        result_schema: NOTE_DELETE_MUTATION_RESULT_SCHEMA,
     },
     GeneratedMutationSpec {
         name: NOTE_PIN_MUTATION,
         touches: &["Note"],
+        params_schema: NOTE_PIN_MUTATION_PARAMS_SCHEMA,
+        result_schema: NOTE_PIN_MUTATION_RESULT_SCHEMA,
     },
     GeneratedMutationSpec {
         name: NOTE_MOVE_TO_BOARD_MUTATION,
         touches: &["Note", "Board"],
+        params_schema: NOTE_MOVE_TO_BOARD_MUTATION_PARAMS_SCHEMA,
+        result_schema: NOTE_MOVE_TO_BOARD_MUTATION_RESULT_SCHEMA,
     },
     GeneratedMutationSpec {
         name: BOARD_CREATE_MUTATION,
         touches: &["Board"],
+        params_schema: BOARD_CREATE_MUTATION_PARAMS_SCHEMA,
+        result_schema: BOARD_CREATE_MUTATION_RESULT_SCHEMA,
     },
     GeneratedMutationSpec {
         name: BOARD_IMPORT_UPDATE_MUTATION,
         touches: &["Board"],
+        params_schema: BOARD_IMPORT_UPDATE_MUTATION_PARAMS_SCHEMA,
+        result_schema: BOARD_IMPORT_UPDATE_MUTATION_RESULT_SCHEMA,
     },
     GeneratedMutationSpec {
         name: BOARD_RECONCILE_ARCHIVED_COLUMN_ORDER_MUTATION,
         touches: &["Board"],
+        params_schema: BOARD_RECONCILE_ARCHIVED_COLUMN_ORDER_MUTATION_PARAMS_SCHEMA,
+        result_schema: BOARD_RECONCILE_ARCHIVED_COLUMN_ORDER_MUTATION_RESULT_SCHEMA,
     },
     GeneratedMutationSpec {
         name: TASK_SAVE_MUTATION,
         touches: &["Task"],
+        params_schema: TASK_SAVE_MUTATION_PARAMS_SCHEMA,
+        result_schema: TASK_SAVE_MUTATION_RESULT_SCHEMA,
     },
     GeneratedMutationSpec {
         name: TASK_SCHEDULE_MUTATION,
         touches: &["Task"],
+        params_schema: TASK_SCHEDULE_MUTATION_PARAMS_SCHEMA,
+        result_schema: TASK_SCHEDULE_MUTATION_RESULT_SCHEMA,
     },
     GeneratedMutationSpec {
         name: TASK_ARCHIVE_MUTATION,
         touches: &["Task"],
+        params_schema: TASK_ARCHIVE_MUTATION_PARAMS_SCHEMA,
+        result_schema: TASK_ARCHIVE_MUTATION_RESULT_SCHEMA,
     },
     GeneratedMutationSpec {
         name: WORKSPACE_CONFIGURE_MUTATION,
         touches: &["Workspace"],
+        params_schema: WORKSPACE_CONFIGURE_MUTATION_PARAMS_SCHEMA,
+        result_schema: WORKSPACE_CONFIGURE_MUTATION_RESULT_SCHEMA,
     },
     GeneratedMutationSpec {
         name: SYNC_RESET_MUTATION,
         touches: &["SyncHealth"],
+        params_schema: SYNC_RESET_MUTATION_PARAMS_SCHEMA,
+        result_schema: SYNC_RESET_MUTATION_RESULT_SCHEMA,
     },
 ];
 
@@ -1422,10 +1533,14 @@ pub static GENERATED_COMMAND_SPECS: &[GeneratedCommandSpec] = &[
     GeneratedCommandSpec {
         name: NOTE_PREVIEW_COMMAND,
         touches: &[],
+        params_schema: NOTE_PREVIEW_COMMAND_PARAMS_SCHEMA,
+        result_schema: NOTE_PREVIEW_COMMAND_RESULT_SCHEMA,
     },
     GeneratedCommandSpec {
         name: TASK_ARCHIVE_DONE_COMMAND,
         touches: &["Task"],
+        params_schema: TASK_ARCHIVE_DONE_COMMAND_PARAMS_SCHEMA,
+        result_schema: TASK_ARCHIVE_DONE_COMMAND_RESULT_SCHEMA,
     },
 ];
 

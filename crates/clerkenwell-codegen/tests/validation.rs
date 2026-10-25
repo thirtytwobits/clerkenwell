@@ -162,6 +162,7 @@ fn validation_only_keywords_leave_the_generated_types_alone() {
                 let line = line.trim_start();
                 if line.starts_with("const OTHER_MEMBER_CONSTRAINTS")
                     || line.starts_with("const VALUE_CONSTRAINTS")
+                    || (line.starts_with("pub const ") && line.contains("_SCHEMA: &str ="))
                 {
                     in_constraints = true;
                 }
@@ -1747,4 +1748,63 @@ fn an_open_object_refuses_a_member_whose_declared_types_the_others_do_not_admit(
         ))),
         &["$defs.ProbeOpen.properties.member is not a value"],
     );
+}
+
+/// Each projection, mutation and command is an operation named
+/// `<namespace>.<name>`, in the MCP tool-name alphabet and its bound.
+#[test]
+fn an_operation_name_outside_the_tool_name_alphabet_is_refused() {
+    let longest = "x".repeat(128 - "notebook.".len());
+    for (name, accepted) in [
+        ("card.shuffle-all_v2", true),
+        (longest.as_str(), true),
+        ("card shuffle", false),
+        ("card.shufflé", false),
+        (&format!("{longest}x"), false),
+    ] {
+        let mut document = notebook_document();
+        set(
+            &mut document,
+            &format!("/commands/{name}"),
+            json(
+                r##"{ "params": { "$ref": "#/$defs/NotePreviewParams" },
+                      "result": { "$ref": "#/$defs/NotePreviewResult" } }"##,
+            ),
+        );
+        if accepted {
+            validate(document).unwrap_or_else(|error| panic!("{name:?} is refused: {error}"));
+        } else {
+            assert_mentions(
+                &refusal(document),
+                &[
+                    &format!("commands.{name} names the operation \"notebook.{name}\""),
+                    "at most 128 ASCII letters, digits",
+                ],
+            );
+        }
+    }
+}
+
+/// An operation's input is an object, so its params schema is one.
+#[test]
+fn params_that_are_not_an_object_are_refused() {
+    for section in [
+        "projections/notes.list",
+        "mutations/note.create",
+        "commands/note.preview",
+    ] {
+        let mut document = with_defs(r#"{ "Label": { "type": "string" } }"#);
+        set(
+            &mut document,
+            &format!("/{section}/params"),
+            json(r##"{ "$ref": "#/$defs/Label" }"##),
+        );
+        let context = section.replace('/', ".");
+        assert_mentions(
+            &refusal(document),
+            &[&format!(
+                "{context}.params must reference a schema of type \"object\""
+            )],
+        );
+    }
 }

@@ -128,6 +128,9 @@ const DRAFT_PLAN: GeneratedCollaborationEntitySpec = GeneratedCollaborationEntit
     root_container: "draft",
     fields: fields!("draft_id", "draft"),
 };
+/// The schema of every parameter, result and snapshot here.
+const OBJECT_SCHEMA: &str = r#"{"type":"object"}"#;
+
 static PLANS: &[GeneratedCollaborationEntitySpec] = &[NOTE_PLAN, CATALOGUE_PLAN, DRAFT_PLAN];
 static NOTE: &GeneratedCollaborationEntitySpec = &PLANS[0];
 static CATALOGUE: &GeneratedCollaborationEntitySpec = &PLANS[1];
@@ -138,21 +141,29 @@ static PROJECTIONS: &[GeneratedProjectionSpec] = &[
         name: "notes.authoringState",
         depends_on: &["Note"],
         materialization: GeneratedMaterializationPlan::Reset,
+        params_schema: OBJECT_SCHEMA,
+        snapshot_schema: OBJECT_SCHEMA,
     },
     GeneratedProjectionSpec {
         name: "catalogue.authoringState",
         depends_on: &["Catalogue"],
         materialization: GeneratedMaterializationPlan::Reset,
+        params_schema: OBJECT_SCHEMA,
+        snapshot_schema: OBJECT_SCHEMA,
     },
     GeneratedProjectionSpec {
         name: "drafts.authoringState",
         depends_on: &["Draft"],
         materialization: GeneratedMaterializationPlan::Reset,
+        params_schema: OBJECT_SCHEMA,
+        snapshot_schema: OBJECT_SCHEMA,
     },
 ];
 static MUTATIONS: &[GeneratedMutationSpec] = &[GeneratedMutationSpec {
     name: "note.touch",
     touches: &["Note"],
+    params_schema: OBJECT_SCHEMA,
+    result_schema: OBJECT_SCHEMA,
 }];
 static REGISTRY: ProjectionRegistry = ProjectionRegistry::new(PROJECTIONS, MUTATIONS, &[], &[]);
 

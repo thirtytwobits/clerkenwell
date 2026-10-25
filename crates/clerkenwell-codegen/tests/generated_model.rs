@@ -314,3 +314,129 @@ fn a_named_union_schema_carries_its_constraints() {
     let sort_key = serde_json::to_value(schemars::schema_for!(model::SortKey)).expect("a schema");
     assert_eq!(sort_key["default"], 0);
 }
+
+/// The validator a spec's schema compiles to.
+fn validator(schema: &str) -> jsonschema::Validator {
+    let schema: serde_json::Value = serde_json::from_str(schema).expect("a schema is JSON");
+    jsonschema::validator_for(&schema).expect("a schema compiles")
+}
+
+#[test]
+fn a_mutations_params_schema_admits_its_params_and_refuses_others() {
+    let spec = model::GENERATED_MUTATION_SPECS
+        .iter()
+        .find(|spec| spec.name == model::NOTE_CREATE_MUTATION)
+        .expect("the notebook declares note.create");
+    let params = validator(spec.params_schema);
+    let request = serde_json::to_value(model::NoteCreateParams {
+        title: "Groceries".to_owned(),
+    })
+    .expect("params serialise");
+    assert!(params.is_valid(&request));
+    for refused in [
+        serde_json::json!({}),
+        serde_json::json!({ "title": "" }),
+        serde_json::json!({ "title": "Groceries", "pinned": true }),
+    ] {
+        assert!(!params.is_valid(&refused), "{refused} is admitted");
+    }
+}
+
+#[test]
+fn every_spec_schema_compiles_and_every_params_schema_is_an_object() {
+    let schemas = model::GENERATED_PROJECTION_SPECS
+        .iter()
+        .flat_map(|spec| [(spec.params_schema, true), (spec.snapshot_schema, false)])
+        .chain(
+            model::GENERATED_MUTATION_SPECS
+                .iter()
+                .flat_map(|spec| [(spec.params_schema, true), (spec.result_schema, false)]),
+        )
+        .chain(
+            model::GENERATED_COMMAND_SPECS
+                .iter()
+                .flat_map(|spec| [(spec.params_schema, true), (spec.result_schema, false)]),
+        );
+    for (schema, is_params) in schemas {
+        validator(schema);
+        let root: serde_json::Value = serde_json::from_str(schema).expect("a schema is JSON");
+        if is_params {
+            assert_eq!(root["type"], "object", "{schema}");
+        }
+    }
+}
+
+#[test]
+fn every_contract_fixture_snapshot_meets_its_projections_snapshot_schema() {
+    let fixtures = contract_fixtures();
+    let projections = fixtures
+        .pointer("/projections")
+        .and_then(Json::as_array)
+        .expect("fixtures list projections");
+    for projection in projections {
+        let name = projection
+            .get("projection")
+            .and_then(Json::as_str)
+            .expect("a fixture names its projection");
+        let spec = model::GENERATED_PROJECTION_SPECS
+            .iter()
+            .find(|spec| spec.name == name)
+            .unwrap_or_else(|| panic!("{name} has a spec"));
+        let snapshot = projection
+            .pointer("/snapshot/value")
+            .expect("a snapshot value")
+            .to_serde();
+        assert!(
+            validator(spec.snapshot_schema).is_valid(&snapshot),
+            "{name}'s snapshot does not meet its schema: {snapshot}"
+        );
+    }
+}
+
+/// A tagged union admits each variant under its own tag, and an opaque JSON
+/// field admits any value.
+#[test]
+fn a_snapshot_schema_admits_each_tagged_variant_and_any_opaque_value() {
+    let spec = model::GENERATED_PROJECTION_SPECS
+        .iter()
+        .find(|spec| spec.name == model::TASKS_BY_ID_PROJECTION)
+        .expect("the notebook declares tasks.byId");
+    let snapshot = validator(spec.snapshot_schema);
+    let with_state = |state: serde_json::Value| {
+        let mut detail = contract_fixtures()
+            .pointer("/projections")
+            .and_then(Json::as_array)
+            .and_then(|projections| {
+                projections.iter().find(|projection| {
+                    projection.get("projection").and_then(Json::as_str)
+                        == Some(model::TASKS_BY_ID_PROJECTION)
+                })
+            })
+            .and_then(|projection| projection.pointer("/snapshot/value"))
+            .expect("a tasks.byId fixture")
+            .to_serde();
+        detail["task"]["state"] = state;
+        detail
+    };
+    for admitted in [
+        serde_json::json!({ "phase": "open" }),
+        serde_json::json!({ "phase": "blocked", "reason": "waiting" }),
+        serde_json::json!({
+            "phase": "done",
+            "completed_at": "2026-10-24",
+            "evidence": { "links": ["a"], "count": 2 }
+        }),
+    ] {
+        let detail = with_state(admitted.clone());
+        assert!(snapshot.is_valid(&detail), "{admitted} is refused");
+    }
+    for refused in [
+        serde_json::json!({ "phase": "closed" }),
+        serde_json::json!({ "phase": "blocked" }),
+        serde_json::json!({ "phase": "open", "reason": "waiting" }),
+        serde_json::json!({ "reason": "waiting" }),
+    ] {
+        let detail = with_state(refused.clone());
+        assert!(!snapshot.is_valid(&detail), "{refused} is admitted");
+    }
+}

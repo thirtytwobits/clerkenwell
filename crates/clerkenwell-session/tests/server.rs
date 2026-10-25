@@ -27,35 +27,50 @@ use clerkenwell_session::{
 };
 use serde_json::{json, Value};
 
+/// The schema of every parameter, result and snapshot here.
+const OBJECT_SCHEMA: &str = r#"{"type":"object"}"#;
+
 static PROJECTIONS: &[GeneratedProjectionSpec] = &[
     GeneratedProjectionSpec {
         name: "notes.list",
         depends_on: &["Note"],
         materialization: GeneratedMaterializationPlan::Reset,
+        params_schema: OBJECT_SCHEMA,
+        snapshot_schema: OBJECT_SCHEMA,
     },
     GeneratedProjectionSpec {
         name: "notes.replica",
         depends_on: &["Note"],
         materialization: GeneratedMaterializationPlan::Reset,
+        params_schema: OBJECT_SCHEMA,
+        snapshot_schema: OBJECT_SCHEMA,
     },
     GeneratedProjectionSpec {
         name: "boards.list",
         depends_on: &["Board"],
         materialization: GeneratedMaterializationPlan::Reset,
+        params_schema: OBJECT_SCHEMA,
+        snapshot_schema: OBJECT_SCHEMA,
     },
 ];
 static MUTATIONS: &[GeneratedMutationSpec] = &[
     GeneratedMutationSpec {
         name: "note.rename",
         touches: &["Note"],
+        params_schema: OBJECT_SCHEMA,
+        result_schema: OBJECT_SCHEMA,
     },
     GeneratedMutationSpec {
         name: "note.preview",
         touches: &["Note"],
+        params_schema: OBJECT_SCHEMA,
+        result_schema: OBJECT_SCHEMA,
     },
     GeneratedMutationSpec {
         name: "board.pin",
         touches: &["Board"],
+        params_schema: OBJECT_SCHEMA,
+        result_schema: OBJECT_SCHEMA,
     },
 ];
 static AUTHORING: &[GeneratedEntityAuthoringSpec] = &[GeneratedEntityAuthoringSpec {
@@ -68,10 +83,14 @@ static COMMANDS: &[GeneratedCommandSpec] = &[
     GeneratedCommandSpec {
         name: "note.archive",
         touches: &["Note"],
+        params_schema: OBJECT_SCHEMA,
+        result_schema: OBJECT_SCHEMA,
     },
     GeneratedCommandSpec {
         name: "note.count",
         touches: &[],
+        params_schema: OBJECT_SCHEMA,
+        result_schema: OBJECT_SCHEMA,
     },
 ];
 static REGISTRY: ProjectionRegistry =

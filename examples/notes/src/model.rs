@@ -209,6 +209,13 @@ impl ProjectionTransportCommandResult {
     }
 }
 
+pub const NOTES_AUTHORING_STATE_PROJECTION_PARAMS_SCHEMA: &str = r#"{"type":"object","additionalProperties":false,"required":["note_id"],"properties":{"note_id":{"type":"string"}}}"#;
+pub const NOTES_AUTHORING_STATE_PROJECTION_SNAPSHOT_SCHEMA: &str = r##"{"type":"object","additionalProperties":false,"required":["schema_version","accepted_frontier_base64","update_base64","etag","exchange_modes","peer_block","replaces_held"],"properties":{"schema_version":{"type":"integer","minimum":0,"maximum":4294967295,"description":"The layout version the document's operations are written in."},"accepted_frontier_base64":{"type":"string","description":"The frontier of the accepted state this delivery leaves its client holding."},"update_base64":{"type":"string","description":"The accepted operations this delivery adds: every one in a snapshot, and in a patch those after the frontier its client held."},"etag":{"type":"string","description":"The accepted state's etag."},"exchange_modes":{"type":"array","items":{"$ref":"#/$defs/CollaborationExchangeMode"},"description":"How the store accepts an import of this document."},"peer_block":{"$ref":"#/$defs/AuthoringPeerBlock"},"replaces_held":{"type":"boolean","description":"Whether the client replaces what it holds with this delivery, because what it named holding is not of this document's history."}},"$defs":{"AuthoringPeerBlock":{"type":"object","additionalProperties":false,"required":["nonce","base","index_bits"],"description":"A block of peers allocated to the subscriber: every peer whose bits above the low index_bits are base's. An import names the block by its nonce.","properties":{"nonce":{"type":"string"},"base":{"type":"string","description":"The block's first peer, in decimal."},"index_bits":{"type":"integer","minimum":0,"maximum":4294967295}}},"CollaborationExchangeMode":{"type":"string","enum":["incremental","bootstrap"],"description":"Whether an import creates a document (bootstrap) or edits one (incremental)."}}}"##;
+pub const NOTE_CREATE_MUTATION_PARAMS_SCHEMA: &str = r#"{"type":"object","additionalProperties":false,"required":["title"],"properties":{"title":{"type":"string","minLength":1}}}"#;
+pub const NOTE_CREATE_MUTATION_RESULT_SCHEMA: &str = r#"{"type":"object","additionalProperties":false,"required":["note_id","etag"],"properties":{"note_id":{"type":"string"},"etag":{"type":"string"}}}"#;
+pub const NOTE_IMPORT_UPDATE_MUTATION_PARAMS_SCHEMA: &str = r##"{"type":"object","additionalProperties":false,"required":["note_id","operation_id","exchange_mode","update_base64","peer_nonces"],"properties":{"note_id":{"type":"string"},"operation_id":{"type":"string","minLength":1},"exchange_mode":{"$ref":"#/$defs/CollaborationExchangeMode"},"base_frontier_base64":{"type":"string"},"update_base64":{"type":"string","minLength":1},"peer_nonces":{"type":"array","description":"The nonce of every peer block the update's operations are written under.","items":{"type":"string"}},"intent":{"type":"string","description":"Why the writer made the change."}},"$defs":{"CollaborationExchangeMode":{"type":"string","enum":["incremental","bootstrap"],"description":"Whether an import creates a document (bootstrap) or edits one (incremental)."}}}"##;
+pub const NOTE_IMPORT_UPDATE_MUTATION_RESULT_SCHEMA: &str = r#"{"type":"object","additionalProperties":false,"required":["note_id","etag","accepted_frontier_base64","missing_update_base64"],"properties":{"note_id":{"type":"string"},"etag":{"type":"string"},"accepted_frontier_base64":{"type":"string"},"missing_update_base64":{"type":"string"}}}"#;
+
 pub static GENERATED_PROJECTION_SPECS: &[GeneratedProjectionSpec] = &[GeneratedProjectionSpec {
     name: NOTES_AUTHORING_STATE_PROJECTION,
     depends_on: &["Note"],
@@ -218,16 +225,22 @@ pub static GENERATED_PROJECTION_SPECS: &[GeneratedProjectionSpec] = &[GeneratedP
         remove_mode: GeneratedRemoveMode::NullSnapshot,
         update_fields: None,
     },
+    params_schema: NOTES_AUTHORING_STATE_PROJECTION_PARAMS_SCHEMA,
+    snapshot_schema: NOTES_AUTHORING_STATE_PROJECTION_SNAPSHOT_SCHEMA,
 }];
 
 pub static GENERATED_MUTATION_SPECS: &[GeneratedMutationSpec] = &[
     GeneratedMutationSpec {
         name: NOTE_CREATE_MUTATION,
         touches: &["Note"],
+        params_schema: NOTE_CREATE_MUTATION_PARAMS_SCHEMA,
+        result_schema: NOTE_CREATE_MUTATION_RESULT_SCHEMA,
     },
     GeneratedMutationSpec {
         name: NOTE_IMPORT_UPDATE_MUTATION,
         touches: &["Note"],
+        params_schema: NOTE_IMPORT_UPDATE_MUTATION_PARAMS_SCHEMA,
+        result_schema: NOTE_IMPORT_UPDATE_MUTATION_RESULT_SCHEMA,
     },
 ];
 

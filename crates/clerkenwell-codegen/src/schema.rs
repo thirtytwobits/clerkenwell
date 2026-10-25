@@ -81,7 +81,7 @@ pub(crate) fn primitive_union_types(schema: &Object) -> Result<Option<Vec<&str>>
 }
 
 /// The definition name in a `#/$defs/Name` reference.
-fn local_reference_name(reference: Option<&Json>) -> Option<&str> {
+pub(crate) fn local_reference_name(reference: Option<&Json>) -> Option<&str> {
     let name = reference?.as_str()?.strip_prefix("#/$defs/")?;
     let mut characters = name.chars();
     let valid = characters.next().is_some_and(|c| c.is_ascii_alphabetic())

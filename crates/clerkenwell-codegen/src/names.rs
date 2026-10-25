@@ -79,6 +79,13 @@ pub fn name_constant_identifier(value: &str, suffix: &str) -> String {
     format!("{}_{suffix}", constant_name(value))
 }
 
+/// The constant holding the JSON Schema document of `role` (`PARAMS`,
+/// `RESULT` or `SNAPSHOT`) of the `kind` named `value`, as
+/// `NOTE_CREATE_MUTATION_PARAMS_SCHEMA`.
+pub fn schema_constant_identifier(value: &str, kind: &str, role: &str) -> String {
+    name_constant_identifier(value, &format!("{kind}_{role}_SCHEMA"))
+}
+
 const RUST_KEYWORDS: &[&str] = &[
     "as", "break", "const", "continue", "crate", "else", "enum", "extern", "false", "fn", "for",
     "if", "impl", "in", "let", "loop", "match", "mod", "move", "mut", "pub", "ref", "return",

@@ -25,30 +25,43 @@ use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
 
+/// The schema of every parameter, result and snapshot here.
+const OBJECT_SCHEMA: &str = r#"{"type":"object"}"#;
+
 static PROJECTIONS: &[GeneratedProjectionSpec] = &[
     GeneratedProjectionSpec {
         name: "counters.value",
         depends_on: &["Counter"],
         materialization: GeneratedMaterializationPlan::Reset,
+        params_schema: OBJECT_SCHEMA,
+        snapshot_schema: OBJECT_SCHEMA,
     },
     GeneratedProjectionSpec {
         name: "clock.held",
         depends_on: &["Clock"],
         materialization: GeneratedMaterializationPlan::Reset,
+        params_schema: OBJECT_SCHEMA,
+        snapshot_schema: OBJECT_SCHEMA,
     },
 ];
 static MUTATIONS: &[GeneratedMutationSpec] = &[GeneratedMutationSpec {
     name: "counter.increment",
     touches: &["Counter"],
+    params_schema: OBJECT_SCHEMA,
+    result_schema: OBJECT_SCHEMA,
 }];
 static COMMANDS: &[GeneratedCommandSpec] = &[
     GeneratedCommandSpec {
         name: "counter.reset",
         touches: &["Counter"],
+        params_schema: OBJECT_SCHEMA,
+        result_schema: OBJECT_SCHEMA,
     },
     GeneratedCommandSpec {
         name: "counter.countTo",
         touches: &["Counter"],
+        params_schema: OBJECT_SCHEMA,
+        result_schema: OBJECT_SCHEMA,
     },
 ];
 static REGISTRY: ProjectionRegistry =
