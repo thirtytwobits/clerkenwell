@@ -41,7 +41,7 @@ pub use peers::{PeerBlock, PeerKey, PEER_INDEX_BITS, PEER_KEY_MIN_BYTES};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::num::NonZeroU32;
 use std::sync::atomic::{AtomicU64, Ordering};
 #[cfg(test)]
@@ -161,6 +161,20 @@ impl CollaborationDocumentSummary {
 pub struct CollaborationDocumentRead {
     pub summary: CollaborationDocumentSummary,
     pub document: Value,
+    /// The frontier of the accepted state, which a text edit names as the
+    /// state it read.
+    pub accepted_frontier_base64: String,
+}
+
+/// How an import recognises a retry of an operation the envelope retains.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Retried {
+    /// A retry carries the update its operation was accepted with.
+    ByUpdate,
+    /// A retry is prepared again under a newly allocated peer, so it differs
+    /// from its operation's update: the operation id names it, as long as its
+    /// principal made the operation.
+    ByPrincipal,
 }
 
 /// One operation to commit over the envelope the service read.
@@ -266,6 +280,47 @@ pub struct CollaborationImportRequest {
     /// under.
     pub peer_nonces: Vec<String>,
     /// Why the principal made the change, as its client describes it.
+    pub intent: Option<String>,
+}
+
+/// A principal's edit of a whole document: the document as it read it at
+/// `etag`, edited.
+#[derive(Debug, Clone)]
+pub struct CollaborationDocumentEdit {
+    pub document: CollaborationDocumentId,
+    pub operation_id: String,
+    pub edited: Value,
+    /// The etag of the accepted state the document was read at.
+    pub etag: String,
+    pub actor: Principal,
+    /// Why the principal made the change.
+    pub intent: Option<String>,
+}
+
+/// The text a text edit replaces, and what replaces it.
+struct TextReplacement<'a> {
+    field_path: &'a str,
+    identities: &'a HashMap<String, String>,
+    read: &'a str,
+    replacement: &'a str,
+}
+
+/// A principal's replacement of the text it read in one text field.
+#[derive(Debug, Clone)]
+pub struct CollaborationTextEdit {
+    pub document: CollaborationDocumentId,
+    pub operation_id: String,
+    /// The text field's path in the plan.
+    pub field_path: String,
+    /// The identity of each keyed item on the field's path, by its variable.
+    pub identities: HashMap<String, String>,
+    /// The frontier of the accepted state the text was read at.
+    pub frontier_base64: String,
+    /// The text the field held at the frontier.
+    pub read: String,
+    pub replacement: String,
+    pub actor: Principal,
+    /// Why the principal made the change.
     pub intent: Option<String>,
 }
 
@@ -845,6 +900,8 @@ impl CollaborationService {
         };
         Ok(Some(CollaborationDocumentRead {
             document: (*Self::materialized(plan, document, &resident)?).clone(),
+            accepted_frontier_base64: Self::replica(plan, document, &resident)?
+                .accepted_frontier_base64(),
             summary: CollaborationDocumentSummary::of(&resident),
         }))
     }
@@ -1007,15 +1064,7 @@ impl CollaborationService {
                 if existing.update_sha256 == sha256_hex(&commit.imported_update) {
                     return Ok(CollaborationCommitOutcome::Duplicate(read.clone()));
                 }
-                return Err(StoreError::invalid_request(format!(
-                    "Collaboration operation id {operation_id:?} was reused with different content."
-                ))
-                .with_data(serde_json::json!({
-                    "code": "collaboration_operation_id_collision",
-                    "entity": document.entity,
-                    "resource_id": document.resource_id,
-                    "operation_id": operation_id,
-                })));
+                return Err(operation_id_collision(&document, &operation_id));
             }
             if !commit.has_new_operations
                 || envelope.checkpoint_sha256 == sha256_hex(&commit.accepted_update)
@@ -1181,17 +1230,9 @@ impl CollaborationService {
         document: &CollaborationDocumentId,
         held: Option<CollaborationHeld<'_>>,
     ) -> StoreResult<CollaborationAuthoringState> {
-        let resident = self.read_envelope(document)?.ok_or_else(|| {
-            StoreError::not_found(format!(
-                "No collaborative {} document exists for \"{}\".",
-                document.entity, document.resource_id
-            ))
-            .with_data(serde_json::json!({
-                "code": "collaboration_document_not_found",
-                "entity": document.entity,
-                "resource_id": document.resource_id,
-            }))
-        })?;
+        let resident = self
+            .read_envelope(document)?
+            .ok_or_else(|| not_stored(document))?;
         // Building the replica checks the checkpoint the whole update is.
         let authoring = Self::replica(plan, document, &resident)?;
         let envelope = &resident.envelope;
@@ -1237,12 +1278,32 @@ impl CollaborationService {
         request: CollaborationImportRequest,
         validate: impl Fn(&Value) -> Result<(), E>,
     ) -> Result<CollaborationImportResult, E> {
-        match self.import_internal(plan, &request, validate) {
-            Ok(imported) => Ok(imported),
-            Err(ImportFailure::Store(error)) if error.kind == StoreErrorKind::Internal => {
-                Err(error.into())
-            }
-            Err(ImportFailure::Store(error)) => {
+        self.import_recognising(plan, request, Retried::ByUpdate, validate)
+    }
+
+    /// Commits `request` as `import` does, recognising a retry as `retried`
+    /// says.
+    fn import_recognising<E: From<StoreError>>(
+        &self,
+        plan: &'static GeneratedCollaborationEntitySpec,
+        request: CollaborationImportRequest,
+        retried: Retried,
+        validate: impl Fn(&Value) -> Result<(), E>,
+    ) -> Result<CollaborationImportResult, E> {
+        self.import_internal(plan, &request, retried, validate)
+            .map_err(|failure| self.refuse(&request, failure))
+    }
+
+    /// `failure` of `request`, audited as its refusal unless the store failed
+    /// internally. An import whose refusal cannot be audited fails.
+    fn refuse<E: From<StoreError>>(
+        &self,
+        request: &CollaborationImportRequest,
+        failure: ImportFailure<E>,
+    ) -> E {
+        match failure {
+            ImportFailure::Store(error) if error.kind == StoreErrorKind::Internal => error.into(),
+            ImportFailure::Store(error) => {
                 let data = error.data.as_ref();
                 let code = data
                     .and_then(|data| data["code"].as_str())
@@ -1263,14 +1324,147 @@ impl CollaborationService {
                             .collect()
                     })
                     .unwrap_or_default();
-                self.audit_refusal(&request, code, conflict_paths)?;
-                Err(error.into())
+                match self.audit_refusal(request, code, conflict_paths) {
+                    Ok(()) => error.into(),
+                    Err(unaudited) => unaudited.into(),
+                }
             }
-            Err(ImportFailure::Invalid(error)) => {
-                self.audit_refusal(&request, "collaboration_document_invalid", Vec::new())?;
-                Err(error)
+            ImportFailure::Invalid(error) => {
+                match self.audit_refusal(request, "collaboration_document_invalid", Vec::new()) {
+                    Ok(()) => error,
+                    Err(unaudited) => unaudited.into(),
+                }
             }
         }
+    }
+
+    /// Writes `edit`'s document as the operations between the accepted
+    /// document and it, under a peer allocated to its actor, and commits them
+    /// as an import fenced on the etag the document was read at. A document
+    /// changed since is refused as a `collaboration_revision` conflict
+    /// carrying the accepted document and its etag. A retry of an edit the
+    /// document still retains is answered as a duplicate with the result it
+    /// was accepted with.
+    pub fn edit<E: From<StoreError>>(
+        &self,
+        plan: &'static GeneratedCollaborationEntitySpec,
+        edit: CollaborationDocumentEdit,
+        validate: impl Fn(&Value) -> Result<(), E>,
+    ) -> Result<CollaborationImportResult, E> {
+        let mut request = CollaborationImportRequest {
+            document: edit.document,
+            schema_version: plan.schema_version,
+            operation_id: edit.operation_id,
+            exchange_mode: CollaborationExchangeMode::Incremental,
+            base_frontier_base64: String::new(),
+            update_base64: String::new(),
+            fence: ImportFence::Etag(edit.etag),
+            actor: edit.actor,
+            peer_nonces: Vec::new(),
+            intent: edit.intent,
+        };
+        match self.prepare_edit(plan, &mut request, &edit.edited) {
+            Ok(()) => self.import_recognising(plan, request, Retried::ByPrincipal, validate),
+            Err(error) => Err(self.refuse(&request, ImportFailure::Store(error))),
+        }
+    }
+
+    /// Fills `request` with the operations between the accepted document and
+    /// `edited`, written under a peer allocated to its actor, and the
+    /// frontier they were written from. An edit whose operation the document
+    /// retains is not prepared again: it carries the retained update.
+    fn prepare_edit(
+        &self,
+        plan: &'static GeneratedCollaborationEntitySpec,
+        request: &mut CollaborationImportRequest,
+        edited: &Value,
+    ) -> StoreResult<()> {
+        let resident = self
+            .read_envelope(&request.document)?
+            .ok_or_else(|| not_stored(&request.document))?;
+        let mut replica = load_authoring_document(plan, &request.document, &resident.envelope)?;
+        request.base_frontier_base64 = replica.accepted_frontier_base64();
+        let block = self.allocate_peers(&request.actor, &request.document);
+        request.update_base64 = match retained_update(&resident, &request.operation_id) {
+            Some(retained) => retained,
+            None => replica
+                .set_peer(block.base)
+                .and_then(|()| replica.replace_document(edited))
+                .and_then(|()| {
+                    replica.export_incremental_update_base64(&request.base_frontier_base64)
+                })
+                .map_err(|error| replica_error(&request.document, error))?,
+        };
+        request.peer_nonces = vec![block.nonce];
+        Ok(())
+    }
+
+    /// Writes `edit`'s replacement of the text it read at its frontier, under
+    /// a peer allocated to its actor, and commits it as an import fenced on
+    /// that frontier: edits made since merge with it. Text other than what
+    /// the field held at the frontier is refused as
+    /// `collaboration_text_mismatch`. A retry of an edit the document still
+    /// retains is answered as a duplicate with the result it was accepted
+    /// with.
+    pub fn edit_text<E: From<StoreError>>(
+        &self,
+        plan: &'static GeneratedCollaborationEntitySpec,
+        edit: CollaborationTextEdit,
+        validate: impl Fn(&Value) -> Result<(), E>,
+    ) -> Result<CollaborationImportResult, E> {
+        let mut request = CollaborationImportRequest {
+            document: edit.document,
+            schema_version: plan.schema_version,
+            operation_id: edit.operation_id,
+            exchange_mode: CollaborationExchangeMode::Incremental,
+            base_frontier_base64: edit.frontier_base64,
+            update_base64: String::new(),
+            fence: ImportFence::Frontier,
+            actor: edit.actor,
+            peer_nonces: Vec::new(),
+            intent: edit.intent,
+        };
+        let replacement = TextReplacement {
+            field_path: &edit.field_path,
+            identities: &edit.identities,
+            read: &edit.read,
+            replacement: &edit.replacement,
+        };
+        match self.prepare_text_edit(plan, &mut request, replacement) {
+            Ok(()) => self.import_recognising(plan, request, Retried::ByPrincipal, validate),
+            Err(error) => Err(self.refuse(&request, ImportFailure::Store(error))),
+        }
+    }
+
+    /// Fills `request` with `replacement` prepared at its base frontier,
+    /// written under a peer allocated to its actor. An edit whose operation
+    /// the document retains is not prepared again: it carries the retained
+    /// update.
+    fn prepare_text_edit(
+        &self,
+        plan: &'static GeneratedCollaborationEntitySpec,
+        request: &mut CollaborationImportRequest,
+        replacement: TextReplacement<'_>,
+    ) -> StoreResult<()> {
+        let resident = self
+            .read_envelope(&request.document)?
+            .ok_or_else(|| not_stored(&request.document))?;
+        let block = self.allocate_peers(&request.actor, &request.document);
+        request.update_base64 = match retained_update(&resident, &request.operation_id) {
+            Some(retained) => retained,
+            None => Self::replica(plan, &request.document, &resident)?
+                .prepare_text_replacement_at_frontier(
+                    replacement.field_path,
+                    replacement.identities,
+                    &request.base_frontier_base64,
+                    replacement.read,
+                    replacement.replacement,
+                    block.base,
+                )
+                .map_err(|error| replica_error(&request.document, error))?,
+        };
+        request.peer_nonces = vec![block.nonce];
+        Ok(())
     }
 
     fn audit_refusal(
@@ -1332,6 +1526,7 @@ impl CollaborationService {
         &self,
         plan: &'static GeneratedCollaborationEntitySpec,
         request: &CollaborationImportRequest,
+        retried: Retried,
         validate: impl Fn(&Value) -> Result<(), E>,
     ) -> Result<CollaborationImportResult, ImportFailure<E>> {
         if request.schema_version != plan.schema_version {
@@ -1445,6 +1640,40 @@ impl CollaborationService {
                     .into())
                 }
             };
+            // A retry is answered with what its operation left, before
+            // anything is judged of it again.
+            if let Some(resident) = &read {
+                if let Some(retained) = resident
+                    .envelope
+                    .retained_operations
+                    .iter()
+                    .find(|operation| operation.operation_id == request.operation_id)
+                {
+                    let retry = match retried {
+                        Retried::ByUpdate => retained.update_sha256 == sha256_hex(&imported_update),
+                        Retried::ByPrincipal => retained.actor == request.actor,
+                    };
+                    if !retry {
+                        return Err(operation_id_collision(
+                            &request.document,
+                            &request.operation_id,
+                        )
+                        .into());
+                    }
+                    self.counters
+                        .duplicate_imports
+                        .fetch_add(1, Ordering::Relaxed);
+                    let authoring = Self::replica(plan, &request.document, resident)?;
+                    let materialized = Self::materialized(plan, &request.document, resident)?;
+                    return Ok(import_result(
+                        request,
+                        resident,
+                        &authoring,
+                        (*materialized).clone(),
+                        true,
+                    )?);
+                }
+            }
             let mut authoring = load_authoring_document(plan, &request.document, &current)?;
             // An edit descends from the document's one root, its seed. A
             // history built apart, as a re-seed leaves a client, is answered
@@ -1489,14 +1718,8 @@ impl CollaborationService {
             }
             let current_update = current.checkpoint_update(&request.document)?;
             let current_etag = collaboration_etag(&current_update);
-            // An operation already in the retained window was accepted: its
-            // retry is a duplicate, however far the document has moved since.
-            let already_accepted = current
-                .retained_operations
-                .iter()
-                .any(|operation| operation.operation_id == request.operation_id);
             if let ImportFence::Etag(expected_etag) = &request.fence {
-                if !already_accepted && *expected_etag != current_etag {
+                if *expected_etag != current_etag {
                     let current_document = authoring
                         .materialized_document(&current_etag)
                         .map_err(|error| replica_error(&request.document, error))?;
@@ -1646,7 +1869,6 @@ impl CollaborationService {
                     .map_err(|error| replica_error(&request.document, error))?;
                 (durable, value)
             };
-            let accepted_update = durable_update;
             let authoring = Arc::new(authoring);
             if let Some(held) = self
                 .residency
@@ -1658,29 +1880,13 @@ impl CollaborationService {
             {
                 held.offer(authoring.clone(), materialized.clone());
             }
-            let missing_update_base64 = authoring
-                .missing_update_base64(
-                    (request.exchange_mode == CollaborationExchangeMode::Incremental)
-                        .then_some(request.base_frontier_base64.as_str()),
-                    &request.update_base64,
-                )
-                .map_err(|error| replica_error(&request.document, error))?;
-            let debug = authoring.debug();
-            return Ok(CollaborationImportResult {
-                operation_id: request.operation_id.clone(),
-                duplicate,
-                schema_version: accepted.envelope.schema_version,
-                version: accepted.accepted.clone(),
-                accepted_frontier_base64: authoring.accepted_frontier_base64(),
-                missing_update_base64,
-                etag: collaboration_etag(&accepted_update),
+            return Ok(import_result(
+                request,
+                &accepted,
+                &authoring,
                 materialized,
-                generation: accepted.envelope.generation,
-                peer_id: debug.peer_id,
-                oplog_version: debug.oplog_version,
-                state_frontiers: debug.state_frontiers,
-                update_bytes: accepted_update.len(),
-            });
+                duplicate,
+            )?);
         }
         self.counters
             .commit_contention
@@ -2332,6 +2538,80 @@ fn load_authoring_document(
     .map_err(|error| replica_error(document, error))
 }
 
+/// The update of the operation `operation_id` that `resident` retains. An
+/// edit whose operation is retained is not prepared again: its import is
+/// recognised as a retry and answered with what the operation left.
+fn retained_update(resident: &Resident, operation_id: &str) -> Option<String> {
+    resident
+        .envelope
+        .retained_operations
+        .iter()
+        .find(|operation| operation.operation_id == operation_id)
+        .map(|operation| operation.update_base64.clone())
+}
+
+/// The refusal of an operation id an operation the import is not a retry of
+/// already holds.
+fn operation_id_collision(document: &CollaborationDocumentId, operation_id: &str) -> StoreError {
+    StoreError::invalid_request(format!(
+        "Collaboration operation id {operation_id:?} was reused for another operation."
+    ))
+    .with_data(serde_json::json!({
+        "code": "collaboration_operation_id_collision",
+        "entity": document.entity,
+        "resource_id": document.resource_id,
+        "operation_id": operation_id,
+    }))
+}
+
+/// What an import of `request` reports once `accepted` holds its operation:
+/// `authoring` and `materialized` are `accepted`'s replica and document.
+fn import_result(
+    request: &CollaborationImportRequest,
+    accepted: &Resident,
+    authoring: &CollaborationReplica,
+    materialized: Value,
+    duplicate: bool,
+) -> StoreResult<CollaborationImportResult> {
+    let accepted_update = accepted.envelope.checkpoint_update(&request.document)?;
+    let missing_update_base64 = authoring
+        .missing_update_base64(
+            (request.exchange_mode == CollaborationExchangeMode::Incremental)
+                .then_some(request.base_frontier_base64.as_str()),
+            &request.update_base64,
+        )
+        .map_err(|error| replica_error(&request.document, error))?;
+    let debug = authoring.debug();
+    Ok(CollaborationImportResult {
+        operation_id: request.operation_id.clone(),
+        duplicate,
+        schema_version: accepted.envelope.schema_version,
+        version: accepted.accepted.clone(),
+        accepted_frontier_base64: authoring.accepted_frontier_base64(),
+        missing_update_base64,
+        etag: collaboration_etag(&accepted_update),
+        materialized,
+        generation: accepted.envelope.generation,
+        peer_id: debug.peer_id,
+        oplog_version: debug.oplog_version,
+        state_frontiers: debug.state_frontiers,
+        update_bytes: accepted_update.len(),
+    })
+}
+
+/// The refusal of a read or edit of `document`, which is not stored.
+fn not_stored(document: &CollaborationDocumentId) -> StoreError {
+    StoreError::not_found(format!(
+        "No collaborative {} document exists for \"{}\".",
+        document.entity, document.resource_id
+    ))
+    .with_data(serde_json::json!({
+        "code": "collaboration_document_not_found",
+        "entity": document.entity,
+        "resource_id": document.resource_id,
+    }))
+}
+
 fn collaboration_etag(accepted_update: &[u8]) -> String {
     checkpoint_etag(&sha256_hex(accepted_update))
 }
@@ -2372,6 +2652,13 @@ fn replica_error(
             "resource_id": document.resource_id,
             "draft_retained": true,
         })),
+        error @ CollaborationReplicaError::TextCaptureMismatch => {
+            StoreError::invalid_request(error.to_string()).with_data(serde_json::json!({
+                "code": "collaboration_text_mismatch",
+                "entity": document.entity,
+                "resource_id": document.resource_id,
+            }))
+        }
         error @ CollaborationReplicaError::InvalidVersion { .. } => {
             StoreError::invalid_request(error.to_string()).with_data(serde_json::json!({
                 "code": "invalid_collaboration_version",

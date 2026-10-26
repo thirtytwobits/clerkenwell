@@ -23,6 +23,34 @@ names the contracts.
 - `ProjectionRegistry::new` takes the definition's `namespace` first, and
   `ProjectionRegistry::namespace` returns it (#43). The generated Rust model names it as the
   constant `NAMESPACE`.
+- `CollaborationDocumentRead` carries `accepted_frontier_base64`, the frontier a text edit names
+  as the state it read (#43).
+
+### Added
+
+- `CollaborationService::edit` and `edit_text` write a principal's edit under a peer allocated
+  to it, and commit it through `import` (#43):
+  - `edit` takes a `CollaborationDocumentEdit`, the whole document edited from the one read at
+    an etag, and writes the operations between the accepted document and it, fenced on the etag.
+    A document changed since is refused as a `collaboration_revision` conflict carrying the
+    accepted document and its etag.
+  - `edit_text` takes a `CollaborationTextEdit`, a replacement of the text one text field held
+    at a frontier, fenced on the frontier, so edits made since merge with it. Text other than
+    what the field held is refused as `collaboration_text_mismatch`.
+  - A retry of an edit the document still retains, by the principal that made it under the same
+    operation id, is answered as a duplicate with the result it was accepted with, whether it
+    arrives after the edit was accepted or while the edit is being committed. An operation id
+    another principal's retained operation holds is refused as
+    `collaboration_operation_id_collision`.
+  - An edit the store refuses is audited as a refused import, whether it is refused while its
+    operations are prepared or when they are imported.
+
+### Fixed
+
+- `CollaborationService::import` answers a retry of an operation the document retains as a
+  duplicate with what the operation left, whatever has been accepted since. The etag fence, the
+  field conflict policy and the application's validator judge an operation when it is first
+  accepted, and do not judge its retry.
 
 ## 0.10.0
 
