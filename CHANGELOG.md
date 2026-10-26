@@ -37,6 +37,10 @@ names the contracts.
   - `edit_text` takes a `CollaborationTextEdit`, a replacement of the text one text field held
     at a frontier, fenced on the frontier, so edits made since merge with it. Text other than
     what the field held is refused as `collaboration_text_mismatch`.
+  - A retry of an edit the document still retains, by the principal that made it under the same
+    operation id, is answered as a duplicate with the result it was accepted with. An operation
+    id another principal's retained operation holds is refused as
+    `collaboration_operation_id_collision`.
 
 ## 0.10.0
 

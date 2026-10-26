@@ -303,3 +303,104 @@ fn editing_a_document_that_is_not_stored_is_refused_as_not_found() {
 
     assert_eq!(refused.kind, StoreErrorKind::NotFound);
 }
+
+#[test]
+fn a_retried_edit_is_answered_with_the_result_it_was_accepted_with() {
+    let (service, heard) = seeded();
+    let read = read_note(&service);
+    let edit = body_edit(&read, &writer(), "edit-body", "Edited.");
+    let accepted = service
+        .edit(&NOTE_PLAN, edit.clone(), accept)
+        .expect("the edit");
+
+    let retried = service
+        .edit(&NOTE_PLAN, edit, accept)
+        .expect("the same edit again");
+
+    assert!(retried.duplicate);
+    assert_eq!(retried.etag, accepted.etag);
+    assert_eq!(retried.generation, accepted.generation);
+    assert_eq!(
+        heard.lock().unwrap().len(),
+        1,
+        "the retry announces nothing"
+    );
+}
+
+#[test]
+fn a_retried_edit_is_a_duplicate_however_far_the_document_has_moved() {
+    let (service, _) = seeded();
+    let read = read_note(&service);
+    let edit = body_edit(&read, &writer(), "edit-body", "Edited.");
+    service
+        .edit(&NOTE_PLAN, edit.clone(), accept)
+        .expect("the edit");
+    let after = read_note(&service);
+    service
+        .edit(
+            &NOTE_PLAN,
+            body_edit(&after, &operator(), "later", "Later."),
+            accept,
+        )
+        .expect("a later edit");
+    let moved = read_note(&service);
+
+    let retried = service
+        .edit(&NOTE_PLAN, edit, accept)
+        .expect("the first edit again");
+
+    assert!(retried.duplicate);
+    assert_eq!(read_note(&service), moved, "the retry changed nothing");
+}
+
+#[test]
+fn a_retried_text_edit_is_answered_with_the_result_it_was_accepted_with() {
+    let (service, heard) = seeded();
+    let read = read_note(&service);
+    let edit = text_edit(&read, &writer(), "writer-text", "Written.");
+    let accepted = service
+        .edit_text(&NOTE_PLAN, edit.clone(), accept)
+        .expect("the replacement");
+
+    let retried = service
+        .edit_text(&NOTE_PLAN, edit, accept)
+        .expect("the same replacement again");
+
+    assert!(retried.duplicate);
+    assert_eq!(retried.etag, accepted.etag);
+    assert_eq!(read_note(&service).document["body"], "Written.");
+    assert_eq!(
+        heard.lock().unwrap().len(),
+        1,
+        "the retry announces nothing"
+    );
+}
+
+#[test]
+fn an_edit_under_another_principals_operation_id_is_refused() {
+    let (service, _) = seeded();
+    let read = read_note(&service);
+    service
+        .edit(
+            &NOTE_PLAN,
+            body_edit(&read, &operator(), "shared-id", "Operated."),
+            accept,
+        )
+        .expect("the operator's edit");
+    let after = read_note(&service);
+
+    let refused = service
+        .edit(
+            &NOTE_PLAN,
+            body_edit(&after, &writer(), "shared-id", "Written."),
+            accept,
+        )
+        .expect_err("another principal's operation id");
+
+    assert_eq!(refused.kind, StoreErrorKind::InvalidRequest);
+    assert_eq!(
+        refusal_code(&refused),
+        Some("collaboration_operation_id_collision")
+    );
+    assert_eq!(read_note(&service), after);
+}

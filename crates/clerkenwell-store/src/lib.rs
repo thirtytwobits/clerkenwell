@@ -1307,7 +1307,9 @@ impl CollaborationService {
     /// document and it, under a peer allocated to its actor, and commits them
     /// as an import fenced on the etag the document was read at. A document
     /// changed since is refused as a `collaboration_revision` conflict
-    /// carrying the accepted document and its etag.
+    /// carrying the accepted document and its etag. A retry of an edit the
+    /// document still retains is answered as a duplicate with the result it
+    /// was accepted with.
     pub fn edit<E: From<StoreError>>(
         &self,
         plan: &'static GeneratedCollaborationEntitySpec,
@@ -1320,11 +1322,14 @@ impl CollaborationService {
         let mut replica = load_authoring_document(plan, &edit.document, &resident.envelope)?;
         let base_frontier_base64 = replica.accepted_frontier_base64();
         let block = self.allocate_peers(&edit.actor, &edit.document);
-        let update_base64 = replica
-            .set_peer(block.base)
-            .and_then(|()| replica.replace_document(&edit.edited))
-            .and_then(|()| replica.export_incremental_update_base64(&base_frontier_base64))
-            .map_err(|error| replica_error(&edit.document, error))?;
+        let update_base64 = match retained_edit(&resident, &edit.operation_id, &edit.actor)? {
+            Some(retained) => retained,
+            None => replica
+                .set_peer(block.base)
+                .and_then(|()| replica.replace_document(&edit.edited))
+                .and_then(|()| replica.export_incremental_update_base64(&base_frontier_base64))
+                .map_err(|error| replica_error(&edit.document, error))?,
+        };
         self.import(
             plan,
             CollaborationImportRequest {
@@ -1347,7 +1352,9 @@ impl CollaborationService {
     /// a peer allocated to its actor, and commits it as an import fenced on
     /// that frontier: edits made since merge with it. Text other than what
     /// the field held at the frontier is refused as
-    /// `collaboration_text_mismatch`.
+    /// `collaboration_text_mismatch`. A retry of an edit the document still
+    /// retains is answered as a duplicate with the result it was accepted
+    /// with.
     pub fn edit_text<E: From<StoreError>>(
         &self,
         plan: &'static GeneratedCollaborationEntitySpec,
@@ -1358,16 +1365,19 @@ impl CollaborationService {
             .read_envelope(&edit.document)?
             .ok_or_else(|| not_stored(&edit.document))?;
         let block = self.allocate_peers(&edit.actor, &edit.document);
-        let update_base64 = Self::replica(plan, &edit.document, &resident)?
-            .prepare_text_replacement_at_frontier(
-                &edit.field_path,
-                &edit.identities,
-                &edit.frontier_base64,
-                &edit.read,
-                &edit.replacement,
-                block.base,
-            )
-            .map_err(|error| replica_error(&edit.document, error))?;
+        let update_base64 = match retained_edit(&resident, &edit.operation_id, &edit.actor)? {
+            Some(retained) => retained,
+            None => Self::replica(plan, &edit.document, &resident)?
+                .prepare_text_replacement_at_frontier(
+                    &edit.field_path,
+                    &edit.identities,
+                    &edit.frontier_base64,
+                    &edit.read,
+                    &edit.replacement,
+                    block.base,
+                )
+                .map_err(|error| replica_error(&edit.document, error))?,
+        };
         self.import(
             plan,
             CollaborationImportRequest {
@@ -2443,6 +2453,38 @@ fn load_authoring_document(
         &update_base64,
     )
     .map_err(|error| replica_error(document, error))
+}
+
+/// The update of the operation `operation_id` that `resident` retains, when
+/// `actor` made it. An edit is written under a newly allocated peer, so a
+/// retry of one already accepted commits this update again, which the store
+/// accepts as a duplicate. An operation id another principal's retained
+/// operation holds is refused.
+fn retained_edit(
+    resident: &Resident,
+    operation_id: &str,
+    actor: &Principal,
+) -> StoreResult<Option<String>> {
+    let envelope = &resident.envelope;
+    let Some(retained) = envelope
+        .retained_operations
+        .iter()
+        .find(|operation| operation.operation_id == operation_id)
+    else {
+        return Ok(None);
+    };
+    if retained.actor != *actor {
+        return Err(StoreError::invalid_request(format!(
+            "Collaboration operation id {operation_id:?} is another principal's."
+        ))
+        .with_data(serde_json::json!({
+            "code": "collaboration_operation_id_collision",
+            "entity": envelope.entity,
+            "resource_id": envelope.resource_id,
+            "operation_id": operation_id,
+        })));
+    }
+    Ok(Some(retained.update_base64.clone()))
 }
 
 /// The refusal of a read or edit of `document`, which is not stored.
