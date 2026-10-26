@@ -385,6 +385,22 @@ pub fn decode_request<F: ProjectionFailure>(
     )
 }
 
+/// Makes `mutation` with `params` as `principal`, the principal the host
+/// authenticated the request as. It reads and changes no subscription: every
+/// connection publishes the change as an [`Accepted::Mutation`]. A failure
+/// reaches its client described by a [`ProjectionErrorEnvelope`] addressed to
+/// the mutation.
+pub async fn run_mutation<H: ProjectionHost>(
+    host: &H,
+    principal: &Principal,
+    mutation: &str,
+    params: Value,
+) -> Result<Modified<H::MutationResult>, H::Failure> {
+    execute_mutation(host, principal, mutation, params)
+        .await
+        .map_err(|failure| addressed(failure, ProjectionOperation::Mutate, Some(mutation)))
+}
+
 /// A command its host ran, for its connection to answer.
 #[derive(Debug, Clone, PartialEq)]
 pub struct RanCommand<C> {
@@ -914,19 +930,12 @@ where
     H: ProjectionHost,
     C: ProjectionConnection<H::Patch, Held<H::Delivery>>,
 {
-    let mutation = request.mutation;
-    if host.registry().mutation(&mutation).is_none() {
-        return Err(H::Failure::refused(ProjectionRefusal::new(
-            ProjectionErrorCode::UnknownMutation,
-            format!("Unknown mutation \"{mutation}\"."),
-            Some(json!({ "mutation": mutation })),
-        )));
-    }
     let principal = principal_of(connection).await;
+    let mutation = request.mutation;
     let Modified {
         result,
         modification,
-    } = host.mutate(&principal, &mutation, request.params).await?;
+    } = execute_mutation(host, &principal, &mutation, request.params).await?;
     let encoded = encode::<H, _>(&result)?;
     let accepted = Accepted::Mutation {
         mutation,
@@ -945,6 +954,22 @@ where
         events,
         accepted: Some(accepted),
     })
+}
+
+async fn execute_mutation<H: ProjectionHost>(
+    host: &H,
+    principal: &Principal,
+    mutation: &str,
+    params: Value,
+) -> Result<Modified<H::MutationResult>, H::Failure> {
+    if host.registry().mutation(mutation).is_none() {
+        return Err(H::Failure::refused(ProjectionRefusal::new(
+            ProjectionErrorCode::UnknownMutation,
+            format!("Unknown mutation \"{mutation}\"."),
+            Some(json!({ "mutation": mutation })),
+        )));
+    }
+    host.mutate(principal, mutation, params).await
 }
 
 async fn execute_command<H: ProjectionHost>(

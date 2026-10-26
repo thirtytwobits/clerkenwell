@@ -15,6 +15,11 @@
 //! published before it first. A command still running when its connection
 //! closes runs on, and its change reaches every other connection.
 //!
+//! The application makes a mutation, or runs a command, as a principal with
+//! [`ProjectionServer::mutate`] and [`ProjectionServer::command`]. Its change
+//! reaches every connection, and the command takes one of the server's
+//! command permits as a connection's does.
+//!
 //! [`ProjectionServer::shut_down`] stops the server in order: it refuses the
 //! commands and connections that arrive from then on, lets each running
 //! command finish and be answered, then closes every connection.
@@ -38,15 +43,20 @@ use clerkenwell_session::transport::{
 };
 use clerkenwell_session::{
     command_reply, decode_request, deliver_announcement, deliver_change, publish, publish_command,
-    resync_all, run_command, serve, Accepted, Announced, Held, ProjectionFailure, ProjectionHost,
-    ProjectionRefusal, ProjectionReply, ProjectionRequest, ProjectionSubscriptions, RanCommand,
+    resync_all, run_command, run_mutation, serve, Accepted, Announced, Held, Modified,
+    ProjectionFailure, ProjectionHost, ProjectionRefusal, ProjectionReply, ProjectionRequest,
+    ProjectionSubscriptions, RanCommand,
 };
 use futures_util::{FutureExt, SinkExt, StreamExt};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use tokio::sync::broadcast::error::RecvError;
-use tokio::sync::{broadcast, watch, Semaphore};
+use tokio::sync::{broadcast, oneshot, watch, Semaphore};
+
+/// The origin of a change no connection made. Connections are numbered from
+/// 1.
+const NO_CONNECTION: u64 = 0;
 
 const PARSE_ERROR: i64 = -32700;
 const INVALID_REQUEST: i64 = -32600;
@@ -399,7 +409,7 @@ where
             application,
             publications,
             commands: Arc::new(Semaphore::new(command_limit.get())),
-            connections: AtomicU64::new(1),
+            connections: AtomicU64::new(NO_CONNECTION + 1),
             lifecycle: Arc::new(watch::Sender::new(Lifecycle::default())),
             closing_at: Arc::new(AtomicU64::new(0)),
         })
@@ -407,6 +417,92 @@ where
 
     pub fn application(&self) -> &A {
         &self.application
+    }
+
+    /// Makes `mutation` with `params` as `principal`, as a mutation a
+    /// connection requests is made, and publishes its change to every
+    /// connection. The result is the mutation's, as the protocol encodes it.
+    pub async fn mutate(
+        &self,
+        principal: &Principal,
+        mutation: &str,
+        params: Value,
+    ) -> Result<Modified<Value>, RpcFailure> {
+        let Modified {
+            result,
+            modification,
+        } = AssertUnwindSafe(run_mutation(&self.application, principal, mutation, params))
+            .catch_unwind()
+            .await
+            .unwrap_or_else(|_| {
+                Err(refusal(
+                    ProjectionErrorCode::InternalError,
+                    "The request ended without a result.",
+                    ProjectionOperation::Mutate,
+                    Some(mutation),
+                ))
+            })?;
+        let made = Modified {
+            result: encoded(&result, ProjectionOperation::Mutate, mutation)?,
+            modification,
+        };
+        let change = Accepted::Mutation {
+            mutation: mutation.to_owned(),
+            result,
+            modification,
+        };
+        self.publications.send(
+            Publication::Served {
+                origin: NO_CONNECTION,
+                change,
+            },
+            |_| {},
+        );
+        Ok(made)
+    }
+
+    /// Runs `command` with `params` as `principal`, as a command a connection
+    /// requests is run: it takes one of the server's command permits, and is
+    /// refused as `rate_limit` beyond them and as `interrupted` once the
+    /// server is shutting down. Its outcome is published to every connection.
+    /// The command runs on when the caller stops waiting for it.
+    pub async fn command(
+        self: &Arc<Self>,
+        principal: &Principal,
+        command: &str,
+        params: Value,
+    ) -> Result<Modified<Value>, RpcFailure> {
+        let (answer, answered) = oneshot::channel();
+        let request = ProjectionCommandRequest {
+            command: command.to_owned(),
+            operation_id: None,
+            params,
+        };
+        let name = command.to_owned();
+        // No connection answers it, so it needs no ticket.
+        self.start(NO_CONNECTION, 0, principal, request, move |sent| {
+            let Publication::Ran { outcome, .. } = &sent.publication else {
+                unreachable!("a command's outcome is published as one");
+            };
+            let _ = answer.send(match outcome {
+                Ok(ran) => {
+                    encoded(&ran.result, ProjectionOperation::Command, &name).map(|result| {
+                        Modified {
+                            result,
+                            modification: ran.modification,
+                        }
+                    })
+                }
+                Err(failure) => Err(failure.clone()),
+            });
+        })?;
+        answered.await.unwrap_or_else(|_| {
+            Err(command_refusal(
+                ProjectionErrorCode::InternalError,
+                format!("The command \"{command}\" ended without a result."),
+                command,
+            ))
+        })
     }
 
     /// Shuts the server down. From now on it refuses every command as
@@ -525,7 +621,13 @@ where
                             Received::Answered(frames) => frames,
                             Received::Command { id, request } => {
                                 tickets += 1;
-                                match self.start(origin, tickets, &principal, request, &ran) {
+                                let (ticket, ran) = (tickets, Arc::clone(&ran));
+                                let answerable = move |sent: &Arc<Sent<PublicationOf<A>>>| {
+                                    ran.lock()
+                                        .unwrap_or_else(PoisonError::into_inner)
+                                        .insert(ticket, Arc::clone(sent));
+                                };
+                                match self.start(origin, ticket, &principal, request, answerable) {
                                     Ok(()) => {
                                         running.insert(tickets, id);
                                         continue;
@@ -582,18 +684,19 @@ where
         }
     }
 
-    /// Starts the command `request` names as `ticket` of the connection
-    /// `origin`, authenticated as `principal`, unless the server is shutting
-    /// down or is running as many commands as it allows. Once its host
-    /// returns, its outcome is published, and kept in `ran` until its
-    /// connection answers it.
+    /// Starts the command `request` names as `ticket` of `origin`, the
+    /// connection that requested it or [`NO_CONNECTION`], as `principal`,
+    /// unless the server
+    /// is shutting down or is running as many commands as it allows. Once its
+    /// host returns, its outcome is published, and handed to `ran` as it is
+    /// numbered, before a later connection starts after it.
     fn start(
         self: &Arc<Self>,
         origin: u64,
         ticket: u64,
         principal: &Principal,
         request: ProjectionCommandRequest,
-        ran: &RanCommands<A>,
+        ran: impl FnOnce(&Arc<Sent<PublicationOf<A>>>) + Send + 'static,
     ) -> Result<(), RpcFailure> {
         let Some(started) = Counted::take(&self.lifecycle, |state| &mut state.running) else {
             return Err(command_refusal(
@@ -611,7 +714,6 @@ where
         };
         let server = Arc::clone(self);
         let principal = principal.clone();
-        let ran = Arc::clone(ran);
         tokio::spawn(async move {
             let command = request.command.clone();
             let outcome = AssertUnwindSafe(run_command(&server.application, &principal, request))
@@ -630,11 +732,7 @@ where
                 ticket,
                 outcome,
             };
-            server.publications.send(publication, |sent| {
-                ran.lock()
-                    .unwrap_or_else(PoisonError::into_inner)
-                    .insert(ticket, Arc::clone(sent));
-            });
+            server.publications.send(publication, ran);
             // Published first, so the closing publication follows its outcome.
             drop(started);
         });
@@ -836,6 +934,22 @@ where
             .chain(events.iter().filter_map(notification))
             .collect()
     }
+}
+
+/// `result`, as the protocol encodes the result of `operation` `name`.
+fn encoded<R: Serialize>(
+    result: &R,
+    operation: ProjectionOperation,
+    name: &str,
+) -> Result<Value, RpcFailure> {
+    serde_json::to_value(result).map_err(|error| {
+        refusal(
+            ProjectionErrorCode::InternalError,
+            format!("The result of \"{name}\" could not be encoded: {error}"),
+            operation,
+            Some(name),
+        )
+    })
 }
 
 /// The refusal of the command `command`, addressed to it.

@@ -44,6 +44,13 @@ names the contracts.
     `collaboration_operation_id_collision`.
   - An edit the store refuses is audited as a refused import, whether it is refused while its
     operations are prepared or when they are imported.
+- `ProjectionServer::mutate` and `ProjectionServer::command` make a mutation, and run a command,
+  as a principal, and publish its change to every connection (#43). Each returns the result as
+  the protocol encodes it, with the number of the modification it saved. A command takes one of
+  the server's command permits, is refused as `rate_limit` beyond them and as `interrupted` once
+  the server is shutting down, and runs on when its caller stops waiting for it.
+- `clerkenwell_session::run_mutation` makes a mutation as a principal without a connection, as
+  `run_command` runs a command.
 
 ### Fixed
 
