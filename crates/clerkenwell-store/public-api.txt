@@ -38,6 +38,14 @@ field clerkenwell_store::CollaborationAuthoringState::replaces_held: bool
 field clerkenwell_store::CollaborationAuthoringState::schema_version: u32
 field clerkenwell_store::CollaborationAuthoringState::update_base64: String
 field clerkenwell_store::CollaborationAuthoringState::version: CollaborationVersion
+struct clerkenwell_store::CollaborationDocumentEdit
+derive clerkenwell_store::CollaborationDocumentEdit: Clone, Debug
+field clerkenwell_store::CollaborationDocumentEdit::actor: Principal
+field clerkenwell_store::CollaborationDocumentEdit::document: CollaborationDocumentId
+field clerkenwell_store::CollaborationDocumentEdit::edited: Value
+field clerkenwell_store::CollaborationDocumentEdit::etag: String
+field clerkenwell_store::CollaborationDocumentEdit::intent: Option<String>
+field clerkenwell_store::CollaborationDocumentEdit::operation_id: String
 struct clerkenwell_store::CollaborationDocumentId
 derive clerkenwell_store::CollaborationDocumentId: Clone, Debug, Eq, Hash, PartialEq
 field clerkenwell_store::CollaborationDocumentId::entity: String
@@ -59,6 +67,7 @@ field clerkenwell_store::CollaborationDocumentInspection::schema_version: u32
 field clerkenwell_store::CollaborationDocumentInspection::valid: bool
 struct clerkenwell_store::CollaborationDocumentRead
 derive clerkenwell_store::CollaborationDocumentRead: Clone, Debug, PartialEq
+field clerkenwell_store::CollaborationDocumentRead::accepted_frontier_base64: String
 field clerkenwell_store::CollaborationDocumentRead::document: Value
 field clerkenwell_store::CollaborationDocumentRead::summary: CollaborationDocumentSummary
 struct clerkenwell_store::CollaborationDocumentSummary
@@ -134,6 +143,8 @@ fn clerkenwell_store::CollaborationService::counters(&self) -> CollaborationRunt
 fn clerkenwell_store::CollaborationService::delete(&self, actor: &Principal, document: &CollaborationDocumentId) -> StoreResult<Option<CollaborationVersion>>
 fn clerkenwell_store::CollaborationService::detail(&self, plan: &'static GeneratedCollaborationEntitySpec, document: &CollaborationDocumentId) -> StoreResult<Option<Value>>
 fn clerkenwell_store::CollaborationService::discard_audit_before(&self, cutoff: SystemTime) -> StoreResult<usize>
+fn clerkenwell_store::CollaborationService::edit<E: From<StoreError>>(&self, plan: &'static GeneratedCollaborationEntitySpec, edit: CollaborationDocumentEdit, validate: impl Fn(&Value) -> Result<(), E>) -> Result<CollaborationImportResult, E>
+fn clerkenwell_store::CollaborationService::edit_text<E: From<StoreError>>(&self, plan: &'static GeneratedCollaborationEntitySpec, edit: CollaborationTextEdit, validate: impl Fn(&Value) -> Result<(), E>) -> Result<CollaborationImportResult, E>
 fn clerkenwell_store::CollaborationService::export_for_recovery(&self, actor: &Principal, document: &CollaborationDocumentId) -> StoreResult<Vec<u8>>
 fn clerkenwell_store::CollaborationService::import<E: From<StoreError>>(&self, plan: &'static GeneratedCollaborationEntitySpec, request: CollaborationImportRequest, validate: impl Fn(&Value) -> Result<(), E>) -> Result<CollaborationImportResult, E>
 fn clerkenwell_store::CollaborationService::inspect(&self, entity: Option<&str>, resource_id: Option<&str>, limit: Option<usize>) -> StoreResult<(Vec<CollaborationDocumentInspection>, bool)>
@@ -169,6 +180,17 @@ fn clerkenwell_store::CollaborationStores::register(&self, name: &str, storage: 
 fn clerkenwell_store::CollaborationStores::store(&self, name: &str) -> Option<CollaborationService>
 fn clerkenwell_store::CollaborationStores::store_or_register<P: CollaborationStoragePort + 'static>(&self, name: &str, storage: impl FnOnce() -> P) -> CollaborationService
 fn clerkenwell_store::CollaborationStores::stores(&self) -> Vec<(String, CollaborationService)>
+struct clerkenwell_store::CollaborationTextEdit
+derive clerkenwell_store::CollaborationTextEdit: Clone, Debug
+field clerkenwell_store::CollaborationTextEdit::actor: Principal
+field clerkenwell_store::CollaborationTextEdit::document: CollaborationDocumentId
+field clerkenwell_store::CollaborationTextEdit::field_path: String
+field clerkenwell_store::CollaborationTextEdit::frontier_base64: String
+field clerkenwell_store::CollaborationTextEdit::identities: HashMap<String, String>
+field clerkenwell_store::CollaborationTextEdit::intent: Option<String>
+field clerkenwell_store::CollaborationTextEdit::operation_id: String
+field clerkenwell_store::CollaborationTextEdit::read: String
+field clerkenwell_store::CollaborationTextEdit::replacement: String
 struct clerkenwell_store::CollaborationVersion
 derive clerkenwell_store::CollaborationVersion: Clone, Debug, Deserialize, Eq, Hash, PartialEq, Serialize
 fn clerkenwell_store::CollaborationVersion::covers(&self, other: &Self) -> bool

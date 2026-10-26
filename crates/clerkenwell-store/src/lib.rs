@@ -41,7 +41,7 @@ pub use peers::{PeerBlock, PeerKey, PEER_INDEX_BITS, PEER_KEY_MIN_BYTES};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::num::NonZeroU32;
 use std::sync::atomic::{AtomicU64, Ordering};
 #[cfg(test)]
@@ -161,6 +161,9 @@ impl CollaborationDocumentSummary {
 pub struct CollaborationDocumentRead {
     pub summary: CollaborationDocumentSummary,
     pub document: Value,
+    /// The frontier of the accepted state, which a text edit names as the
+    /// state it read.
+    pub accepted_frontier_base64: String,
 }
 
 /// One operation to commit over the envelope the service read.
@@ -266,6 +269,39 @@ pub struct CollaborationImportRequest {
     /// under.
     pub peer_nonces: Vec<String>,
     /// Why the principal made the change, as its client describes it.
+    pub intent: Option<String>,
+}
+
+/// A principal's edit of a whole document: the document as it read it at
+/// `etag`, edited.
+#[derive(Debug, Clone)]
+pub struct CollaborationDocumentEdit {
+    pub document: CollaborationDocumentId,
+    pub operation_id: String,
+    pub edited: Value,
+    /// The etag of the accepted state the document was read at.
+    pub etag: String,
+    pub actor: Principal,
+    /// Why the principal made the change.
+    pub intent: Option<String>,
+}
+
+/// A principal's replacement of the text it read in one text field.
+#[derive(Debug, Clone)]
+pub struct CollaborationTextEdit {
+    pub document: CollaborationDocumentId,
+    pub operation_id: String,
+    /// The text field's path in the plan.
+    pub field_path: String,
+    /// The identity of each keyed item on the field's path, by its variable.
+    pub identities: HashMap<String, String>,
+    /// The frontier of the accepted state the text was read at.
+    pub frontier_base64: String,
+    /// The text the field held at the frontier.
+    pub read: String,
+    pub replacement: String,
+    pub actor: Principal,
+    /// Why the principal made the change.
     pub intent: Option<String>,
 }
 
@@ -845,6 +881,8 @@ impl CollaborationService {
         };
         Ok(Some(CollaborationDocumentRead {
             document: (*Self::materialized(plan, document, &resident)?).clone(),
+            accepted_frontier_base64: Self::replica(plan, document, &resident)?
+                .accepted_frontier_base64(),
             summary: CollaborationDocumentSummary::of(&resident),
         }))
     }
@@ -1181,17 +1219,9 @@ impl CollaborationService {
         document: &CollaborationDocumentId,
         held: Option<CollaborationHeld<'_>>,
     ) -> StoreResult<CollaborationAuthoringState> {
-        let resident = self.read_envelope(document)?.ok_or_else(|| {
-            StoreError::not_found(format!(
-                "No collaborative {} document exists for \"{}\".",
-                document.entity, document.resource_id
-            ))
-            .with_data(serde_json::json!({
-                "code": "collaboration_document_not_found",
-                "entity": document.entity,
-                "resource_id": document.resource_id,
-            }))
-        })?;
+        let resident = self
+            .read_envelope(document)?
+            .ok_or_else(|| not_stored(document))?;
         // Building the replica checks the checkpoint the whole update is.
         let authoring = Self::replica(plan, document, &resident)?;
         let envelope = &resident.envelope;
@@ -1271,6 +1301,89 @@ impl CollaborationService {
                 Err(error)
             }
         }
+    }
+
+    /// Writes `edit`'s document as the operations between the accepted
+    /// document and it, under a peer allocated to its actor, and commits them
+    /// as an import fenced on the etag the document was read at. A document
+    /// changed since is refused as a `collaboration_revision` conflict
+    /// carrying the accepted document and its etag.
+    pub fn edit<E: From<StoreError>>(
+        &self,
+        plan: &'static GeneratedCollaborationEntitySpec,
+        edit: CollaborationDocumentEdit,
+        validate: impl Fn(&Value) -> Result<(), E>,
+    ) -> Result<CollaborationImportResult, E> {
+        let resident = self
+            .read_envelope(&edit.document)?
+            .ok_or_else(|| not_stored(&edit.document))?;
+        let mut replica = load_authoring_document(plan, &edit.document, &resident.envelope)?;
+        let base_frontier_base64 = replica.accepted_frontier_base64();
+        let block = self.allocate_peers(&edit.actor, &edit.document);
+        let update_base64 = replica
+            .set_peer(block.base)
+            .and_then(|()| replica.replace_document(&edit.edited))
+            .and_then(|()| replica.export_incremental_update_base64(&base_frontier_base64))
+            .map_err(|error| replica_error(&edit.document, error))?;
+        self.import(
+            plan,
+            CollaborationImportRequest {
+                document: edit.document,
+                schema_version: resident.envelope.schema_version,
+                operation_id: edit.operation_id,
+                exchange_mode: CollaborationExchangeMode::Incremental,
+                base_frontier_base64,
+                update_base64,
+                fence: ImportFence::Etag(edit.etag),
+                actor: edit.actor,
+                peer_nonces: vec![block.nonce],
+                intent: edit.intent,
+            },
+            validate,
+        )
+    }
+
+    /// Writes `edit`'s replacement of the text it read at its frontier, under
+    /// a peer allocated to its actor, and commits it as an import fenced on
+    /// that frontier: edits made since merge with it. Text other than what
+    /// the field held at the frontier is refused as
+    /// `collaboration_text_mismatch`.
+    pub fn edit_text<E: From<StoreError>>(
+        &self,
+        plan: &'static GeneratedCollaborationEntitySpec,
+        edit: CollaborationTextEdit,
+        validate: impl Fn(&Value) -> Result<(), E>,
+    ) -> Result<CollaborationImportResult, E> {
+        let resident = self
+            .read_envelope(&edit.document)?
+            .ok_or_else(|| not_stored(&edit.document))?;
+        let block = self.allocate_peers(&edit.actor, &edit.document);
+        let update_base64 = Self::replica(plan, &edit.document, &resident)?
+            .prepare_text_replacement_at_frontier(
+                &edit.field_path,
+                &edit.identities,
+                &edit.frontier_base64,
+                &edit.read,
+                &edit.replacement,
+                block.base,
+            )
+            .map_err(|error| replica_error(&edit.document, error))?;
+        self.import(
+            plan,
+            CollaborationImportRequest {
+                document: edit.document,
+                schema_version: resident.envelope.schema_version,
+                operation_id: edit.operation_id,
+                exchange_mode: CollaborationExchangeMode::Incremental,
+                base_frontier_base64: edit.frontier_base64,
+                update_base64,
+                fence: ImportFence::Frontier,
+                actor: edit.actor,
+                peer_nonces: vec![block.nonce],
+                intent: edit.intent,
+            },
+            validate,
+        )
     }
 
     fn audit_refusal(
@@ -2332,6 +2445,19 @@ fn load_authoring_document(
     .map_err(|error| replica_error(document, error))
 }
 
+/// The refusal of a read or edit of `document`, which is not stored.
+fn not_stored(document: &CollaborationDocumentId) -> StoreError {
+    StoreError::not_found(format!(
+        "No collaborative {} document exists for \"{}\".",
+        document.entity, document.resource_id
+    ))
+    .with_data(serde_json::json!({
+        "code": "collaboration_document_not_found",
+        "entity": document.entity,
+        "resource_id": document.resource_id,
+    }))
+}
+
 fn collaboration_etag(accepted_update: &[u8]) -> String {
     checkpoint_etag(&sha256_hex(accepted_update))
 }
@@ -2372,6 +2498,13 @@ fn replica_error(
             "resource_id": document.resource_id,
             "draft_retained": true,
         })),
+        error @ CollaborationReplicaError::TextCaptureMismatch => {
+            StoreError::invalid_request(error.to_string()).with_data(serde_json::json!({
+                "code": "collaboration_text_mismatch",
+                "entity": document.entity,
+                "resource_id": document.resource_id,
+            }))
+        }
         error @ CollaborationReplicaError::InvalidVersion { .. } => {
             StoreError::invalid_request(error.to_string()).with_data(serde_json::json!({
                 "code": "invalid_collaboration_version",
