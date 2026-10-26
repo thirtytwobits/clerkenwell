@@ -9,13 +9,17 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use clerkenwell_events::{ChangeEvent, ChangeKind, Principal};
+use clerkenwell_schema::{
+    GeneratedCollaborationConflict, GeneratedCollaborationEntitySpec,
+    GeneratedCollaborationFieldSpec, GeneratedCollaborationStorageKind,
+};
 use clerkenwell_store::testing::MemoryStorage;
 use clerkenwell_store::{
     CollaborationDocumentEdit, CollaborationDocumentId, CollaborationDocumentRead,
     CollaborationService, CollaborationTextEdit, StoreError, StoreErrorKind, StoreResult,
 };
 use serde_json::{json, Value};
-use support::{accept, key, operator, writer, NOTE_PLAN, PLANS, POLICY};
+use support::{accept, field, key, operator, writer, NOTE_PLAN, PLANS, POLICY};
 
 fn note() -> CollaborationDocumentId {
     CollaborationDocumentId::new("Note", "note-1")
@@ -403,4 +407,93 @@ fn an_edit_under_another_principals_operation_id_is_refused() {
         Some("collaboration_operation_id_collision")
     );
     assert_eq!(read_note(&service), after);
+}
+
+/// A draft whose body a writer replaces only from its current text.
+static DRAFT_FIELDS: &[GeneratedCollaborationFieldSpec] = &[
+    field(
+        "draft_id",
+        GeneratedCollaborationStorageKind::Scalar,
+        Some("draft"),
+        Some("draft_id"),
+        GeneratedCollaborationConflict::Immutable,
+    ),
+    field(
+        "body",
+        GeneratedCollaborationStorageKind::Text,
+        Some("body"),
+        None,
+        GeneratedCollaborationConflict::Explicit,
+    ),
+];
+static DRAFT_PLAN: GeneratedCollaborationEntitySpec = GeneratedCollaborationEntitySpec {
+    name: "Draft",
+    id_field: "draft_id",
+    schema_version: 1,
+    authoring_projection: "drafts.authoringState",
+    authoring_document: None,
+    authoring_store_params: &[],
+    import_mutation: "draft.importUpdate",
+    root_container: "draft",
+    fields: DRAFT_FIELDS,
+};
+static DRAFT_PLANS: &[GeneratedCollaborationEntitySpec] = &[DRAFT_PLAN];
+
+#[test]
+fn a_retried_text_edit_is_a_duplicate_after_a_later_edit_of_an_explicit_field() {
+    let draft = CollaborationDocumentId::new("Draft", "draft-1");
+    let service = CollaborationService::new(
+        MemoryStorage::default(),
+        DRAFT_PLANS,
+        POLICY,
+        key(),
+        "drafts",
+    );
+    service
+        .bootstrap(
+            &DRAFT_PLAN,
+            &draft,
+            &json!({ "draft_id": "draft-1", "body": "First." }),
+            accept,
+        )
+        .expect("bootstrap");
+    let read = |service: &CollaborationService| {
+        service
+            .read_document(&DRAFT_PLAN, &draft)
+            .expect("read")
+            .expect("the draft")
+    };
+    let replace = |read: &CollaborationDocumentRead, operation_id: &str, replacement: &str| {
+        CollaborationTextEdit {
+            document: draft.clone(),
+            operation_id: operation_id.to_owned(),
+            field_path: "body".to_owned(),
+            identities: HashMap::new(),
+            frontier_base64: read.accepted_frontier_base64.clone(),
+            read: read.document["body"].as_str().expect("a body").to_owned(),
+            replacement: replacement.to_owned(),
+            actor: writer(),
+            intent: None,
+        }
+    };
+    let first = replace(&read(&service), "second", "Second.");
+    let accepted = service
+        .edit_text(&DRAFT_PLAN, first.clone(), accept)
+        .expect("the first replacement");
+    service
+        .edit_text(
+            &DRAFT_PLAN,
+            replace(&read(&service), "third", "Third."),
+            accept,
+        )
+        .expect("a replacement from the text the first left");
+    let moved = read(&service);
+
+    let retried = service
+        .edit_text(&DRAFT_PLAN, first, accept)
+        .expect("the first replacement again");
+
+    assert!(retried.duplicate);
+    assert_eq!(retried.operation_id, accepted.operation_id);
+    assert_eq!(read(&service), moved, "the retry changed nothing");
 }

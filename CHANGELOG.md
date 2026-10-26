@@ -42,6 +42,12 @@ names the contracts.
     id another principal's retained operation holds is refused as
     `collaboration_operation_id_collision`.
 
+### Fixed
+
+- `CollaborationService::import` answers a retry of an operation the document retains as a
+  duplicate, whatever has been accepted since: the field conflict policy judges an operation
+  when it is first accepted, and its retry is not judged against later edits.
+
 ## 0.10.0
 
 ### Breaking

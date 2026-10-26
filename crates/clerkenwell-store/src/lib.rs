@@ -1651,7 +1651,10 @@ impl CollaborationService {
                         replica_error(&request.document, error)
                     })?;
             }
-            if request.exchange_mode == CollaborationExchangeMode::Incremental {
+            // An accepted operation was judged when it was accepted; judging
+            // its retry against edits made since would refuse it.
+            if request.exchange_mode == CollaborationExchangeMode::Incremental && !already_accepted
+            {
                 let conflicts = authoring
                     .policy_conflicts_for_incremental_update(
                         &request.base_frontier_base64,
