@@ -297,6 +297,14 @@ pub struct CollaborationDocumentEdit {
     pub intent: Option<String>,
 }
 
+/// The text a text edit replaces, and what replaces it.
+struct TextReplacement<'a> {
+    field_path: &'a str,
+    identities: &'a HashMap<String, String>,
+    read: &'a str,
+    replacement: &'a str,
+}
+
 /// A principal's replacement of the text it read in one text field.
 #[derive(Debug, Clone)]
 pub struct CollaborationTextEdit {
@@ -1282,12 +1290,20 @@ impl CollaborationService {
         retried: Retried,
         validate: impl Fn(&Value) -> Result<(), E>,
     ) -> Result<CollaborationImportResult, E> {
-        match self.import_internal(plan, &request, retried, validate) {
-            Ok(imported) => Ok(imported),
-            Err(ImportFailure::Store(error)) if error.kind == StoreErrorKind::Internal => {
-                Err(error.into())
-            }
-            Err(ImportFailure::Store(error)) => {
+        self.import_internal(plan, &request, retried, validate)
+            .map_err(|failure| self.refuse(&request, failure))
+    }
+
+    /// `failure` of `request`, audited as its refusal unless the store failed
+    /// internally. An import whose refusal cannot be audited fails.
+    fn refuse<E: From<StoreError>>(
+        &self,
+        request: &CollaborationImportRequest,
+        failure: ImportFailure<E>,
+    ) -> E {
+        match failure {
+            ImportFailure::Store(error) if error.kind == StoreErrorKind::Internal => error.into(),
+            ImportFailure::Store(error) => {
                 let data = error.data.as_ref();
                 let code = data
                     .and_then(|data| data["code"].as_str())
@@ -1308,12 +1324,16 @@ impl CollaborationService {
                             .collect()
                     })
                     .unwrap_or_default();
-                self.audit_refusal(&request, code, conflict_paths)?;
-                Err(error.into())
+                match self.audit_refusal(request, code, conflict_paths) {
+                    Ok(()) => error.into(),
+                    Err(unaudited) => unaudited.into(),
+                }
             }
-            Err(ImportFailure::Invalid(error)) => {
-                self.audit_refusal(&request, "collaboration_document_invalid", Vec::new())?;
-                Err(error)
+            ImportFailure::Invalid(error) => {
+                match self.audit_refusal(request, "collaboration_document_invalid", Vec::new()) {
+                    Ok(()) => error,
+                    Err(unaudited) => unaudited.into(),
+                }
             }
         }
     }
@@ -1331,37 +1351,52 @@ impl CollaborationService {
         edit: CollaborationDocumentEdit,
         validate: impl Fn(&Value) -> Result<(), E>,
     ) -> Result<CollaborationImportResult, E> {
+        let mut request = CollaborationImportRequest {
+            document: edit.document,
+            schema_version: plan.schema_version,
+            operation_id: edit.operation_id,
+            exchange_mode: CollaborationExchangeMode::Incremental,
+            base_frontier_base64: String::new(),
+            update_base64: String::new(),
+            fence: ImportFence::Etag(edit.etag),
+            actor: edit.actor,
+            peer_nonces: Vec::new(),
+            intent: edit.intent,
+        };
+        match self.prepare_edit(plan, &mut request, &edit.edited) {
+            Ok(()) => self.import_recognising(plan, request, Retried::ByPrincipal, validate),
+            Err(error) => Err(self.refuse(&request, ImportFailure::Store(error))),
+        }
+    }
+
+    /// Fills `request` with the operations between the accepted document and
+    /// `edited`, written under a peer allocated to its actor, and the
+    /// frontier they were written from. An edit whose operation the document
+    /// retains is not prepared again: it carries the retained update.
+    fn prepare_edit(
+        &self,
+        plan: &'static GeneratedCollaborationEntitySpec,
+        request: &mut CollaborationImportRequest,
+        edited: &Value,
+    ) -> StoreResult<()> {
         let resident = self
-            .read_envelope(&edit.document)?
-            .ok_or_else(|| not_stored(&edit.document))?;
-        let mut replica = load_authoring_document(plan, &edit.document, &resident.envelope)?;
-        let base_frontier_base64 = replica.accepted_frontier_base64();
-        let block = self.allocate_peers(&edit.actor, &edit.document);
-        let update_base64 = match retained_update(&resident, &edit.operation_id) {
+            .read_envelope(&request.document)?
+            .ok_or_else(|| not_stored(&request.document))?;
+        let mut replica = load_authoring_document(plan, &request.document, &resident.envelope)?;
+        request.base_frontier_base64 = replica.accepted_frontier_base64();
+        let block = self.allocate_peers(&request.actor, &request.document);
+        request.update_base64 = match retained_update(&resident, &request.operation_id) {
             Some(retained) => retained,
             None => replica
                 .set_peer(block.base)
-                .and_then(|()| replica.replace_document(&edit.edited))
-                .and_then(|()| replica.export_incremental_update_base64(&base_frontier_base64))
-                .map_err(|error| replica_error(&edit.document, error))?,
+                .and_then(|()| replica.replace_document(edited))
+                .and_then(|()| {
+                    replica.export_incremental_update_base64(&request.base_frontier_base64)
+                })
+                .map_err(|error| replica_error(&request.document, error))?,
         };
-        self.import_recognising(
-            plan,
-            CollaborationImportRequest {
-                document: edit.document,
-                schema_version: resident.envelope.schema_version,
-                operation_id: edit.operation_id,
-                exchange_mode: CollaborationExchangeMode::Incremental,
-                base_frontier_base64,
-                update_base64,
-                fence: ImportFence::Etag(edit.etag),
-                actor: edit.actor,
-                peer_nonces: vec![block.nonce],
-                intent: edit.intent,
-            },
-            Retried::ByPrincipal,
-            validate,
-        )
+        request.peer_nonces = vec![block.nonce];
+        Ok(())
     }
 
     /// Writes `edit`'s replacement of the text it read at its frontier, under
@@ -1377,40 +1412,59 @@ impl CollaborationService {
         edit: CollaborationTextEdit,
         validate: impl Fn(&Value) -> Result<(), E>,
     ) -> Result<CollaborationImportResult, E> {
+        let mut request = CollaborationImportRequest {
+            document: edit.document,
+            schema_version: plan.schema_version,
+            operation_id: edit.operation_id,
+            exchange_mode: CollaborationExchangeMode::Incremental,
+            base_frontier_base64: edit.frontier_base64,
+            update_base64: String::new(),
+            fence: ImportFence::Frontier,
+            actor: edit.actor,
+            peer_nonces: Vec::new(),
+            intent: edit.intent,
+        };
+        let replacement = TextReplacement {
+            field_path: &edit.field_path,
+            identities: &edit.identities,
+            read: &edit.read,
+            replacement: &edit.replacement,
+        };
+        match self.prepare_text_edit(plan, &mut request, replacement) {
+            Ok(()) => self.import_recognising(plan, request, Retried::ByPrincipal, validate),
+            Err(error) => Err(self.refuse(&request, ImportFailure::Store(error))),
+        }
+    }
+
+    /// Fills `request` with `replacement` prepared at its base frontier,
+    /// written under a peer allocated to its actor. An edit whose operation
+    /// the document retains is not prepared again: it carries the retained
+    /// update.
+    fn prepare_text_edit(
+        &self,
+        plan: &'static GeneratedCollaborationEntitySpec,
+        request: &mut CollaborationImportRequest,
+        replacement: TextReplacement<'_>,
+    ) -> StoreResult<()> {
         let resident = self
-            .read_envelope(&edit.document)?
-            .ok_or_else(|| not_stored(&edit.document))?;
-        let block = self.allocate_peers(&edit.actor, &edit.document);
-        let update_base64 = match retained_update(&resident, &edit.operation_id) {
+            .read_envelope(&request.document)?
+            .ok_or_else(|| not_stored(&request.document))?;
+        let block = self.allocate_peers(&request.actor, &request.document);
+        request.update_base64 = match retained_update(&resident, &request.operation_id) {
             Some(retained) => retained,
-            None => Self::replica(plan, &edit.document, &resident)?
+            None => Self::replica(plan, &request.document, &resident)?
                 .prepare_text_replacement_at_frontier(
-                    &edit.field_path,
-                    &edit.identities,
-                    &edit.frontier_base64,
-                    &edit.read,
-                    &edit.replacement,
+                    replacement.field_path,
+                    replacement.identities,
+                    &request.base_frontier_base64,
+                    replacement.read,
+                    replacement.replacement,
                     block.base,
                 )
-                .map_err(|error| replica_error(&edit.document, error))?,
+                .map_err(|error| replica_error(&request.document, error))?,
         };
-        self.import_recognising(
-            plan,
-            CollaborationImportRequest {
-                document: edit.document,
-                schema_version: resident.envelope.schema_version,
-                operation_id: edit.operation_id,
-                exchange_mode: CollaborationExchangeMode::Incremental,
-                base_frontier_base64: edit.frontier_base64,
-                update_base64,
-                fence: ImportFence::Frontier,
-                actor: edit.actor,
-                peer_nonces: vec![block.nonce],
-                intent: edit.intent,
-            },
-            Retried::ByPrincipal,
-            validate,
-        )
+        request.peer_nonces = vec![block.nonce];
+        Ok(())
     }
 
     fn audit_refusal(

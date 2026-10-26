@@ -15,10 +15,10 @@ use clerkenwell_schema::{
 };
 use clerkenwell_store::testing::MemoryStorage;
 use clerkenwell_store::{
-    CollaborationAuditQuery, CollaborationAuditRecord, CollaborationDocumentEdit,
-    CollaborationDocumentId, CollaborationDocumentRead, CollaborationImportResult,
-    CollaborationService, CollaborationStoragePort, CollaborationTextEdit, StoreError,
-    StoreErrorKind, StoreResult, StoredEnvelope,
+    CollaborationAuditEvent, CollaborationAuditQuery, CollaborationAuditRecord,
+    CollaborationDocumentEdit, CollaborationDocumentId, CollaborationDocumentRead,
+    CollaborationImportResult, CollaborationService, CollaborationStoragePort,
+    CollaborationTextEdit, StoreError, StoreErrorKind, StoreResult, StoredEnvelope,
 };
 use serde_json::{json, Value};
 use support::{accept, field, key, operator, writer, NOTE_PLAN, PLANS, POLICY};
@@ -681,4 +681,93 @@ fn a_text_edit_overlapping_its_own_retry_is_not_judged_merged_with_it() {
     assert!(outer.duplicate);
     assert_eq!(after.document["body"], "Written.");
     assert_eq!(heard.len(), 1, "one edit is committed");
+}
+
+/// The refusals `service` has audited, as the principal, operation id and
+/// code of each.
+fn audited_refusals(service: &CollaborationService) -> Vec<(Principal, String, String)> {
+    service
+        .audit(&CollaborationAuditQuery::default())
+        .expect("audit")
+        .into_iter()
+        .filter_map(|record| match record.event {
+            CollaborationAuditEvent::Refusal {
+                operation_id, code, ..
+            } => Some((record.actor, operation_id, code)),
+            CollaborationAuditEvent::Recovery { .. } => None,
+        })
+        .collect()
+}
+
+#[test]
+fn an_edit_refused_before_its_operations_are_prepared_is_audited() {
+    let (service, _) = seeded();
+    let read = read_note(&service);
+    let mut absent = body_edit(&read, &writer(), "absent", "Edited.");
+    absent.document = CollaborationDocumentId::new("Note", "note-2");
+    let mut malformed = body_edit(&read, &writer(), "malformed", "Edited.");
+    malformed.edited["body"] = json!(7);
+    let mut misread = text_edit(&read, &operator(), "misread", "Written.");
+    misread.read = "Not what was read.".to_owned();
+
+    service
+        .edit(&NOTE_PLAN, absent, accept)
+        .expect_err("no such note");
+    service
+        .edit(&NOTE_PLAN, malformed, accept)
+        .expect_err("a body that is not text");
+    service
+        .edit_text(&NOTE_PLAN, misread, accept)
+        .expect_err("text other than what was read");
+
+    assert_eq!(
+        audited_refusals(&service),
+        [
+            (
+                writer(),
+                "absent".to_owned(),
+                "collaboration_document_not_found".to_owned()
+            ),
+            (
+                writer(),
+                "malformed".to_owned(),
+                "invalid_collaboration_update".to_owned()
+            ),
+            (
+                operator(),
+                "misread".to_owned(),
+                "collaboration_text_mismatch".to_owned()
+            ),
+        ]
+    );
+}
+
+#[test]
+fn an_edit_refused_when_it_is_imported_is_audited_once() {
+    let (service, _) = seeded();
+    let stale = read_note(&service);
+    service
+        .edit(
+            &NOTE_PLAN,
+            body_edit(&stale, &operator(), "first", "First."),
+            accept,
+        )
+        .expect("the first edit");
+
+    service
+        .edit(
+            &NOTE_PLAN,
+            body_edit(&stale, &writer(), "stale", "Second."),
+            accept,
+        )
+        .expect_err("an edit of a document changed since it was read");
+
+    assert_eq!(
+        audited_refusals(&service),
+        [(
+            writer(),
+            "stale".to_owned(),
+            "collaboration_revision".to_owned()
+        )]
+    );
 }

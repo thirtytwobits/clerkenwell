@@ -42,6 +42,8 @@ names the contracts.
     arrives after the edit was accepted or while the edit is being committed. An operation id
     another principal's retained operation holds is refused as
     `collaboration_operation_id_collision`.
+  - An edit the store refuses is audited as a refused import, whether it is refused while its
+    operations are prepared or when they are imported.
 
 ### Fixed
 
