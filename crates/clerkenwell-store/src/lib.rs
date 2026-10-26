@@ -166,6 +166,17 @@ pub struct CollaborationDocumentRead {
     pub accepted_frontier_base64: String,
 }
 
+/// How a commit recognises a retry of an operation the envelope retains.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Retried {
+    /// A retry carries the update its operation was accepted with.
+    ByUpdate,
+    /// A retry is prepared again under a newly allocated peer, so it differs
+    /// from its operation's update: the operation id names it, as long as its
+    /// principal made the operation.
+    ByPrincipal,
+}
+
 /// One operation to commit over the envelope the service read.
 #[derive(Debug, Clone)]
 struct CollaborationCommit {
@@ -177,6 +188,7 @@ struct CollaborationCommit {
     operation_id: String,
     actor: Principal,
     intent: Option<String>,
+    retried: Retried,
     /// The peers the operation holds operations of that the envelope it is
     /// committed over may not bind yet.
     peers: Vec<u64>,
@@ -1042,7 +1054,13 @@ impl CollaborationService {
                 .iter()
                 .find(|operation| operation.operation_id == operation_id)
             {
-                if existing.update_sha256 == sha256_hex(&commit.imported_update) {
+                let retry = match commit.retried {
+                    Retried::ByUpdate => {
+                        existing.update_sha256 == sha256_hex(&commit.imported_update)
+                    }
+                    Retried::ByPrincipal => existing.actor == commit.actor,
+                };
+                if retry {
                     return Ok(CollaborationCommitOutcome::Duplicate(read.clone()));
                 }
                 return Err(StoreError::invalid_request(format!(
@@ -1267,7 +1285,19 @@ impl CollaborationService {
         request: CollaborationImportRequest,
         validate: impl Fn(&Value) -> Result<(), E>,
     ) -> Result<CollaborationImportResult, E> {
-        match self.import_internal(plan, &request, validate) {
+        self.import_recognising(plan, request, Retried::ByUpdate, validate)
+    }
+
+    /// Commits `request` as `import` does, recognising a retry as `retried`
+    /// says.
+    fn import_recognising<E: From<StoreError>>(
+        &self,
+        plan: &'static GeneratedCollaborationEntitySpec,
+        request: CollaborationImportRequest,
+        retried: Retried,
+        validate: impl Fn(&Value) -> Result<(), E>,
+    ) -> Result<CollaborationImportResult, E> {
+        match self.import_internal(plan, &request, retried, validate) {
             Ok(imported) => Ok(imported),
             Err(ImportFailure::Store(error)) if error.kind == StoreErrorKind::Internal => {
                 Err(error.into())
@@ -1330,7 +1360,7 @@ impl CollaborationService {
                 .and_then(|()| replica.export_incremental_update_base64(&base_frontier_base64))
                 .map_err(|error| replica_error(&edit.document, error))?,
         };
-        self.import(
+        self.import_recognising(
             plan,
             CollaborationImportRequest {
                 document: edit.document,
@@ -1344,6 +1374,7 @@ impl CollaborationService {
                 peer_nonces: vec![block.nonce],
                 intent: edit.intent,
             },
+            Retried::ByPrincipal,
             validate,
         )
     }
@@ -1378,7 +1409,7 @@ impl CollaborationService {
                 )
                 .map_err(|error| replica_error(&edit.document, error))?,
         };
-        self.import(
+        self.import_recognising(
             plan,
             CollaborationImportRequest {
                 document: edit.document,
@@ -1392,6 +1423,7 @@ impl CollaborationService {
                 peer_nonces: vec![block.nonce],
                 intent: edit.intent,
             },
+            Retried::ByPrincipal,
             validate,
         )
     }
@@ -1455,6 +1487,7 @@ impl CollaborationService {
         &self,
         plan: &'static GeneratedCollaborationEntitySpec,
         request: &CollaborationImportRequest,
+        retried: Retried,
         validate: impl Fn(&Value) -> Result<(), E>,
     ) -> Result<CollaborationImportResult, ImportFailure<E>> {
         if request.schema_version != plan.schema_version {
@@ -1739,6 +1772,7 @@ impl CollaborationService {
                     operation_id: request.operation_id.clone(),
                     actor: request.actor.clone(),
                     intent: request.intent.clone(),
+                    retried,
                     peers: new_peers.clone(),
                     imported_update: imported_update.clone(),
                     has_new_operations: before_import != authoring.accepted_frontier_base64(),
@@ -2352,6 +2386,7 @@ impl CollaborationService {
                     operation_id,
                     actor: self.system(),
                     intent: None,
+                    retried: Retried::ByUpdate,
                     peers,
                     imported_update: accepted_update.clone(),
                     has_new_operations: true,
@@ -2396,6 +2431,7 @@ impl CollaborationService {
                     operation_id: operation_id.clone(),
                     actor: self.system(),
                     intent: None,
+                    retried: Retried::ByUpdate,
                     peers: peers.clone(),
                     imported_update: accepted_update.clone(),
                     has_new_operations: true,

@@ -15,8 +15,10 @@ use clerkenwell_schema::{
 };
 use clerkenwell_store::testing::MemoryStorage;
 use clerkenwell_store::{
-    CollaborationDocumentEdit, CollaborationDocumentId, CollaborationDocumentRead,
-    CollaborationService, CollaborationTextEdit, StoreError, StoreErrorKind, StoreResult,
+    CollaborationAuditQuery, CollaborationAuditRecord, CollaborationDocumentEdit,
+    CollaborationDocumentId, CollaborationDocumentRead, CollaborationImportResult,
+    CollaborationService, CollaborationStoragePort, CollaborationTextEdit, StoreError,
+    StoreErrorKind, StoreResult, StoredEnvelope,
 };
 use serde_json::{json, Value};
 use support::{accept, field, key, operator, writer, NOTE_PLAN, PLANS, POLICY};
@@ -496,4 +498,161 @@ fn a_retried_text_edit_is_a_duplicate_after_a_later_edit_of_an_explicit_field() 
     assert!(retried.duplicate);
     assert_eq!(retried.operation_id, accepted.operation_id);
     assert_eq!(read(&service), moved, "the retry changed nothing");
+}
+
+/// Work a test runs in the middle of a commit.
+type Interposed = Box<dyn FnOnce() + Send>;
+
+/// A port that runs its interposed work the first time it is asked to swap
+/// an envelope, before it swaps, as a writer whose commit lands between
+/// another's read and its swap.
+#[derive(Clone, Default)]
+struct Overlapping {
+    storage: MemoryStorage,
+    interposed: Arc<Mutex<Option<Interposed>>>,
+}
+
+impl std::fmt::Debug for Overlapping {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_tuple("Overlapping")
+            .field(&self.storage)
+            .finish()
+    }
+}
+
+impl CollaborationStoragePort for Overlapping {
+    fn source(&self, document: &CollaborationDocumentId) -> String {
+        self.storage.source(document)
+    }
+
+    fn sources(&self, entity: &str) -> StoreResult<Vec<String>> {
+        self.storage.sources(entity)
+    }
+
+    fn read(&self, source: &str) -> StoreResult<Option<StoredEnvelope>> {
+        self.storage.read(source)
+    }
+
+    fn stamp(&self, source: &str) -> StoreResult<Option<String>> {
+        self.storage.stamp(source)
+    }
+
+    fn compare_and_swap(
+        &self,
+        document: &CollaborationDocumentId,
+        expected: Option<&str>,
+        bytes: &[u8],
+    ) -> StoreResult<Option<String>> {
+        let interposed = self.interposed.lock().unwrap().take();
+        if let Some(interposed) = interposed {
+            interposed();
+        }
+        self.storage.compare_and_swap(document, expected, bytes)
+    }
+
+    fn compare_and_remove(
+        &self,
+        document: &CollaborationDocumentId,
+        expected: &str,
+    ) -> StoreResult<bool> {
+        self.storage.compare_and_remove(document, expected)
+    }
+
+    fn preserve(
+        &self,
+        document: &CollaborationDocumentId,
+        label: &str,
+        bytes: &[u8],
+    ) -> StoreResult<String> {
+        self.storage.preserve(document, label, bytes)
+    }
+
+    fn append_audit(&self, record: &CollaborationAuditRecord) -> StoreResult<()> {
+        self.storage.append_audit(record)
+    }
+
+    fn audit(&self, query: &CollaborationAuditQuery) -> StoreResult<Vec<CollaborationAuditRecord>> {
+        self.storage.audit(query)
+    }
+
+    fn discard_audit_before(&self, unix_ms: u128) -> StoreResult<usize> {
+        self.storage.discard_audit_before(unix_ms)
+    }
+}
+
+/// A call a test makes of the store, given the note as seeded.
+type Call = dyn Fn(&CollaborationService, &CollaborationDocumentRead) -> StoreResult<CollaborationImportResult>
+    + Send
+    + Sync;
+
+/// Runs `call` on the seeded note twice at once: the second time between the
+/// first's read of the note and its swap. Returns the first call's result,
+/// the note it leaves, and everything announced.
+fn overlapped(
+    call: Arc<Call>,
+) -> (
+    StoreResult<CollaborationImportResult>,
+    CollaborationDocumentRead,
+    Vec<ChangeEvent>,
+) {
+    let port = Overlapping::default();
+    let service = CollaborationService::new(port.clone(), PLANS, POLICY, key(), "notes");
+    service
+        .bootstrap(
+            &NOTE_PLAN,
+            &note(),
+            &json!({ "note_id": "note-1", "body": "Seeded.", "etag": "" }),
+            accept,
+        )
+        .expect("bootstrap");
+    let seed = read_note(&service);
+    let heard = Arc::new(Mutex::new(Vec::new()));
+    let log = heard.clone();
+    service
+        .changes()
+        .listen(move |change| log.lock().unwrap().push(change.clone()));
+    let (inner, overlapping, inner_seed) = (service.clone(), call.clone(), seed.clone());
+    *port.interposed.lock().unwrap() = Some(Box::new(move || {
+        overlapping(&inner, &inner_seed).expect("the overlapping call");
+    }));
+
+    let outer = call(&service, &seed);
+
+    let heard = heard.lock().unwrap().clone();
+    (outer, read_note(&service), heard)
+}
+
+#[test]
+fn an_edit_overlapping_its_own_retry_is_answered_as_a_duplicate() {
+    let (outer, after, heard) = overlapped(Arc::new(|service, seed| {
+        service.edit(
+            &NOTE_PLAN,
+            body_edit(seed, &writer(), "edit-body", "Edited."),
+            accept,
+        )
+    }));
+
+    let outer = outer.expect("the call the retry overlapped");
+    assert!(outer.duplicate);
+    assert_eq!(after.document["body"], "Edited.");
+    assert_eq!(outer.etag, after.summary.etag);
+    assert_eq!(heard.len(), 1, "one edit is committed");
+}
+
+#[test]
+fn a_text_edit_overlapping_its_own_retry_is_answered_as_a_duplicate() {
+    let (outer, after, heard) = overlapped(Arc::new(|service, seed| {
+        service.edit_text(
+            &NOTE_PLAN,
+            text_edit(seed, &writer(), "writer-text", "Written."),
+            accept,
+        )
+    }));
+
+    let outer = outer.expect("the call the retry overlapped");
+    assert!(outer.duplicate);
+    assert_eq!(after.document["body"], "Written.");
+    assert_eq!(outer.etag, after.summary.etag);
+    assert_eq!(heard.len(), 1, "one edit is committed");
 }

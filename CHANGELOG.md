@@ -38,8 +38,9 @@ names the contracts.
     at a frontier, fenced on the frontier, so edits made since merge with it. Text other than
     what the field held is refused as `collaboration_text_mismatch`.
   - A retry of an edit the document still retains, by the principal that made it under the same
-    operation id, is answered as a duplicate with the result it was accepted with. An operation
-    id another principal's retained operation holds is refused as
+    operation id, is answered as a duplicate with the result it was accepted with, whether it
+    arrives after the edit was accepted or while the edit is being committed. An operation id
+    another principal's retained operation holds is refused as
     `collaboration_operation_id_collision`.
 
 ### Fixed
