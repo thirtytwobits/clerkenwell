@@ -51,6 +51,8 @@ names the contracts.
   the server is shutting down, and runs on when its caller stops waiting for it.
 - `clerkenwell_session::run_mutation` makes a mutation as a principal without a connection, as
   `run_command` runs a command.
+- `Conformance::document_types` checks documents with the project's `tsc` program, so it runs in
+  a project on TypeScript 7 as well as 5.
 
 ### Fixed
 

@@ -8,10 +8,12 @@
  * corpus, holds named replicas of `@clerkenwell/client/replica`, and answers each
  * JSON request line on standard input with one JSON response line on standard
  * output: `{"ok": true, "value": ...}` or `{"ok": false, "error": "..."}`.
- * Its `typeCheck` operation imports the project's `typescript`.
+ * Its `typeCheck` operation runs the project's `tsc` program.
  */
-import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { existsSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
+import { createRequire } from "node:module";
 import path from "node:path";
 import { createInterface } from "node:readline";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -121,19 +123,54 @@ function clientVersion(): string {
   }
 }
 
+/** The project's `tsc` program. */
+function tscProgram(): string {
+  const manifestPath = createRequire(import.meta.url).resolve("typescript/package.json");
+  const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as { readonly bin?: { readonly tsc?: string } };
+  if (manifest.bin?.tsc === undefined) {
+    throw new Error(`${manifestPath} declares no tsc program.`);
+  }
+  return path.join(path.dirname(manifestPath), manifest.bin.tsc);
+}
+
 /**
- * The TypeScript compiler's diagnostics for `documents`, each declared as a
- * value of its entity's `CollaborationDocument` in the generated plans module,
- * compiled under the export `conditions`.
+ * The diagnostics `tsc` printed with `--pretty false`, each with the file it
+ * names, if it names one. A line in no diagnostic's shape is a diagnostic of
+ * its own.
  */
-async function typeCheck(
+function tscDiagnostics(output: string): { file?: string; line?: number; message: string }[] {
+  const diagnostics: { file?: string; line?: number; message: string }[] = [];
+  for (const line of output.split(/\r?\n/)) {
+    const located = /^(.+)\((\d+),\d+\): error TS\d+: (.*)$/.exec(line);
+    const unlocated = /^error TS\d+: (.*)$/.exec(line);
+    const last = diagnostics.at(-1);
+    if (located !== null) {
+      diagnostics.push({ file: located[1], line: Number(located[2]), message: located[3] ?? "" });
+    } else if (unlocated !== null) {
+      diagnostics.push({ message: unlocated[1] ?? "" });
+    } else if (/^\s/.test(line) && last !== undefined) {
+      last.message += `\n${line}`;
+    } else if (line.trim() !== "") {
+      diagnostics.push({ message: line });
+    }
+  }
+  return diagnostics;
+}
+
+/**
+ * The project's TypeScript compiler's diagnostics for `documents`, each
+ * declared as a value of its entity's `CollaborationDocument` in the generated
+ * plans module, compiled under the export `conditions`. The compiler runs as
+ * the project's `tsc` program.
+ */
+function typeCheck(
   documents: readonly EntityDocument[],
   conditions: readonly string[]
-): Promise<string[]> {
-  const ts = (await import("typescript")).default;
+): string[] {
   const script = fileURLToPath(import.meta.url);
   const directory = path.dirname(script);
   const checked = path.join(directory, `${path.basename(script, ".mts")}-documents.mts`);
+  const project = path.join(directory, `${path.basename(script, ".mts")}-documents.tsconfig.json`);
   const relative = path.relative(directory, plansPath).split(path.sep).join("/").replace(/\.ts$/, ".js");
   const specifier = relative.startsWith(".") ? relative : `./${relative}`;
   writeFileSync(checked, [
@@ -141,43 +178,44 @@ async function typeCheck(
     ...documents.map(({ entity, document }, index) =>
       `export const document${index}: CollaborationDocument<${JSON.stringify(entity)}> = ${JSON.stringify(document, null, 2)};`)
   ].join("\n"));
-  try {
-    const program = ts.createProgram([checked], {
+  writeFileSync(project, JSON.stringify({
+    compilerOptions: {
       strict: true,
       noEmit: true,
       skipLibCheck: true,
-      target: ts.ScriptTarget.ES2022,
-      module: ts.ModuleKind.NodeNext,
-      moduleResolution: ts.ModuleResolutionKind.NodeNext,
+      target: "ES2022",
+      module: "NodeNext",
+      moduleResolution: "NodeNext",
       customConditions: [...conditions],
-      lib: ["lib.es2023.d.ts", "lib.dom.d.ts"],
+      lib: ["ES2023", "DOM"],
       types: []
-    });
-    const files = [checked, plansPath].map((file) => {
-      const source = program.getSourceFile(file);
-      if (source === undefined) {
-        throw new Error(`The TypeScript program holds no ${file}.`);
+    },
+    files: [checked]
+  }, null, 2));
+  try {
+    const run = spawnSync(process.execPath, [tscProgram(), "--project", project, "--pretty", "false"], { encoding: "utf8" });
+    if (run.error !== undefined) {
+      throw run.error;
+    }
+    const diagnostics = tscDiagnostics(run.stdout);
+    if (run.status !== 0 && diagnostics.length === 0) {
+      throw new Error(`tsc exited with ${run.status ?? run.signal}: ${run.stderr}`);
+    }
+    const reported = new Map([checked, plansPath, project].map((file) => [realpathSync(file), file]));
+    return diagnostics.flatMap(({ file, line, message }) => {
+      if (file === undefined || line === undefined) {
+        return [message];
       }
-      return source;
-    });
-    return [
-      ...program.getOptionsDiagnostics(),
-      ...program.getGlobalDiagnostics(),
-      ...files.flatMap((file) => [
-        ...program.getSyntacticDiagnostics(file),
-        ...program.getSemanticDiagnostics(file)
-      ])
-    ].map((diagnostic) => {
-      const message = ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n");
-      if (diagnostic.file === undefined || diagnostic.start === undefined) {
-        return message;
+      const named = reported.get(realpathSync(path.resolve(file)));
+      if (named === undefined) {
+        return [];
       }
-      const { line } = diagnostic.file.getLineAndCharacterOfPosition(diagnostic.start);
-      const text = diagnostic.file.text.split("\n")[line]?.trim() ?? "";
-      return `${path.basename(diagnostic.file.fileName)}:${line + 1}: ${message} (${text})`;
+      const text = readFileSync(named, "utf8").split("\n")[line - 1]?.trim() ?? "";
+      return [`${path.basename(named)}:${line}: ${message} (${text})`];
     });
   } finally {
     rmSync(checked, { force: true });
+    rmSync(project, { force: true });
   }
 }
 
