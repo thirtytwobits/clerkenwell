@@ -173,8 +173,9 @@ fn a_consumer_drives_conformance_against_the_client_it_installed() {
     conformance.conflict_policy();
 }
 
-#[test]
-fn a_consumer_checks_documents_against_the_declarations_of_the_client_it_installed() {
+/// A consumer project with `typescript` installed, whose client runs from its
+/// built modules and declarations alone.
+fn consumer_with(typescript: &str) -> tempfile::TempDir {
     let project = consumer();
     npm(
         &[
@@ -182,12 +183,50 @@ fn a_consumer_checks_documents_against_the_declarations_of_the_client_it_install
             "--no-audit",
             "--no-fund",
             "--prefer-offline",
-            &developed_with("typescript"),
+            typescript,
         ],
         project.path(),
     );
     std::fs::remove_dir_all(project.path().join("node_modules/@clerkenwell/client/src"))
         .expect("the package ships its source");
+    project
+}
+
+/// Adds a declaration to the consumer's plans module that is not a value of
+/// its type.
+fn break_plans(project: &Path) {
+    let plans = project.join("plans/index.ts");
+    let mut source = std::fs::read_to_string(&plans).expect("readable");
+    source.push_str("\nexport const notANumber: number = \"text\";\n");
+    std::fs::write(&plans, source).expect("writable");
+}
+
+#[test]
+fn a_consumer_checks_documents_against_the_declarations_of_the_client_it_installed() {
+    let project = consumer_with(&developed_with("typescript"));
+    Conformance::start_in(&bindings(project.path()), project.path()).document_types();
+}
+
+#[test]
+fn a_consumer_on_typescript_7_checks_documents_against_the_declarations_of_the_client_it_installed()
+{
+    let project = consumer_with("typescript@7");
+    Conformance::start_in(&bindings(project.path()), project.path()).document_types();
+}
+
+#[test]
+#[should_panic(expected = "is not a value of its CollaborationDocument")]
+fn a_type_error_in_the_plans_fails_the_document_check() {
+    let project = consumer_with(&developed_with("typescript"));
+    break_plans(project.path());
+    Conformance::start_in(&bindings(project.path()), project.path()).document_types();
+}
+
+#[test]
+#[should_panic(expected = "is not a value of its CollaborationDocument")]
+fn a_type_error_in_the_plans_fails_the_document_check_on_typescript_7() {
+    let project = consumer_with("typescript@7");
+    break_plans(project.path());
     Conformance::start_in(&bindings(project.path()), project.path()).document_types();
 }
 
