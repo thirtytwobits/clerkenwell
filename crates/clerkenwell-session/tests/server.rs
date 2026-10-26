@@ -94,7 +94,7 @@ static COMMANDS: &[GeneratedCommandSpec] = &[
     },
 ];
 static REGISTRY: ProjectionRegistry =
-    ProjectionRegistry::new(PROJECTIONS, MUTATIONS, COMMANDS, AUTHORING);
+    ProjectionRegistry::new("notebook", PROJECTIONS, MUTATIONS, COMMANDS, AUTHORING);
 
 #[derive(Debug)]
 struct Failure {

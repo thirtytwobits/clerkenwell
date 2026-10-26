@@ -826,6 +826,8 @@ pub struct BoardAuthoringParams {
     pub board_id: String,
 }
 
+pub const NAMESPACE: &str = "notebook";
+
 pub const NOTE_ENTITY: &str = "Note";
 pub const BOARD_ENTITY: &str = "Board";
 pub const TASK_ENTITY: &str = "Task";

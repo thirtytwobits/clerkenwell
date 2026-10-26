@@ -165,7 +165,8 @@ static MUTATIONS: &[GeneratedMutationSpec] = &[GeneratedMutationSpec {
     params_schema: OBJECT_SCHEMA,
     result_schema: OBJECT_SCHEMA,
 }];
-static REGISTRY: ProjectionRegistry = ProjectionRegistry::new(PROJECTIONS, MUTATIONS, &[], &[]);
+static REGISTRY: ProjectionRegistry =
+    ProjectionRegistry::new("notebook", PROJECTIONS, MUTATIONS, &[], &[]);
 
 const POLICY: CommitPolicy = CommitPolicy {
     retained_operations: 8,
