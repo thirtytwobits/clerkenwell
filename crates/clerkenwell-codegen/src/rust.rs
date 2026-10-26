@@ -231,6 +231,8 @@ pub fn render_model_module(definition: &Definition, project: &Project) -> Result
         .map(|mutation| mutation.name)
         .collect();
     let command_names: Vec<&str> = definition.commands().map(|command| command.name).collect();
+    lines.push(string_constant("NAMESPACE", definition.namespace()));
+    lines.push(String::new());
     lines.extend(name_constants("ENTITY", &entity_names));
     lines.push(String::new());
     lines.extend(name_constants("PROJECTION", &projection_names));

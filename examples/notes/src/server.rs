@@ -31,7 +31,7 @@ use crate::model::{
     ProjectionTransportMutationResult, ProjectionTransportPatch, ProjectionTransportSnapshot,
     ReplicaUpdateParams, ReplicaUpdateResult, GENERATED_COLLABORATION_SPECS,
     GENERATED_COMMAND_SPECS, GENERATED_ENTITY_AUTHORING_SPECS, GENERATED_MUTATION_SPECS,
-    GENERATED_PROJECTION_SPECS, NOTE_CREATE_MUTATION, NOTE_IMPORT_UPDATE_MUTATION,
+    GENERATED_PROJECTION_SPECS, NAMESPACE, NOTE_CREATE_MUTATION, NOTE_IMPORT_UPDATE_MUTATION,
 };
 use crate::storage::MemoryStorage;
 use crate::{peer_key, validate, COMMIT_POLICY, NOTE};
@@ -53,6 +53,7 @@ pub const COMMAND_LIMIT: NonZeroUsize = match NonZeroUsize::new(16) {
 pub const NOTES_STORE: &str = "notes";
 
 static REGISTRY: ProjectionRegistry = ProjectionRegistry::new(
+    NAMESPACE,
     GENERATED_PROJECTION_SPECS,
     GENERATED_MUTATION_SPECS,
     GENERATED_COMMAND_SPECS,

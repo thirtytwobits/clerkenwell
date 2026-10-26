@@ -20,6 +20,9 @@ names the contracts.
     is not 1 to 128 ASCII letters, digits, `_`, `-` and `.`;
   - a projection, mutation or command whose `params` references a schema that is not of type
     `"object"`.
+- `ProjectionRegistry::new` takes the definition's `namespace` first, and
+  `ProjectionRegistry::namespace` returns it (#43). The generated Rust model names it as the
+  constant `NAMESPACE`.
 
 ## 0.10.0
 

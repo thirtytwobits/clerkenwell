@@ -92,7 +92,8 @@ fn clerkenwell_session::ProjectionRegistry::mutation(&self, name: &str) -> Optio
 fn clerkenwell_session::ProjectionRegistry::mutation_affects_projection(&self, mutation: &str, projection: &str) -> bool
 fn clerkenwell_session::ProjectionRegistry::mutation_names(&self) -> Vec<&'static str>
 fn clerkenwell_session::ProjectionRegistry::mutations(&self) -> &'static [GeneratedMutationSpec]
-const fn clerkenwell_session::ProjectionRegistry::new(projections: &'static [GeneratedProjectionSpec], mutations: &'static [GeneratedMutationSpec], commands: &'static [GeneratedCommandSpec], authoring: &'static [GeneratedEntityAuthoringSpec]) -> Self
+fn clerkenwell_session::ProjectionRegistry::namespace(&self) -> &'static str
+const fn clerkenwell_session::ProjectionRegistry::new(namespace: &'static str, projections: &'static [GeneratedProjectionSpec], mutations: &'static [GeneratedMutationSpec], commands: &'static [GeneratedCommandSpec], authoring: &'static [GeneratedEntityAuthoringSpec]) -> Self
 fn clerkenwell_session::ProjectionRegistry::plans_only(&self, mutation: &str) -> bool
 fn clerkenwell_session::ProjectionRegistry::projection(&self, name: &str) -> Option<&'static GeneratedProjectionSpec>
 fn clerkenwell_session::ProjectionRegistry::projection_names(&self) -> Vec<&'static str>

@@ -4,9 +4,11 @@ use clerkenwell_schema::{
 };
 
 /// The projections, mutations and commands an application serves, by wire
-/// name, and how each entity is authored.
+/// name, the namespace of the definition that declares them, and how each
+/// entity is authored.
 #[derive(Debug)]
 pub struct ProjectionRegistry {
+    namespace: &'static str,
     projections: &'static [GeneratedProjectionSpec],
     mutations: &'static [GeneratedMutationSpec],
     commands: &'static [GeneratedCommandSpec],
@@ -14,18 +16,27 @@ pub struct ProjectionRegistry {
 }
 
 impl ProjectionRegistry {
+    /// The registry of a definition whose `namespace` the generated model
+    /// names as `NAMESPACE`.
     pub const fn new(
+        namespace: &'static str,
         projections: &'static [GeneratedProjectionSpec],
         mutations: &'static [GeneratedMutationSpec],
         commands: &'static [GeneratedCommandSpec],
         authoring: &'static [GeneratedEntityAuthoringSpec],
     ) -> Self {
         Self {
+            namespace,
             projections,
             mutations,
             commands,
             authoring,
         }
+    }
+
+    /// The definition's `namespace`.
+    pub fn namespace(&self) -> &'static str {
+        self.namespace
     }
 
     pub fn projections(&self) -> &'static [GeneratedProjectionSpec] {

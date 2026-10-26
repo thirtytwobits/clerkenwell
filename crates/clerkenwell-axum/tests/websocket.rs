@@ -65,7 +65,7 @@ static COMMANDS: &[GeneratedCommandSpec] = &[
     },
 ];
 static REGISTRY: ProjectionRegistry =
-    ProjectionRegistry::new(PROJECTIONS, MUTATIONS, COMMANDS, &[]);
+    ProjectionRegistry::new("counters", PROJECTIONS, MUTATIONS, COMMANDS, &[]);
 
 /// Counters by id, a projection whose snapshot waits to be released, gates a
 /// command waits at until the test opens them, and the feed the counters

@@ -4,6 +4,9 @@ use clerkenwell_schema::{
 };
 use clerkenwell_session::ProjectionRegistry;
 
+/// The namespace of the definition the specs here belong to.
+const NAMESPACE: &str = "notebook";
+
 /// The schema of every parameter, result and snapshot here.
 const OBJECT_SCHEMA: &str = r#"{"type":"object"}"#;
 
@@ -52,7 +55,12 @@ static COMMANDS: &[GeneratedCommandSpec] = &[
     },
 ];
 static REGISTRY: ProjectionRegistry =
-    ProjectionRegistry::new(PROJECTIONS, MUTATIONS, COMMANDS, &[]);
+    ProjectionRegistry::new(NAMESPACE, PROJECTIONS, MUTATIONS, COMMANDS, &[]);
+
+#[test]
+fn the_registry_names_its_definitions_namespace() {
+    assert_eq!(REGISTRY.namespace(), NAMESPACE);
+}
 
 #[test]
 fn every_registered_name_resolves_to_its_spec() {

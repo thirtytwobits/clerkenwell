@@ -440,3 +440,13 @@ fn a_snapshot_schema_admits_each_tagged_variant_and_any_opaque_value() {
         assert!(!snapshot.is_valid(&detail), "{refused} is admitted");
     }
 }
+
+#[test]
+fn the_generated_namespace_is_the_definitions() {
+    let document = notebook_document();
+    let namespace = document
+        .get("namespace")
+        .and_then(Json::as_str)
+        .expect("the notebook names its namespace");
+    assert_eq!(model::NAMESPACE, namespace);
+}

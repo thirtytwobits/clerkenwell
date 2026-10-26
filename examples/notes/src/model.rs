@@ -81,6 +81,8 @@ pub struct NoteAuthoringParams {
     pub note_id: String,
 }
 
+pub const NAMESPACE: &str = "notes";
+
 pub const NOTE_ENTITY: &str = "Note";
 
 pub const NOTES_AUTHORING_STATE_PROJECTION: &str = "notes.authoringState";
