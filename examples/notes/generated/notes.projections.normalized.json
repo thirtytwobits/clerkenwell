@@ -347,6 +347,7 @@
   ],
   "mutations": [
     {
+      "description": "Creates a note with a title, and returns its id and etag.",
       "name": "note.create",
       "params": {
         "$ref": "#/$defs/NoteCreateParams"
@@ -359,6 +360,7 @@
       ]
     },
     {
+      "description": "Imports operations a replica of a note wrote, under the peers allocated to its writer.",
       "name": "note.importUpdate",
       "params": {
         "$ref": "#/$defs/ReplicaUpdateParams"

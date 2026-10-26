@@ -10,9 +10,13 @@ const NAMESPACE: &str = "notebook";
 /// The schema of every parameter, result and snapshot here.
 const OBJECT_SCHEMA: &str = r#"{"type":"object"}"#;
 
+/// The description of every projection, mutation and command here.
+const DESCRIPTION: &str = "An operation the tests make.";
+
 static PROJECTIONS: &[GeneratedProjectionSpec] = &[
     GeneratedProjectionSpec {
         name: "notes.list",
+        description: DESCRIPTION,
         depends_on: &["Note"],
         materialization: GeneratedMaterializationPlan::Reset,
         params_schema: OBJECT_SCHEMA,
@@ -20,6 +24,7 @@ static PROJECTIONS: &[GeneratedProjectionSpec] = &[
     },
     GeneratedProjectionSpec {
         name: "boards.list",
+        description: DESCRIPTION,
         depends_on: &["Board"],
         materialization: GeneratedMaterializationPlan::Reset,
         params_schema: OBJECT_SCHEMA,
@@ -29,12 +34,14 @@ static PROJECTIONS: &[GeneratedProjectionSpec] = &[
 static MUTATIONS: &[GeneratedMutationSpec] = &[
     GeneratedMutationSpec {
         name: "note.delete",
+        description: DESCRIPTION,
         touches: &["Note"],
         params_schema: OBJECT_SCHEMA,
         result_schema: OBJECT_SCHEMA,
     },
     GeneratedMutationSpec {
         name: "board.pin",
+        description: DESCRIPTION,
         touches: &["Board", "Note"],
         params_schema: OBJECT_SCHEMA,
         result_schema: OBJECT_SCHEMA,
@@ -43,12 +50,14 @@ static MUTATIONS: &[GeneratedMutationSpec] = &[
 static COMMANDS: &[GeneratedCommandSpec] = &[
     GeneratedCommandSpec {
         name: "note.archiveAll",
+        description: DESCRIPTION,
         touches: &["Note"],
         params_schema: OBJECT_SCHEMA,
         result_schema: OBJECT_SCHEMA,
     },
     GeneratedCommandSpec {
         name: "board.preview",
+        description: DESCRIPTION,
         touches: &[],
         params_schema: OBJECT_SCHEMA,
         result_schema: OBJECT_SCHEMA,

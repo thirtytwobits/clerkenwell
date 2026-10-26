@@ -109,6 +109,7 @@ variant clerkenwell_schema::GeneratedCollaborationValueCodec::StringList
 variant clerkenwell_schema::GeneratedCollaborationValueCodec::StructuredJson
 struct clerkenwell_schema::GeneratedCommandSpec
 derive clerkenwell_schema::GeneratedCommandSpec: Clone, Copy, Debug, Eq, PartialEq
+field clerkenwell_schema::GeneratedCommandSpec::description: &'static str
 field clerkenwell_schema::GeneratedCommandSpec::name: &'static str
 field clerkenwell_schema::GeneratedCommandSpec::params_schema: &'static str
 field clerkenwell_schema::GeneratedCommandSpec::result_schema: &'static str
@@ -128,6 +129,7 @@ variant clerkenwell_schema::GeneratedMaterializationPlan::Reset
 variant clerkenwell_schema::GeneratedMaterializationPlan::SequencedText { collection_field: &'static str, item_identity_field: &'static str, patch_identity_field: &'static str, snapshot_output_field: &'static str, sequence_field: &'static str, text_field: &'static str, patch_output_field: &'static str, delta_text_field: &'static str }
 struct clerkenwell_schema::GeneratedMutationSpec
 derive clerkenwell_schema::GeneratedMutationSpec: Clone, Copy, Debug, Eq, PartialEq
+field clerkenwell_schema::GeneratedMutationSpec::description: &'static str
 field clerkenwell_schema::GeneratedMutationSpec::name: &'static str
 field clerkenwell_schema::GeneratedMutationSpec::params_schema: &'static str
 field clerkenwell_schema::GeneratedMutationSpec::result_schema: &'static str
@@ -135,6 +137,7 @@ field clerkenwell_schema::GeneratedMutationSpec::touches: &'static [&'static str
 struct clerkenwell_schema::GeneratedProjectionSpec
 derive clerkenwell_schema::GeneratedProjectionSpec: Clone, Copy, Debug, Eq, PartialEq
 field clerkenwell_schema::GeneratedProjectionSpec::depends_on: &'static [&'static str]
+field clerkenwell_schema::GeneratedProjectionSpec::description: &'static str
 field clerkenwell_schema::GeneratedProjectionSpec::materialization: GeneratedMaterializationPlan
 field clerkenwell_schema::GeneratedProjectionSpec::name: &'static str
 field clerkenwell_schema::GeneratedProjectionSpec::params_schema: &'static str

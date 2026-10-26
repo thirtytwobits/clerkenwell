@@ -25,6 +25,10 @@ names the contracts.
   constant `NAMESPACE`.
 - `CollaborationDocumentRead` carries `accepted_frontier_base64`, the frontier a text edit names
   as the state it read (#43).
+- Each projection, mutation and command in a definition declares a `description`, what it does
+  for a caller deciding whether to call it; `clerkenwell-codegen` refuses one that is missing or
+  blank (#43). `GeneratedProjectionSpec`, `GeneratedMutationSpec` and `GeneratedCommandSpec`
+  carry it as `description`.
 
 ### Added
 
@@ -51,6 +55,8 @@ names the contracts.
   the server is shutting down, and runs on when its caller stops waiting for it.
 - `clerkenwell_session::run_mutation` makes a mutation as a principal without a connection, as
   `run_command` runs a command.
+- `AuthoringStates::entity` names a collaborative entity's plan, and `AuthoringStates::route` the
+  store that keeps one of its documents (#43).
 - `Conformance::document_types` checks documents with the project's `tsc` program, so it runs in
   a project on TypeScript 7 as well as 5.
 

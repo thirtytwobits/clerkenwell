@@ -1767,7 +1767,8 @@ fn an_operation_name_outside_the_tool_name_alphabet_is_refused() {
             &mut document,
             &format!("/commands/{name}"),
             json(
-                r##"{ "params": { "$ref": "#/$defs/NotePreviewParams" },
+                r##"{ "description": "Shuffles the cards.",
+                      "params": { "$ref": "#/$defs/NotePreviewParams" },
                       "result": { "$ref": "#/$defs/NotePreviewResult" } }"##,
             ),
         );
@@ -1806,5 +1807,29 @@ fn params_that_are_not_an_object_are_refused() {
                 "{context}.params must reference a schema of type \"object\""
             )],
         );
+    }
+}
+
+/// Each projection, mutation and command describes what it does, for a
+/// caller deciding whether to call it.
+#[test]
+fn an_operation_without_a_description_is_refused() {
+    for entry in [
+        "/projections/notes.list",
+        "/mutations/note.create",
+        "/commands/note.preview",
+    ] {
+        let mut document = notebook_document();
+        remove(&mut document, &format!("{entry}/description"));
+        assert_mentions(&refusal(document), &[entry, "description"]);
+        for blank in ["", " \n\t"] {
+            let mut document = notebook_document();
+            set(
+                &mut document,
+                &format!("{entry}/description"),
+                Json::String(blank.to_owned()),
+            );
+            assert_mentions(&refusal(document), &[&format!("{entry}/description")]);
+        }
     }
 }

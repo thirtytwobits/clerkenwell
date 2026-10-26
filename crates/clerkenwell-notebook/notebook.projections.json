@@ -92,6 +92,7 @@
   },
   "projections": {
     "notes.list": {
+      "description": "Every note, keyed by its id.",
       "params": {
         "$ref": "#/$defs/NotesListParams"
       },
@@ -113,6 +114,7 @@
       }
     },
     "notes.byId": {
+      "description": "One note, by its id; removed when the note is deleted.",
       "params": {
         "$ref": "#/$defs/NoteKeyParams"
       },
@@ -139,6 +141,7 @@
       }
     },
     "tasks.byId": {
+      "description": "One task, by its id, with the tasks related to it.",
       "params": {
         "$ref": "#/$defs/TaskKeyParams"
       },
@@ -157,6 +160,7 @@
       }
     },
     "tasks.board": {
+      "description": "The tasks on one board, in the board's sort order.",
       "params": {
         "$ref": "#/$defs/BoardKeyParams"
       },
@@ -177,6 +181,7 @@
       }
     },
     "workspace.current": {
+      "description": "The workspace's settings: its theme, shortcuts and autosave interval.",
       "params": {
         "$ref": "#/$defs/WorkspaceParams"
       },
@@ -194,6 +199,7 @@
       }
     },
     "activity.streams": {
+      "description": "The workspace's activity streams, each as text appended in order.",
       "params": {
         "$ref": "#/$defs/WorkspaceParams"
       },
@@ -219,6 +225,7 @@
       }
     },
     "activity.history": {
+      "description": "The workspace's activity log, oldest entry first.",
       "params": {
         "$ref": "#/$defs/WorkspaceParams"
       },
@@ -237,6 +244,7 @@
       }
     },
     "sync.health": {
+      "description": "Whether the workspace is in sync with its peers: its lag, its peers and the last error.",
       "params": {
         "$ref": "#/$defs/WorkspaceParams"
       },
@@ -258,6 +266,7 @@
   },
   "mutations": {
     "note.create": {
+      "description": "Creates a note with a title, and returns its id and etag.",
       "params": {
         "$ref": "#/$defs/NoteCreateParams"
       },
@@ -269,6 +278,7 @@
       ]
     },
     "note.importUpdate": {
+      "description": "Imports operations a replica of a note wrote, under the peers allocated to its writer.",
       "params": {
         "$ref": "#/$defs/ReplicaUpdateParams"
       },
@@ -280,6 +290,7 @@
       ]
     },
     "note.rename": {
+      "description": "Renames a note.",
       "params": {
         "$ref": "#/$defs/NoteRenameParams"
       },
@@ -291,6 +302,7 @@
       ]
     },
     "note.delete": {
+      "description": "Deletes a note.",
       "params": {
         "$ref": "#/$defs/NoteKeyParams"
       },
@@ -302,6 +314,7 @@
       ]
     },
     "note.pin": {
+      "description": "Pins a note, or unpins it.",
       "params": {
         "$ref": "#/$defs/NotePinParams"
       },
@@ -313,6 +326,7 @@
       ]
     },
     "note.moveToBoard": {
+      "description": "Moves a note to a column of a board.",
       "params": {
         "$ref": "#/$defs/NoteMoveParams"
       },
@@ -325,6 +339,7 @@
       ]
     },
     "board.create": {
+      "description": "Creates a board with a name, and returns its id and etag.",
       "params": {
         "$ref": "#/$defs/BoardCreateParams"
       },
@@ -336,6 +351,7 @@
       ]
     },
     "board.importUpdate": {
+      "description": "Imports operations a replica of a board wrote, under the peers allocated to its writer.",
       "params": {
         "$ref": "#/$defs/ReplicaUpdateParams"
       },
@@ -347,6 +363,7 @@
       ]
     },
     "board.reconcileArchivedColumnOrder": {
+      "description": "Reconciles the order of a board's archived columns.",
       "params": {
         "$ref": "#/$defs/BoardKeyParams"
       },
@@ -358,6 +375,7 @@
       ]
     },
     "task.save": {
+      "description": "Saves a task, fenced on the revision it was read at.",
       "params": {
         "$ref": "#/$defs/TaskSaveParams"
       },
@@ -369,6 +387,7 @@
       ]
     },
     "task.schedule": {
+      "description": "Sets the time a task is due.",
       "params": {
         "$ref": "#/$defs/TaskScheduleParams"
       },
@@ -380,6 +399,7 @@
       ]
     },
     "task.archive": {
+      "description": "Archives a task.",
       "params": {
         "$ref": "#/$defs/TaskKeyParams"
       },
@@ -391,6 +411,7 @@
       ]
     },
     "workspace.configure": {
+      "description": "Sets the workspace's theme.",
       "params": {
         "$ref": "#/$defs/WorkspaceConfigureParams"
       },
@@ -402,6 +423,7 @@
       ]
     },
     "sync.reset": {
+      "description": "Resets the sync state of one peer, or of every peer.",
       "params": {
         "$ref": "#/$defs/SyncResetParams"
       },
@@ -415,6 +437,7 @@
   },
   "commands": {
     "note.preview": {
+      "description": "Counts the words of a note body, without saving anything.",
       "params": {
         "$ref": "#/$defs/NotePreviewParams"
       },
@@ -423,6 +446,7 @@
       }
     },
     "task.archiveDone": {
+      "description": "Archives every finished task on a board, and returns how many it archived.",
       "params": {
         "$ref": "#/$defs/TaskArchiveDoneParams"
       },

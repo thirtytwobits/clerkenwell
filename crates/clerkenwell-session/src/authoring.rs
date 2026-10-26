@@ -108,6 +108,18 @@ impl AuthoringStates {
             .find(|plan| plan.authoring_projection == projection)
     }
 
+    /// The collaborative entity `name`.
+    pub fn entity(&self, name: &str) -> Option<&'static GeneratedCollaborationEntitySpec> {
+        self.plans.iter().find(|plan| plan.name == name)
+    }
+
+    /// The name of the store in [`Self::stores`] that keeps an `entity`
+    /// document, from the parameters the entity's `storeParams` declares;
+    /// `None` when none keeps it.
+    pub fn route(&self, entity: &str, store_params: &Value) -> Option<String> {
+        (self.route)(entity, store_params)
+    }
+
     /// The document a subscription to `projection` with `params` follows,
     /// when `projection` is an authoring state.
     pub(crate) fn follow(
@@ -117,7 +129,7 @@ impl AuthoringStates {
     ) -> Option<Result<FollowedDocument, ProjectionRefusal>> {
         let plan = self.plan(projection)?;
         Some(followed(plan, params).and_then(|(id, store_params)| {
-            let store = (self.route)(plan.name, &store_params).ok_or_else(|| {
+            let store = self.route(plan.name, &store_params).ok_or_else(|| {
                 ProjectionRefusal::new(
                     ProjectionErrorCode::NotFound,
                     format!("No store keeps {}/{}.", id.entity, id.resource_id),

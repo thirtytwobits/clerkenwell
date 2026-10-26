@@ -220,6 +220,7 @@ pub const NOTE_IMPORT_UPDATE_MUTATION_RESULT_SCHEMA: &str = r#"{"type":"object",
 
 pub static GENERATED_PROJECTION_SPECS: &[GeneratedProjectionSpec] = &[GeneratedProjectionSpec {
     name: NOTES_AUTHORING_STATE_PROJECTION,
+    description: "The accepted state of one Note document, for keeping a replica of it.",
     depends_on: &["Note"],
     materialization: GeneratedMaterializationPlan::ReplaceOrRemove {
         snapshot_mode: GeneratedSnapshotMode::Field("state"),
@@ -234,12 +235,15 @@ pub static GENERATED_PROJECTION_SPECS: &[GeneratedProjectionSpec] = &[GeneratedP
 pub static GENERATED_MUTATION_SPECS: &[GeneratedMutationSpec] = &[
     GeneratedMutationSpec {
         name: NOTE_CREATE_MUTATION,
+        description: "Creates a note with a title, and returns its id and etag.",
         touches: &["Note"],
         params_schema: NOTE_CREATE_MUTATION_PARAMS_SCHEMA,
         result_schema: NOTE_CREATE_MUTATION_RESULT_SCHEMA,
     },
     GeneratedMutationSpec {
         name: NOTE_IMPORT_UPDATE_MUTATION,
+        description:
+            "Imports operations a replica of a note wrote, under the peers allocated to its writer.",
         touches: &["Note"],
         params_schema: NOTE_IMPORT_UPDATE_MUTATION_PARAMS_SCHEMA,
         result_schema: NOTE_IMPORT_UPDATE_MUTATION_RESULT_SCHEMA,

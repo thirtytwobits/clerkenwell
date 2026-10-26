@@ -131,6 +131,9 @@ const DRAFT_PLAN: GeneratedCollaborationEntitySpec = GeneratedCollaborationEntit
 /// The schema of every parameter, result and snapshot here.
 const OBJECT_SCHEMA: &str = r#"{"type":"object"}"#;
 
+/// The description of every projection, mutation and command here.
+const DESCRIPTION: &str = "An operation the tests make.";
+
 static PLANS: &[GeneratedCollaborationEntitySpec] = &[NOTE_PLAN, CATALOGUE_PLAN, DRAFT_PLAN];
 static NOTE: &GeneratedCollaborationEntitySpec = &PLANS[0];
 static CATALOGUE: &GeneratedCollaborationEntitySpec = &PLANS[1];
@@ -139,6 +142,7 @@ static DRAFT: &GeneratedCollaborationEntitySpec = &PLANS[2];
 static PROJECTIONS: &[GeneratedProjectionSpec] = &[
     GeneratedProjectionSpec {
         name: "notes.authoringState",
+        description: DESCRIPTION,
         depends_on: &["Note"],
         materialization: GeneratedMaterializationPlan::Reset,
         params_schema: OBJECT_SCHEMA,
@@ -146,6 +150,7 @@ static PROJECTIONS: &[GeneratedProjectionSpec] = &[
     },
     GeneratedProjectionSpec {
         name: "catalogue.authoringState",
+        description: DESCRIPTION,
         depends_on: &["Catalogue"],
         materialization: GeneratedMaterializationPlan::Reset,
         params_schema: OBJECT_SCHEMA,
@@ -153,6 +158,7 @@ static PROJECTIONS: &[GeneratedProjectionSpec] = &[
     },
     GeneratedProjectionSpec {
         name: "drafts.authoringState",
+        description: DESCRIPTION,
         depends_on: &["Draft"],
         materialization: GeneratedMaterializationPlan::Reset,
         params_schema: OBJECT_SCHEMA,
@@ -161,6 +167,7 @@ static PROJECTIONS: &[GeneratedProjectionSpec] = &[
 ];
 static MUTATIONS: &[GeneratedMutationSpec] = &[GeneratedMutationSpec {
     name: "note.touch",
+    description: DESCRIPTION,
     touches: &["Note"],
     params_schema: OBJECT_SCHEMA,
     result_schema: OBJECT_SCHEMA,
@@ -913,4 +920,24 @@ fn a_resynchronised_subscription_takes_the_whole_accepted_state() {
 
     let (state, _) = snapshot_state(&reply.events[0]);
     assert_eq!(body(&replica(NOTE, &state)), "Second.");
+}
+
+#[test]
+fn the_authoring_states_name_each_entity_s_plan_and_the_store_that_keeps_its_documents() {
+    let library = Library::new(&["s1"]);
+
+    assert_eq!(library.authoring.entity("Draft"), Some(&DRAFT_PLAN));
+    assert_eq!(library.authoring.entity("Unknown"), None);
+    assert_eq!(
+        library
+            .authoring
+            .route("Draft", &json!({ "session_id": "s1" }))
+            .as_deref(),
+        Some("session/s1")
+    );
+    assert_eq!(
+        library.authoring.route("Note", &json!({})).as_deref(),
+        Some(WORKSPACE)
+    );
+    assert_eq!(library.authoring.route("Draft", &json!({})), None);
 }

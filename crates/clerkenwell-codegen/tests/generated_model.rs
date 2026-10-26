@@ -450,3 +450,24 @@ fn the_generated_namespace_is_the_definitions() {
         .expect("the notebook names its namespace");
     assert_eq!(model::NAMESPACE, namespace);
 }
+
+#[test]
+fn every_spec_carries_its_entrys_description() {
+    let definition = expanded_notebook();
+    let description = |section: &str, name: &str| {
+        definition
+            .pointer(&format!("/{section}/{name}/description"))
+            .and_then(Json::as_str)
+            .unwrap_or_else(|| panic!("{section}.{name} has a description"))
+            .to_owned()
+    };
+    for spec in model::GENERATED_PROJECTION_SPECS {
+        assert_eq!(spec.description, description("projections", spec.name));
+    }
+    for spec in model::GENERATED_MUTATION_SPECS {
+        assert_eq!(spec.description, description("mutations", spec.name));
+    }
+    for spec in model::GENERATED_COMMAND_SPECS {
+        assert_eq!(spec.description, description("commands", spec.name));
+    }
+}
