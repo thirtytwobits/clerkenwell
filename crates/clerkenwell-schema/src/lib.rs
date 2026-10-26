@@ -88,41 +88,47 @@ pub enum GeneratedRemoveMode {
     NullField(&'static str),
 }
 
-/// A projection, the entities it reads, how clients materialise it, and the
-/// schemas of its parameters and snapshot.
+/// A projection, what it holds, the entities it reads, how clients
+/// materialise it, and the schemas of its parameters and snapshot.
 ///
 /// Each schema is a JSON Schema document as JSON text: the definition's
 /// schema, with the `$defs` entries it reaches.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct GeneratedProjectionSpec {
     pub name: &'static str,
+    /// What the projection holds, as the definition describes it.
+    pub description: &'static str,
     pub depends_on: &'static [&'static str],
     pub materialization: GeneratedMaterializationPlan,
     pub params_schema: &'static str,
     pub snapshot_schema: &'static str,
 }
 
-/// A mutation, the entities it writes, and the schemas of its parameters and
-/// result.
+/// A mutation, what it does, the entities it writes, and the schemas of its
+/// parameters and result.
 ///
 /// Each schema is a JSON Schema document as JSON text: the definition's
 /// schema, with the `$defs` entries it reaches.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct GeneratedMutationSpec {
     pub name: &'static str,
+    /// What the mutation does, as the definition describes it.
+    pub description: &'static str,
     pub touches: &'static [&'static str],
     pub params_schema: &'static str,
     pub result_schema: &'static str,
 }
 
-/// A command, the entities it may change, and the schemas of its parameters
-/// and result.
+/// A command, what it does, the entities it may change, and the schemas of
+/// its parameters and result.
 ///
 /// Each schema is a JSON Schema document as JSON text: the definition's
 /// schema, with the `$defs` entries it reaches.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct GeneratedCommandSpec {
     pub name: &'static str,
+    /// What the command does, as the definition describes it.
+    pub description: &'static str,
     pub touches: &'static [&'static str],
     pub params_schema: &'static str,
     pub result_schema: &'static str,

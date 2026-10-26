@@ -263,6 +263,10 @@ pub struct Projection<'a> {
 }
 
 impl<'a> Projection<'a> {
+    pub fn description(&self) -> &'a str {
+        self.raw.str_field("description")
+    }
+
     pub fn params(&self) -> &'a Object {
         self.raw.object_field("params")
     }
@@ -320,6 +324,10 @@ pub struct Mutation<'a> {
 }
 
 impl<'a> Mutation<'a> {
+    pub fn description(&self) -> &'a str {
+        self.raw.str_field("description")
+    }
+
     pub fn params(&self) -> &'a Object {
         self.raw.object_field("params")
     }
@@ -341,6 +349,10 @@ pub struct Command<'a> {
 }
 
 impl<'a> Command<'a> {
+    pub fn description(&self) -> &'a str {
+        self.raw.str_field("description")
+    }
+
     pub fn params(&self) -> &'a Object {
         self.raw.object_field("params")
     }

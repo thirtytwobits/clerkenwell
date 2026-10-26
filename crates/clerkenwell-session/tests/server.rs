@@ -30,9 +30,13 @@ use serde_json::{json, Value};
 /// The schema of every parameter, result and snapshot here.
 const OBJECT_SCHEMA: &str = r#"{"type":"object"}"#;
 
+/// The description of every projection, mutation and command here.
+const DESCRIPTION: &str = "An operation the tests make.";
+
 static PROJECTIONS: &[GeneratedProjectionSpec] = &[
     GeneratedProjectionSpec {
         name: "notes.list",
+        description: DESCRIPTION,
         depends_on: &["Note"],
         materialization: GeneratedMaterializationPlan::Reset,
         params_schema: OBJECT_SCHEMA,
@@ -40,6 +44,7 @@ static PROJECTIONS: &[GeneratedProjectionSpec] = &[
     },
     GeneratedProjectionSpec {
         name: "notes.replica",
+        description: DESCRIPTION,
         depends_on: &["Note"],
         materialization: GeneratedMaterializationPlan::Reset,
         params_schema: OBJECT_SCHEMA,
@@ -47,6 +52,7 @@ static PROJECTIONS: &[GeneratedProjectionSpec] = &[
     },
     GeneratedProjectionSpec {
         name: "boards.list",
+        description: DESCRIPTION,
         depends_on: &["Board"],
         materialization: GeneratedMaterializationPlan::Reset,
         params_schema: OBJECT_SCHEMA,
@@ -56,18 +62,21 @@ static PROJECTIONS: &[GeneratedProjectionSpec] = &[
 static MUTATIONS: &[GeneratedMutationSpec] = &[
     GeneratedMutationSpec {
         name: "note.rename",
+        description: DESCRIPTION,
         touches: &["Note"],
         params_schema: OBJECT_SCHEMA,
         result_schema: OBJECT_SCHEMA,
     },
     GeneratedMutationSpec {
         name: "note.preview",
+        description: DESCRIPTION,
         touches: &["Note"],
         params_schema: OBJECT_SCHEMA,
         result_schema: OBJECT_SCHEMA,
     },
     GeneratedMutationSpec {
         name: "board.pin",
+        description: DESCRIPTION,
         touches: &["Board"],
         params_schema: OBJECT_SCHEMA,
         result_schema: OBJECT_SCHEMA,
@@ -82,12 +91,14 @@ static AUTHORING: &[GeneratedEntityAuthoringSpec] = &[GeneratedEntityAuthoringSp
 static COMMANDS: &[GeneratedCommandSpec] = &[
     GeneratedCommandSpec {
         name: "note.archive",
+        description: DESCRIPTION,
         touches: &["Note"],
         params_schema: OBJECT_SCHEMA,
         result_schema: OBJECT_SCHEMA,
     },
     GeneratedCommandSpec {
         name: "note.count",
+        description: DESCRIPTION,
         touches: &[],
         params_schema: OBJECT_SCHEMA,
         result_schema: OBJECT_SCHEMA,

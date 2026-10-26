@@ -1333,6 +1333,7 @@ pub const TASK_ARCHIVE_DONE_COMMAND_RESULT_SCHEMA: &str = r#"{"type":"object","a
 pub static GENERATED_PROJECTION_SPECS: &[GeneratedProjectionSpec] = &[
     GeneratedProjectionSpec {
         name: NOTES_LIST_PROJECTION,
+        description: "Every note, keyed by its id.",
         depends_on: &["Note"],
         materialization: GeneratedMaterializationPlan::KeyedCollection {
             collection_field: "notes",
@@ -1345,6 +1346,7 @@ pub static GENERATED_PROJECTION_SPECS: &[GeneratedProjectionSpec] = &[
     },
     GeneratedProjectionSpec {
         name: NOTES_BY_ID_PROJECTION,
+        description: "One note, by its id; removed when the note is deleted.",
         depends_on: &["Note"],
         materialization: GeneratedMaterializationPlan::ReplaceOrRemove {
             snapshot_mode: GeneratedSnapshotMode::Patch,
@@ -1357,6 +1359,7 @@ pub static GENERATED_PROJECTION_SPECS: &[GeneratedProjectionSpec] = &[
     },
     GeneratedProjectionSpec {
         name: TASKS_BY_ID_PROJECTION,
+        description: "One task, by its id, with the tasks related to it.",
         depends_on: &["Task"],
         materialization: GeneratedMaterializationPlan::Replace {
             snapshot_mode: GeneratedSnapshotMode::Patch,
@@ -1367,6 +1370,7 @@ pub static GENERATED_PROJECTION_SPECS: &[GeneratedProjectionSpec] = &[
     },
     GeneratedProjectionSpec {
         name: TASKS_BOARD_PROJECTION,
+        description: "The tasks on one board, in the board's sort order.",
         depends_on: &["Task", "Board"],
         materialization: GeneratedMaterializationPlan::Replace {
             snapshot_mode: GeneratedSnapshotMode::Field("snapshot"),
@@ -1377,6 +1381,7 @@ pub static GENERATED_PROJECTION_SPECS: &[GeneratedProjectionSpec] = &[
     },
     GeneratedProjectionSpec {
         name: WORKSPACE_CURRENT_PROJECTION,
+        description: "The workspace's settings: its theme, shortcuts and autosave interval.",
         depends_on: &["Workspace"],
         materialization: GeneratedMaterializationPlan::Reset,
         params_schema: WORKSPACE_CURRENT_PROJECTION_PARAMS_SCHEMA,
@@ -1384,6 +1389,7 @@ pub static GENERATED_PROJECTION_SPECS: &[GeneratedProjectionSpec] = &[
     },
     GeneratedProjectionSpec {
         name: ACTIVITY_STREAMS_PROJECTION,
+        description: "The workspace's activity streams, each as text appended in order.",
         depends_on: &["Activity"],
         materialization: GeneratedMaterializationPlan::SequencedText {
             collection_field: "streams",
@@ -1400,6 +1406,7 @@ pub static GENERATED_PROJECTION_SPECS: &[GeneratedProjectionSpec] = &[
     },
     GeneratedProjectionSpec {
         name: ACTIVITY_HISTORY_PROJECTION,
+        description: "The workspace's activity log, oldest entry first.",
         depends_on: &["Activity"],
         materialization: GeneratedMaterializationPlan::Replace {
             snapshot_mode: GeneratedSnapshotMode::Patch,
@@ -1410,6 +1417,7 @@ pub static GENERATED_PROJECTION_SPECS: &[GeneratedProjectionSpec] = &[
     },
     GeneratedProjectionSpec {
         name: SYNC_HEALTH_PROJECTION,
+        description: "Whether the workspace is in sync with its peers: its lag, its peers and the last error.",
         depends_on: &["SyncHealth"],
         materialization: GeneratedMaterializationPlan::Replace {
             snapshot_mode: GeneratedSnapshotMode::Field("health"),
@@ -1420,6 +1428,7 @@ pub static GENERATED_PROJECTION_SPECS: &[GeneratedProjectionSpec] = &[
     },
     GeneratedProjectionSpec {
         name: NOTES_AUTHORING_STATE_PROJECTION,
+        description: "The accepted state of one Note document, for keeping a replica of it.",
         depends_on: &["Note"],
         materialization: GeneratedMaterializationPlan::ReplaceOrRemove {
             snapshot_mode: GeneratedSnapshotMode::Field("state"),
@@ -1432,6 +1441,7 @@ pub static GENERATED_PROJECTION_SPECS: &[GeneratedProjectionSpec] = &[
     },
     GeneratedProjectionSpec {
         name: BOARDS_AUTHORING_STATE_PROJECTION,
+        description: "The accepted state of one Board document, for keeping a replica of it.",
         depends_on: &["Board"],
         materialization: GeneratedMaterializationPlan::ReplaceOrRemove {
             snapshot_mode: GeneratedSnapshotMode::Field("state"),
@@ -1447,84 +1457,98 @@ pub static GENERATED_PROJECTION_SPECS: &[GeneratedProjectionSpec] = &[
 pub static GENERATED_MUTATION_SPECS: &[GeneratedMutationSpec] = &[
     GeneratedMutationSpec {
         name: NOTE_CREATE_MUTATION,
+        description: "Creates a note with a title, and returns its id and etag.",
         touches: &["Note"],
         params_schema: NOTE_CREATE_MUTATION_PARAMS_SCHEMA,
         result_schema: NOTE_CREATE_MUTATION_RESULT_SCHEMA,
     },
     GeneratedMutationSpec {
         name: NOTE_IMPORT_UPDATE_MUTATION,
+        description: "Imports operations a replica of a note wrote, under the peers allocated to its writer.",
         touches: &["Note"],
         params_schema: NOTE_IMPORT_UPDATE_MUTATION_PARAMS_SCHEMA,
         result_schema: NOTE_IMPORT_UPDATE_MUTATION_RESULT_SCHEMA,
     },
     GeneratedMutationSpec {
         name: NOTE_RENAME_MUTATION,
+        description: "Renames a note.",
         touches: &["Note"],
         params_schema: NOTE_RENAME_MUTATION_PARAMS_SCHEMA,
         result_schema: NOTE_RENAME_MUTATION_RESULT_SCHEMA,
     },
     GeneratedMutationSpec {
         name: NOTE_DELETE_MUTATION,
+        description: "Deletes a note.",
         touches: &["Note"],
         params_schema: NOTE_DELETE_MUTATION_PARAMS_SCHEMA,
         result_schema: NOTE_DELETE_MUTATION_RESULT_SCHEMA,
     },
     GeneratedMutationSpec {
         name: NOTE_PIN_MUTATION,
+        description: "Pins a note, or unpins it.",
         touches: &["Note"],
         params_schema: NOTE_PIN_MUTATION_PARAMS_SCHEMA,
         result_schema: NOTE_PIN_MUTATION_RESULT_SCHEMA,
     },
     GeneratedMutationSpec {
         name: NOTE_MOVE_TO_BOARD_MUTATION,
+        description: "Moves a note to a column of a board.",
         touches: &["Note", "Board"],
         params_schema: NOTE_MOVE_TO_BOARD_MUTATION_PARAMS_SCHEMA,
         result_schema: NOTE_MOVE_TO_BOARD_MUTATION_RESULT_SCHEMA,
     },
     GeneratedMutationSpec {
         name: BOARD_CREATE_MUTATION,
+        description: "Creates a board with a name, and returns its id and etag.",
         touches: &["Board"],
         params_schema: BOARD_CREATE_MUTATION_PARAMS_SCHEMA,
         result_schema: BOARD_CREATE_MUTATION_RESULT_SCHEMA,
     },
     GeneratedMutationSpec {
         name: BOARD_IMPORT_UPDATE_MUTATION,
+        description: "Imports operations a replica of a board wrote, under the peers allocated to its writer.",
         touches: &["Board"],
         params_schema: BOARD_IMPORT_UPDATE_MUTATION_PARAMS_SCHEMA,
         result_schema: BOARD_IMPORT_UPDATE_MUTATION_RESULT_SCHEMA,
     },
     GeneratedMutationSpec {
         name: BOARD_RECONCILE_ARCHIVED_COLUMN_ORDER_MUTATION,
+        description: "Reconciles the order of a board's archived columns.",
         touches: &["Board"],
         params_schema: BOARD_RECONCILE_ARCHIVED_COLUMN_ORDER_MUTATION_PARAMS_SCHEMA,
         result_schema: BOARD_RECONCILE_ARCHIVED_COLUMN_ORDER_MUTATION_RESULT_SCHEMA,
     },
     GeneratedMutationSpec {
         name: TASK_SAVE_MUTATION,
+        description: "Saves a task, fenced on the revision it was read at.",
         touches: &["Task"],
         params_schema: TASK_SAVE_MUTATION_PARAMS_SCHEMA,
         result_schema: TASK_SAVE_MUTATION_RESULT_SCHEMA,
     },
     GeneratedMutationSpec {
         name: TASK_SCHEDULE_MUTATION,
+        description: "Sets the time a task is due.",
         touches: &["Task"],
         params_schema: TASK_SCHEDULE_MUTATION_PARAMS_SCHEMA,
         result_schema: TASK_SCHEDULE_MUTATION_RESULT_SCHEMA,
     },
     GeneratedMutationSpec {
         name: TASK_ARCHIVE_MUTATION,
+        description: "Archives a task.",
         touches: &["Task"],
         params_schema: TASK_ARCHIVE_MUTATION_PARAMS_SCHEMA,
         result_schema: TASK_ARCHIVE_MUTATION_RESULT_SCHEMA,
     },
     GeneratedMutationSpec {
         name: WORKSPACE_CONFIGURE_MUTATION,
+        description: "Sets the workspace's theme.",
         touches: &["Workspace"],
         params_schema: WORKSPACE_CONFIGURE_MUTATION_PARAMS_SCHEMA,
         result_schema: WORKSPACE_CONFIGURE_MUTATION_RESULT_SCHEMA,
     },
     GeneratedMutationSpec {
         name: SYNC_RESET_MUTATION,
+        description: "Resets the sync state of one peer, or of every peer.",
         touches: &["SyncHealth"],
         params_schema: SYNC_RESET_MUTATION_PARAMS_SCHEMA,
         result_schema: SYNC_RESET_MUTATION_RESULT_SCHEMA,
@@ -1534,12 +1558,14 @@ pub static GENERATED_MUTATION_SPECS: &[GeneratedMutationSpec] = &[
 pub static GENERATED_COMMAND_SPECS: &[GeneratedCommandSpec] = &[
     GeneratedCommandSpec {
         name: NOTE_PREVIEW_COMMAND,
+        description: "Counts the words of a note body, without saving anything.",
         touches: &[],
         params_schema: NOTE_PREVIEW_COMMAND_PARAMS_SCHEMA,
         result_schema: NOTE_PREVIEW_COMMAND_RESULT_SCHEMA,
     },
     GeneratedCommandSpec {
         name: TASK_ARCHIVE_DONE_COMMAND,
+        description: "Archives every finished task on a board, and returns how many it archived.",
         touches: &["Task"],
         params_schema: TASK_ARCHIVE_DONE_COMMAND_PARAMS_SCHEMA,
         result_schema: TASK_ARCHIVE_DONE_COMMAND_RESULT_SCHEMA,

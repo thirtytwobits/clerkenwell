@@ -640,6 +640,7 @@
   },
   "commands": [
     {
+      "description": "Counts the words of a note body, without saving anything.",
       "name": "note.preview",
       "params": {
         "$ref": "#/$defs/NotePreviewParams"
@@ -649,6 +650,7 @@
       }
     },
     {
+      "description": "Archives every finished task on a board, and returns how many it archived.",
       "name": "task.archiveDone",
       "params": {
         "$ref": "#/$defs/TaskArchiveDoneParams"
@@ -2404,6 +2406,7 @@
   ],
   "mutations": [
     {
+      "description": "Creates a board with a name, and returns its id and etag.",
       "name": "board.create",
       "params": {
         "$ref": "#/$defs/BoardCreateParams"
@@ -2416,6 +2419,7 @@
       ]
     },
     {
+      "description": "Imports operations a replica of a board wrote, under the peers allocated to its writer.",
       "name": "board.importUpdate",
       "params": {
         "$ref": "#/$defs/ReplicaUpdateParams"
@@ -2428,6 +2432,7 @@
       ]
     },
     {
+      "description": "Reconciles the order of a board's archived columns.",
       "name": "board.reconcileArchivedColumnOrder",
       "params": {
         "$ref": "#/$defs/BoardKeyParams"
@@ -2440,6 +2445,7 @@
       ]
     },
     {
+      "description": "Creates a note with a title, and returns its id and etag.",
       "name": "note.create",
       "params": {
         "$ref": "#/$defs/NoteCreateParams"
@@ -2452,6 +2458,7 @@
       ]
     },
     {
+      "description": "Deletes a note.",
       "name": "note.delete",
       "params": {
         "$ref": "#/$defs/NoteKeyParams"
@@ -2464,6 +2471,7 @@
       ]
     },
     {
+      "description": "Imports operations a replica of a note wrote, under the peers allocated to its writer.",
       "name": "note.importUpdate",
       "params": {
         "$ref": "#/$defs/ReplicaUpdateParams"
@@ -2476,6 +2484,7 @@
       ]
     },
     {
+      "description": "Moves a note to a column of a board.",
       "name": "note.moveToBoard",
       "params": {
         "$ref": "#/$defs/NoteMoveParams"
@@ -2489,6 +2498,7 @@
       ]
     },
     {
+      "description": "Pins a note, or unpins it.",
       "name": "note.pin",
       "params": {
         "$ref": "#/$defs/NotePinParams"
@@ -2501,6 +2511,7 @@
       ]
     },
     {
+      "description": "Renames a note.",
       "name": "note.rename",
       "params": {
         "$ref": "#/$defs/NoteRenameParams"
@@ -2513,6 +2524,7 @@
       ]
     },
     {
+      "description": "Resets the sync state of one peer, or of every peer.",
       "name": "sync.reset",
       "params": {
         "$ref": "#/$defs/SyncResetParams"
@@ -2525,6 +2537,7 @@
       ]
     },
     {
+      "description": "Archives a task.",
       "name": "task.archive",
       "params": {
         "$ref": "#/$defs/TaskKeyParams"
@@ -2537,6 +2550,7 @@
       ]
     },
     {
+      "description": "Saves a task, fenced on the revision it was read at.",
       "name": "task.save",
       "params": {
         "$ref": "#/$defs/TaskSaveParams"
@@ -2549,6 +2563,7 @@
       ]
     },
     {
+      "description": "Sets the time a task is due.",
       "name": "task.schedule",
       "params": {
         "$ref": "#/$defs/TaskScheduleParams"
@@ -2561,6 +2576,7 @@
       ]
     },
     {
+      "description": "Sets the workspace's theme.",
       "name": "workspace.configure",
       "params": {
         "$ref": "#/$defs/WorkspaceConfigureParams"
@@ -2579,6 +2595,7 @@
       "dependsOn": [
         "Activity"
       ],
+      "description": "The workspace's activity log, oldest entry first.",
       "materialization": {
         "snapshotMode": "patch",
         "strategy": "replace"
@@ -2598,6 +2615,7 @@
       "dependsOn": [
         "Activity"
       ],
+      "description": "The workspace's activity streams, each as text appended in order.",
       "materialization": {
         "collectionField": "streams",
         "deltaTextField": "text_delta",
@@ -2668,6 +2686,7 @@
       "dependsOn": [
         "Note"
       ],
+      "description": "One note, by its id; removed when the note is deleted.",
       "materialization": {
         "removeField": "note",
         "removeMode": "nullField",
@@ -2695,6 +2714,7 @@
       "dependsOn": [
         "Note"
       ],
+      "description": "Every note, keyed by its id.",
       "materialization": {
         "collectionField": "notes",
         "itemField": "note",
@@ -2717,6 +2737,7 @@
       "dependsOn": [
         "SyncHealth"
       ],
+      "description": "Whether the workspace is in sync with its peers: its lag, its peers and the last error.",
       "materialization": {
         "snapshotField": "health",
         "snapshotMode": "field",
@@ -2738,6 +2759,7 @@
         "Task",
         "Board"
       ],
+      "description": "The tasks on one board, in the board's sort order.",
       "materialization": {
         "snapshotField": "snapshot",
         "snapshotMode": "field",
@@ -2758,6 +2780,7 @@
       "dependsOn": [
         "Task"
       ],
+      "description": "One task, by its id, with the tasks related to it.",
       "materialization": {
         "snapshotMode": "patch",
         "strategy": "replace"
@@ -2777,6 +2800,7 @@
       "dependsOn": [
         "Workspace"
       ],
+      "description": "The workspace's settings: its theme, shortcuts and autosave interval.",
       "materialization": {
         "strategy": "reset"
       },

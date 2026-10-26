@@ -28,9 +28,13 @@ use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
 /// The schema of every parameter, result and snapshot here.
 const OBJECT_SCHEMA: &str = r#"{"type":"object"}"#;
 
+/// The description of every projection, mutation and command here.
+const DESCRIPTION: &str = "An operation the tests make.";
+
 static PROJECTIONS: &[GeneratedProjectionSpec] = &[
     GeneratedProjectionSpec {
         name: "counters.value",
+        description: DESCRIPTION,
         depends_on: &["Counter"],
         materialization: GeneratedMaterializationPlan::Reset,
         params_schema: OBJECT_SCHEMA,
@@ -38,6 +42,7 @@ static PROJECTIONS: &[GeneratedProjectionSpec] = &[
     },
     GeneratedProjectionSpec {
         name: "clock.held",
+        description: DESCRIPTION,
         depends_on: &["Clock"],
         materialization: GeneratedMaterializationPlan::Reset,
         params_schema: OBJECT_SCHEMA,
@@ -46,6 +51,7 @@ static PROJECTIONS: &[GeneratedProjectionSpec] = &[
 ];
 static MUTATIONS: &[GeneratedMutationSpec] = &[GeneratedMutationSpec {
     name: "counter.increment",
+    description: DESCRIPTION,
     touches: &["Counter"],
     params_schema: OBJECT_SCHEMA,
     result_schema: OBJECT_SCHEMA,
@@ -53,12 +59,14 @@ static MUTATIONS: &[GeneratedMutationSpec] = &[GeneratedMutationSpec {
 static COMMANDS: &[GeneratedCommandSpec] = &[
     GeneratedCommandSpec {
         name: "counter.reset",
+        description: DESCRIPTION,
         touches: &["Counter"],
         params_schema: OBJECT_SCHEMA,
         result_schema: OBJECT_SCHEMA,
     },
     GeneratedCommandSpec {
         name: "counter.countTo",
+        description: DESCRIPTION,
         touches: &["Counter"],
         params_schema: OBJECT_SCHEMA,
         result_schema: OBJECT_SCHEMA,

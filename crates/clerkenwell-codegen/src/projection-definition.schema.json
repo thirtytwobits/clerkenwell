@@ -114,8 +114,9 @@
     "projection": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["params", "snapshot", "patch", "dependsOn", "materialization"],
+      "required": ["description", "params", "snapshot", "patch", "dependsOn", "materialization"],
       "properties": {
+        "description": { "$ref": "#/definitions/description" },
         "params": { "$ref": "#/definitions/schemaRef" },
         "snapshot": { "$ref": "#/definitions/schemaRef" },
         "patch": { "$ref": "#/definitions/schemaRef" },
@@ -232,8 +233,9 @@
     "mutation": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["params", "result", "touches"],
+      "required": ["description", "params", "result", "touches"],
       "properties": {
+        "description": { "$ref": "#/definitions/description" },
         "params": { "$ref": "#/definitions/schemaRef" },
         "result": { "$ref": "#/definitions/schemaRef" },
         "touches": {
@@ -247,8 +249,9 @@
     "command": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["params", "result"],
+      "required": ["description", "params", "result"],
       "properties": {
+        "description": { "$ref": "#/definitions/description" },
         "params": { "$ref": "#/definitions/schemaRef" },
         "result": { "$ref": "#/definitions/schemaRef" },
         "touches": {
@@ -385,6 +388,10 @@
         },
         "schema": { "$ref": "#/definitions/schemaRef" }
       }
+    },
+    "description": {
+      "type": "string",
+      "pattern": "\\S"
     },
     "schemaRef": {
       "type": "object",

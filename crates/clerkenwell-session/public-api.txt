@@ -24,8 +24,10 @@ field clerkenwell_session::AuthoringHeld::schema_version: u32
 struct clerkenwell_session::AuthoringStates { .. }
 derive clerkenwell_session::AuthoringStates: Clone
 impl fmt::Debug for clerkenwell_session::AuthoringStates
+fn clerkenwell_session::AuthoringStates::entity(&self, name: &str) -> Option<&'static GeneratedCollaborationEntitySpec>
 fn clerkenwell_session::AuthoringStates::new(stores: CollaborationStores, plans: &'static [GeneratedCollaborationEntitySpec], route: impl Fn(&str, &Value) -> Option<String> + Send + Sync + 'static) -> Self
 fn clerkenwell_session::AuthoringStates::plan(&self, projection: &str) -> Option<&'static GeneratedCollaborationEntitySpec>
+fn clerkenwell_session::AuthoringStates::route(&self, entity: &str, store_params: &Value) -> Option<String>
 fn clerkenwell_session::AuthoringStates::stores(&self) -> &CollaborationStores
 enum clerkenwell_session::FollowingDelivery
 derive clerkenwell_session::FollowingDelivery: Clone, Copy, Debug, Eq, PartialEq

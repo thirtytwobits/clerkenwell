@@ -483,6 +483,7 @@ fn registry_metadata(definition: &Definition) -> String {
                 "GeneratedProjectionSpec",
                 vec![
                     ("name", projection_path(projection.name)),
+                    ("description", literal(projection.description())),
                     ("depends_on", literals(&projection.depends_on())),
                     (
                         "materialization",
@@ -507,6 +508,7 @@ fn registry_metadata(definition: &Definition) -> String {
                 "GeneratedMutationSpec",
                 vec![
                     ("name", mutation_path(mutation.name)),
+                    ("description", literal(mutation.description())),
                     ("touches", literals(&mutation.touches())),
                     (
                         "params_schema",
@@ -527,6 +529,7 @@ fn registry_metadata(definition: &Definition) -> String {
                 "GeneratedCommandSpec",
                 vec![
                     ("name", command_path(command.name)),
+                    ("description", literal(command.description())),
                     ("touches", literals(&command.touches())),
                     (
                         "params_schema",
