@@ -656,3 +656,29 @@ fn a_text_edit_overlapping_its_own_retry_is_answered_as_a_duplicate() {
     assert_eq!(outer.etag, after.summary.etag);
     assert_eq!(heard.len(), 1, "one edit is committed");
 }
+
+/// Refuses a body longer than 12 characters.
+fn short(document: &Value) -> StoreResult<()> {
+    match document["body"].as_str() {
+        Some(body) if body.chars().count() > 12 => {
+            Err(StoreError::invalid_request("The body is too long."))
+        }
+        _ => Ok(()),
+    }
+}
+
+#[test]
+fn a_text_edit_overlapping_its_own_retry_is_not_judged_merged_with_it() {
+    let (outer, after, heard) = overlapped(Arc::new(|service, seed| {
+        service.edit_text(
+            &NOTE_PLAN,
+            text_edit(seed, &writer(), "writer-text", "Written."),
+            short,
+        )
+    }));
+
+    let outer = outer.expect("the call the retry overlapped");
+    assert!(outer.duplicate);
+    assert_eq!(after.document["body"], "Written.");
+    assert_eq!(heard.len(), 1, "one edit is committed");
+}

@@ -46,8 +46,9 @@ names the contracts.
 ### Fixed
 
 - `CollaborationService::import` answers a retry of an operation the document retains as a
-  duplicate, whatever has been accepted since: the field conflict policy judges an operation
-  when it is first accepted, and its retry is not judged against later edits.
+  duplicate with what the operation left, whatever has been accepted since. The etag fence, the
+  field conflict policy and the application's validator judge an operation when it is first
+  accepted, and do not judge its retry.
 
 ## 0.10.0
 

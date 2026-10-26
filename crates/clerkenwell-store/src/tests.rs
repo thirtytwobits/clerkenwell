@@ -873,7 +873,6 @@ fn a_commit_adding_operations_under_a_peer_bound_to_another_principal_is_refused
                 operation_id: "impostor".to_string(),
                 actor: Principal::new("impostor", ActorKind::Human),
                 intent: None,
-                retried: Retried::ByUpdate,
                 peers: bound,
                 imported_update: b"impostor".to_vec(),
                 has_new_operations: true,
