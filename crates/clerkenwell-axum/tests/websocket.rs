@@ -14,8 +14,8 @@ use clerkenwell_schema::{
 };
 use clerkenwell_session::transport::ProjectionErrorCode;
 use clerkenwell_session::{
-    AnnouncementFeed, Held, ModificationCounter, Modified, NumberedSnapshot, ProjectionHost,
-    ProjectionRegistry, ProjectionSubscription,
+    AnnouncementFeed, Held, ModificationCounter, Modified, NumberedSnapshot, ProjectionFailure,
+    ProjectionHost, ProjectionRegistry, ProjectionSubscription,
 };
 use futures_util::{SinkExt, StreamExt};
 use serde_json::{json, Value};
@@ -373,14 +373,17 @@ async fn begin_shutting_down(
     let shutting_down = tokio::spawn(async move {
         let shutdown = server.shut_down();
         tokio::pin!(shutdown);
-        // The first poll marks the server as shutting down.
-        tokio::select! {
+        // The first poll marks the server as shutting down, and ends the
+        // shutdown of a server with nothing to wait for.
+        let ended = tokio::select! {
             biased;
-            () = &mut shutdown => {}
-            () = std::future::ready(()) => {}
-        }
+            () = &mut shutdown => true,
+            () = std::future::ready(()) => false,
+        };
         let _ = begun.send(());
-        shutdown.await;
+        if !ended {
+            shutdown.await;
+        }
     });
     began.await.expect("the shutdown began");
     shutting_down
@@ -1253,4 +1256,167 @@ async fn a_request_whose_host_panics_is_refused_and_its_connection_serves_on() {
 
     let served = increment(&mut socket, 2, "a").await;
     assert_eq!(served["result"]["counter_id"], "a");
+}
+
+fn operator() -> Principal {
+    Principal::new("operator", ActorKind::Service)
+}
+
+/// A connection subscribed to counter `counter`, once its snapshot has
+/// arrived.
+async fn following(url: &str, counter: &str) -> Socket {
+    let mut socket = connect(url).await;
+    subscribe(
+        &mut socket,
+        1,
+        "counters.value",
+        json!({ "counter_id": counter }),
+    )
+    .await;
+    next(&mut socket).await;
+    socket
+}
+
+#[tokio::test]
+async fn a_mutation_the_server_makes_as_a_principal_patches_every_connection() {
+    let (url, server) = start(8).await;
+    let mut first = following(&url, "a").await;
+    let mut second = following(&url, "a").await;
+
+    let made = server
+        .mutate(
+            &operator(),
+            "counter.increment",
+            json!({ "counter_id": "a" }),
+        )
+        .await
+        .expect("the mutation");
+
+    assert_eq!(made.result["by"], "operator");
+    assert_eq!(made.result["value"], 1);
+    for socket in [&mut first, &mut second] {
+        let patch = next(socket).await;
+        assert_eq!(update(&patch)["patch"], json!({ "value": 1 }));
+    }
+}
+
+#[tokio::test]
+async fn a_mutation_the_server_makes_is_refused_as_a_connections_would_be() {
+    let (url, server) = start(8).await;
+    let mut socket = following(&url, "a").await;
+
+    let unknown = server
+        .mutate(&operator(), "counter.unknown", json!({}))
+        .await
+        .expect_err("an unknown mutation");
+    let refused = server
+        .mutate(
+            &operator(),
+            "counter.increment",
+            json!({ "counter_id": "a", "refuse": { "reason": "held" } }),
+        )
+        .await
+        .expect_err("a mutation its host refuses");
+    let panicked = server
+        .mutate(
+            &operator(),
+            "counter.increment",
+            json!({ "counter_id": "a", "panic": true }),
+        )
+        .await
+        .expect_err("a mutation whose host panics");
+
+    assert_eq!(
+        unknown.describe().code,
+        ProjectionErrorCode::UnknownMutation
+    );
+    assert_eq!(refused.describe().code, ProjectionErrorCode::Conflict);
+    assert_eq!(
+        refused.describe().details,
+        Some(json!({ "reason": "held" }))
+    );
+    assert_eq!(panicked.describe().code, ProjectionErrorCode::InternalError);
+    assert!(quiet(&mut socket).await, "no refused mutation is published");
+}
+
+#[tokio::test]
+async fn a_command_the_server_runs_as_a_principal_patches_every_connection() {
+    let (url, server) = start(8).await;
+    let mut socket = following(&url, "a").await;
+    increment(&mut connect(&url).await, 1, "a").await;
+    next(&mut socket).await;
+
+    let ran = server
+        .command(&operator(), "counter.reset", json!({ "counter_id": "a" }))
+        .await
+        .expect("the command");
+
+    assert_eq!(ran.result["by"], "operator");
+    assert_eq!(ran.result["value"], 0);
+    let patch = next(&mut socket).await;
+    assert_eq!(update(&patch)["patch"], json!({ "value": 0 }));
+}
+
+#[tokio::test]
+async fn a_command_the_server_runs_counts_against_its_limit() {
+    let (url, server) = start_with(8, 1).await;
+    let mut socket = connect(&url).await;
+    reset_at_gate(&mut socket, 1, "a", "held").await;
+    // The connection serves its frames in order, so its command has started
+    // once this answers.
+    increment(&mut socket, 2, "b").await;
+
+    let refused = server
+        .command(&operator(), "counter.reset", json!({ "counter_id": "c" }))
+        .await
+        .expect_err("a command beyond the limit");
+
+    assert_eq!(refused.describe().code, ProjectionErrorCode::RateLimit);
+    server.application().open("held");
+    assert_eq!(next(&mut socket).await["id"], json!(1));
+    server
+        .command(&operator(), "counter.reset", json!({ "counter_id": "c" }))
+        .await
+        .expect("a command once the other has finished");
+}
+
+#[tokio::test]
+async fn a_command_the_server_runs_while_shutting_down_is_refused_as_interrupted() {
+    let (_, server) = start(8).await;
+    let shutting_down = begin_shutting_down(&server).await;
+
+    let refused = server
+        .command(&operator(), "counter.reset", json!({ "counter_id": "a" }))
+        .await
+        .expect_err("a command during shutdown");
+
+    assert_eq!(refused.describe().code, ProjectionErrorCode::Interrupted);
+    shutting_down.await.expect("the shutdown");
+}
+
+#[tokio::test]
+async fn a_command_the_server_runs_runs_on_when_its_caller_goes_away() {
+    let (url, server) = start(8).await;
+    let mut socket = following(&url, "a").await;
+    increment(&mut connect(&url).await, 1, "a").await;
+    next(&mut socket).await;
+    {
+        let caller = operator();
+        let call = server.command(
+            &caller,
+            "counter.reset",
+            json!({ "counter_id": "a", "gate": "held" }),
+        );
+        tokio::pin!(call);
+        // The first poll starts the command, which then waits at its gate.
+        tokio::select! {
+            biased;
+            _ = &mut call => panic!("the command waits at its gate"),
+            () = std::future::ready(()) => {}
+        }
+    }
+    server.application().open("held");
+
+    let patch = next(&mut socket).await;
+    assert_eq!(update(&patch)["patch"], json!({ "value": 0 }));
 }

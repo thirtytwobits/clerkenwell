@@ -27,7 +27,7 @@ pub use modifications::{ModificationCounter, Modified, NumberedSnapshot};
 pub use registry::ProjectionRegistry;
 pub use server::{
     command_reply, decode_request, deliver_announcement, deliver_change, publish, publish_command,
-    resync_all, run_command, serve, serve_request, Accepted, ProjectionConnection,
+    resync_all, run_command, run_mutation, serve, serve_request, Accepted, ProjectionConnection,
     ProjectionFailure, ProjectionHost, ProjectionRefusal, ProjectionReply, ProjectionRequest,
     RanCommand,
 };
