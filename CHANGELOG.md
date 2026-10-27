@@ -61,7 +61,7 @@ names the contracts.
 - `GeneratedTransportValue`, which the generated `ProjectionTransportSnapshot`,
   `ProjectionTransportMutationResult` and `ProjectionTransportCommandResult` implement: `value`
   is the snapshot or result without the tag that names its entry (#43).
-- `clerkenwell-ops` contributes Clerkenwell's operations to Clapham 0.3.1 (#43):
+- `clerkenwell-ops` contributes Clerkenwell's operations to Clapham 0.3.2 (#43):
   - `contribute(server, host)` contributes, for a running `ProjectionServer`, the `clerkenwell`
     namespace's document and recovery operations over its stores, and one operation per
     projection, mutation and command of its definition, under the definition's namespace. An

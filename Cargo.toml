@@ -12,10 +12,10 @@ repository = "https://github.com/thirtytwobits/clerkenwell"
 # loro-release.json.
 [workspace.dependencies]
 base64 = "0.23"
-clapham = { git = "https://github.com/thirtytwobits/clapham", rev = "195a1ac70d96987764acd3d4c1432f20e2476d9d", version = "0.3.1" }
-clapham-cli = { git = "https://github.com/thirtytwobits/clapham", rev = "195a1ac70d96987764acd3d4c1432f20e2476d9d", version = "0.3.1" }
-clapham-conformance = { git = "https://github.com/thirtytwobits/clapham", rev = "195a1ac70d96987764acd3d4c1432f20e2476d9d", version = "0.3.1" }
-clapham-mcp-server = { git = "https://github.com/thirtytwobits/clapham", rev = "195a1ac70d96987764acd3d4c1432f20e2476d9d", version = "0.3.1" }
+clapham = { git = "https://github.com/thirtytwobits/clapham", tag = "v0.3.2", version = "0.3.2" }
+clapham-cli = { git = "https://github.com/thirtytwobits/clapham", tag = "v0.3.2", version = "0.3.2" }
+clapham-conformance = { git = "https://github.com/thirtytwobits/clapham", tag = "v0.3.2", version = "0.3.2" }
+clapham-mcp-server = { git = "https://github.com/thirtytwobits/clapham", tag = "v0.3.2", version = "0.3.2" }
 clap = { version = "4.5", features = ["derive"] }
 icu_collator = "2.1"
 indexmap = "2.12"
