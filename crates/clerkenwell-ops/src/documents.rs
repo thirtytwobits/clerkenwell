@@ -368,6 +368,10 @@ pub(crate) fn contribute(
                 Effect::Mutation,
                 DOCUMENTS_WRITE,
             )
+            // A retry is recognised while the store retains its operation;
+            // one made after is prepared again at its frontier and merges
+            // with the first.
+            .idempotent(false)
             .refusal(VALIDATION_FAILED.0, VALIDATION_FAILED.1),
             move |call: Call, input: EditTextInput| {
                 let (authoring, host) = (text_authoring.clone(), text_host.clone());

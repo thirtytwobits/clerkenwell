@@ -281,8 +281,7 @@ async fn each_projection_mutation_and_command_is_an_operation_under_the_definiti
     let listed = result(&set, "tasks.tasks.list", json!({})).await;
 
     let task_id = created["result"]["task_id"].clone();
-    assert!(created["modification"].is_u64());
-    assert_eq!(closed["result"]["closed"], 4);
+    assert_eq!(closed["result"]["closed"], 3);
     let tasks = listed["snapshot"]["tasks"].as_array().expect("tasks");
     assert!(
         tasks.iter().any(|task| task["task_id"] == task_id),
@@ -292,7 +291,107 @@ async fn each_projection_mutation_and_command_is_an_operation_under_the_definiti
         tasks.iter().all(|task| task["status"] == "closed"),
         "{listed}"
     );
-    assert_eq!(listed["modification"], closed["modification"]);
+    assert!(listed["modification"].is_u64(), "{listed}");
+}
+
+#[tokio::test]
+async fn the_generated_operations_leave_the_private_task_out() {
+    let set = composed(server());
+
+    let listed = result(&set, "tasks.tasks.list", json!({})).await;
+    result(&set, "tasks.task.closeAll", json!({})).await;
+    let private = call(
+        &set,
+        grant("owner", EVERY_SCOPE),
+        "clerkenwell.document.get",
+        task(PRIVATE_TASK),
+    )
+    .await
+    .expect("the owner reads it");
+
+    let tasks = listed["snapshot"]["tasks"].as_array().expect("tasks");
+    assert!(
+        tasks.iter().all(|task| task["task_id"] != PRIVATE_TASK),
+        "{listed}"
+    );
+    assert_eq!(
+        private.result.expect("a result")["document"]["status"],
+        "open"
+    );
+}
+
+#[tokio::test]
+async fn a_whole_document_edit_is_idempotent_and_a_text_edit_is_not() {
+    let set = composed(server());
+    let idempotent = |name: &str| {
+        set.operations()
+            .find(|operation| operation.name.as_str() == name)
+            .unwrap_or_else(|| panic!("{name}"))
+            .idempotent
+    };
+
+    assert!(idempotent("clerkenwell.document.edit"));
+    assert!(!idempotent("clerkenwell.document.editText"));
+}
+
+#[tokio::test]
+async fn an_edit_retried_once_its_operation_is_no_longer_retained_is_refused_as_stale() {
+    let set = composed(server());
+    let rename = |read: &Value, operation_id: &str, title: &str| {
+        let mut document = read["document"].clone();
+        document["title"] = json!(title);
+        let mut edit = task("task-1");
+        edit["operation_id"] = json!(operation_id);
+        edit["etag"] = read["etag"].clone();
+        edit["document"] = document;
+        edit
+    };
+    let read = result(&set, "clerkenwell.document.get", task("task-1")).await;
+    let first = rename(&read, "first", "First");
+    result(&set, "clerkenwell.document.edit", first.clone()).await;
+    for later in 0..clerkenwell_example_operations::COMMIT_POLICY.retained_operations {
+        let read = result(&set, "clerkenwell.document.get", task("task-1")).await;
+        let title = format!("Later {later}");
+        result(
+            &set,
+            "clerkenwell.document.edit",
+            rename(&read, &title, &title),
+        )
+        .await;
+    }
+    let before = result(&set, "clerkenwell.document.get", task("task-1")).await;
+
+    let refused = refusal(&set, person(), "clerkenwell.document.edit", first).await;
+
+    assert_eq!(refused.code, "collaboration_revision");
+    let after = result(&set, "clerkenwell.document.get", task("task-1")).await;
+    assert_eq!(after, before, "the retry changed nothing");
+}
+
+#[tokio::test]
+async fn an_edit_under_a_blank_operation_id_is_refused_as_invalid_input() {
+    let set = composed(server());
+    let first = result(&set, "clerkenwell.document.get", task("task-1")).await;
+    let second = result(&set, "clerkenwell.document.get", task("task-2")).await;
+    let mut edit = task("task-1");
+    edit["operation_id"] = json!(" ");
+    edit["etag"] = first["etag"].clone();
+    edit["document"] = first["document"].clone();
+    let mut text = task("task-2");
+    text["operation_id"] = json!(" ");
+    text["field_path"] = json!("notes");
+    text["frontier_base64"] = second["accepted_frontier_base64"].clone();
+    text["read"] = json!("");
+    text["replacement"] = json!("Blank.");
+
+    for (name, input) in [
+        ("clerkenwell.document.edit", edit),
+        ("clerkenwell.document.editText", text),
+    ] {
+        let refused = refusal(&set, person(), name, input).await;
+        assert_eq!(refused.code, "invalid_collaboration_operation_id", "{name}");
+        assert_eq!(refused.category, Category::InvalidInput, "{name}");
+    }
 }
 
 #[tokio::test]
@@ -449,7 +548,7 @@ async fn a_subscriber_takes_the_change_of_an_edit_and_of_a_mutation_made_through
     edit["etag"] = read["etag"].clone();
     edit["document"] = document;
     result(&set, "clerkenwell.document.edit", edit).await;
-    let authored = next(&mut socket).await;
+    let edited = [next(&mut socket).await, next(&mut socket).await];
 
     assert_eq!(listed["params"]["kind"], "patch", "{listed}");
     assert!(
@@ -458,5 +557,22 @@ async fn a_subscriber_takes_the_change_of_an_edit_and_of_a_mutation_made_through
             .is_some_and(|tasks| tasks.iter().any(|task| task["title"] == "Plan the trip")),
         "{listed}"
     );
-    assert_eq!(authored["params"]["kind"], "patch", "{authored}");
+    // The edit reaches the task list, as the store announced it, and the
+    // task's authoring state.
+    let renamed = |frame: &Value| {
+        frame["params"]["patch"]["value"]["tasks"]
+            .as_array()
+            .is_some_and(|tasks| {
+                tasks
+                    .iter()
+                    .any(|task| task["title"] == "Write the summary")
+            })
+    };
+    assert!(edited.iter().any(renamed), "{edited:?}");
+    assert!(
+        edited
+            .iter()
+            .all(|frame| frame["params"]["kind"] == "patch"),
+        "{edited:?}"
+    );
 }

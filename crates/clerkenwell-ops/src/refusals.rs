@@ -27,6 +27,7 @@ pub(crate) const STORE_REFUSALS: &[(&str, Category)] = &[
         "collaboration_operation_id_collision",
         Category::InvalidInput,
     ),
+    ("invalid_collaboration_operation_id", Category::InvalidInput),
     ("invalid_collaboration_update", Category::InvalidInput),
     ("invalid_collaboration_version", Category::InvalidInput),
     (

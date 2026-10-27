@@ -3,10 +3,17 @@
 //!
 //! The tasks definition, `tasks.projections.json`, declares a collaborative
 //! task with a title, notes whose concurrent edits merge and a status; a
-//! projection listing every task; a mutation creating one; and a command
+//! projection listing the tasks; a mutation creating one; and a command
 //! closing every open one. `model` holds the bindings generated from it,
 //! `Tasks` serves them, and `operations` contributes Clerkenwell's
-//! operations over them to Clapham. The binary serves the composition as
+//! operations over them to Clapham. Every task is shared but
+//! [`PRIVATE_TASK`], which only its owner reaches: the list and the command
+//! leave it out.
+//!
+//! The store announces each change to a task, whichever writer made it: a
+//! mutation, a command, or an operation Clerkenwell contributes. `Tasks`
+//! numbers each change it announces, and sends the task list's subscribers
+//! the list it leaves. The binary serves the composition as
 //! Clapham's reference process protocol describes, and the tests run it
 //! through Clapham's conformance harness.
 
@@ -14,10 +21,9 @@ pub mod conformance;
 pub mod model;
 pub mod operations;
 
-use std::convert::Infallible;
 use std::num::{NonZeroU32, NonZeroUsize};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Mutex, PoisonError};
+use std::sync::Arc;
 use std::time::Duration;
 
 use clerkenwell_axum::RpcFailure;
@@ -26,14 +32,15 @@ use clerkenwell_events::Principal;
 use clerkenwell_schema::CollaborationExchangeMode;
 use clerkenwell_session::transport::ProjectionErrorCode;
 use clerkenwell_session::{
-    AuthoringStates, Held, ModificationCounter, Modified, NumberedSnapshot, ProjectionFailure,
-    ProjectionHost, ProjectionRefusal, ProjectionRegistry, ProjectionSubscription,
+    AnnouncementFeed, AuthoringStates, Held, ModificationCounter, Modified, NumberedSnapshot,
+    ProjectionFailure, ProjectionHost, ProjectionRefusal, ProjectionRegistry,
+    ProjectionSubscription,
 };
 use clerkenwell_store::testing::MemoryStorage;
 use clerkenwell_store::{
-    CollaborationDocumentEdit, CollaborationDocumentId, CollaborationImportRequest,
-    CollaborationService, CollaborationStoragePort, CollaborationStores, CommitPolicy, ImportFence,
-    PeerKey, StoreError,
+    CollaborationDocumentEdit, CollaborationDocumentId, CollaborationDocumentSummary,
+    CollaborationImportRequest, CollaborationService, CollaborationStoragePort,
+    CollaborationStores, CommitPolicy, ImportFence, PeerKey, StoreError,
 };
 use serde::de::DeserializeOwned;
 use serde_json::{json, Value};
@@ -54,6 +61,9 @@ pub const TASK: &GeneratedCollaborationEntitySpec = &model::TASK_COLLABORATION_S
 
 /// The store that keeps every task.
 pub const TASKS_STORE: &str = "tasks";
+
+/// The task only its owner reaches.
+pub const PRIVATE_TASK: &str = "task-private";
 
 /// Publications a connection may fall behind before it resynchronises.
 pub const PUBLICATION_WINDOW: NonZeroUsize = match NonZeroUsize::new(256) {
@@ -102,14 +112,13 @@ pub fn validate(task: &Value) -> Result<(), StoreError> {
         .map_err(|_| StoreError::invalid_request(format!("{} is not a status.", task["status"])))
 }
 
-/// Tasks kept in a store, and the modifications numbered as they are saved.
+/// Tasks kept in a store, and the number of each change the store announces.
 pub struct Tasks {
     service: CollaborationService,
     authoring: AuthoringStates,
-    modifications: ModificationCounter,
-    /// Held while a modification is saved and numbered, and while a snapshot
-    /// reads the tasks and the number of the last modification they hold.
-    saving: Mutex<()>,
+    modifications: Arc<ModificationCounter>,
+    /// Each change to a task, as the store announced it.
+    announcements: Arc<AnnouncementFeed<()>>,
     created: AtomicU64,
 }
 
@@ -152,13 +161,21 @@ impl Tasks {
         let service = stores
             .register(TASKS_STORE, storage)
             .expect("a new set holds no other store");
+        let modifications = Arc::new(ModificationCounter::default());
+        let announcements = Arc::new(AnnouncementFeed::default());
+        let (numbered, announced) = (modifications.clone(), announcements.clone());
+        // Numbered once the store has saved the change, so a snapshot that
+        // reads the number before it reads the tasks is sent the change.
+        stores.changes().listen(move |_| {
+            announced.announce(&["Task"], numbered.take(), ());
+        });
         Self {
             service,
             authoring: AuthoringStates::new(stores, GENERATED_COLLABORATION_SPECS, |_, _| {
                 Some(TASKS_STORE.to_owned())
             }),
-            modifications: ModificationCounter::default(),
-            saving: Mutex::new(()),
+            modifications,
+            announcements,
             created: AtomicU64::new(1),
         }
     }
@@ -168,10 +185,10 @@ impl Tasks {
         &self.service
     }
 
-    /// Every task, in id order.
+    /// Every shared task, in id order.
     fn list(&self) -> Result<Vec<TaskSummary>, RpcFailure> {
         let mut tasks = Vec::new();
-        for summary in self.service.summaries(TASK.name).map_err(refused)? {
+        for summary in self.shared()? {
             let Some(read) = self
                 .service
                 .read_document(TASK, &summary.document)
@@ -274,10 +291,11 @@ impl Tasks {
         })
     }
 
-    /// Closes every open task as `principal`, and returns how many it closed.
+    /// Closes every open shared task as `principal`, and returns how many it
+    /// closed.
     fn close_all(&self, principal: &Principal) -> Result<TaskCloseAllResult, RpcFailure> {
         let mut closed = 0;
-        for summary in self.service.summaries(TASK.name).map_err(refused)? {
+        for summary in self.shared()? {
             let Some(read) = self
                 .service
                 .read_document(TASK, &summary.document)
@@ -309,6 +327,17 @@ impl Tasks {
         Ok(TaskCloseAllResult { closed })
     }
 
+    /// What every shared task is, in id order.
+    fn shared(&self) -> Result<Vec<CollaborationDocumentSummary>, RpcFailure> {
+        Ok(self
+            .service
+            .summaries(TASK.name)
+            .map_err(refused)?
+            .into_iter()
+            .filter(|summary| summary.document.resource_id != PRIVATE_TASK)
+            .collect())
+    }
+
     /// The patch that brings a subscription to the task list to what the
     /// store holds now.
     fn list_patch(&self) -> Option<ProjectionTransportPatch> {
@@ -327,7 +356,7 @@ impl ProjectionHost for Tasks {
     type Delivery = ();
     type MutationResult = ProjectionTransportMutationResult;
     type CommandResult = ProjectionTransportCommandResult;
-    type Announcement = Infallible;
+    type Announcement = ();
     type Failure = RpcFailure;
 
     fn registry(&self) -> &ProjectionRegistry {
@@ -340,6 +369,10 @@ impl ProjectionHost for Tasks {
 
     fn modifications(&self) -> &ModificationCounter {
         &self.modifications
+    }
+
+    fn announcements(&self) -> Option<&AnnouncementFeed<()>> {
+        Some(&self.announcements)
     }
 
     async fn snapshot(
@@ -355,12 +388,14 @@ impl ProjectionHost for Tasks {
                 None,
             ));
         }
-        let _saving = self.saving.lock().unwrap_or_else(PoisonError::into_inner);
+        // Read before the tasks, so a change saved between the two is sent
+        // to the subscription.
+        let through = self.modifications.last();
         Ok(NumberedSnapshot {
             snapshot: ProjectionTransportSnapshot::TasksList(TasksListSnapshot {
                 tasks: self.list()?,
             }),
-            through: self.modifications.last(),
+            through,
         })
     }
 
@@ -378,7 +413,6 @@ impl ProjectionHost for Tasks {
         mutation: &str,
         params: Value,
     ) -> Result<Modified<ProjectionTransportMutationResult>, RpcFailure> {
-        let _saving = self.saving.lock().unwrap_or_else(PoisonError::into_inner);
         let result = match mutation {
             TASK_CREATE_MUTATION => self
                 .create(principal, decode(params)?)
@@ -392,9 +426,10 @@ impl ProjectionHost for Tasks {
                 None,
             )),
         }?;
+        // Each change it made reaches the task list as the store announces it.
         Ok(Modified {
             result,
-            modification: Some(self.modifications.take()),
+            modification: None,
         })
     }
 
@@ -404,7 +439,7 @@ impl ProjectionHost for Tasks {
         _result: &ProjectionTransportMutationResult,
         _subscription: &ProjectionSubscription<Held<()>>,
     ) -> Option<ProjectionTransportPatch> {
-        self.list_patch()
+        None
     }
 
     async fn command(
@@ -420,11 +455,11 @@ impl ProjectionHost for Tasks {
                 None,
             ));
         }
-        let _saving = self.saving.lock().unwrap_or_else(PoisonError::into_inner);
         let result = self.close_all(principal)?;
+        // Each change it made reaches the task list as the store announces it.
         Ok(Modified {
             result: ProjectionTransportCommandResult::TaskCloseAll(result),
-            modification: Some(self.modifications.take()),
+            modification: None,
         })
     }
 
@@ -434,16 +469,16 @@ impl ProjectionHost for Tasks {
         _result: &ProjectionTransportCommandResult,
         _subscription: &ProjectionSubscription<Held<()>>,
     ) -> Option<ProjectionTransportPatch> {
-        self.list_patch()
+        None
     }
 
-    /// The tasks server announces no change of its own.
+    /// The list the store's change to a task leaves.
     async fn announcement_patch(
         &self,
-        announcement: &Infallible,
+        _announcement: &(),
         _subscription: &ProjectionSubscription<Held<()>>,
     ) -> Option<ProjectionTransportPatch> {
-        match *announcement {}
+        self.list_patch()
     }
 }
 

@@ -26,7 +26,7 @@ pub const AUDIENCE: &str = "https://tasks.example.com";
 pub const ACTOR_KIND: &str = "actor_kind";
 
 /// The task only `owner` may read or edit.
-pub const PRIVATE_TASK: &str = "task-private";
+pub use crate::PRIVATE_TASK;
 
 /// The tasks the store holds before any call: each id and title.
 pub const SEEDED: &[(&str, &str)] = &[
