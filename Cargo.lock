@@ -402,8 +402,8 @@ checksum = "1c133bc6a41be0d194c306b5506d15e6feeea7b1d6604bd3f8310dfb2ca96486"
 
 [[package]]
 name = "clapham"
-version = "0.3.1"
-source = "git+https://github.com/thirtytwobits/clapham?rev=195a1ac70d96987764acd3d4c1432f20e2476d9d#195a1ac70d96987764acd3d4c1432f20e2476d9d"
+version = "0.3.2"
+source = "git+https://github.com/thirtytwobits/clapham?tag=v0.3.2#9aeee1968875ae5d55a9ff42f6208f2ed0640097"
 dependencies = [
  "futures-util",
  "jsonschema",
@@ -416,8 +416,8 @@ dependencies = [
 
 [[package]]
 name = "clapham-cli"
-version = "0.3.1"
-source = "git+https://github.com/thirtytwobits/clapham?rev=195a1ac70d96987764acd3d4c1432f20e2476d9d#195a1ac70d96987764acd3d4c1432f20e2476d9d"
+version = "0.3.2"
+source = "git+https://github.com/thirtytwobits/clapham?tag=v0.3.2#9aeee1968875ae5d55a9ff42f6208f2ed0640097"
 dependencies = [
  "clap",
  "clap_complete",
@@ -434,8 +434,8 @@ dependencies = [
 
 [[package]]
 name = "clapham-conformance"
-version = "0.3.1"
-source = "git+https://github.com/thirtytwobits/clapham?rev=195a1ac70d96987764acd3d4c1432f20e2476d9d#195a1ac70d96987764acd3d4c1432f20e2476d9d"
+version = "0.3.2"
+source = "git+https://github.com/thirtytwobits/clapham?tag=v0.3.2#9aeee1968875ae5d55a9ff42f6208f2ed0640097"
 dependencies = [
  "clapham",
  "clapham-cli",
@@ -453,8 +453,8 @@ dependencies = [
 
 [[package]]
 name = "clapham-mcp-client"
-version = "0.3.1"
-source = "git+https://github.com/thirtytwobits/clapham?rev=195a1ac70d96987764acd3d4c1432f20e2476d9d#195a1ac70d96987764acd3d4c1432f20e2476d9d"
+version = "0.3.2"
+source = "git+https://github.com/thirtytwobits/clapham?tag=v0.3.2#9aeee1968875ae5d55a9ff42f6208f2ed0640097"
 dependencies = [
  "bytes",
  "clapham",
@@ -475,8 +475,8 @@ dependencies = [
 
 [[package]]
 name = "clapham-mcp-server"
-version = "0.3.1"
-source = "git+https://github.com/thirtytwobits/clapham?rev=195a1ac70d96987764acd3d4c1432f20e2476d9d#195a1ac70d96987764acd3d4c1432f20e2476d9d"
+version = "0.3.2"
+source = "git+https://github.com/thirtytwobits/clapham?tag=v0.3.2#9aeee1968875ae5d55a9ff42f6208f2ed0640097"
 dependencies = [
  "axum",
  "bytes",
