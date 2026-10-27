@@ -576,3 +576,49 @@ async fn a_subscriber_takes_the_change_of_an_edit_and_of_a_mutation_made_through
         "{edited:?}"
     );
 }
+
+#[tokio::test]
+async fn only_an_operation_that_writes_nothing_is_a_query() {
+    let set = composed(server());
+    let effect = |name: &str| {
+        set.operations()
+            .find(|operation| operation.name.as_str() == name)
+            .unwrap_or_else(|| panic!("{name}"))
+            .effect
+    };
+    let stored = json!({ "store": "tasks", "entity": "Task", "id": "task-1" });
+    let audited = |set: &ComposedSet| {
+        let set = set.clone();
+        async move {
+            result(
+                &set,
+                "clerkenwell.recovery.audit",
+                json!({ "store": "tasks" }),
+            )
+            .await["records"]
+                .as_array()
+                .expect("records")
+                .len()
+        }
+    };
+
+    let before = audited(&set).await;
+    for (name, input) in [
+        ("clerkenwell.document.list", json!({ "entity": "Task" })),
+        ("clerkenwell.document.get", task("task-1")),
+        ("clerkenwell.recovery.stores", json!({})),
+        ("clerkenwell.recovery.verify", stored.clone()),
+        ("clerkenwell.recovery.audit", json!({ "store": "tasks" })),
+    ] {
+        assert_eq!(effect(name), clapham::Effect::Query, "{name}");
+        result(&set, name, input).await;
+    }
+    assert_eq!(audited(&set).await, before, "the queries recorded nothing");
+    result(&set, "clerkenwell.recovery.export", stored).await;
+
+    assert_eq!(
+        effect("clerkenwell.recovery.export"),
+        clapham::Effect::Administrative
+    );
+    assert_eq!(audited(&set).await, before + 1, "the export is audited");
+}

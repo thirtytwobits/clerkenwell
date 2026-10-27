@@ -251,11 +251,13 @@ pub(crate) fn contribute(
         .typed_operation(
             declared::<StoredDocument, Exported>(
                 "clerkenwell.recovery.export",
-                "A document's stored envelope, as the store keeps it.",
-                Effect::Query,
+                "A document's stored envelope, as the store keeps it. The store records the request in its audit.",
+                // The store audits the request before it reads the envelope,
+                // so the export writes, and each repeat records another.
+                Effect::Administrative,
                 RECOVERY_READ,
             )
-            .idempotent(true),
+            .idempotent(false),
             move |call: Call, input: StoredDocument| {
                 let context = export_context.clone();
                 async move {
