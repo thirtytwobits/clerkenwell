@@ -1,5 +1,5 @@
 # The public API of clerkenwell_schema. Written by `cargo run -p clerkenwell-public-api`.
-# Types named from: clerkenwell_events, schemars, serde
+# Types named from: clerkenwell_events, schemars, serde, serde_json
 
 use clerkenwell_schema::ActorKind = clerkenwell_events::ActorKind
 struct clerkenwell_schema::AuthoringPeerBlock
@@ -150,6 +150,8 @@ enum clerkenwell_schema::GeneratedSnapshotMode
 derive clerkenwell_schema::GeneratedSnapshotMode: Clone, Copy, Debug, Eq, PartialEq
 variant clerkenwell_schema::GeneratedSnapshotMode::Field(&'static str)
 variant clerkenwell_schema::GeneratedSnapshotMode::Patch
+trait clerkenwell_schema::GeneratedTransportValue
+fn clerkenwell_schema::GeneratedTransportValue::value(&self) -> serde_json::Result<serde_json::Value>
 struct clerkenwell_schema::GeneratedWriterConflict
 derive clerkenwell_schema::GeneratedWriterConflict: Clone, Copy, Debug, Eq, PartialEq
 field clerkenwell_schema::GeneratedWriterConflict::conflict: GeneratedCollaborationConflict

@@ -21,6 +21,7 @@ pub const RECORDED: &[&str] = &[
     "clerkenwell-conformance",
     "clerkenwell-doc",
     "clerkenwell-events",
+    "clerkenwell-ops",
     "clerkenwell-schema",
     "clerkenwell-session",
     "clerkenwell-store",

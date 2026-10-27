@@ -148,7 +148,7 @@ fn assert_rustfmt_clean(definition: &Definition, config: &Config) {
 }
 
 /// The generated Rust imports `JsonValue` and `BTreeMap` exactly when its types
-/// use them: the notebook uses both, the notes example neither.
+/// use them: the notebook uses both, the notes example only `JsonValue`.
 #[test]
 fn generated_rust_imports_only_what_it_uses() {
     let notes =

@@ -471,3 +471,23 @@ fn every_spec_carries_its_entrys_description() {
         assert_eq!(spec.description, description("commands", spec.name));
     }
 }
+
+#[test]
+fn a_transport_value_is_its_entry_s_value_without_its_tag() {
+    use model::GeneratedTransportValue;
+
+    let created = model::NoteMutationResult {
+        note_id: "note-1".to_owned(),
+        etag: "loro:1".to_owned(),
+    };
+    let tagged = model::ProjectionTransportMutationResult::NoteCreate(created.clone());
+
+    assert_eq!(
+        tagged.value().expect("a value"),
+        serde_json::to_value(&created).expect("a value")
+    );
+    assert_eq!(
+        serde_json::to_value(&tagged).expect("a value")["value"],
+        tagged.value().expect("a value")
+    );
+}

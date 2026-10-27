@@ -1,0 +1,12 @@
+{
+  "definition": "tasks.projections.json",
+  "regenerateCommand": "cargo run -p clerkenwell-codegen -- --config examples/operations/clerkenwell-codegen.json",
+  "header": ["SPDX-License-Identifier: MIT"],
+  "outputs": {
+    "collaborationFixtures": "generated/tasks.collaboration.fixtures.json",
+    "contractFixtures": "generated/tasks.projections.fixtures.json",
+    "normalizedDefinition": "generated/tasks.projections.normalized.json",
+    "typescriptModel": "generated/typescript/index.ts",
+    "rustModel": "src/model.rs"
+  }
+}

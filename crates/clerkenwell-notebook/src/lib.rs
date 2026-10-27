@@ -10,8 +10,8 @@ pub use clerkenwell_schema::{
     GeneratedCollaborationFieldSpec, GeneratedCollaborationStorageKind,
     GeneratedCollaborationValueCodec, GeneratedCommandSpec, GeneratedEntityAuthoringSpec,
     GeneratedMaterializationPlan, GeneratedMutationSpec, GeneratedProjectionSpec,
-    GeneratedRemoveMode, GeneratedSnapshotMode, GeneratedWriterConflict, OtherMembers,
-    RecordConstraints, RecordMembers, SchemaConstraint, SchemaConstraintValue,
+    GeneratedRemoveMode, GeneratedSnapshotMode, GeneratedTransportValue, GeneratedWriterConflict,
+    OtherMembers, RecordConstraints, RecordMembers, SchemaConstraint, SchemaConstraintValue,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
@@ -1165,6 +1165,23 @@ pub enum ProjectionTransportSnapshot {
     BoardsAuthoringState(AuthoringState),
 }
 
+impl GeneratedTransportValue for ProjectionTransportSnapshot {
+    fn value(&self) -> serde_json::Result<JsonValue> {
+        match self {
+            Self::NotesList(value) => serde_json::to_value(value),
+            Self::NotesById(value) => serde_json::to_value(value),
+            Self::TasksById(value) => serde_json::to_value(value),
+            Self::TasksBoard(value) => serde_json::to_value(value),
+            Self::WorkspaceCurrent(value) => serde_json::to_value(value),
+            Self::ActivityStreams(value) => serde_json::to_value(value),
+            Self::ActivityHistory(value) => serde_json::to_value(value),
+            Self::SyncHealth(value) => serde_json::to_value(value),
+            Self::NotesAuthoringState(value) => serde_json::to_value(value),
+            Self::BoardsAuthoringState(value) => serde_json::to_value(value),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "projection", content = "value", deny_unknown_fields)]
 #[allow(clippy::large_enum_variant)]
@@ -1248,6 +1265,27 @@ impl ProjectionTransportMutationResult {
     }
 }
 
+impl GeneratedTransportValue for ProjectionTransportMutationResult {
+    fn value(&self) -> serde_json::Result<JsonValue> {
+        match self {
+            Self::NoteCreate(value) => serde_json::to_value(value),
+            Self::NoteImportUpdate(value) => serde_json::to_value(value),
+            Self::NoteRename(value) => serde_json::to_value(value),
+            Self::NoteDelete(value) => serde_json::to_value(value),
+            Self::NotePin(value) => serde_json::to_value(value),
+            Self::NoteMoveToBoard(value) => serde_json::to_value(value),
+            Self::BoardCreate(value) => serde_json::to_value(value),
+            Self::BoardImportUpdate(value) => serde_json::to_value(value),
+            Self::BoardReconcileArchivedColumnOrder(value) => serde_json::to_value(value),
+            Self::TaskSave(value) => serde_json::to_value(value),
+            Self::TaskSchedule(value) => serde_json::to_value(value),
+            Self::TaskArchive(value) => serde_json::to_value(value),
+            Self::WorkspaceConfigure(value) => serde_json::to_value(value),
+            Self::SyncReset(value) => serde_json::to_value(value),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "command", content = "value", deny_unknown_fields)]
 #[allow(clippy::large_enum_variant)]
@@ -1263,6 +1301,15 @@ impl ProjectionTransportCommandResult {
         match self {
             Self::NotePreview(_) => CommandName::NotePreview,
             Self::TaskArchiveDone(_) => CommandName::TaskArchiveDone,
+        }
+    }
+}
+
+impl GeneratedTransportValue for ProjectionTransportCommandResult {
+    fn value(&self) -> serde_json::Result<JsonValue> {
+        match self {
+            Self::NotePreview(value) => serde_json::to_value(value),
+            Self::TaskArchiveDone(value) => serde_json::to_value(value),
         }
     }
 }

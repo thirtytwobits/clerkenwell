@@ -4,7 +4,7 @@
 
 | Crate | Owns |
 |---|---|
-| `clerkenwell-schema` | the plan types generated bindings instantiate, the authoring state every collaborative entity's projection delivers, the other members of a generated open object and the members of a generated record, which generated bindings re-export |
+| `clerkenwell-schema` | the plan types generated bindings instantiate, the authoring state every collaborative entity's projection delivers, the other members of a generated open object and the members of a generated record, which generated bindings re-export, and the value a generated transport snapshot or result holds without its tag |
 | `clerkenwell-doc` | plan-driven Loro replicas: whole-document edits written as operations under a given peer, text edits at a captured frontier, forks, the peers an update holds operations of and the version it reaches, the operations a peer holding a version lacks, and field conflict policy judged by the writer's kind |
 | `clerkenwell-session` | the projection session protocol: wire contracts, registry, per-connection subscriptions and the number of the last modification each one's snapshot holds, the principal each connection is authenticated as, and what each update left its client holding, resuming a subscription from that, and serving each request against an application's host as that principal; it answers every collaborative entity's authoring state from the store keeping the document, with a block of peers allocated to the subscriber, and delivers each change a store announces to the subscriptions following it, and each change the application announces to the subscriptions it affects |
 | `clerkenwell-axum` | a reference transport: the session protocol as JSON-RPC 2.0 over axum WebSocket connections, each authenticated as a principal by the application, each mutation, command and application announcement published to every connection's subscriptions, the mutations and commands the application makes as a principal among them, and each store change to its authoring-state subscriptions, each command run while its connection serves its other requests, and a shutdown that answers every running command before it closes each connection |
@@ -13,6 +13,7 @@
 | `clerkenwell-codegen` | the definition language, the authoring-state projection it declares for each collaborative entity, its validation, and the Rust, TypeScript and fixture generator |
 | `clerkenwell-notebook` | the example definition the tests share, and its generated bindings |
 | `clerkenwell-conformance` | cross-language conformance: Rust and TypeScript replicas of one definition's entities exchange the generated fixture operations, concurrent edits and text consumption, and must converge on the wire document a replica holds of what was written; the TypeScript compiler checks each document TypeScript materialises against its entity's generated `CollaborationDocument`; TypeScript clients sync a note through the Rust notes server. An application runs it in its npm project, against the `@clerkenwell/client` installed there |
+| `clerkenwell-ops` | Clerkenwell's operations for Clapham: reading and editing an application's collaborative documents and recovering its stores' documents, and one operation per projection, mutation and command of its definition, run by its server; each runs under the caller's verified OAuth grant, as the principal the application maps it to, and each document operation names the resource policy the application registers for it |
 
 ## Other directories
 
@@ -21,6 +22,7 @@
 | `clients/typescript/` | the TypeScript packages below, and `loro-package.mjs`, which builds the pinned `loro-crdt` |
 | `conformance/` | the Node scripts Clerkenwell's own conformance tests run |
 | `examples/notes` | a runnable walk-through of the framework over one note, and a server of notes |
+| `examples/operations` | Clerkenwell's operations over a store of tasks, assembled into Clapham's CLI and MCP server, and the fixture Clapham's conformance harness drives through every front end |
 | `tools/public-api` | each crate's public API record |
 | `tools/release` | the one version every crate and package is released at, and the contracts a patch release keeps |
 | `docs/` | this page, and [how to depend on a release](using-a-release.md) |

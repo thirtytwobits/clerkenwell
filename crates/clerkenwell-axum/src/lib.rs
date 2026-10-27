@@ -421,12 +421,13 @@ where
 
     /// Makes `mutation` with `params` as `principal`, as a mutation a
     /// connection requests is made, and publishes its change to every
-    /// connection. The result is the mutation's, as the protocol encodes it.
+    /// connection. The result is the mutation's, as `encode` writes it.
     pub async fn mutate(
         &self,
         principal: &Principal,
         mutation: &str,
         params: Value,
+        encode: impl FnOnce(&A::MutationResult) -> serde_json::Result<Value>,
     ) -> Result<Modified<Value>, RpcFailure> {
         let Modified {
             result,
@@ -443,7 +444,7 @@ where
                 ))
             })?;
         let made = Modified {
-            result: encoded(&result, ProjectionOperation::Mutate, mutation)?,
+            result: encoded(encode(&result), ProjectionOperation::Mutate, mutation)?,
             modification,
         };
         let change = Accepted::Mutation {
@@ -465,12 +466,14 @@ where
     /// requests is run: it takes one of the server's command permits, and is
     /// refused as `rate_limit` beyond them and as `interrupted` once the
     /// server is shutting down. Its outcome is published to every connection.
-    /// The command runs on when the caller stops waiting for it.
+    /// The command runs on when the caller stops waiting for it. The result
+    /// is the command's, as `encode` writes it.
     pub async fn command(
         self: &Arc<Self>,
         principal: &Principal,
         command: &str,
         params: Value,
+        encode: impl FnOnce(&A::CommandResult) -> serde_json::Result<Value> + Send + 'static,
     ) -> Result<Modified<Value>, RpcFailure> {
         let (answer, answered) = oneshot::channel();
         let request = ProjectionCommandRequest {
@@ -485,14 +488,12 @@ where
                 unreachable!("a command's outcome is published as one");
             };
             let _ = answer.send(match outcome {
-                Ok(ran) => {
-                    encoded(&ran.result, ProjectionOperation::Command, &name).map(|result| {
-                        Modified {
-                            result,
-                            modification: ran.modification,
-                        }
-                    })
-                }
+                Ok(ran) => encoded(encode(&ran.result), ProjectionOperation::Command, &name).map(
+                    |result| Modified {
+                        result,
+                        modification: ran.modification,
+                    },
+                ),
                 Err(failure) => Err(failure.clone()),
             });
         })?;
@@ -937,12 +938,12 @@ where
 }
 
 /// `result`, as the protocol encodes the result of `operation` `name`.
-fn encoded<R: Serialize>(
-    result: &R,
+fn encoded(
+    result: serde_json::Result<Value>,
     operation: ProjectionOperation,
     name: &str,
 ) -> Result<Value, RpcFailure> {
-    serde_json::to_value(result).map_err(|error| {
+    result.map_err(|error| {
         refusal(
             ProjectionErrorCode::InternalError,
             format!("The result of \"{name}\" could not be encoded: {error}"),

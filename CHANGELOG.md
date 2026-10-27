@@ -50,13 +50,36 @@ names the contracts.
     operations are prepared or when they are imported.
 - `ProjectionServer::mutate` and `ProjectionServer::command` make a mutation, and run a command,
   as a principal, and publish its change to every connection (#43). Each returns the result as
-  the protocol encodes it, with the number of the modification it saved. A command takes one of
-  the server's command permits, is refused as `rate_limit` beyond them and as `interrupted` once
-  the server is shutting down, and runs on when its caller stops waiting for it.
+  the caller's `encode` writes it, with the number of the modification it saved. A command takes
+  one of the server's command permits, is refused as `rate_limit` beyond them and as
+  `interrupted` once the server is shutting down, and runs on when its caller stops waiting for
+  it.
 - `clerkenwell_session::run_mutation` makes a mutation as a principal without a connection, as
   `run_command` runs a command.
 - `AuthoringStates::entity` names a collaborative entity's plan, and `AuthoringStates::route` the
   store that keeps one of its documents (#43).
+- `GeneratedTransportValue`, which the generated `ProjectionTransportSnapshot`,
+  `ProjectionTransportMutationResult` and `ProjectionTransportCommandResult` implement: `value`
+  is the snapshot or result without the tag that names its entry (#43).
+- `clerkenwell-ops` contributes Clerkenwell's operations to Clapham 0.3.1 (#43):
+  - `contribute(server, host)` contributes, for a running `ProjectionServer`, the `clerkenwell`
+    namespace's document and recovery operations over its stores, and one operation per
+    projection, mutation and command of its definition, under the definition's namespace. An
+    entity's authoring state and import mutation carry encoded replica updates, so neither is an
+    operation. `contribute_held(authoring, host)` contributes the recovery operations to a
+    process that holds the workspace.
+  - Each operation runs as the principal `OperationsHost::principal` maps the caller's verified
+    grant to, and refuses a grant it maps to none as `unauthenticated`. Edits are judged by
+    `OperationsHost::validate`.
+  - Each document operation names a resource policy of its own name, which
+    `document_policies(check)` makes from one check over a `DocumentScope`; a composition that
+    does not register them is refused.
+  - Refusals carry the store's or the server's code, under Clapham's categories.
+  - `DOCUMENT_RESOURCE` offers `clerkenwell.document.get` as the MCP resource template
+    `clerkenwell://{entity}/{id}{?store*}`.
+  - `examples/operations` serves the operations over a store of tasks as Clapham's reference
+    process protocol describes, and runs every one through Clapham's conformance harness from
+    one stored seed.
 - `Conformance::document_types` checks documents with the project's `tsc` program, so it runs in
   a project on TypeScript 7 as well as 5.
 

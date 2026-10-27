@@ -1,0 +1,361 @@
+{
+  "version": 1,
+  "namespace": "tasks",
+  "entities": {
+    "Task": {
+      "id": "task_id",
+      "schema": {
+        "$ref": "#/$defs/TaskDocument"
+      },
+      "revision": {
+        "kind": "replica"
+      },
+      "authoring": {
+        "kind": "collaborative",
+        "planningMutations": []
+      }
+    }
+  },
+  "projections": {
+    "tasks.list": {
+      "description": "Every task, with its title and status.",
+      "params": {
+        "$ref": "#/$defs/TasksListParams"
+      },
+      "snapshot": {
+        "$ref": "#/$defs/TasksListSnapshot"
+      },
+      "patch": {
+        "$ref": "#/$defs/TasksListPatch"
+      },
+      "dependsOn": [
+        "Task"
+      ],
+      "materialization": {
+        "strategy": "reset"
+      }
+    }
+  },
+  "mutations": {
+    "task.create": {
+      "description": "Creates an open task with a title, and returns its id and etag.",
+      "params": {
+        "$ref": "#/$defs/TaskCreateParams"
+      },
+      "result": {
+        "$ref": "#/$defs/TaskCreateResult"
+      },
+      "touches": [
+        "Task"
+      ]
+    },
+    "task.importUpdate": {
+      "description": "Imports operations a replica of a task wrote, under the peers allocated to its writer.",
+      "params": {
+        "$ref": "#/$defs/ReplicaUpdateParams"
+      },
+      "result": {
+        "$ref": "#/$defs/ReplicaUpdateResult"
+      },
+      "touches": [
+        "Task"
+      ]
+    }
+  },
+  "commands": {
+    "task.closeAll": {
+      "description": "Closes every open task, and returns how many it closed.",
+      "params": {
+        "$ref": "#/$defs/TaskCloseAllParams"
+      },
+      "result": {
+        "$ref": "#/$defs/TaskCloseAllResult"
+      },
+      "touches": [
+        "Task"
+      ]
+    }
+  },
+  "collaboration": {
+    "version": 1,
+    "entities": {
+      "Task": {
+        "schemaVersion": 1,
+        "authoringState": {
+          "projection": "tasks.authoringState",
+          "importMutation": "task.importUpdate"
+        },
+        "rootContainer": "task",
+        "fields": {
+          "task_id": {
+            "storage": {
+              "kind": "derivedIdentity"
+            },
+            "value": {
+              "codec": "identity"
+            },
+            "required": true,
+            "conflict": "immutable"
+          },
+          "etag": {
+            "storage": {
+              "kind": "derivedRevision"
+            },
+            "value": {
+              "codec": "string"
+            },
+            "required": true,
+            "conflict": "immutable"
+          },
+          "title": {
+            "storage": {
+              "kind": "scalar",
+              "container": "task",
+              "key": "title"
+            },
+            "value": {
+              "codec": "string"
+            },
+            "required": true,
+            "conflict": "lastWriterWins"
+          },
+          "notes": {
+            "storage": {
+              "kind": "text",
+              "container": "notes"
+            },
+            "value": {
+              "codec": "string"
+            },
+            "required": true,
+            "conflict": "merge"
+          },
+          "status": {
+            "storage": {
+              "kind": "scalar",
+              "container": "task",
+              "key": "status"
+            },
+            "value": {
+              "codec": "string"
+            },
+            "required": true,
+            "conflict": "lastWriterWins"
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "TaskStatus": {
+      "type": "string",
+      "enum": [
+        "open",
+        "closed"
+      ]
+    },
+    "TaskDocument": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "task_id",
+        "etag",
+        "title",
+        "notes",
+        "status"
+      ],
+      "properties": {
+        "task_id": {
+          "type": "string"
+        },
+        "etag": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1
+        },
+        "notes": {
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/$defs/TaskStatus"
+        }
+      }
+    },
+    "TaskSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "task_id",
+        "title",
+        "status"
+      ],
+      "properties": {
+        "task_id": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/$defs/TaskStatus"
+        }
+      }
+    },
+    "TasksListParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {}
+    },
+    "TasksListSnapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "tasks"
+      ],
+      "properties": {
+        "tasks": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/TaskSummary"
+          }
+        }
+      }
+    },
+    "TasksListPatch": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "tasks"
+      ],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "reset"
+          ]
+        },
+        "tasks": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/TaskSummary"
+          }
+        }
+      }
+    },
+    "TaskCreateParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "title"
+      ],
+      "properties": {
+        "title": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "TaskCreateResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "task_id",
+        "etag"
+      ],
+      "properties": {
+        "task_id": {
+          "type": "string"
+        },
+        "etag": {
+          "type": "string"
+        }
+      }
+    },
+    "TaskCloseAllParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {}
+    },
+    "TaskCloseAllResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "closed"
+      ],
+      "properties": {
+        "closed": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "ReplicaUpdateParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "task_id",
+        "operation_id",
+        "exchange_mode",
+        "update_base64",
+        "peer_nonces"
+      ],
+      "properties": {
+        "task_id": {
+          "type": "string"
+        },
+        "operation_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "exchange_mode": {
+          "$ref": "#/$defs/CollaborationExchangeMode"
+        },
+        "base_frontier_base64": {
+          "type": "string"
+        },
+        "update_base64": {
+          "type": "string",
+          "minLength": 1
+        },
+        "peer_nonces": {
+          "type": "array",
+          "description": "The nonce of every peer block the update's operations are written under.",
+          "items": {
+            "type": "string"
+          }
+        },
+        "intent": {
+          "type": "string",
+          "description": "Why the writer made the change."
+        }
+      }
+    },
+    "ReplicaUpdateResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "task_id",
+        "etag",
+        "accepted_frontier_base64",
+        "missing_update_base64"
+      ],
+      "properties": {
+        "task_id": {
+          "type": "string"
+        },
+        "etag": {
+          "type": "string"
+        },
+        "accepted_frontier_base64": {
+          "type": "string"
+        },
+        "missing_update_base64": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}

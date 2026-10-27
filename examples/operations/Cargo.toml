@@ -1,0 +1,34 @@
+[package]
+name = "clerkenwell-example-operations"
+description = "Clerkenwell's operations over a store of tasks, assembled into Clapham's CLI and MCP server"
+publish = false
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+axum = { version = "0.8.8", default-features = false, features = ["tokio", "http1"] }
+base64.workspace = true
+clapham.workspace = true
+clapham-cli.workspace = true
+clapham-conformance.workspace = true
+clapham-mcp-server.workspace = true
+clerkenwell-axum = { path = "../../crates/clerkenwell-axum" }
+clerkenwell-doc = { path = "../../crates/clerkenwell-doc" }
+clerkenwell-events = { path = "../../crates/clerkenwell-events" }
+clerkenwell-ops = { path = "../../crates/clerkenwell-ops" }
+clerkenwell-schema = { path = "../../crates/clerkenwell-schema" }
+clerkenwell-session = { path = "../../crates/clerkenwell-session" }
+clerkenwell-store = { path = "../../crates/clerkenwell-store", features = ["testing"] }
+schemars.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio = { version = "1.50.0", features = ["macros", "net", "rt", "io-util", "io-std", "process", "signal"] }
+
+[dev-dependencies]
+tempfile.workspace = true
+clerkenwell-codegen = { path = "../../crates/clerkenwell-codegen" }
+futures-util = { version = "0.3.32", default-features = false, features = ["sink", "std"] }
+tokio = { version = "1.50.0", features = ["macros", "net", "rt-multi-thread", "time"] }
+tokio-tungstenite = "0.30.0"

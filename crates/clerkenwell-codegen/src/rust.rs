@@ -134,7 +134,7 @@ fn variant_enum_owner(definition_name: &str, tag: &str) -> String {
 }
 
 /// The `clerkenwell_schema` items the model re-exports.
-const SCHEMA_REEXPORTS: [&str; 27] = [
+const SCHEMA_REEXPORTS: [&str; 28] = [
     "ActorKind",
     "AuthoringPeerBlock",
     "AuthoringState",
@@ -156,6 +156,7 @@ const SCHEMA_REEXPORTS: [&str; 27] = [
     "GeneratedProjectionSpec",
     "GeneratedRemoveMode",
     "GeneratedSnapshotMode",
+    "GeneratedTransportValue",
     "GeneratedWriterConflict",
     "OtherMembers",
     "RecordConstraints",
@@ -258,6 +259,7 @@ pub fn render_model_module(definition: &Definition, project: &Project) -> Result
     lines.push(transport_enum(
         "ProjectionTransportSnapshot",
         "projection",
+        true,
         &projections
             .iter()
             .map(|projection| {
@@ -272,6 +274,7 @@ pub fn render_model_module(definition: &Definition, project: &Project) -> Result
     lines.push(transport_enum(
         "ProjectionTransportPatch",
         "projection",
+        false,
         &projections
             .iter()
             .map(|projection| Ok((projection.name, schema_ref_type_name(projection.patch())?)))
@@ -281,6 +284,7 @@ pub fn render_model_module(definition: &Definition, project: &Project) -> Result
     lines.push(transport_enum(
         "ProjectionTransportMutationResult",
         "mutation",
+        true,
         &definition
             .mutations()
             .map(|mutation| Ok((mutation.name, schema_ref_type_name(mutation.result())?)))
@@ -290,6 +294,7 @@ pub fn render_model_module(definition: &Definition, project: &Project) -> Result
     lines.push(transport_enum(
         "ProjectionTransportCommandResult",
         "command",
+        true,
         &definition
             .commands()
             .map(|command| Ok((command.name, schema_ref_type_name(command.result())?)))
@@ -328,7 +333,14 @@ pub fn render_model_module(definition: &Definition, project: &Project) -> Result
     Ok(format!("{}\n{body}", header.join("\n")))
 }
 
-fn transport_enum(enum_name: &str, tag: &str, entries: &[(&str, String)]) -> String {
+/// The transport enum `enum_name`, tagged by `tag`, with a variant per entry;
+/// a `transport_value` enum implements `GeneratedTransportValue`.
+fn transport_enum(
+    enum_name: &str,
+    tag: &str,
+    transport_value: bool,
+    entries: &[(&str, String)],
+) -> String {
     let mut lines = vec![
         "#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]".to_owned(),
         format!(
@@ -384,6 +396,32 @@ fn transport_enum(enum_name: &str, tag: &str, entries: &[(&str, String)]) -> Str
                 lines.push(format!("                {name_enum}::{variant}"));
                 lines.push("            }".to_owned());
             }
+        }
+        if entries.is_empty() {
+            lines.extend(["    }", "}"].map(str::to_owned));
+        } else {
+            lines.extend(["        }", "    }", "}"].map(str::to_owned));
+        }
+    }
+    if transport_value {
+        lines.extend(
+            [
+                "",
+                &format!("impl GeneratedTransportValue for {enum_name} {{"),
+                "    fn value(&self) -> serde_json::Result<JsonValue> {",
+                if entries.is_empty() {
+                    "        match *self {}"
+                } else {
+                    "        match self {"
+                },
+            ]
+            .map(str::to_owned),
+        );
+        for (name, _) in entries {
+            let variant = pascal_identifier(name);
+            lines.push(format!(
+                "            Self::{variant}(value) => serde_json::to_value(value),"
+            ));
         }
         if entries.is_empty() {
             lines.extend(["    }", "}"].map(str::to_owned));
