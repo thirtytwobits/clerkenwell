@@ -1296,6 +1296,7 @@ async fn a_mutation_the_server_makes_as_a_principal_patches_every_connection() {
             &operator(),
             "counter.increment",
             json!({ "counter_id": "a" }),
+            |result| serde_json::to_value(result),
         )
         .await
         .expect("the mutation");
@@ -1314,7 +1315,9 @@ async fn a_mutation_the_server_makes_is_refused_as_a_connections_would_be() {
     let mut socket = following(&url, "a").await;
 
     let unknown = server
-        .mutate(&operator(), "counter.unknown", json!({}))
+        .mutate(&operator(), "counter.unknown", json!({}), |result| {
+            serde_json::to_value(result)
+        })
         .await
         .expect_err("an unknown mutation");
     let refused = server
@@ -1322,6 +1325,7 @@ async fn a_mutation_the_server_makes_is_refused_as_a_connections_would_be() {
             &operator(),
             "counter.increment",
             json!({ "counter_id": "a", "refuse": { "reason": "held" } }),
+            |result| serde_json::to_value(result),
         )
         .await
         .expect_err("a mutation its host refuses");
@@ -1330,6 +1334,7 @@ async fn a_mutation_the_server_makes_is_refused_as_a_connections_would_be() {
             &operator(),
             "counter.increment",
             json!({ "counter_id": "a", "panic": true }),
+            |result| serde_json::to_value(result),
         )
         .await
         .expect_err("a mutation whose host panics");
@@ -1355,7 +1360,12 @@ async fn a_command_the_server_runs_as_a_principal_patches_every_connection() {
     next(&mut socket).await;
 
     let ran = server
-        .command(&operator(), "counter.reset", json!({ "counter_id": "a" }))
+        .command(
+            &operator(),
+            "counter.reset",
+            json!({ "counter_id": "a" }),
+            |result| serde_json::to_value(result),
+        )
         .await
         .expect("the command");
 
@@ -1375,7 +1385,12 @@ async fn a_command_the_server_runs_counts_against_its_limit() {
     increment(&mut socket, 2, "b").await;
 
     let refused = server
-        .command(&operator(), "counter.reset", json!({ "counter_id": "c" }))
+        .command(
+            &operator(),
+            "counter.reset",
+            json!({ "counter_id": "c" }),
+            |result| serde_json::to_value(result),
+        )
         .await
         .expect_err("a command beyond the limit");
 
@@ -1383,7 +1398,12 @@ async fn a_command_the_server_runs_counts_against_its_limit() {
     server.application().open("held");
     assert_eq!(next(&mut socket).await["id"], json!(1));
     server
-        .command(&operator(), "counter.reset", json!({ "counter_id": "c" }))
+        .command(
+            &operator(),
+            "counter.reset",
+            json!({ "counter_id": "c" }),
+            |result| serde_json::to_value(result),
+        )
         .await
         .expect("a command once the other has finished");
 }
@@ -1394,7 +1414,12 @@ async fn a_command_the_server_runs_while_shutting_down_is_refused_as_interrupted
     let shutting_down = begin_shutting_down(&server).await;
 
     let refused = server
-        .command(&operator(), "counter.reset", json!({ "counter_id": "a" }))
+        .command(
+            &operator(),
+            "counter.reset",
+            json!({ "counter_id": "a" }),
+            |result| serde_json::to_value(result),
+        )
         .await
         .expect_err("a command during shutdown");
 
@@ -1414,6 +1439,7 @@ async fn a_command_the_server_runs_runs_on_when_its_caller_goes_away() {
             &caller,
             "counter.reset",
             json!({ "counter_id": "a", "gate": "held" }),
+            |result| serde_json::to_value(result),
         );
         tokio::pin!(call);
         // The first poll starts the command, which then waits at its gate.

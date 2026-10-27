@@ -10,10 +10,11 @@ pub use clerkenwell_schema::{
     GeneratedCollaborationFieldSpec, GeneratedCollaborationStorageKind,
     GeneratedCollaborationValueCodec, GeneratedCommandSpec, GeneratedEntityAuthoringSpec,
     GeneratedMaterializationPlan, GeneratedMutationSpec, GeneratedProjectionSpec,
-    GeneratedRemoveMode, GeneratedSnapshotMode, GeneratedWriterConflict, OtherMembers,
-    RecordConstraints, RecordMembers, SchemaConstraint, SchemaConstraintValue,
+    GeneratedRemoveMode, GeneratedSnapshotMode, GeneratedTransportValue, GeneratedWriterConflict,
+    OtherMembers, RecordConstraints, RecordMembers, SchemaConstraint, SchemaConstraintValue,
 };
 use serde::{Deserialize, Serialize};
+use serde_json::Value as JsonValue;
 
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, PartialEq, Eq)]
 pub enum NoteDocumentStatus {
@@ -173,6 +174,14 @@ pub enum ProjectionTransportSnapshot {
     NotesAuthoringState(AuthoringState),
 }
 
+impl GeneratedTransportValue for ProjectionTransportSnapshot {
+    fn value(&self) -> serde_json::Result<JsonValue> {
+        match self {
+            Self::NotesAuthoringState(value) => serde_json::to_value(value),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "projection", content = "value", deny_unknown_fields)]
 #[allow(clippy::large_enum_variant)]
@@ -200,6 +209,15 @@ impl ProjectionTransportMutationResult {
     }
 }
 
+impl GeneratedTransportValue for ProjectionTransportMutationResult {
+    fn value(&self) -> serde_json::Result<JsonValue> {
+        match self {
+            Self::NoteCreate(value) => serde_json::to_value(value),
+            Self::NoteImportUpdate(value) => serde_json::to_value(value),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "command", content = "value", deny_unknown_fields)]
 #[allow(clippy::large_enum_variant)]
@@ -207,6 +225,12 @@ pub enum ProjectionTransportCommandResult {}
 
 impl ProjectionTransportCommandResult {
     pub const fn command_name(&self) -> CommandName {
+        match *self {}
+    }
+}
+
+impl GeneratedTransportValue for ProjectionTransportCommandResult {
+    fn value(&self) -> serde_json::Result<JsonValue> {
         match *self {}
     }
 }

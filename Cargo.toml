@@ -12,12 +12,16 @@ repository = "https://github.com/thirtytwobits/clerkenwell"
 # loro-release.json.
 [workspace.dependencies]
 base64 = "0.23"
+clapham = { git = "https://github.com/thirtytwobits/clapham", rev = "195a1ac70d96987764acd3d4c1432f20e2476d9d", version = "0.3.1" }
+clapham-cli = { git = "https://github.com/thirtytwobits/clapham", rev = "195a1ac70d96987764acd3d4c1432f20e2476d9d", version = "0.3.1" }
+clapham-conformance = { git = "https://github.com/thirtytwobits/clapham", rev = "195a1ac70d96987764acd3d4c1432f20e2476d9d", version = "0.3.1" }
+clapham-mcp-server = { git = "https://github.com/thirtytwobits/clapham", rev = "195a1ac70d96987764acd3d4c1432f20e2476d9d", version = "0.3.1" }
 clap = { version = "4.5", features = ["derive"] }
 icu_collator = "2.1"
 indexmap = "2.12"
-jsonschema = { version = "0.59", default-features = false }
+jsonschema = { version = "0.60", default-features = false }
 loro = { git = "https://github.com/thirtytwobits/loro.git", rev = "ef1964a317d743ebd5c0419d35393ff980daa2fe" }
-schemars = "1.0.4"
+schemars = "1.2.3"
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.145"
 tempfile = "3.20"

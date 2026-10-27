@@ -1,0 +1,21 @@
+[package]
+name = "clerkenwell-ops"
+description = "Clerkenwell's document, recovery and generated operations, contributed to Clapham"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version = "1.88"
+
+[dependencies]
+base64.workspace = true
+clapham.workspace = true
+clerkenwell-axum = { path = "../clerkenwell-axum" }
+clerkenwell-events = { path = "../clerkenwell-events" }
+clerkenwell-schema = { path = "../clerkenwell-schema" }
+clerkenwell-session = { path = "../clerkenwell-session" }
+clerkenwell-store = { path = "../clerkenwell-store" }
+futures-util = { version = "0.3.32", default-features = false, features = ["std"] }
+schemars.workspace = true
+serde.workspace = true
+serde_json.workspace = true

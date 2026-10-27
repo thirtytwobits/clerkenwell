@@ -1,0 +1,121 @@
+{
+  "version": 1,
+  "projections": [
+    {
+      "projection": "tasks.list",
+      "strategy": "reset",
+      "snapshot": {
+        "projection": "tasks.list",
+        "value": {
+          "tasks": [
+            {
+              "task_id": "fixture",
+              "title": "fixture",
+              "status": "open"
+            }
+          ]
+        }
+      },
+      "cases": [
+        {
+          "kind": "reset",
+          "patch": {
+            "projection": "tasks.list",
+            "value": {
+              "kind": "reset",
+              "tasks": [
+                {
+                  "task_id": "fixture",
+                  "title": "fixture",
+                  "status": "open"
+                }
+              ]
+            }
+          },
+          "expectedSnapshot": {
+            "tasks": [
+              {
+                "task_id": "fixture",
+                "title": "fixture",
+                "status": "open"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "projection": "tasks.authoringState",
+      "strategy": "replaceOrRemove",
+      "snapshot": {
+        "projection": "tasks.authoringState",
+        "value": {
+          "schema_version": 1,
+          "accepted_frontier_base64": "fixture",
+          "update_base64": "fixture",
+          "etag": "fixture",
+          "exchange_modes": [
+            "incremental"
+          ],
+          "peer_block": {
+            "nonce": "fixture",
+            "base": "fixture",
+            "index_bits": 1
+          },
+          "replaces_held": true
+        }
+      },
+      "cases": [
+        {
+          "kind": "replace",
+          "patch": {
+            "projection": "tasks.authoringState",
+            "value": {
+              "kind": "replace",
+              "state": {
+                "schema_version": 1,
+                "accepted_frontier_base64": "fixture",
+                "update_base64": "fixture",
+                "etag": "fixture",
+                "exchange_modes": [
+                  "incremental"
+                ],
+                "peer_block": {
+                  "nonce": "fixture",
+                  "base": "fixture",
+                  "index_bits": 1
+                },
+                "replaces_held": true
+              }
+            }
+          },
+          "expectedSnapshot": {
+            "schema_version": 1,
+            "accepted_frontier_base64": "fixture",
+            "update_base64": "fixture",
+            "etag": "fixture",
+            "exchange_modes": [
+              "incremental"
+            ],
+            "peer_block": {
+              "nonce": "fixture",
+              "base": "fixture",
+              "index_bits": 1
+            },
+            "replaces_held": true
+          }
+        },
+        {
+          "kind": "remove",
+          "patch": {
+            "projection": "tasks.authoringState",
+            "value": {
+              "kind": "remove"
+            }
+          },
+          "expectedSnapshot": null
+        }
+      ]
+    }
+  ]
+}

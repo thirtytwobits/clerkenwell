@@ -1,0 +1,38 @@
+# The public API of clerkenwell_ops. Written by `cargo run -p clerkenwell-public-api`.
+# Types named from: clapham, clerkenwell_axum, clerkenwell_events, clerkenwell_schema, clerkenwell_session, serde_json
+
+struct clerkenwell_ops::ContributionError
+derive clerkenwell_ops::ContributionError: Clone, Debug, Eq, PartialEq
+impl std::error::Error for clerkenwell_ops::ContributionError
+impl std::fmt::Display for clerkenwell_ops::ContributionError
+field clerkenwell_ops::ContributionError::operation: String
+field clerkenwell_ops::ContributionError::reason: String
+const clerkenwell_ops::DOCUMENTS_READ: &str
+const clerkenwell_ops::DOCUMENTS_WRITE: &str
+const clerkenwell_ops::DOCUMENT_RESOURCE: (&str, &str)
+struct clerkenwell_ops::DocumentScope
+derive clerkenwell_ops::DocumentScope: Clone, Debug, Eq, PartialEq
+field clerkenwell_ops::DocumentScope::entity: String
+field clerkenwell_ops::DocumentScope::id: Option<String>
+field clerkenwell_ops::DocumentScope::store: BTreeMap<String, String>
+struct clerkenwell_ops::Forbidden
+derive clerkenwell_ops::Forbidden: Clone, Debug, PartialEq
+field clerkenwell_ops::Forbidden::details: Option<Value>
+field clerkenwell_ops::Forbidden::message: String
+fn clerkenwell_ops::Forbidden::new(message: impl Into<String>) -> Self
+trait clerkenwell_ops::GeneratedHost: ProjectionHost<Failure = RpcFailure, Snapshot: GeneratedTransportValue + 'static, Patch: Sync + 'static, Delivery: Sync + 'static, MutationResult: GeneratedTransportValue + 'static, CommandResult: GeneratedTransportValue + 'static, Announcement: 'static,> + Send + Sync + 'static
+struct clerkenwell_ops::Invalid
+derive clerkenwell_ops::Invalid: Clone, Debug, PartialEq
+field clerkenwell_ops::Invalid::details: Option<Value>
+field clerkenwell_ops::Invalid::message: String
+fn clerkenwell_ops::Invalid::new(message: impl Into<String>) -> Self
+const clerkenwell_ops::NAMESPACE: &str
+trait clerkenwell_ops::OperationsHost: Send + Sync + 'static
+fn clerkenwell_ops::OperationsHost::principal(&self, auth: &OAuthContext) -> Option<Principal>
+fn clerkenwell_ops::OperationsHost::validate(&self, entity: &str, document: &Value) -> Result<(), Invalid>
+const clerkenwell_ops::RECOVERY_ADMIN: &str
+const clerkenwell_ops::RECOVERY_READ: &str
+const clerkenwell_ops::RECOVERY_RESET: &str
+fn clerkenwell_ops::contribute<A: GeneratedHost>(server: Arc<ProjectionServer<A>>, host: Arc<dyn OperationsHost>) -> Result<Vec<Contribution>, ContributionError>
+fn clerkenwell_ops::contribute_held(authoring: AuthoringStates, host: Arc<dyn OperationsHost>) -> Contribution
+fn clerkenwell_ops::document_policies<F, Fut>(check: F) -> Vec<(String, ResourcePolicy)> where F: Fn(OAuthContext, DocumentScope) -> Fut + Send + Sync + 'static, Fut: Future<Output = Result<(), Forbidden>> + Send + 'static,

@@ -134,6 +134,13 @@ pub struct GeneratedCommandSpec {
     pub result_schema: &'static str,
 }
 
+/// A projection's snapshot, or a mutation's or command's result, as a
+/// generated transport type holds it: tagged with the entry it is of.
+pub trait GeneratedTransportValue {
+    /// The value without its tag, as its entry's schema describes it.
+    fn value(&self) -> serde_json::Result<serde_json::Value>;
+}
+
 /// How a collaborative field is held in the document.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GeneratedCollaborationStorageKind {

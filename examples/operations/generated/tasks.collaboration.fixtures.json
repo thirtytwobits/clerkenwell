@@ -1,0 +1,35 @@
+{
+  "collaborationDefinitionVersion": 1,
+  "entities": [
+    {
+      "entity": "Task",
+      "schemaVersion": 1,
+      "wireDocument": {
+        "title": "title-value",
+        "notes": "notes-value",
+        "status": "open"
+      },
+      "operations": {
+        "scalar": {
+          "value": "updated-value"
+        },
+        "reorder": [],
+        "delete": [],
+        "optionalPresent": [],
+        "optionalAbsent": []
+      },
+      "invalid": [
+        {
+          "kind": "missingIdentity"
+        },
+        {
+          "kind": "duplicateIdentity"
+        },
+        {
+          "kind": "unsupportedSchemaVersion",
+          "schemaVersion": 2
+        }
+      ]
+    }
+  ]
+}
