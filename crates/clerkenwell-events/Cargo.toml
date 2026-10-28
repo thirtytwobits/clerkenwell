@@ -3,6 +3,7 @@ name = "clerkenwell-events"
 description = "The change-event envelope collaborative documents announce their commits in, and the in-process feed that carries it"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 

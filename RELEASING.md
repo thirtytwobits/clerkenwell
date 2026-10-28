@@ -1,31 +1,28 @@
-# Releasing
+# Releasing Clerkenwell
 
 Every crate and package is released together at one version. In 0.x, a release that changes a
-contract is a minor release and any other is a patch; `cargo run -p clerkenwell-release --
-breaking --help` names the contracts.
+contract is a minor release and any other is a patch. The changelog lists each contract change
+under `### Breaking`; `cargo run -p clerkenwell-release -- breaking --help` names the contracts.
 
-1. Move every manifest and lockfile to the new version:
-   `cargo run -p clerkenwell-release -- bump X.Y.Z`.
-2. Add a `## X.Y.Z` section to `CHANGELOG.md`, listing each contract change under
-   `### Breaking`.
-3. Compare the release with the previous one:
-   `cargo run -p clerkenwell-release -- breaking --since vA.B.C`.
-4. Check the lockfile against the registry and RustSec: `cargo deny check advisories`.
-5. Merge the change to `main`.
-6. Tag the merge commit and push the tag: `git tag vX.Y.Z <commit>`, then
-   `git push origin vX.Y.Z`.
+`release.json` records the version and repository. Its `steps` add:
+
+- to `prepare`: `clerkenwell-release bump`, which moves the npm manifests and both lockfiles to
+  the new version, then `clerkenwell-release breaking --since` the previous tag, which refuses a
+  patch release that changes a contract.
+- to `gates`: formatting, Clippy, the tests, `npm run package:check` and
+  `cargo deny check advisories`.
 
 A release's lockfile is what `cargo install --locked` takes from its tag, so it may hold no
 yanked crate. `deny.toml` refuses yanked crates and vulnerabilities anywhere in the graph, and
 unmaintained crates the workspace depends on directly. `.github/workflows/dependencies.yml`
-runs the check daily and on every change to a manifest or the lockfile.
+runs the check daily, on every change to a manifest or the lockfile, and on each tag. Publish a
+draft once that check has passed on its tag.
 
-Pushing the tag runs `.github/workflows/release.yml`: the CI gate, the dependency check, a
-check that the tag names the version every manifest states, the comparison with the previous
-release, and `npm run package:check`. It then publishes the GitHub release with the version's changelog
-section as its notes and both npm tarballs attached, and publishes the documentation site to
-GitHub Pages in place of the previous release's: the README and the documents it links, and
-each crate's API documentation.
+The main build's release files are both npm tarballs and the documentation archive,
+`clerkenwell-docs-vVERSION.tar.gz`: the README and the documents it links, and each crate's API
+documentation. Publishing a release deploys its archive to GitHub Pages in place of the previous
+release's; publishing a prerelease leaves the site alone. Dispatch **Pages** with a tag to deploy
+a published release's documentation again.
 
 <!-- newsletter:begin releasing · maintained in thirtytwobits/london -->
 

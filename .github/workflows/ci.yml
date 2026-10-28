@@ -5,14 +5,13 @@ on:
   push:
     branches:
       - main
-  workflow_call:
 
 env:
   CI: true
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: 0
   RUST_BACKTRACE: 1
-  RUST_TOOLCHAIN: 1.97.1
+  RUST_TOOLCHAIN: 1.99.0
 
 jobs:
   rust:
@@ -120,6 +119,22 @@ jobs:
       - name: Index the documentation
         run: cargo run --quiet -p clerkenwell-release -- docs target/doc
 
+      - name: Archive the documentation
+        if: github.event_name == 'push'
+        run: |
+          version="$(cargo run --quiet -p clerkenwell-release -- check)"
+          mkdir "$RUNNER_TEMP/docs"
+          tar -czf "$RUNNER_TEMP/docs/clerkenwell-docs-v$version.tar.gz" -C target doc
+
+      - name: Keep the documentation archive
+        if: github.event_name == 'push'
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-part-docs
+          path: ${{ runner.temp }}/docs/*.tar.gz
+          if-no-files-found: error
+          retention-days: 1
+
   typescript:
     name: TypeScript
     runs-on: ubuntu-26.04
@@ -161,4 +176,69 @@ jobs:
         run: npm ci
 
       - name: Pack, install and import as a consumer
-        run: npm run package:check
+        run: npm run package:check -- "$RUNNER_TEMP/npm"
+
+      - name: Keep the packages
+        if: github.event_name == 'push'
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-part-npm
+          path: ${{ runner.temp }}/npm/*.tgz
+          if-no-files-found: error
+          retention-days: 1
+
+  release-files:
+    name: Release files
+    if: github.event_name == 'push'
+    needs: [documentation, packages]
+    runs-on: ubuntu-26.04
+    timeout-minutes: 5
+    steps:
+      - name: Gather the release files
+        uses: actions/download-artifact@v8
+        with:
+          pattern: release-part-*
+          merge-multiple: true
+          path: release-files
+
+      - name: Keep the release files
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-files
+          path: release-files
+          if-no-files-found: error
+          retention-days: 90
+
+  release-form:
+    name: Release form
+    runs-on: ubuntu-26.04
+    timeout-minutes: 5
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Check the changelog and versions
+        run: python3 tools/release.py check
+
+  msrv:
+    name: Rust 1.88
+    runs-on: ubuntu-26.04
+    timeout-minutes: 30
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Rust
+        run: rustup toolchain install 1.88.0 --profile minimal
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install the npm workspace
+        run: npm ci
+
+      - name: Test
+        run: cargo +1.88.0 test --workspace --locked

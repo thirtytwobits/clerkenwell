@@ -3,7 +3,7 @@ use std::process::ExitCode;
 
 use clap::{Parser, Subcommand};
 use clerkenwell_release::{
-    agreed, bump, check_release, index_documentation, release_notes, workspace, Version, CONTRACTS,
+    agreed, bump, check_release, index_documentation, workspace, Version, CONTRACTS,
 };
 
 /// Sets and checks the one version every Clerkenwell crate and package is
@@ -33,8 +33,6 @@ enum Commands {
         #[arg(long)]
         since: String,
     },
-    /// Prints VERSION's section of CHANGELOG.md, the notes of its release.
-    Notes { version: Version },
     /// Writes the documentation site into DIRECTORY: README.md as its front
     /// page, linking each workspace library's documentation, and each
     /// Markdown document README.md reaches by its links. Prints each page
@@ -54,7 +52,6 @@ fn main() -> ExitCode {
         Commands::Breaking { since } => {
             check_release(&root, &since, CONTRACTS).map(|comparison| println!("{comparison}"))
         }
-        Commands::Notes { version } => release_notes(&root, version).map(|notes| print!("{notes}")),
         Commands::Docs { directory } => index_documentation(&root, &directory).map(|site| {
             for page in site.pages {
                 println!("{page}");

@@ -3,6 +3,7 @@ name = "clerkenwell-axum"
 description = "A reference WebSocket transport for the projection session protocol"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 

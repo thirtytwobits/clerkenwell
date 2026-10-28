@@ -4,6 +4,7 @@ description = "Clerkenwell's operations over a store of tasks, assembled into Cl
 publish = false
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 

@@ -3,6 +3,7 @@ name = "clerkenwell-session"
 description = "The projection session protocol: wire contracts, subscriptions, retained patches and resume"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 

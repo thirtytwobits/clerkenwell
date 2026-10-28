@@ -8,3 +8,7 @@ rustflags = ["-C", "split-debuginfo=packed"]
 # build here and in CI alike.
 [build]
 rustdocflags = ["-D", "warnings"]
+
+# Resolve each dependency to a release that supports the workspace's rust-version.
+[resolver]
+incompatible-rust-versions = "fallback"

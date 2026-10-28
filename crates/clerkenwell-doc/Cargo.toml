@@ -3,6 +3,7 @@ name = "clerkenwell-doc"
 description = "Plan-driven Loro replicas of collaborative documents"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 

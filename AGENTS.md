@@ -52,6 +52,10 @@ never replaced.
 - A TypeScript package exports only what its entry files name. Its `public-api.json` records
   those names, and a test refuses any difference, any Loro type and any name after Loro.
 
+## Releases
+
+`RELEASING.md` holds the changelog and release rules.
+
 ## Validation
 
 | Goal | Command |

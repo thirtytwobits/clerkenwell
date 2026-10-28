@@ -3,6 +3,7 @@ name = "clerkenwell-store"
 description = "Durable single-authority storage for collaborative documents"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 
