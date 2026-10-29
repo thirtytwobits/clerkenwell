@@ -402,8 +402,8 @@ checksum = "1c133bc6a41be0d194c306b5506d15e6feeea7b1d6604bd3f8310dfb2ca96486"
 
 [[package]]
 name = "clapham"
-version = "0.3.2"
-source = "git+https://github.com/thirtytwobits/clapham?tag=v0.3.2#9aeee1968875ae5d55a9ff42f6208f2ed0640097"
+version = "0.3.3"
+source = "git+https://github.com/thirtytwobits/clapham?tag=v0.3.3#c08c39042d6c0f433ae6b9a370b4f71bc32010e5"
 dependencies = [
  "futures-util",
  "jsonschema",
@@ -416,8 +416,8 @@ dependencies = [
 
 [[package]]
 name = "clapham-cli"
-version = "0.3.2"
-source = "git+https://github.com/thirtytwobits/clapham?tag=v0.3.2#9aeee1968875ae5d55a9ff42f6208f2ed0640097"
+version = "0.3.3"
+source = "git+https://github.com/thirtytwobits/clapham?tag=v0.3.3#c08c39042d6c0f433ae6b9a370b4f71bc32010e5"
 dependencies = [
  "clap",
  "clap_complete",
@@ -434,8 +434,8 @@ dependencies = [
 
 [[package]]
 name = "clapham-conformance"
-version = "0.3.2"
-source = "git+https://github.com/thirtytwobits/clapham?tag=v0.3.2#9aeee1968875ae5d55a9ff42f6208f2ed0640097"
+version = "0.3.3"
+source = "git+https://github.com/thirtytwobits/clapham?tag=v0.3.3#c08c39042d6c0f433ae6b9a370b4f71bc32010e5"
 dependencies = [
  "clapham",
  "clapham-cli",
@@ -453,8 +453,8 @@ dependencies = [
 
 [[package]]
 name = "clapham-mcp-client"
-version = "0.3.2"
-source = "git+https://github.com/thirtytwobits/clapham?tag=v0.3.2#9aeee1968875ae5d55a9ff42f6208f2ed0640097"
+version = "0.3.3"
+source = "git+https://github.com/thirtytwobits/clapham?tag=v0.3.3#c08c39042d6c0f433ae6b9a370b4f71bc32010e5"
 dependencies = [
  "bytes",
  "clapham",
@@ -475,8 +475,8 @@ dependencies = [
 
 [[package]]
 name = "clapham-mcp-server"
-version = "0.3.2"
-source = "git+https://github.com/thirtytwobits/clapham?tag=v0.3.2#9aeee1968875ae5d55a9ff42f6208f2ed0640097"
+version = "0.3.3"
+source = "git+https://github.com/thirtytwobits/clapham?tag=v0.3.3#c08c39042d6c0f433ae6b9a370b4f71bc32010e5"
 dependencies = [
  "axum",
  "bytes",
@@ -498,7 +498,7 @@ dependencies = [
 
 [[package]]
 name = "clerkenwell-axum"
-version = "0.11.1"
+version = "0.12.0"
 dependencies = [
  "axum",
  "clerkenwell-axum",
@@ -515,7 +515,7 @@ dependencies = [
 
 [[package]]
 name = "clerkenwell-codegen"
-version = "0.11.1"
+version = "0.12.0"
 dependencies = [
  "clap",
  "clerkenwell-codegen",
@@ -533,7 +533,7 @@ dependencies = [
 
 [[package]]
 name = "clerkenwell-conformance"
-version = "0.11.1"
+version = "0.12.0"
 dependencies = [
  "axum",
  "base64 0.23.1",
@@ -552,7 +552,7 @@ dependencies = [
 
 [[package]]
 name = "clerkenwell-doc"
-version = "0.11.1"
+version = "0.12.0"
 dependencies = [
  "base64 0.23.1",
  "clerkenwell-notebook",
@@ -566,7 +566,7 @@ dependencies = [
 
 [[package]]
 name = "clerkenwell-events"
-version = "0.11.1"
+version = "0.12.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -574,7 +574,7 @@ dependencies = [
 
 [[package]]
 name = "clerkenwell-example-notes"
-version = "0.11.1"
+version = "0.12.0"
 dependencies = [
  "axum",
  "clap",
@@ -595,7 +595,7 @@ dependencies = [
 
 [[package]]
 name = "clerkenwell-example-operations"
-version = "0.11.1"
+version = "0.12.0"
 dependencies = [
  "axum",
  "base64 0.23.1",
@@ -622,7 +622,7 @@ dependencies = [
 
 [[package]]
 name = "clerkenwell-notebook"
-version = "0.11.1"
+version = "0.12.0"
 dependencies = [
  "clerkenwell-schema",
  "schemars",
@@ -632,7 +632,7 @@ dependencies = [
 
 [[package]]
 name = "clerkenwell-ops"
-version = "0.11.1"
+version = "0.12.0"
 dependencies = [
  "base64 0.23.1",
  "clapham",
@@ -649,7 +649,7 @@ dependencies = [
 
 [[package]]
 name = "clerkenwell-public-api"
-version = "0.11.1"
+version = "0.12.0"
 dependencies = [
  "clap",
  "proc-macro2",
@@ -659,7 +659,7 @@ dependencies = [
 
 [[package]]
 name = "clerkenwell-release"
-version = "0.11.1"
+version = "0.12.0"
 dependencies = [
  "clap",
  "jsonc-parser",
@@ -672,7 +672,7 @@ dependencies = [
 
 [[package]]
 name = "clerkenwell-schema"
-version = "0.11.1"
+version = "0.12.0"
 dependencies = [
  "clerkenwell-events",
  "schemars",
@@ -682,7 +682,7 @@ dependencies = [
 
 [[package]]
 name = "clerkenwell-session"
-version = "0.11.1"
+version = "0.12.0"
 dependencies = [
  "clerkenwell-doc",
  "clerkenwell-events",
@@ -697,7 +697,7 @@ dependencies = [
 
 [[package]]
 name = "clerkenwell-store"
-version = "0.11.1"
+version = "0.12.0"
 dependencies = [
  "base64 0.23.1",
  "chrono",
@@ -3097,7 +3097,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.3.4",
+ "getrandom 0.4.3",
  "once_cell",
  "rustix",
  "windows-sys 0.61.2",
