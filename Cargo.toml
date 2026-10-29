@@ -6,7 +6,7 @@ resolver = "2"
 edition = "2021"
 rust-version = "1.88"
 license = "MIT"
-version = "0.11.0"
+version = "0.11.1"
 repository = "https://github.com/thirtytwobits/clerkenwell"
 
 # The approved Rust/npm Loro release pair and its source live in
