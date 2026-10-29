@@ -3,6 +3,7 @@ name = "clerkenwell-schema"
 description = "Plan types that generated Clerkenwell bindings instantiate, and the authoring-state wire types they name"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 

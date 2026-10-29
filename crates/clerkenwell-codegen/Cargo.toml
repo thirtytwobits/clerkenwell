@@ -3,6 +3,7 @@ name = "clerkenwell-codegen"
 description = "Validates a projection definition and generates its Rust, TypeScript and fixture artefacts."
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 

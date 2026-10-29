@@ -1,0 +1,58 @@
+name: Pages
+
+# Publishing a release deploys the documentation archive its main build kept.
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: The published release whose documentation to deploy
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  documentation:
+    name: Documentation
+    if: github.event_name == 'workflow_dispatch' || !github.event.release.prerelease
+    runs-on: ubuntu-26.04
+    timeout-minutes: 10
+    steps:
+      - name: Download and check the release's documentation
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name || inputs.tag }}
+        run: |
+          archive="clerkenwell-docs-$TAG.tar.gz"
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern "$archive" --pattern SHA256SUMS --dir "$RUNNER_TEMP/release"
+          cd "$RUNNER_TEMP/release"
+          grep -q "  $archive\$" SHA256SUMS
+          sha256sum --check --ignore-missing --strict SHA256SUMS
+          tar -xzf "$archive"
+
+      - name: Upload the site
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: ${{ runner.temp }}/release/doc
+
+  pages:
+    name: Pages
+    needs: [documentation]
+    runs-on: ubuntu-26.04
+    timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Publish the site
+        id: deployment
+        uses: actions/deploy-pages@v5

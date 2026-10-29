@@ -1,0 +1,68 @@
+{
+  "version": "0.11.0",
+  "repository": "https://github.com/thirtytwobits/clerkenwell",
+  "consumer": "clerkenwell-ops",
+  "files": [
+    "clerkenwell-client-*.tgz",
+    "clerkenwell-react-*.tgz",
+    "clerkenwell-docs-v*.tar.gz"
+  ],
+  "steps": {
+    "prepare": [
+      [
+        "cargo",
+        "run",
+        "--quiet",
+        "-p",
+        "clerkenwell-release",
+        "--",
+        "bump",
+        "{version}"
+      ],
+      [
+        "cargo",
+        "run",
+        "--quiet",
+        "-p",
+        "clerkenwell-release",
+        "--",
+        "breaking",
+        "--since",
+        "v{previous}"
+      ]
+    ],
+    "gates": [
+      [
+        "cargo",
+        "fmt",
+        "--all",
+        "--check"
+      ],
+      [
+        "cargo",
+        "clippy",
+        "--workspace",
+        "--all-targets",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      [
+        "cargo",
+        "test",
+        "--workspace"
+      ],
+      [
+        "npm",
+        "run",
+        "package:check"
+      ],
+      [
+        "cargo",
+        "deny",
+        "check",
+        "advisories"
+      ]
+    ]
+  }
+}

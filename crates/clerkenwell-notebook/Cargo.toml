@@ -4,6 +4,7 @@ description = "The notebook example definition and the bindings generated from i
 publish = false
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 

@@ -6,7 +6,8 @@
  * into an empty project, imports every entry point under plain Node, and
  * typechecks two consumers under NodeNext resolution, checking every
  * declaration file they load: a Node command-line tool using the client, and a
- * web application using all three entry points.
+ * web application using all three entry points. The tarballs stay in the
+ * directory the first argument names; otherwise they are removed.
  */
 import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -26,16 +27,18 @@ function run(command, args, cwd) {
 }
 
 const work = mkdtempSync(path.join(tmpdir(), "clerkenwell-package-check-"));
+const packs = process.argv[2] ? path.resolve(process.argv[2]) : work;
+mkdirSync(packs, { recursive: true });
 try {
   const tarballs = [];
   for (const directory of PACKAGES) {
     run("npm", ["run", "build"], path.join(root, directory));
     const packed = execFileSync(
       "npm",
-      ["pack", "--ignore-scripts", "--json", "--pack-destination", work],
+      ["pack", "--ignore-scripts", "--json", "--pack-destination", packs],
       { cwd: path.join(root, directory), encoding: "utf8" }
     );
-    tarballs.push(path.join(work, JSON.parse(packed)[0].filename));
+    tarballs.push(path.join(packs, JSON.parse(packed)[0].filename));
   }
 
   for (const tarball of tarballs) {

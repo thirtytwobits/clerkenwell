@@ -3,6 +3,7 @@ name = "clerkenwell-public-api"
 description = "Records the public API of each Clerkenwell crate, read from its source"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 publish = false

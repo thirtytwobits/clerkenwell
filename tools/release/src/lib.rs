@@ -7,15 +7,12 @@
 //! [`statements`] reads every one, [`agreed`] requires them to agree, and
 //! [`bump`] moves them all to a new version, changing nothing else in any file.
 //! [`check_release`] refuses a patch release that changes a contract, and
-//! [`release_notes`] reads a release's section of the changelog, and
 //! [`index_documentation`] writes the documentation's site around the API
 //! documentation rustdoc builds.
 
-mod changelog;
 mod contracts;
 mod documentation;
 
-pub use changelog::{release_notes, CHANGELOG};
 pub use contracts::{check_release, resolve, Comparison, Contract, Release, CONTRACTS};
 pub use documentation::{
     index_documentation, DocumentedCrate, Site, DOCUMENTATION_COMMAND, FRONT_PAGE,
@@ -146,11 +143,6 @@ pub enum Error {
         current: Version,
         changed: Vec<String>,
     },
-    #[error(
-        "{} has no notes for {version}: add a `## {version}` section",
-        CHANGELOG
-    )]
-    NoNotes { version: Version },
     #[error("{doc} holds no documentation for:\n{}\nbuild it with `{}`", list(.crates), DOCUMENTATION_COMMAND)]
     Undocumented { doc: PathBuf, crates: Vec<String> },
     #[error("the documentation names Loro:\n{}", list(.0))]

@@ -1,8 +1,14 @@
 # Changelog
 
-Each release's section is the notes of its GitHub release. A release that changes a contract
-lists each change under **Breaking**; `cargo run -p clerkenwell-release -- breaking --help`
-names the contracts.
+## Unreleased
+
+### Added
+
+- Every crate declares Rust 1.88 as its minimum supported version.
+
+### Documentation
+
+- `RELEASING.md` holds the release procedure the London Project shares among its pieces.
 
 ## 0.11.0
 
