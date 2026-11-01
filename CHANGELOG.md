@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Breaking
+
+- The crates need Rust 1.95 or later.
+
 ## 0.12.0
 
 ### Breaking
