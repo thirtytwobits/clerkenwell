@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.13.0
+
+### Breaking
+
+- The crates need Rust 1.95 or later.
+- Clerkenwell builds on Clapham 0.4.0. A host that also depends on Clapham takes the `v0.4.0` tag;
+  Cargo treats each Git tag as a separate `clapham` crate.
+
 ## 0.12.0
 
 ### Breaking
