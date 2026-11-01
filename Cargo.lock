@@ -402,8 +402,8 @@ checksum = "1c133bc6a41be0d194c306b5506d15e6feeea7b1d6604bd3f8310dfb2ca96486"
 
 [[package]]
 name = "clapham"
-version = "0.3.3"
-source = "git+https://github.com/thirtytwobits/clapham?tag=v0.3.3#c08c39042d6c0f433ae6b9a370b4f71bc32010e5"
+version = "0.4.0"
+source = "git+https://github.com/thirtytwobits/clapham?tag=v0.4.0#a04128a7cdf98c6f1ced395d97341808bd29e72d"
 dependencies = [
  "futures-util",
  "jsonschema",
@@ -416,8 +416,8 @@ dependencies = [
 
 [[package]]
 name = "clapham-cli"
-version = "0.3.3"
-source = "git+https://github.com/thirtytwobits/clapham?tag=v0.3.3#c08c39042d6c0f433ae6b9a370b4f71bc32010e5"
+version = "0.4.0"
+source = "git+https://github.com/thirtytwobits/clapham?tag=v0.4.0#a04128a7cdf98c6f1ced395d97341808bd29e72d"
 dependencies = [
  "clap",
  "clap_complete",
@@ -434,8 +434,8 @@ dependencies = [
 
 [[package]]
 name = "clapham-conformance"
-version = "0.3.3"
-source = "git+https://github.com/thirtytwobits/clapham?tag=v0.3.3#c08c39042d6c0f433ae6b9a370b4f71bc32010e5"
+version = "0.4.0"
+source = "git+https://github.com/thirtytwobits/clapham?tag=v0.4.0#a04128a7cdf98c6f1ced395d97341808bd29e72d"
 dependencies = [
  "clapham",
  "clapham-cli",
@@ -453,8 +453,8 @@ dependencies = [
 
 [[package]]
 name = "clapham-mcp-client"
-version = "0.3.3"
-source = "git+https://github.com/thirtytwobits/clapham?tag=v0.3.3#c08c39042d6c0f433ae6b9a370b4f71bc32010e5"
+version = "0.4.0"
+source = "git+https://github.com/thirtytwobits/clapham?tag=v0.4.0#a04128a7cdf98c6f1ced395d97341808bd29e72d"
 dependencies = [
  "bytes",
  "clapham",
@@ -475,8 +475,8 @@ dependencies = [
 
 [[package]]
 name = "clapham-mcp-server"
-version = "0.3.3"
-source = "git+https://github.com/thirtytwobits/clapham?tag=v0.3.3#c08c39042d6c0f433ae6b9a370b4f71bc32010e5"
+version = "0.4.0"
+source = "git+https://github.com/thirtytwobits/clapham?tag=v0.4.0#a04128a7cdf98c6f1ced395d97341808bd29e72d"
 dependencies = [
  "axum",
  "bytes",
