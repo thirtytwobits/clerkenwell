@@ -7,7 +7,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import type { TextBindingChange } from "@clerkenwell/client";
+import type { TextBindingChange, TextSelection } from "@clerkenwell/client";
 
 import { boardDocument, noteDocument } from "./support/plans.js";
 import {
@@ -16,7 +16,7 @@ import {
   noteReplica,
   type NoteReplica
 } from "./support/replicas.js";
-import { insert } from "./support/text.js";
+import { createScratchTextBinding, insert } from "./support/text.js";
 
 const initialText = "Before 🦊 after";
 const secondText = "Second field";
@@ -438,4 +438,70 @@ test("sustained editing keeps undo selections after history eviction", () => {
   }
   replica.disposeTextBindings();
   accepted.disposeTextBindings();
+});
+
+function caret(offset: number): TextSelection {
+  return { anchor: offset, head: offset, affinity: 1 };
+}
+
+test("undo stops at the oldest kept item and restores every selection before it", () => {
+  const field = createScratchTextBinding("");
+  const edits = 250;
+  for (let index = 0; index < edits; index += 1) insert(field, field.read().length, "x", String(index));
+
+  let undone = 0;
+  for (let before = field.read(); ; before = field.read()) {
+    const selection = field.undo(caret(before.length));
+    if (selection === null) break;
+    undone += 1;
+    assert.equal(field.read(), before.slice(0, -1));
+    assert.deepEqual(selection, caret(before.length - 1));
+  }
+  assert.ok(undone > 0);
+  assert.equal(field.read().length, edits - undone, "the oldest edits stay, out of history");
+  assert.notEqual(field.read(), "");
+});
+
+test("a history group past the limit undoes as one item, restoring the selection before its first edit", () => {
+  const field = createScratchTextBinding("");
+  for (let index = 0; index < 150; index += 1) insert(field, field.read().length, "x", String(index));
+  const start = field.read().length;
+  for (const word of ["one ", "two ", "three "]) insert(field, field.read().length, word, "burst");
+
+  assert.deepEqual(field.undo(caret(field.read().length)), caret(start));
+  assert.equal(field.read().length, start);
+  assert.deepEqual(field.undo(caret(start)), caret(start - 1));
+});
+
+test("an imported edit to the text ends the history group", () => {
+  const { a, b } = replicas();
+  const field = a.bindText("body");
+  const end = initialText.length;
+  insert(field, end, " a", "typing");
+  insert(field, end + 2, " b", "typing");
+  const remote = "remote ";
+  insert(b.bindText("body"), 0, remote);
+  a.importUpdateBase64(b.exportUpdateBase64());
+  const shifted = end + remote.length;
+  insert(field, shifted + 4, " c", "typing");
+
+  assert.deepEqual(field.undo(caret(field.read().length)), caret(shifted + 4));
+  assert.equal(field.read(), remote + initialText + " a b");
+  assert.deepEqual(field.undo(caret(shifted + 4)), caret(shifted));
+  assert.equal(field.read(), remote + initialText);
+});
+
+test("redo restores the selection its undo started from, wherever the caller moved", () => {
+  const field = createScratchTextBinding("");
+  insert(field, 0, "first", "one");
+  insert(field, 5, " second", "two");
+  const end = field.read().length;
+
+  assert.deepEqual(field.undo(caret(end)), caret(5));
+  assert.deepEqual(field.undo({ anchor: 1, head: 3 }), caret(0));
+  assert.deepEqual(field.redo(caret(0)), caret(5));
+  assert.deepEqual(field.redo(caret(2)), caret(end));
+  assert.equal(field.read(), "first second");
+  assert.deepEqual(field.undo(caret(0)), caret(5));
+  assert.equal(field.read(), "first");
 });
