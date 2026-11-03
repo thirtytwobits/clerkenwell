@@ -171,7 +171,9 @@ fn a_rewrite_writes_operations_only_to_the_containers_of_the_fields_it_changes()
     writer.replace_document(&edited).expect("rewrite");
 
     let doc = raw(&writer);
-    let written = doc.export_json_updates(&before, &doc.oplog_vv());
+    let written = doc
+        .export_json_updates(&before, &doc.oplog_vv())
+        .expect("export the written operations");
     let title = field(NOTE, "title");
     let containers = written
         .changes
