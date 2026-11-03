@@ -7,7 +7,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import type { TextBindingChange, TextSelection } from "@clerkenwell/client";
+import type { TextBinding, TextBindingChange, TextSelection } from "@clerkenwell/client";
 
 import { boardDocument, noteDocument } from "./support/plans.js";
 import {
@@ -491,7 +491,7 @@ test("an imported edit to the text ends the history group", () => {
   assert.equal(field.read(), remote + initialText);
 });
 
-test("redo restores the selection its undo started from, wherever the caller moved", () => {
+test("redo restores the selection the caller had when undoing", () => {
   const field = createScratchTextBinding("");
   insert(field, 0, "first", "one");
   insert(field, 5, " second", "two");
@@ -499,9 +499,77 @@ test("redo restores the selection its undo started from, wherever the caller mov
 
   assert.deepEqual(field.undo(caret(end)), caret(5));
   assert.deepEqual(field.undo({ anchor: 1, head: 3 }), caret(0));
-  assert.deepEqual(field.redo(caret(0)), caret(5));
+  assert.deepEqual(field.redo(caret(0)), { anchor: 1, head: 3, affinity: 1 });
   assert.deepEqual(field.redo(caret(2)), caret(end));
   assert.equal(field.read(), "first second");
-  assert.deepEqual(field.undo(caret(0)), caret(5));
-  assert.equal(field.read(), "first");
+});
+
+function replace(field: TextBinding, from: number, to: number, text: string, selectionBefore: TextSelection): void {
+  field.edit({
+    baseRevision: field.revision,
+    changes: [{ from, to, insert: text }],
+    selectionBefore,
+    selectionAfter: caret(from + text.length),
+    group: `replace ${from}`
+  });
+}
+
+test("undo and redo of a deletion restore a caret inside the deleted text", () => {
+  const field = createScratchTextBinding("hello world");
+  replace(field, 0, 6, "", caret(3));
+
+  assert.deepEqual(field.undo(caret(0)), caret(3));
+  assert.equal(field.read(), "hello world");
+  assert.deepEqual(field.redo(caret(3)), caret(0));
+  assert.equal(field.read(), "world");
+  assert.deepEqual(field.undo(caret(0)), caret(3));
+  assert.equal(field.read(), "hello world");
+});
+
+test("undo and redo of a replacement restore a selection within the replaced text", () => {
+  const field = createScratchTextBinding("hello world");
+  replace(field, 6, 11, "there", { anchor: 7, head: 9 });
+
+  assert.deepEqual(field.undo(caret(11)), { anchor: 7, head: 9, affinity: 1 });
+  assert.equal(field.read(), "hello world");
+  assert.deepEqual(field.redo({ anchor: 8, head: 10 }), caret(11));
+  assert.equal(field.read(), "hello there");
+  assert.deepEqual(field.undo(caret(11)), { anchor: 8, head: 10, affinity: 1 });
+  assert.equal(field.read(), "hello world");
+});
+
+test("undoing a deletion after a remote edit restores the caret within the restored text", () => {
+  const { a, b } = replicas();
+  const field = a.bindText("body");
+  const remote = b.bindText("body");
+  const start = initialText.indexOf(" after");
+  const deleted = initialText.slice(start);
+  replace(field, start, initialText.length, "", caret(start + 3));
+  insert(remote, initialText.length, " theirs");
+  insert(remote, 0, "> ");
+  a.importUpdateBase64(b.exportUpdateBase64());
+
+  const selection = field.undo(caret(0));
+  const restored = field.read();
+  assert.ok(restored.startsWith("> ") && restored.includes(deleted) && restored.endsWith(" theirs"));
+  assert.deepEqual(selection, caret(restored.indexOf(deleted) + 3));
+});
+
+test("a caret at the end of the text stays at the end through remote appends", () => {
+  const { a, b } = replicas();
+  const field = a.bindText("body");
+  insert(field, 0, "mine ");
+  field.edit({
+    baseRevision: field.revision,
+    changes: [{ from: 0, to: 0, insert: "> " }],
+    selectionBefore: caret(field.read().length),
+    selectionAfter: caret(2),
+    group: "prefix"
+  });
+  insert(b.bindText("body"), initialText.length, " theirs");
+  a.importUpdateBase64(b.exportUpdateBase64());
+
+  const selection = field.undo(caret(0));
+  assert.equal(field.read(), "mine " + initialText + " theirs");
+  assert.deepEqual(selection, caret(field.read().length));
 });
