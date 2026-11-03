@@ -27,7 +27,7 @@
   "npm": {
     "version": "1.17.1",
     "url": "https://github.com/thirtytwobits/loro/releases/download/loro-crdt-1.17.1-704cfb2b/loro-crdt-1.17.1.tgz",
-    "integrity": "sha512-PENDING",
+    "integrity": "sha512-v5uC2qh2Gp3ldaZcEKBCaQUtrNhtmTgIMxosORaz+/fZKj2kfgxchN24wey/TJNB9X7wzJrxw8dJsm4bPoRyaQ==",
     "build": {
       "tools": {
         "rustc": "rustc 1.95.0 (59807616e 2026-04-14)",
