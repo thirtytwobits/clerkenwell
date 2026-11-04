@@ -4,9 +4,10 @@
 
 ### Breaking
 
-- Clerkenwell builds on Loro 1.17.1: `loro-crdt` 1.17.1 with the undo metadata fix proposed as
-  loro-dev/loro#1253, from `thirtytwobits/loro` at `704cfb2b`. A workspace that builds
-  Clerkenwell's crates sets its `generic-btree` override to that revision.
+- Clerkenwell takes Loro from its upstream releases: `loro` 1.17.1 from crates.io and
+  `loro-crdt` 1.17.1 from npm (#37). A workspace that builds Clerkenwell's crates needs no
+  `[patch.crates-io]` override for `generic-btree`; remove it. A workspace that also depends on
+  `loro` from crates.io takes 1.17.1.
 
 ## 0.13.0
 

@@ -19,7 +19,7 @@
 
 | Directory | Holds |
 |---|---|
-| `clients/typescript/` | the TypeScript packages below, and `loro-package.mjs`, which builds the pinned `loro-crdt` |
+| `clients/typescript/` | the TypeScript packages below |
 | `conformance/` | the Node scripts Clerkenwell's own conformance tests run |
 | `examples/notes` | a runnable walk-through of the framework over one note, and a server of notes |
 | `examples/operations` | Clerkenwell's operations over a store of tasks, assembled into Clapham's CLI and MCP server, and the fixture Clapham's conformance harness drives through every front end |

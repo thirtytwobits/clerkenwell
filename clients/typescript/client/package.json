@@ -30,6 +30,6 @@
     "test": "node --conditions=@clerkenwell/source --import tsx --test \"tests/**/*.test.ts\""
   },
   "dependencies": {
-    "loro-crdt": "https://github.com/thirtytwobits/loro/releases/download/loro-crdt-1.17.1-704cfb2b/loro-crdt-1.17.1.tgz"
+    "loro-crdt": "1.17.1"
   }
 }
