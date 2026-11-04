@@ -3,15 +3,15 @@
   "source": {
     "kind": "git",
     "url": "https://github.com/thirtytwobits/loro.git",
-    "revision": "ef1964a317d743ebd5c0419d35393ff980daa2fe"
+    "revision": "704cfb2bdb158bcd2910948ad140eb24713f35a1"
   },
   "rust": {
-    "version": "1.16.0",
+    "version": "1.17.1",
     "crates": {
-      "loro": "1.16.0",
-      "loro-internal": "1.16.0",
-      "loro-common": "1.16.0",
-      "loro-kv-store": "1.16.0",
+      "loro": "1.17.1",
+      "loro-internal": "1.17.1",
+      "loro-common": "1.17.0",
+      "loro-kv-store": "1.17.0",
       "loro-delta": "1.13.0",
       "loro-rle": "1.6.0",
       "loro_fractional_index": "1.13.0",
@@ -25,9 +25,9 @@
     }
   },
   "npm": {
-    "version": "1.16.1",
-    "url": "https://github.com/thirtytwobits/loro/releases/download/loro-crdt-1.16.1-ef1964a3-2/loro-crdt-1.16.1.tgz",
-    "integrity": "sha512-U3T6bD7a0KS5bIaXJ95IhTsrBLJm7+SSX5osMW/2V/ZuIxtU7NsqtpHmc2L8cUaXxlzBAPoxz7sczTGLfPTslA==",
+    "version": "1.17.1",
+    "url": "https://github.com/thirtytwobits/loro/releases/download/loro-crdt-1.17.1-704cfb2b/loro-crdt-1.17.1.tgz",
+    "integrity": "sha512-v5uC2qh2Gp3ldaZcEKBCaQUtrNhtmTgIMxosORaz+/fZKj2kfgxchN24wey/TJNB9X7wzJrxw8dJsm4bPoRyaQ==",
     "build": {
       "tools": {
         "rustc": "rustc 1.95.0 (59807616e 2026-04-14)",
