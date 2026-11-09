@@ -7,8 +7,8 @@
 - Clerkenwell builds on Loro 1.17.1: `loro-crdt` 1.17.1 with the undo metadata fix proposed as
   loro-dev/loro#1253, from `thirtytwobits/loro` at `704cfb2b`. A workspace that builds
   Clerkenwell's crates sets its `generic-btree` override to that revision.
-- Clerkenwell builds on Clapham 0.5.2. A host that also depends on Clapham takes the `v0.5.2` tag;
-  Cargo treats each Git tag as a separate `clapham` crate.
+- Clerkenwell builds on Clapham 0.6.0, on rmcp 3.9.0. A host that also depends on Clapham takes the
+  `v0.6.0` tag; Cargo treats each Git tag as a separate `clapham` crate.
 
 ## 0.13.0
 
