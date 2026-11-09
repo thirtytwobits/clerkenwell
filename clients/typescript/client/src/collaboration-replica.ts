@@ -14,7 +14,6 @@ import {
   LoroMovableList,
   LoroText,
   UndoManager,
-  type Cursor,
   type ImportStatus,
   type LoroEventBatch
 } from "loro-crdt";
@@ -31,6 +30,15 @@ import { defineMember, ownMember } from "./members.js";
 import type { AuthoringPeerBlock } from "./authoring-state.js";
 import type { AuthoringSessionController, AuthoringTextStageController } from "./authoring-session.js";
 import { validateTextEdits, type TextBinding, type TextBindingChange, type TextEdit, type TextSelection } from "./text-binding.js";
+import {
+  composeDeltas,
+  HistoryStack,
+  type HistoryItem,
+  type HistoryOffset,
+  type HistorySelection,
+  type TextDelta,
+  type TextDeltaOp
+} from "./text-history.js";
 
 const STRUCTURED_MAP_PRESENCE_CONTAINER = "collaboration.structured_map_presence";
 const KEYED_SEQUENCE_PRESENCE_CONTAINER = "collaboration.keyed_sequence_presence";
@@ -831,6 +839,9 @@ export class CollaborationTextView {
   }
 }
 
+/** The undo items a text binding keeps; older items are evicted. */
+const TEXT_HISTORY_LIMIT = 100;
+
 /** Raw text and history objects stay inside this module. */
 class LoroFieldTextBinding implements TextBinding {
   revision = 0;
@@ -839,10 +850,22 @@ class LoroFieldTextBinding implements TextBinding {
   private readonly listeners = new Set<(change: TextBindingChange) => void>();
   private readonly undoManager: UndoManager;
   private readonly unsubscribe: () => void;
-  private selectionCursors: Cursor[] = [];
-  private restoredCursors: Cursor[] | null = null;
-  private selectionAffinity: -1 | 1 = 1;
+  /**
+   * The binding keeps each history item's selection itself: Loro's WebAssembly binding drops
+   * the metadata `onPush` returns once its undo stack is full (loro-dev/loro#1252). These
+   * stacks follow the undo manager's through `onPush` and `onPop`, which report every item's
+   * counter range, and its field document has no other local writer.
+   */
+  private readonly undoItems = new HistoryStack();
+  private readonly redoItems = new HistoryStack();
+  private selection: HistorySelection = { anchor: 0, head: 0, affinity: 1 };
+  private restored: HistorySelection | null = null;
+  private steppingHistory = false;
+  /** The item the current edit or history step pushed or extended, and the change it has made so far. */
+  private pushedItem: HistoryItem | null = null;
+  private localChange: TextDelta = [];
   private historyGroup: string | null = null;
+  private historyGroupPushed = false;
   private disposed = false;
   private compositionDepth = 0;
   private pendingImports: Uint8Array[] = [];
@@ -860,12 +883,13 @@ class LoroFieldTextBinding implements TextBinding {
     this.available = options.available();
     this.undoManager = new UndoManager(doc, {
       mergeInterval: 0,
+      maxUndoSteps: TEXT_HISTORY_LIMIT,
       excludeOriginPrefixes: ["document", "undo", "redo"],
-      onPush: () => ({ value: this.selectionAffinity, cursors: this.selectionCursors }),
-      onPop: (_undo, value) => {
-        this.restoredCursors = value.cursors;
-        this.selectionAffinity = value.value === -1 ? -1 : 1;
-      }
+      onPush: (isUndo, range) => {
+        this.pushHistory(isUndo, range);
+        return { value: null, cursors: [] };
+      },
+      onPop: (isUndo, _metadata, range) => this.popHistory(isUndo, range)
     });
     this.unsubscribe = doc.subscribe((event) => this.receive(event));
   }
@@ -880,6 +904,7 @@ class LoroFieldTextBinding implements TextBinding {
   endHistoryGroup(): void {
     if (this.historyGroup !== null) this.undoManager.groupEnd();
     this.historyGroup = null;
+    this.historyGroupPushed = false;
   }
   beginComposition(): () => void {
     this.requireAvailable();
@@ -945,6 +970,7 @@ class LoroFieldTextBinding implements TextBinding {
       if (change.insert) this.text.insert(change.from, change.insert);
     }
     this.doc.commit({ origin: this.origin });
+    this.recordPushedChange();
     this.publishSoon();
   }
   undo(selection: TextSelection): TextSelection | null { return this.history(false, selection); }
@@ -955,6 +981,8 @@ class LoroFieldTextBinding implements TextBinding {
     this.endHistoryGroup();
     this.unsubscribe();
     this.undoManager.free();
+    this.undoItems.clear();
+    this.redoItems.clear();
     this.listeners.clear();
     this.disposed = true;
   }
@@ -962,12 +990,49 @@ class LoroFieldTextBinding implements TextBinding {
     if (this.disposed || !this.available) throw new Error("The bound text field is no longer available.");
   }
   private captureSelection(selection: TextSelection): void {
-    this.selectionAffinity = selection.affinity ?? 1;
-    this.selectionCursors = [selection.anchor, selection.head].map((offset) => {
-      const cursor = this.text.getCursor(offset, this.selectionAffinity);
-      if (!cursor) throw new Error(`Cannot anchor text selection at ${offset} of ${this.text.length}.`);
-      return cursor;
-    });
+    const at = (offset: number): HistoryOffset => offset === this.text.length ? "end" : offset;
+    this.selection = { anchor: at(selection.anchor), head: at(selection.head), affinity: selection.affinity ?? 1 };
+  }
+  /**
+   * Follows a push onto the undo manager's undo (`isUndo`) or redo stack.
+   *
+   * Each item restores the selection from before the edit or history step that pushed it. A
+   * local edit clears the redo stack. Within a history group, an edit whose range continues the
+   * top item extends it, and that item keeps the selection from before the group's first edit.
+   * The undo stack then evicts its oldest items beyond the limit.
+   */
+  private pushHistory(isUndo: boolean, range: { start: number; end: number }): void {
+    if (this.steppingHistory) {
+      this.pushedItem = { start: range.start, end: range.end, change: [], selection: this.selection };
+      (isUndo ? this.undoItems : this.redoItems).push(this.pushedItem);
+      return;
+    }
+    this.redoItems.clear();
+    const top = this.undoItems.extendable();
+    if (this.historyGroupPushed && top?.end === range.start) {
+      top.end = range.end;
+      this.pushedItem = top;
+    } else {
+      this.pushedItem = { start: range.start, end: range.end, change: [], selection: this.selection };
+      this.undoItems.push(this.pushedItem);
+    }
+    this.historyGroupPushed = true;
+    while (this.undoItems.length > TEXT_HISTORY_LIMIT) this.undoItems.evictOldest();
+  }
+  /** Follows a pop from the undo manager's undo (`isUndo`) or redo stack, which names the item's range. */
+  private popHistory(isUndo: boolean, range: { start: number; end: number }): void {
+    const popped = (isUndo ? this.undoItems : this.redoItems).pop();
+    this.restored = popped?.item.start === range.start && popped.item.end === range.end
+      ? popped.selection
+      : null;
+  }
+  /** Gives the item this edit or history step pushed the change it made. */
+  private recordPushedChange(): void {
+    if (this.pushedItem !== null) {
+      this.pushedItem.change = composeDeltas(this.pushedItem.change, this.localChange);
+    }
+    this.pushedItem = null;
+    this.localChange = [];
   }
   private history(redo: boolean, selection: TextSelection): TextSelection | null {
     this.requireAvailable();
@@ -975,34 +1040,53 @@ class LoroFieldTextBinding implements TextBinding {
     this.options.beforeEdit();
     this.endHistoryGroup();
     this.captureSelection(selection);
-    this.restoredCursors = null;
-    const changed = redo ? this.undoManager.redo() : this.undoManager.undo();
+    this.steppingHistory = true;
+    let changed: boolean;
+    try {
+      changed = redo ? this.undoManager.redo() : this.undoManager.undo();
+    } finally {
+      this.steppingHistory = false;
+      this.recordPushedChange();
+    }
     if (!changed) return null;
     this.publishSoon();
     return this.resolveHistorySelection();
   }
   private resolveHistorySelection(): TextSelection {
-    const cursors = this.restoredCursors;
-    if (!cursors || cursors.length !== 2) throw new Error("Text history did not retain its selection.");
-    const positions = cursors.map((cursor) => this.doc.getCursorPos(cursor));
-    if (!positions[0] || !positions[1]) throw new Error("Text history selection could not be resolved.");
-    return { anchor: positions[0].offset, head: positions[1].offset, affinity: this.selectionAffinity };
+    const restored = this.restored;
+    if (!restored) throw new Error("Text history did not retain its selection.");
+    const length = this.text.length;
+    const at = (offset: HistoryOffset) => offset === "end" ? length : Math.min(offset, length);
+    return { anchor: at(restored.anchor), head: at(restored.head), affinity: restored.affinity };
   }
   private receive(event: LoroEventBatch): void {
     const available = this.options.available();
     const changes: TextEdit[] = [];
+    let delta: TextDelta = [];
     for (const item of event.events) {
       if (item.target !== this.text.id || item.diff.type !== "text") continue;
+      const ops: TextDeltaOp[] = [];
       let offset = 0;
       for (const part of item.diff.diff) {
-        if (part.retain !== undefined) offset += part.retain;
-        else if (part.delete !== undefined) {
+        if (part.retain !== undefined) {
+          ops.push({ retain: part.retain });
+          offset += part.retain;
+        } else if (part.delete !== undefined) {
+          ops.push({ delete: part.delete });
           changes.push({ from: offset, to: offset + part.delete, insert: "" });
           offset += part.delete;
         } else if (part.insert !== undefined) {
+          ops.push({ insert: part.insert.length });
           changes.push({ from: offset, to: offset, insert: part.insert });
         }
       }
+      delta = composeDeltas(delta, ops);
+    }
+    if (event.by === "import") {
+      this.undoItems.receiveRemote(delta);
+      this.redoItems.receiveRemote(delta);
+    } else if (event.by === "local") {
+      this.localChange = composeDeltas(this.localChange, delta);
     }
     if (changes.length === 0 && available === this.available) return;
     if (event.by === "import") this.endHistoryGroup();

@@ -9,8 +9,7 @@ license = "MIT"
 version = "0.14.0"
 repository = "https://github.com/thirtytwobits/clerkenwell"
 
-# The approved Rust/npm Loro release pair and its source live in
-# loro-release.json.
+# The approved Rust/npm Loro release pair lives in loro-release.json.
 [workspace.dependencies]
 base64 = "0.23"
 clapham = { git = "https://github.com/thirtytwobits/clapham", tag = "v0.6.0", version = "0.6.0" }
@@ -21,14 +20,9 @@ clap = { version = "4.5", features = ["derive"] }
 icu_collator = "2.1"
 indexmap = "2.12"
 jsonschema = { version = "0.60", default-features = false }
-loro = { git = "https://github.com/thirtytwobits/loro.git", rev = "704cfb2bdb158bcd2910948ad140eb24713f35a1" }
+loro = "=1.17.1"
 schemars = "1.2.3"
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.145"
 tempfile = "3.20"
 thiserror = "2.0.17"
-
-# Workspace patches do not propagate to dependents: every workspace that
-# builds these crates carries this override too.
-[patch.crates-io]
-generic-btree = { git = "https://github.com/thirtytwobits/loro.git", rev = "704cfb2bdb158bcd2910948ad140eb24713f35a1" }

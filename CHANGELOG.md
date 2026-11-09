@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+### Breaking
+
+- Clerkenwell takes Loro from its upstream releases: `loro` 1.17.1 from crates.io and
+  `loro-crdt` 1.17.1 from npm (#37). A workspace that builds Clerkenwell's crates needs no
+  `[patch.crates-io]` override for `generic-btree`; remove it. A workspace that also depends on
+  `loro` from crates.io takes 1.17.1.
+
 ## 0.14.0
 
 ### Breaking

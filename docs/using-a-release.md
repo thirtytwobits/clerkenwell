@@ -1,9 +1,7 @@
 # Using a Clerkenwell release
 
 Each release is a `vX.Y.Z` tag and a GitHub release; [`CHANGELOG.md`](../CHANGELOG.md)
-describes each one. A workspace that takes a crate carries, in its root `Cargo.toml`, the
-`[patch.crates-io]` override for `generic-btree` that Clerkenwell's `Cargo.toml` carries at
-that release.
+describes each one.
 
 | Need | How |
 |---|---|
@@ -11,8 +9,6 @@ that release.
 | The generator | `cargo install clerkenwell-codegen --git https://github.com/thirtytwobits/clerkenwell --tag vX.Y.Z --locked` |
 | Conformance | `clerkenwell-conformance` as a crate, with `tsx` and the client installed in the npm project it runs in |
 | A checkout instead of a release | a Cargo `[patch]` with a path, and `npm link` to a package built with `npm run build` |
-
-`@clerkenwell/client` installs `loro-crdt` from a GitHub release tarball.
 
 <!-- newsletter:begin consuming · maintained in thirtytwobits/london -->
 
