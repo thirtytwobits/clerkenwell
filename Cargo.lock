@@ -507,7 +507,7 @@ dependencies = [
 
 [[package]]
 name = "clerkenwell-axum"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "axum",
  "clerkenwell-axum",
@@ -524,7 +524,7 @@ dependencies = [
 
 [[package]]
 name = "clerkenwell-codegen"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "clap",
  "clerkenwell-codegen",
@@ -542,7 +542,7 @@ dependencies = [
 
 [[package]]
 name = "clerkenwell-conformance"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "axum",
  "base64 0.23.1",
@@ -561,7 +561,7 @@ dependencies = [
 
 [[package]]
 name = "clerkenwell-doc"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "base64 0.23.1",
  "clerkenwell-notebook",
@@ -575,7 +575,7 @@ dependencies = [
 
 [[package]]
 name = "clerkenwell-events"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -583,7 +583,7 @@ dependencies = [
 
 [[package]]
 name = "clerkenwell-example-notes"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "axum",
  "clap",
@@ -604,7 +604,7 @@ dependencies = [
 
 [[package]]
 name = "clerkenwell-example-operations"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "axum",
  "base64 0.23.1",
@@ -631,7 +631,7 @@ dependencies = [
 
 [[package]]
 name = "clerkenwell-notebook"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "clerkenwell-schema",
  "schemars",
@@ -641,7 +641,7 @@ dependencies = [
 
 [[package]]
 name = "clerkenwell-ops"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "base64 0.23.1",
  "clapham",
@@ -658,7 +658,7 @@ dependencies = [
 
 [[package]]
 name = "clerkenwell-public-api"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "clap",
  "proc-macro2",
@@ -668,7 +668,7 @@ dependencies = [
 
 [[package]]
 name = "clerkenwell-release"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "clap",
  "jsonc-parser",
@@ -681,7 +681,7 @@ dependencies = [
 
 [[package]]
 name = "clerkenwell-schema"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "clerkenwell-events",
  "schemars",
@@ -691,7 +691,7 @@ dependencies = [
 
 [[package]]
 name = "clerkenwell-session"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "clerkenwell-doc",
  "clerkenwell-events",
@@ -706,7 +706,7 @@ dependencies = [
 
 [[package]]
 name = "clerkenwell-store"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "base64 0.23.1",
  "chrono",
