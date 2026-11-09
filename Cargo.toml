@@ -6,16 +6,16 @@ resolver = "2"
 edition = "2021"
 rust-version = "1.95"
 license = "MIT"
-version = "0.13.0"
+version = "0.14.0"
 repository = "https://github.com/thirtytwobits/clerkenwell"
 
 # The approved Rust/npm Loro release pair lives in loro-release.json.
 [workspace.dependencies]
 base64 = "0.23"
-clapham = { git = "https://github.com/thirtytwobits/clapham", tag = "v0.4.0", version = "0.4.0" }
-clapham-cli = { git = "https://github.com/thirtytwobits/clapham", tag = "v0.4.0", version = "0.4.0" }
-clapham-conformance = { git = "https://github.com/thirtytwobits/clapham", tag = "v0.4.0", version = "0.4.0" }
-clapham-mcp-server = { git = "https://github.com/thirtytwobits/clapham", tag = "v0.4.0", version = "0.4.0" }
+clapham = { git = "https://github.com/thirtytwobits/clapham", tag = "v0.6.0", version = "0.6.0" }
+clapham-cli = { git = "https://github.com/thirtytwobits/clapham", tag = "v0.6.0", version = "0.6.0" }
+clapham-conformance = { git = "https://github.com/thirtytwobits/clapham", tag = "v0.6.0", version = "0.6.0" }
+clapham-mcp-server = { git = "https://github.com/thirtytwobits/clapham", tag = "v0.6.0", version = "0.6.0" }
 clap = { version = "4.5", features = ["derive"] }
 icu_collator = "2.1"
 indexmap = "2.12"
