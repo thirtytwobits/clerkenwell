@@ -205,6 +205,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "base16ct"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fd307490d624467aa6f74b0eabb77633d1f758a7b25f12bceb0b22e08d9726f6"
+
+[[package]]
 name = "base64"
 version = "0.22.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -402,22 +408,23 @@ checksum = "1c133bc6a41be0d194c306b5506d15e6feeea7b1d6604bd3f8310dfb2ca96486"
 
 [[package]]
 name = "clapham"
-version = "0.4.0"
-source = "git+https://github.com/thirtytwobits/clapham?tag=v0.4.0#a04128a7cdf98c6f1ced395d97341808bd29e72d"
+version = "0.5.2"
+source = "git+https://github.com/thirtytwobits/clapham?tag=v0.5.2#cbd0d30bc776a2f03248750ae76d03cd1bf1c894"
 dependencies = [
+ "base16ct",
  "futures-util",
  "jsonschema",
  "schemars",
  "serde",
  "serde_json",
- "sha2 0.10.9",
+ "sha2 0.11.1",
  "tokio-util",
 ]
 
 [[package]]
 name = "clapham-cli"
-version = "0.4.0"
-source = "git+https://github.com/thirtytwobits/clapham?tag=v0.4.0#a04128a7cdf98c6f1ced395d97341808bd29e72d"
+version = "0.5.2"
+source = "git+https://github.com/thirtytwobits/clapham?tag=v0.5.2#cbd0d30bc776a2f03248750ae76d03cd1bf1c894"
 dependencies = [
  "clap",
  "clap_complete",
@@ -434,8 +441,8 @@ dependencies = [
 
 [[package]]
 name = "clapham-conformance"
-version = "0.4.0"
-source = "git+https://github.com/thirtytwobits/clapham?tag=v0.4.0#a04128a7cdf98c6f1ced395d97341808bd29e72d"
+version = "0.5.2"
+source = "git+https://github.com/thirtytwobits/clapham?tag=v0.5.2#cbd0d30bc776a2f03248750ae76d03cd1bf1c894"
 dependencies = [
  "clapham",
  "clapham-cli",
@@ -453,9 +460,10 @@ dependencies = [
 
 [[package]]
 name = "clapham-mcp-client"
-version = "0.4.0"
-source = "git+https://github.com/thirtytwobits/clapham?tag=v0.4.0#a04128a7cdf98c6f1ced395d97341808bd29e72d"
+version = "0.5.2"
+source = "git+https://github.com/thirtytwobits/clapham?tag=v0.5.2#cbd0d30bc776a2f03248750ae76d03cd1bf1c894"
 dependencies = [
+ "base16ct",
  "bytes",
  "clapham",
  "futures-util",
@@ -465,7 +473,7 @@ dependencies = [
  "rmcp",
  "serde",
  "serde_json",
- "sha2 0.10.9",
+ "sha2 0.11.1",
  "sse-stream",
  "thiserror 2.0.21",
  "tokio",
@@ -475,10 +483,11 @@ dependencies = [
 
 [[package]]
 name = "clapham-mcp-server"
-version = "0.4.0"
-source = "git+https://github.com/thirtytwobits/clapham?tag=v0.4.0#a04128a7cdf98c6f1ced395d97341808bd29e72d"
+version = "0.5.2"
+source = "git+https://github.com/thirtytwobits/clapham?tag=v0.5.2#cbd0d30bc776a2f03248750ae76d03cd1bf1c894"
 dependencies = [
  "axum",
+ "base16ct",
  "bytes",
  "clapham",
  "http",
@@ -490,7 +499,7 @@ dependencies = [
  "rmcp",
  "serde",
  "serde_json",
- "sha2 0.10.9",
+ "sha2 0.11.1",
  "tokio",
  "tower-service",
  "uuid",
