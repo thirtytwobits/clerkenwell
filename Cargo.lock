@@ -205,6 +205,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "base16ct"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fd307490d624467aa6f74b0eabb77633d1f758a7b25f12bceb0b22e08d9726f6"
+
+[[package]]
 name = "base64"
 version = "0.22.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -402,22 +408,23 @@ checksum = "1c133bc6a41be0d194c306b5506d15e6feeea7b1d6604bd3f8310dfb2ca96486"
 
 [[package]]
 name = "clapham"
-version = "0.4.0"
-source = "git+https://github.com/thirtytwobits/clapham?tag=v0.4.0#a04128a7cdf98c6f1ced395d97341808bd29e72d"
+version = "0.6.0"
+source = "git+https://github.com/thirtytwobits/clapham?tag=v0.6.0#658623f24b65e67feb49da21eec0c3b2e38ecf9c"
 dependencies = [
+ "base16ct",
  "futures-util",
  "jsonschema",
  "schemars",
  "serde",
  "serde_json",
- "sha2 0.10.9",
+ "sha2 0.11.1",
  "tokio-util",
 ]
 
 [[package]]
 name = "clapham-cli"
-version = "0.4.0"
-source = "git+https://github.com/thirtytwobits/clapham?tag=v0.4.0#a04128a7cdf98c6f1ced395d97341808bd29e72d"
+version = "0.6.0"
+source = "git+https://github.com/thirtytwobits/clapham?tag=v0.6.0#658623f24b65e67feb49da21eec0c3b2e38ecf9c"
 dependencies = [
  "clap",
  "clap_complete",
@@ -434,8 +441,8 @@ dependencies = [
 
 [[package]]
 name = "clapham-conformance"
-version = "0.4.0"
-source = "git+https://github.com/thirtytwobits/clapham?tag=v0.4.0#a04128a7cdf98c6f1ced395d97341808bd29e72d"
+version = "0.6.0"
+source = "git+https://github.com/thirtytwobits/clapham?tag=v0.6.0#658623f24b65e67feb49da21eec0c3b2e38ecf9c"
 dependencies = [
  "clapham",
  "clapham-cli",
@@ -453,9 +460,10 @@ dependencies = [
 
 [[package]]
 name = "clapham-mcp-client"
-version = "0.4.0"
-source = "git+https://github.com/thirtytwobits/clapham?tag=v0.4.0#a04128a7cdf98c6f1ced395d97341808bd29e72d"
+version = "0.6.0"
+source = "git+https://github.com/thirtytwobits/clapham?tag=v0.6.0#658623f24b65e67feb49da21eec0c3b2e38ecf9c"
 dependencies = [
+ "base16ct",
  "bytes",
  "clapham",
  "futures-util",
@@ -465,7 +473,7 @@ dependencies = [
  "rmcp",
  "serde",
  "serde_json",
- "sha2 0.10.9",
+ "sha2 0.11.1",
  "sse-stream",
  "thiserror 2.0.21",
  "tokio",
@@ -475,10 +483,11 @@ dependencies = [
 
 [[package]]
 name = "clapham-mcp-server"
-version = "0.4.0"
-source = "git+https://github.com/thirtytwobits/clapham?tag=v0.4.0#a04128a7cdf98c6f1ced395d97341808bd29e72d"
+version = "0.6.0"
+source = "git+https://github.com/thirtytwobits/clapham?tag=v0.6.0#658623f24b65e67feb49da21eec0c3b2e38ecf9c"
 dependencies = [
  "axum",
+ "base16ct",
  "bytes",
  "clapham",
  "http",
@@ -490,7 +499,7 @@ dependencies = [
  "rmcp",
  "serde",
  "serde_json",
- "sha2 0.10.9",
+ "sha2 0.11.1",
  "tokio",
  "tower-service",
  "uuid",
@@ -498,7 +507,7 @@ dependencies = [
 
 [[package]]
 name = "clerkenwell-axum"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "axum",
  "clerkenwell-axum",
@@ -515,7 +524,7 @@ dependencies = [
 
 [[package]]
 name = "clerkenwell-codegen"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "clap",
  "clerkenwell-codegen",
@@ -533,7 +542,7 @@ dependencies = [
 
 [[package]]
 name = "clerkenwell-conformance"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "axum",
  "base64 0.23.1",
@@ -552,7 +561,7 @@ dependencies = [
 
 [[package]]
 name = "clerkenwell-doc"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "base64 0.23.1",
  "clerkenwell-notebook",
@@ -566,7 +575,7 @@ dependencies = [
 
 [[package]]
 name = "clerkenwell-events"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -574,7 +583,7 @@ dependencies = [
 
 [[package]]
 name = "clerkenwell-example-notes"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "axum",
  "clap",
@@ -595,7 +604,7 @@ dependencies = [
 
 [[package]]
 name = "clerkenwell-example-operations"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "axum",
  "base64 0.23.1",
@@ -622,7 +631,7 @@ dependencies = [
 
 [[package]]
 name = "clerkenwell-notebook"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "clerkenwell-schema",
  "schemars",
@@ -632,7 +641,7 @@ dependencies = [
 
 [[package]]
 name = "clerkenwell-ops"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "base64 0.23.1",
  "clapham",
@@ -649,7 +658,7 @@ dependencies = [
 
 [[package]]
 name = "clerkenwell-public-api"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "clap",
  "proc-macro2",
@@ -659,7 +668,7 @@ dependencies = [
 
 [[package]]
 name = "clerkenwell-release"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "clap",
  "jsonc-parser",
@@ -672,7 +681,7 @@ dependencies = [
 
 [[package]]
 name = "clerkenwell-schema"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "clerkenwell-events",
  "schemars",
@@ -682,7 +691,7 @@ dependencies = [
 
 [[package]]
 name = "clerkenwell-session"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "clerkenwell-doc",
  "clerkenwell-events",
@@ -697,7 +706,7 @@ dependencies = [
 
 [[package]]
 name = "clerkenwell-store"
-version = "0.13.0"
+version = "0.14.0"
 dependencies = [
  "base64 0.23.1",
  "chrono",
@@ -2603,9 +2612,9 @@ dependencies = [
 
 [[package]]
 name = "rmcp"
-version = "3.6.0"
+version = "3.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ceb42e9e47443cd83a834dea57b5816d35481417bae72ade5dc5615c59122e26"
+checksum = "d24a7e92f4bcaa36b97fa93c4fa7ca8f3e669eced949345b3462dba333c7f909"
 dependencies = [
  "async-trait",
  "base64 0.23.1",
@@ -2623,6 +2632,7 @@ dependencies = [
  "schemars",
  "serde",
  "serde_json",
+ "sha2 0.11.1",
  "sse-stream",
  "thiserror 2.0.21",
  "tokio",
