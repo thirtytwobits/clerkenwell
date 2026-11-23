@@ -9,11 +9,11 @@ repository.workspace = true
 
 [dependencies]
 base64.workspace = true
-chrono = { version = "0.4.42", default-features = false, features = ["clock"] }
 clerkenwell-doc = { path = "../clerkenwell-doc" }
 clerkenwell-events = { path = "../clerkenwell-events" }
 clerkenwell-schema = { path = "../clerkenwell-schema" }
 hmac = "0.13.0"
+jiff.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sha2 = "0.11.0"
@@ -25,4 +25,5 @@ testing = []
 
 [dev-dependencies]
 clerkenwell-store = { path = ".", features = ["testing"] }
+jiff.workspace = true
 loro.workspace = true
