@@ -7,8 +7,9 @@ use crate::error::{refuse, Result};
 use crate::json::{Json, Object};
 use crate::names::kebab_identifier;
 use crate::schema::{
-    has_type, object_at, other_members_schema, primitive_union_types, read_string_array,
-    resolve_ref, stringify_or_undefined, value_meets_bounds,
+    has_type, is_externally_tagged, nullable_inner, object_at, other_members_schema,
+    primitive_union_types, read_string_array, resolve_ref, stringify_or_undefined,
+    value_meets_bounds,
 };
 use crate::validate::{collaboration_path_presence, contract_property};
 
@@ -511,6 +512,25 @@ fn sample_within(
     if let Some(constant) = schema.get("const") {
         return Ok(constant.clone());
     }
+    // A nullable schema's sample is a value of the schema beside `null`.
+    if let Some(inner) = nullable_inner(schema) {
+        return sample_within(definition, &inner, suffix, key, extend);
+    }
+    // An externally tagged union's sample is its first data variant.
+    if is_externally_tagged(schema) {
+        let (tag, variant) = object_at(schema, "oneOf")
+            .and_then(|variants| variants.iter().next())
+            .expect("validation requires a data variant");
+        let variant = variant
+            .as_object()
+            .expect("validation requires object variants");
+        let mut sample = Object::new();
+        sample.insert(
+            tag,
+            sample_within(definition, variant, suffix, key, extend)?,
+        );
+        return Ok(sample.into());
+    }
     if let Some(values) = schema.get("enum").and_then(Json::as_array) {
         let Some(value) = values
             .iter()
@@ -561,7 +581,7 @@ fn sample_within(
             bounded_sample(schema, numeric == "integer")?.into()
         }
         Some("boolean") => true.into(),
-        Some("json") => Json::Null,
+        Some("json") | Some("null") => Json::Null,
         Some("array") => {
             let items = object_at(schema, "items").expect("validation requires array items");
             Json::Array(vec![sample_within(

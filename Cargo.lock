@@ -684,6 +684,7 @@ name = "clerkenwell-schema"
 version = "0.14.0"
 dependencies = [
  "clerkenwell-events",
+ "jsonschema",
  "schemars",
  "serde",
  "serde_json",

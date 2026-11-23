@@ -15,9 +15,9 @@ use crate::names::{
     rust_property_enum_name, rust_record_constraints_name, schema_constant_identifier, utf16_len,
 };
 use crate::schema::{
-    has_type, object_at, other_members_schema, primitive_union_types, read_string_array,
-    record_values_schema, ref_string, schema_ref_name, schema_ref_type_name,
-    stringify_or_undefined,
+    has_type, is_externally_tagged, is_null_schema, nullable_inner, object_at,
+    other_members_schema, primitive_union_types, read_string_array, record_values_schema,
+    ref_string, schema_ref_name, schema_ref_type_name, stringify_or_undefined,
 };
 
 /// A helper enum generated for a string-enum property.
@@ -32,38 +32,79 @@ pub(crate) struct RustPropertyEnum {
     pub schema: Object,
 }
 
-/// Every object property, and every property of a tagged-union variant, with a
-/// string enum (directly or as array items). Each is named after its owner and
-/// property so two `kind` fields stay distinct; a variant's owner is its union
-/// and its tag, so two variants' `kind` fields do too.
+/// Every object property, every property of a tagged-union variant, and every
+/// externally tagged variant's value, with a string enum (directly, nullable,
+/// or as array items). Each is named after its owner and property so two
+/// `kind` fields stay distinct; a variant's owner is its union and its tag, so
+/// two variants' `kind` fields do too. An externally tagged variant's value is
+/// named after its union and its tag.
 pub(crate) fn collect_rust_property_enums(definition: &Definition) -> Vec<RustPropertyEnum> {
     let mut enums = Vec::new();
     for (definition_name, schema) in definition.def_entries() {
-        if !has_type(schema, "object") {
-            continue;
+        if is_externally_tagged(schema) {
+            for (tag, variant) in object_at(schema, "oneOf")
+                .into_iter()
+                .flat_map(Object::iter)
+            {
+                let Some(variant) = variant.as_object() else {
+                    continue;
+                };
+                if let Some(enum_schema) = property_enum_schema(variant) {
+                    enums.push(RustPropertyEnum {
+                        name: rust_property_enum_name(definition_name, tag),
+                        def: definition_name.to_owned(),
+                        source: format!("$defs.{definition_name}.oneOf.{tag}"),
+                        values: string_enum_values(enum_schema).expect("an enum schema"),
+                        schema: enum_schema.clone(),
+                    });
+                }
+            }
         }
-        let mut owners = Vec::new();
-        if let Some(properties) = object_at(schema, "properties") {
-            owners.push((
-                definition_name.to_owned(),
-                format!("$defs.{definition_name}.properties"),
-                properties,
-            ));
-        }
-        for (tag, variant) in object_at(schema, "oneOf")
+        let union_variants = object_at(schema, "oneOf")
             .into_iter()
-            .flat_map(Object::iter)
-        {
-            if let Some(properties) = variant.as_object().and_then(|v| object_at(v, "properties")) {
+            .flat_map(Object::iter);
+        let mut owners = Vec::new();
+        if has_type(schema, "object") {
+            if let Some(properties) = object_at(schema, "properties") {
+                owners.push((
+                    definition_name.to_owned(),
+                    format!("$defs.{definition_name}.properties"),
+                    Some(properties),
+                    other_members_schema(schema),
+                ));
+            }
+        }
+        for (tag, variant) in union_variants {
+            let Some(variant) = variant.as_object() else {
+                continue;
+            };
+            if !has_type(variant, "object") {
+                continue;
+            }
+            let properties = object_at(variant, "properties");
+            let other_members = object_at(variant, "additionalProperties");
+            if properties.is_some() || other_members.is_some() {
                 owners.push((
                     variant_enum_owner(definition_name, tag),
                     format!("$defs.{definition_name}.oneOf.{tag}.properties"),
                     properties,
+                    other_members,
                 ));
             }
         }
-        for (owner, path, properties) in owners {
-            for (property_name, property_schema) in properties.iter() {
+        for (owner, path, properties, other_members) in owners {
+            if owner != definition_name {
+                if let Some(enum_schema) = other_members.and_then(property_enum_schema) {
+                    enums.push(RustPropertyEnum {
+                        name: rust_property_enum_name(&owner, OTHER_MEMBERS_FIELD),
+                        def: definition_name.to_owned(),
+                        source: format!("{path}.additionalProperties"),
+                        values: string_enum_values(enum_schema).expect("an enum schema"),
+                        schema: enum_schema.clone(),
+                    });
+                }
+            }
+            for (property_name, property_schema) in properties.into_iter().flat_map(Object::iter) {
                 let Some(schema) = property_schema.as_object().and_then(property_enum_schema)
                 else {
                     continue;
@@ -76,6 +117,9 @@ pub(crate) fn collect_rust_property_enums(definition: &Definition) -> Vec<RustPr
                     schema: schema.clone(),
                 });
             }
+        }
+        if !has_type(schema, "object") {
+            continue;
         }
         // The values of a record `$def` are named `value`, an open object's
         // other members after their field.
@@ -101,8 +145,11 @@ pub(crate) fn collect_rust_property_enums(definition: &Definition) -> Vec<RustPr
 /// items and record values at any depth, each of which the Rust type names
 /// after the property.
 fn property_enum_schema(property_schema: &Object) -> Option<&Object> {
-    if string_enum_values(property_schema).is_some() {
+    if string_enum_values(property_schema).is_some() && has_type(property_schema, "string") {
         return Some(property_schema);
+    }
+    if let Some(member) = nullable_member(property_schema) {
+        return property_enum_schema(member);
     }
     has_type(property_schema, "array")
         .then(|| object_at(property_schema, "items"))
@@ -123,9 +170,45 @@ fn string_enum_values(schema: &Object) -> Option<Vec<String>> {
     )
 }
 
-/// What a tagged-union variant's property enums are named after: the union
-/// and the variant's tag.
-fn variant_enum_owner(definition_name: &str, tag: &str) -> String {
+/// The struct each open union variant is generated as, named after its union
+/// and tag, with the definition path it comes from.
+pub(crate) fn variant_structs(definition: &Definition) -> Vec<(String, String)> {
+    let mut structs = Vec::new();
+    for (definition_name, schema) in definition.def_entries() {
+        let external = is_externally_tagged(schema);
+        for (tag, variant) in object_at(schema, "oneOf")
+            .into_iter()
+            .flat_map(Object::iter)
+        {
+            let Some(variant) = variant.as_object() else {
+                continue;
+            };
+            let object = has_type(variant, "object") && object_at(variant, "properties").is_some();
+            let open = object_at(variant, "additionalProperties").is_some();
+            if open && (object || !external) {
+                structs.push((
+                    variant_enum_owner(definition_name, tag),
+                    format!("$defs.{definition_name}.oneOf.{tag}"),
+                ));
+            }
+        }
+    }
+    structs
+}
+
+/// The non-null member of an `anyOf` nullable schema, borrowed.
+fn nullable_member(schema: &Object) -> Option<&Object> {
+    let members = schema.get("anyOf").and_then(Json::as_array)?;
+    nullable_inner(schema)?;
+    members
+        .iter()
+        .find(|member| !is_null_schema(member))
+        .and_then(Json::as_object)
+}
+
+/// What a tagged-union variant's property enums, and its struct when it has
+/// one of its own, are named after: the union and the variant's tag.
+pub(crate) fn variant_enum_owner(definition_name: &str, tag: &str) -> String {
     format!(
         "{}{}",
         pascal_identifier(definition_name),
@@ -211,7 +294,12 @@ pub fn render_model_module(definition: &Definition, project: &Project) -> Result
         .filter(|property_enum| !SHARED.contains(&property_enum.def.as_str()))
     {
         lines.push(with_constraints(
-            render_enum(&property_enum.name, &property_enum.values),
+            definition,
+            render_enum(
+                &property_enum.name,
+                &property_enum.values,
+                object_at(&property_enum.schema, "enumDescriptions"),
+            ),
             &property_enum.schema,
         ));
         lines.push(String::new());
@@ -882,12 +970,19 @@ fn collaboration_metadata(definition: &Definition) -> String {
 }
 
 /// A Rust enum whose variants are PascalCase and whose wire values are exact.
-fn render_enum(name: &str, values: &[String]) -> String {
+/// A string enum; a value's description is its variant's documentation, as
+/// the derived JSON Schema carries it.
+fn render_enum(name: &str, values: &[String], descriptions: Option<&Object>) -> String {
     let variants: Vec<String> = values
         .iter()
         .map(|value| {
+            let documentation = descriptions
+                .and_then(|descriptions| descriptions.get(value))
+                .and_then(Json::as_str)
+                .map(|description| doc_comment("    ", description))
+                .unwrap_or_default();
             format!(
-                "{}\n    {},",
+                "{documentation}{}\n    {},",
                 rename_attribute("    ", value),
                 pascal_identifier(value)
             )
@@ -909,29 +1004,52 @@ fn render_definition(
     if has_type(schema, "json") {
         return Ok(format!("pub type {type_name} = JsonValue;"));
     }
+    if is_externally_tagged(schema) {
+        return externally_tagged_union(definition, definition_name, schema);
+    }
     if matches!(schema.get("$ref"), Some(Json::String(_))) {
         return Ok(format!(
             "pub type {type_name} = {};",
             schema_ref_type_name(schema)?
         ));
     }
-    if let Some(members) = primitive_union_types(schema)? {
+    // A scalar union naming two or more types besides `null` is an untagged
+    // enum, `null` its `Null` variant.
+    if let Some(members) = primitive_union_types(schema)?
+        .filter(|members| members.iter().filter(|member| **member != "null").count() > 1)
+    {
         return Ok(with_constraints(
+            definition,
             primitive_union(definition_name, &members)?,
             schema,
         ));
     }
     if let Some(values) = schema.get("enum").and_then(Json::as_array) {
         return Ok(with_constraints(
+            definition,
             render_enum(
                 &type_name,
                 &values
                     .iter()
                     .map(|value| value.as_str().unwrap().to_owned())
                     .collect::<Vec<_>>(),
+                object_at(schema, "enumDescriptions"),
             ),
             schema,
         ));
+    }
+    // A nullable schema, a scalar and an array name the Rust type of their
+    // values; each use of the alias carries the schema's constraints.
+    if renders_as_alias(schema)? {
+        let target = rust_type(
+            definition,
+            definition_name,
+            definition_name,
+            "value",
+            schema,
+            false,
+        )?;
+        return Ok(type_alias(&type_name, &target));
     }
     if !has_type(schema, "object") {
         return refuse(format!(
@@ -958,7 +1076,7 @@ fn render_definition(
             4,
             "const VALUE_CONSTRAINTS: &'static [SchemaConstraint] =",
             &Expr::slice(
-                constraints(additional)
+                constraints(definition, additional)
                     .iter()
                     .map(Constraint::expr)
                     .collect(),
@@ -972,26 +1090,43 @@ fn render_definition(
             )
         ));
     }
-    let Some(properties) = object_at(schema, "properties") else {
-        return refuse(format!(
-            "Rust generation expects $defs.{definition_name} to declare properties."
-        ));
-    };
-    let required = read_string_array(
-        schema.get("required"),
-        &format!("{definition_name}.required"),
-    )?;
+    render_object(
+        TypeOwner {
+            definition,
+            definition_name,
+            enum_owner: definition_name,
+        },
+        &type_name,
+        schema,
+        &[],
+    )
+}
+
+/// An object schema as a struct named `type_name`: closed, or open with its
+/// other members flattened beside its declared ones. `also_declared` names
+/// members a value of the struct carries without the struct declaring them,
+/// such as a union's tag.
+fn render_object(
+    owner: TypeOwner,
+    type_name: &str,
+    schema: &Object,
+    also_declared: &[&str],
+) -> Result<String> {
+    let TypeOwner {
+        definition,
+        definition_name,
+        enum_owner,
+    } = owner;
+    let empty = Object::new();
+    let properties = object_at(schema, "properties").unwrap_or(&empty);
+    let required = read_string_array(schema.get("required"), &format!("{type_name}.required"))?;
     let mut fields = Vec::new();
     for (property_name, property_schema) in properties.iter() {
         let property_schema = property_schema
             .as_object()
             .expect("validation requires object property schemas");
         fields.push(render_field(
-            TypeOwner {
-                definition,
-                definition_name,
-                enum_owner: definition_name,
-            },
+            owner,
             property_name,
             property_schema,
             required.contains(&property_name),
@@ -1000,14 +1135,14 @@ fn render_definition(
         )?);
     }
     let derive = "#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, PartialEq)]";
-    if let Some(additional) = other_members_schema(schema) {
+    if let Some(additional) = object_at(schema, "additionalProperties") {
         // An open object's other members are flattened beside its declared
         // ones, which serde's `deny_unknown_fields` does not admit.
         // `OtherMembers` holds its values in a map, an indirection.
         let value = rust_type(
             definition,
             definition_name,
-            definition_name,
+            enum_owner,
             OTHER_MEMBERS_FIELD,
             additional,
             true,
@@ -1020,13 +1155,17 @@ fn render_definition(
                 &format!("OtherMembers<{type_name}, {value}>"),
             )
         ));
-        let declared: Vec<&str> = properties.keys().collect();
+        let declared: Vec<&str> = also_declared
+            .iter()
+            .copied()
+            .chain(properties.keys())
+            .collect();
         let mut items = vec![layout::item_at(
             4,
             "const DECLARED_MEMBERS: &'static [&'static str] =",
             &literals(&declared),
         )];
-        let constraints: Vec<Expr> = constraints(additional)
+        let constraints: Vec<Expr> = constraints(definition, additional)
             .iter()
             .map(Constraint::expr)
             .collect();
@@ -1090,17 +1229,38 @@ impl Constraint {
     }
 }
 
-/// The validation keywords and defaults of `schema` and of the array items
-/// and record values within it. A reference carries only its `default`; the
-/// referenced type carries its own constraints.
-fn constraints(schema: &Object) -> Vec<Constraint> {
+/// The validation keywords and defaults of `schema` and of the array items,
+/// record values and nullable members within it. A reference carries its
+/// `default`; a referenced enum, union or struct carries its own
+/// constraints, and an alias carries none, so a reference to an alias carries
+/// the validation keywords of the schema the alias names.
+fn constraints(definition: &Definition, schema: &Object) -> Vec<Constraint> {
     let mut found = Vec::new();
-    collect_constraints(schema, String::new(), &mut found);
+    collect_constraints(definition, schema, String::new(), &mut found);
     found
 }
 
-fn collect_constraints(schema: &Object, path: String, found: &mut Vec<Constraint>) {
+fn collect_constraints(
+    definition: &Definition,
+    schema: &Object,
+    path: String,
+    found: &mut Vec<Constraint>,
+) {
     let reference = schema.get("$ref").is_some();
+    if reference {
+        if let Some(target) = alias_target(definition, schema) {
+            let mut validation = Vec::new();
+            collect_constraints(definition, target, path.clone(), &mut validation);
+            found.extend(
+                validation
+                    .into_iter()
+                    .filter(|constraint| constraint.keyword != "default"),
+            );
+        }
+    }
+    if let Some(member) = nullable_member(schema) {
+        collect_constraints(definition, member, path.clone(), found);
+    }
     for keyword in crate::validate::VALIDATION_SCHEMA_KEYS
         .iter()
         .chain(&["default"])
@@ -1138,14 +1298,43 @@ fn collect_constraints(schema: &Object, path: String, found: &mut Vec<Constraint
         record_values_schema(schema).map(|values| ("additionalProperties", values))
     };
     if let Some((keyword, nested)) = nested {
-        collect_constraints(nested, format!("{path}/{keyword}"), found);
+        collect_constraints(definition, nested, format!("{path}/{keyword}"), found);
     }
+}
+
+/// The schema a reference names when that schema renders as a Rust alias,
+/// following references to the end.
+fn alias_target<'d>(definition: &'d Definition, reference: &Object) -> Option<&'d Object> {
+    let name = crate::schema::local_reference_name(reference.get("$ref"))?;
+    let target = definition.def(name)?;
+    if target.get("$ref").is_some() {
+        return alias_target(definition, target).or(Some(target));
+    }
+    renders_as_alias(target).ok()?.then_some(target)
+}
+
+/// Whether a `$defs` entry renders as a Rust type alias: a nullable schema
+/// other than a scalar union, `null`, a scalar, or an array.
+fn renders_as_alias(schema: &Object) -> Result<bool> {
+    if is_externally_tagged(schema) || schema.get("enum").is_some() {
+        return Ok(false);
+    }
+    if let Some(members) = primitive_union_types(schema)? {
+        return Ok(members.iter().filter(|member| **member != "null").count() == 1);
+    }
+    if nullable_inner(schema).is_some() {
+        return Ok(true);
+    }
+    Ok(matches!(
+        schema.get("type").and_then(Json::as_str),
+        Some("null" | "string" | "boolean" | "integer" | "number" | "array")
+    ))
 }
 
 /// A `$defs` enum or union with attributes carrying its validation keywords
 /// and default, so the schema derived for each use of the type carries them.
-fn with_constraints(rendered: String, schema: &Object) -> String {
-    let attributes: String = constraints(schema)
+fn with_constraints(definition: &Definition, rendered: String, schema: &Object) -> String {
+    let attributes: String = constraints(definition, schema)
         .iter()
         .map(|constraint| format!("{}\n", constraint.attribute("")))
         .collect();
@@ -1171,6 +1360,11 @@ fn primitive_union(definition_name: &str, members: &[&str]) -> Result<String> {
             "boolean" => "bool",
             "integer" => "i64",
             "number" => "f64",
+            "null" => {
+                // An untagged unit variant is written and read as `null`.
+                variants.push("    Null,".to_owned());
+                continue;
+            }
             other => {
                 return refuse(format!(
                     "Cannot render unsupported Rust primitive union member {}.",
@@ -1192,81 +1386,49 @@ fn primitive_union(definition_name: &str, members: &[&str]) -> Result<String> {
 }
 
 /// A `$defs` tagged union as a serde internally tagged enum. Variant fields
-/// carry no visibility modifier.
+/// carry no visibility modifier. An open variant is a newtype variant over a
+/// struct of its own, named after the union and its tag, which declares the
+/// tag among its members.
 fn tagged_union(definition: &Definition, definition_name: &str, schema: &Object) -> Result<String> {
     let discriminator = schema
         .get("discriminator")
         .and_then(Json::as_str)
         .expect("validation requires a discriminator");
     let variants = object_at(schema, "oneOf").expect("checked by the caller");
-    let empty = Object::new();
     let mut rendered = Vec::new();
+    let mut structs = Vec::new();
     for (tag, variant) in variants.iter() {
         let variant = variant
             .as_object()
             .expect("validation requires object variants");
-        let properties = object_at(variant, "properties").unwrap_or(&empty);
-        let required = read_string_array(
-            variant.get("required"),
-            &format!("{definition_name}.{tag}.required"),
-        )?;
-        let owner = variant_enum_owner(definition_name, tag);
-        let mut fields = Vec::new();
-        let mut inline_fields = Vec::new();
-        for (property_name, property_schema) in properties.iter() {
-            let property_schema = property_schema
-                .as_object()
-                .expect("validation requires object property schemas");
-            let is_required = required.contains(&property_name);
-            fields.push(render_field(
-                TypeOwner {
-                    definition,
-                    definition_name,
-                    enum_owner: &owner,
-                },
-                property_name,
-                property_schema,
-                is_required,
-                "        ",
-                "",
-            )?);
-            let base = rust_type(
-                definition,
-                definition_name,
-                &owner,
-                property_name,
-                property_schema,
-                false,
-            )?;
-            inline_fields.push(format!(
-                "{}: {}",
-                rust_field_identifier(property_name),
-                if is_required {
-                    base
-                } else {
-                    format!("Option<{base}>")
-                }
-            ));
-        }
-        let fields = fields.join("\n");
-        let inline_body = inline_fields.join(", ");
-        // rustfmt inlines a struct variant whose body fits
-        // `struct_variant_width` (35) and carries no attributes.
-        let inline = !fields.contains("#[") && utf16_len(&inline_body) <= 35;
-        let body = if fields.is_empty() {
-            String::new()
-        } else if inline {
-            format!(" {inline_body} ")
-        } else {
-            format!("\n{fields}\n    ")
+        let owner = TypeOwner {
+            definition,
+            definition_name,
+            enum_owner: &variant_enum_owner(definition_name, tag),
         };
+        if object_at(variant, "additionalProperties").is_some() {
+            let struct_name = variant_enum_owner(definition_name, tag);
+            structs.push(render_object(
+                owner,
+                &struct_name,
+                variant,
+                &[discriminator],
+            )?);
+            rendered.push(format!(
+                "{}\n    {}({struct_name}),",
+                rename_attribute("    ", tag),
+                pascal_identifier(tag)
+            ));
+            continue;
+        }
         rendered.push(format!(
-            "{}\n    {} {{{body}}},",
+            "{}\n    {} {{{}}},",
             rename_attribute("    ", tag),
-            pascal_identifier(tag)
+            pascal_identifier(tag),
+            struct_variant_body(owner, definition_name, tag, variant)?
         ));
     }
-    Ok([
+    let mut lines = [
         "#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, PartialEq)]"
             .to_owned(),
         format!(
@@ -1277,7 +1439,153 @@ fn tagged_union(definition: &Definition, definition_name: &str, schema: &Object)
         rendered.join("\n"),
         "}".to_owned(),
     ]
-    .join("\n"))
+    .join("\n");
+    for rendered_struct in structs {
+        lines.push_str("\n\n");
+        lines.push_str(&rendered_struct);
+    }
+    Ok(lines)
+}
+
+/// The braced body of a struct variant: its fields, inline when rustfmt
+/// would inline them.
+fn struct_variant_body(
+    owner: TypeOwner,
+    definition_name: &str,
+    tag: &str,
+    variant: &Object,
+) -> Result<String> {
+    let empty = Object::new();
+    let properties = object_at(variant, "properties").unwrap_or(&empty);
+    let required = read_string_array(
+        variant.get("required"),
+        &format!("{definition_name}.{tag}.required"),
+    )?;
+    let mut fields = Vec::new();
+    let mut inline_fields = Vec::new();
+    for (property_name, property_schema) in properties.iter() {
+        let property_schema = property_schema
+            .as_object()
+            .expect("validation requires object property schemas");
+        let is_required = required.contains(&property_name);
+        fields.push(render_field(
+            owner,
+            property_name,
+            property_schema,
+            is_required,
+            "        ",
+            "",
+        )?);
+        inline_fields.push(format!(
+            "{}: {}",
+            rust_field_identifier(property_name),
+            field_type(owner, property_name, property_schema, is_required)?
+        ));
+    }
+    let fields = fields.join("\n");
+    let inline_body = inline_fields.join(", ");
+    // rustfmt inlines a struct variant whose body fits
+    // `struct_variant_width` (35) and carries no attributes.
+    let inline = !fields.contains("#[") && utf16_len(&inline_body) <= 35;
+    Ok(if fields.is_empty() {
+        String::new()
+    } else if inline {
+        format!(" {inline_body} ")
+    } else {
+        format!("\n{fields}\n    ")
+    })
+}
+
+/// A `$defs` externally tagged union as a serde enum in its default
+/// representation: a data variant is an object of one member named by its
+/// tag, a unit variant its tag. A data variant whose value is a closed object
+/// is a struct variant, one whose value is an open object a newtype variant
+/// over a struct of its own named after the union and its tag, and any other
+/// a newtype variant over its value's type.
+fn externally_tagged_union(
+    definition: &Definition,
+    definition_name: &str,
+    schema: &Object,
+) -> Result<String> {
+    let variants = object_at(schema, "oneOf").expect("checked by the caller");
+    let descriptions = object_at(schema, "enumDescriptions");
+    let mut rendered = Vec::new();
+    let mut structs = Vec::new();
+    let mut struct_variants = false;
+    for (tag, variant) in variants.iter() {
+        let variant = variant
+            .as_object()
+            .expect("validation requires object variants");
+        let variant_name = pascal_identifier(tag);
+        let rename = rename_attribute("    ", tag);
+        let struct_name = variant_enum_owner(definition_name, tag);
+        let owner = TypeOwner {
+            definition,
+            definition_name,
+            enum_owner: &struct_name,
+        };
+        let inline_object =
+            has_type(variant, "object") && object_at(variant, "properties").is_some();
+        if inline_object && other_members_schema(variant).is_some() {
+            structs.push(render_object(owner, &struct_name, variant, &[])?);
+            rendered.push(format!("{rename}\n    {variant_name}({struct_name}),"));
+        } else if inline_object {
+            struct_variants = true;
+            rendered.push(format!(
+                "{rename}\n    {variant_name} {{{}}},",
+                struct_variant_body(owner, definition_name, tag, variant)?
+            ));
+        } else {
+            let value = rust_type(
+                definition,
+                definition_name,
+                definition_name,
+                tag,
+                variant,
+                false,
+            )?;
+            rendered.push(format!(
+                "{rename}\n{}",
+                layout::wrap_last_argument(&format!("    {variant_name}("), &value, "),")
+            ));
+        }
+    }
+    for unit in schema
+        .get("enum")
+        .and_then(Json::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(Json::as_str)
+    {
+        let documentation = descriptions
+            .and_then(|descriptions| descriptions.get(unit))
+            .and_then(Json::as_str)
+            .map(|description| doc_comment("    ", description))
+            .unwrap_or_default();
+        rendered.push(format!(
+            "{documentation}{}\n    {},",
+            rename_attribute("    ", unit),
+            pascal_identifier(unit)
+        ));
+    }
+    let mut lines = vec![
+        "#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, PartialEq)]"
+            .to_owned(),
+    ];
+    if struct_variants {
+        lines.push("#[serde(deny_unknown_fields)]".to_owned());
+    }
+    lines.extend([
+        format!("pub enum {} {{", pascal_identifier(definition_name)),
+        rendered.join("\n"),
+        "}".to_owned(),
+    ]);
+    let mut lines = lines.join("\n");
+    for rendered_struct in structs {
+        lines.push_str("\n\n");
+        lines.push_str(&rendered_struct);
+    }
+    Ok(lines)
 }
 
 /// The `$defs` entry a field belongs to, and what its string enums are named
@@ -1303,6 +1611,15 @@ fn render_field(
     if rust_name.strip_prefix("r#").unwrap_or(&rust_name) != property_name {
         attributes.push(rename_attribute(indent, property_name));
     }
+    if !required && admits_null(owner.definition, property_schema) {
+        // An optional member whose values include `null` is absent (`None`) or
+        // one of its values (`Some`), `null` among them, as the TypeScript
+        // `?:` field is.
+        attributes.push(format!("{indent}#[serde(default)]"));
+        attributes.push(format!(
+            "{indent}#[serde(deserialize_with = \"clerkenwell_schema::present\")]"
+        ));
+    }
     if !required {
         // `Option<T>` omitted when absent, matching the TypeScript `?` field.
         attributes.push(format!(
@@ -1310,23 +1627,11 @@ fn render_field(
         ));
     }
     attributes.extend(
-        constraints(property_schema)
+        constraints(owner.definition, property_schema)
             .iter()
             .map(|constraint| constraint.attribute(indent)),
     );
-    let base = rust_type(
-        owner.definition,
-        owner.definition_name,
-        owner.enum_owner,
-        property_name,
-        property_schema,
-        false,
-    )?;
-    let field_type = if required {
-        base
-    } else {
-        format!("Option<{base}>")
-    };
+    let field_type = field_type(owner, property_name, property_schema, required)?;
     let prefix: String = attributes
         .iter()
         .map(|attribute| format!("{attribute}\n"))
@@ -1335,6 +1640,53 @@ fn render_field(
         "{prefix}{}",
         layout::declaration(indent, &format!("{visibility}{rust_name}:"), &field_type)
     ))
+}
+
+/// Whether `null` is a value of `schema`: a nullable schema, `null`, any JSON
+/// value, a scalar union naming `null`, or a reference to one.
+fn admits_null(definition: &Definition, schema: &Object) -> bool {
+    if let Some(name) = crate::schema::local_reference_name(schema.get("$ref")) {
+        return definition
+            .def(name)
+            .is_some_and(|target| admits_null(definition, target));
+    }
+    nullable_inner(schema).is_some() || has_type(schema, "null") || has_type(schema, "json")
+}
+
+/// The Rust type of a member: its value's type, an `Option` of it when the
+/// member is optional.
+fn field_type(
+    owner: TypeOwner,
+    property_name: &str,
+    property_schema: &Object,
+    required: bool,
+) -> Result<String> {
+    let base = rust_type(
+        owner.definition,
+        owner.definition_name,
+        owner.enum_owner,
+        property_name,
+        property_schema,
+        false,
+    )?;
+    Ok(if required {
+        base
+    } else {
+        format!("Option<{base}>")
+    })
+}
+
+/// `/// text` lines for documentation, each line of `text` a line of its own.
+fn doc_comment(indent: &str, text: &str) -> String {
+    text.lines()
+        .map(|line| {
+            if line.trim().is_empty() {
+                format!("{indent}///\n")
+            } else {
+                format!("{indent}/// {}\n", line.trim_end())
+            }
+        })
+        .collect()
 }
 
 /// `#[serde(rename = "value")]`, its argument on a line of its own when the
@@ -1396,13 +1748,26 @@ fn reaches_directly(
             .expect("schema_ref_name checked it exists");
         return reaches_directly(definition, referenced, target, visited);
     }
-    if !has_type(schema, "object") {
-        return Ok(false);
+    // `Option<T>` holds a `T` directly.
+    if let Some(inner) = nullable_inner(schema) {
+        return reaches_directly(definition, &inner, target, visited);
     }
     let variants = object_at(schema, "oneOf")
         .into_iter()
         .flat_map(|variants| variants.iter().map(|(_, variant)| variant))
         .filter_map(Json::as_object);
+    if is_externally_tagged(schema) {
+        // A newtype or struct variant holds its value directly.
+        for variant in variants {
+            if reaches_directly(definition, variant, target, visited)? {
+                return Ok(true);
+            }
+        }
+        return Ok(false);
+    }
+    if !has_type(schema, "object") {
+        return Ok(false);
+    }
     let members = object_at(schema, "properties")
         .into_iter()
         .chain(variants.filter_map(|variant| object_at(variant, "properties")))
@@ -1440,9 +1805,24 @@ fn rust_type(
     if schema.get("enum").and_then(Json::as_array).is_some() {
         return Ok(rust_property_enum_name(enum_owner, property_name));
     }
-    if primitive_union_types(schema)?.is_some() {
+    let scalar_union = primitive_union_types(schema)?
+        .is_some_and(|members| members.iter().filter(|member| **member != "null").count() > 1);
+    if scalar_union {
         return refuse(format!(
             "Rust generation does not support anonymous primitive unions at {definition_name}.{property_name}. Use a $defs reference."
+        ));
+    }
+    if let Some(inner) = nullable_inner(schema) {
+        return Ok(format!(
+            "Option<{}>",
+            rust_type(
+                definition,
+                definition_name,
+                enum_owner,
+                property_name,
+                &inner,
+                behind_indirection,
+            )?
         ));
     }
     let schema_type = schema.get("type");
@@ -1459,6 +1839,7 @@ fn rust_type(
         Some("integer") => "i64".to_owned(),
         Some("number") => "f64".to_owned(),
         Some("json") => "JsonValue".to_owned(),
+        Some("null") => "()".to_owned(),
         Some("object") => match record_values_schema(schema) {
             Some(additional) => format!(
                 "BTreeMap<String, {}>",

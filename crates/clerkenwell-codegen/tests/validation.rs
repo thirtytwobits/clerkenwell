@@ -783,7 +783,6 @@ fn a_construct_a_renderer_cannot_represent_is_refused_at_generation() {
             r#"{ "type": ["string", "integer"] }"#,
             "NoteSummary.sort",
         ),
-        ("/$defs/Label", r#"{ "type": "string" }"#, "$defs.Label"),
     ];
     for (pointer, schema, fragment) in cases {
         let mut document = notebook_document();
@@ -835,6 +834,164 @@ fn a_malformed_tagged_union_is_rejected() {
     for (name, schema, expected) in cases {
         let message = refusal(with_defs(&format!(r#"{{ "ProbeUnion": {schema} }}"#)));
         assert!(message.contains(expected), "{name}: {message}");
+    }
+}
+
+/// A named scalar, nullable value or array is an alias of its value's type in
+/// Rust and in TypeScript.
+#[test]
+fn a_named_scalar_nullable_value_or_array_is_an_alias() {
+    let config = notebook_config();
+    for (schema, rust, typescript) in [
+        (
+            r#"{ "type": "string" }"#,
+            "pub type Label = String;",
+            "export type Label = string;",
+        ),
+        (
+            r#"{ "type": ["integer", "null"] }"#,
+            "pub type Label = Option<i64>;",
+            "export type Label = number | null;",
+        ),
+        (
+            r#"{ "type": "array", "items": { "type": "boolean" } }"#,
+            "pub type Label = Vec<bool>;",
+            "export type Label = boolean[];",
+        ),
+        (
+            r#"{ "type": "null" }"#,
+            "pub type Label = ();",
+            "export type Label = null;",
+        ),
+    ] {
+        let mut document = notebook_document();
+        set(&mut document, "/$defs/Label", json(schema));
+        let outputs = build_outputs(&validate(document).expect("valid"), &config)
+            .unwrap_or_else(|error| panic!("{schema} generates: {error}"));
+        assert!(outputs.rust_model.contains(rust), "{schema}");
+        assert!(outputs.typescript_model.contains(typescript), "{schema}");
+    }
+}
+
+/// An open variant of an internally tagged union is a struct of its own that
+/// declares the tag among its members, so no other member takes the tag's name.
+#[test]
+fn an_open_variant_is_a_struct_declaring_its_tag() {
+    let config = notebook_config();
+    let mut document = notebook_document();
+    set(
+        &mut document,
+        "/$defs/Label",
+        json(&format!(
+            r#"{{ "type": "object", "discriminator": "tag", "oneOf": {{ "a": {} }} }}"#,
+            open_object(
+                r#"{ "kind": { "type": "string" } }"#,
+                "[]",
+                r#"{ "type": "string" }"#
+            )
+        )),
+    );
+    let outputs = build_outputs(&validate(document).expect("valid"), &config).unwrap();
+    assert!(outputs.rust_model.contains("    A(LabelA),"));
+    assert!(outputs
+        .rust_model
+        .contains("pub other_members: OtherMembers<LabelA, String>,"));
+    assert!(outputs
+        .rust_model
+        .contains("const DECLARED_MEMBERS: &'static [&'static str] = &[\"tag\", \"kind\"];"));
+}
+
+/// A variant's generated struct is a name its definition generates, so no
+/// `$defs` entry may take it.
+#[test]
+fn a_definition_named_as_an_open_variants_struct_is_refused() {
+    let mut document = notebook_document();
+    set(
+        &mut document,
+        "/$defs/Label",
+        json(
+            r#"{ "type": "object", "discriminator": "tag", "oneOf": { "a": { "type": "object", "additionalProperties": { "type": "json" } } } }"#,
+        ),
+    );
+    set(
+        &mut document,
+        "/$defs/LabelA",
+        json(r#"{ "type": "string" }"#),
+    );
+    assert_mentions(&refusal(document), &["LabelA"]);
+}
+
+/// An externally tagged union names each data variant's value under its tag
+/// and each unit variant by its tag, in both bindings.
+#[test]
+fn an_externally_tagged_union_renders_its_tags() {
+    let config = notebook_config();
+    let mut document = notebook_document();
+    set(
+        &mut document,
+        "/$defs/Label",
+        json(
+            r#"{ "oneOf": { "count": { "type": "integer" }, "named": { "type": "object", "additionalProperties": false, "required": ["name"], "properties": { "name": { "type": "string" } } } }, "enum": ["none"] }"#,
+        ),
+    );
+    let outputs = build_outputs(&validate(document).expect("valid"), &config).unwrap();
+    for rust in [
+        "    Count(i64),",
+        "    Named { name: String },",
+        "    #[serde(rename = \"none\")]\n    None,",
+    ] {
+        assert!(outputs.rust_model.contains(rust), "{rust}");
+    }
+    assert!(outputs.typescript_model.contains("  | \"none\";"));
+}
+
+/// An externally tagged union's tags are distinct, it declares a data variant,
+/// and it is a named type.
+#[test]
+fn a_malformed_externally_tagged_union_is_rejected() {
+    for (schema, expected) in [
+        (r#"{ "oneOf": {}, "enum": ["a"] }"#, "at least one variant"),
+        (
+            r#"{ "oneOf": { "a": { "type": "string" } }, "enum": ["a"] }"#,
+            "both generate the Rust variant",
+        ),
+        (
+            r#"{ "oneOf": { "a": { "type": "string" } }, "enum": [1] }"#,
+            "unit variants' tags as strings",
+        ),
+        (
+            r#"{ "oneOf": { "a": { "type": "string" } }, "properties": {} }"#,
+            "may not declare",
+        ),
+    ] {
+        let message = refusal(with_defs(&format!(r#"{{ "ProbeUnion": {schema} }}"#)));
+        assert!(message.contains(expected), "{schema}: {message}");
+    }
+}
+
+/// A nullable schema pairs exactly one schema with null.
+#[test]
+fn a_malformed_nullable_schema_is_rejected() {
+    for (schema, expected) in [
+        (
+            r#"{ "anyOf": [{ "type": "string" }, { "type": "integer" }] }"#,
+            "must pair one schema",
+        ),
+        (
+            r#"{ "anyOf": [{ "type": ["string", "null"] }, { "type": "null" }] }"#,
+            "already admits null",
+        ),
+        (
+            r#"{ "anyOf": [{ "type": "string" }, { "type": "null" }], "minLength": 1 }"#,
+            "may not combine anyOf",
+        ),
+        (
+            r#"{ "type": ["array", "integer"] , "items": { "type": "string" } }"#,
+            "Type unions may only combine",
+        ),
+    ] {
+        let message = refusal(with_defs(&format!(r#"{{ "ProbeNullable": {schema} }}"#)));
+        assert!(message.contains(expected), "{schema}: {message}");
     }
 }
 
@@ -1037,13 +1194,6 @@ fn an_open_object_is_refused_where_its_members_cannot_be_held() {
             r#"{ "type": "object", "required": ["kind"], "additionalProperties": { "type": "string" } }"#
                 .to_owned(),
             "$defs.ProbeOpen.required may name only members its properties declare",
-        ),
-        (
-            format!(
-                r#"{{ "type": "object", "discriminator": "tag", "oneOf": {{ "a": {} }} }}"#,
-                open_object(r#"{ "kind": { "type": "string" } }"#, "[]", r#"{ "type": "string" }"#)
-            ),
-            "$defs.ProbeOpen.oneOf.a must be a closed object",
         ),
     ];
     for (schema, expected) in cases {
