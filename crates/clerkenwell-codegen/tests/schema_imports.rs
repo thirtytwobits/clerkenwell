@@ -704,6 +704,9 @@ fn the_serde_types_the_subset_cannot_represent_are_refused() {
         ("Huge", import_type::<Huge>()),
     ] {
         let message = refusal(result);
-        assert!(message.contains(&format!("$defs.{name}")), "{name}: {message}");
+        assert!(
+            message.contains(&format!("$defs.{name}")),
+            "{name}: {message}"
+        );
     }
 }
