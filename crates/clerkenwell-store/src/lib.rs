@@ -820,7 +820,7 @@ impl CollaborationService {
             Uuid::new_v4().to_string(),
             self.source.as_ref(),
             kind,
-            chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
+            format!("{:.3}", jiff::Timestamp::now()),
             generation,
             actor,
             data(),
