@@ -10,9 +10,9 @@ import test from "node:test";
 
 import type { AuthoringPeerBlock } from "@clerkenwell/client";
 import { CollaborationReplica } from "@clerkenwell/client/replica";
-import { decodeImportBlobMeta } from "loro-crdt";
+import { decodeImportBlobMeta, LoroDoc } from "loro-crdt";
 
-import { base64ToBytes } from "../src/binary.js";
+import { base64ToBytes, bytesToBase64 } from "../src/binary.js";
 import { peerBlock } from "./support/peers.js";
 import { NOTE_PLAN, noteDocument, type NoteDocument } from "./support/plans.js";
 import { insert } from "./support/text.js";
@@ -120,4 +120,29 @@ test("a replica names the blocks of operations it was given as well as its own",
   replica.includePeerNonces(["restored"]);
 
   assert.deepEqual([...replica.peerNonces()].sort(), [block.nonce, "restored"].sort());
+});
+
+test("a replica refuses to write while it holds an update under its own peer awaiting a dependency", () => {
+  const block = peerBlock();
+  const replica = noteReplica(block);
+  const other = new LoroDoc();
+  other.import(base64ToBytes(replica.exportUpdateBase64()));
+  other.setPeerId(BigInt(peerBlock().base));
+  other.getMap("elsewhere").set("step", 1);
+  other.commit();
+  const missing = other.version();
+  other.setPeerId(BigInt(peer(block, 0)));
+  other.getMap("elsewhere").set("step", 2);
+  other.commit();
+  const held = replica.exportUpdateBase64();
+
+  replica.importUpdateBase64(bytesToBase64(other.export({ mode: "update", from: missing })));
+
+  assert.throws(() => replica.replaceDocument({ ...replica.currentDocument(), title: "Renamed" }));
+  assert.equal(replica.exportUpdateBase64(), held);
+
+  replica.importUpdateBase64(bytesToBase64(other.export({ mode: "update" })));
+  replica.replaceDocument({ ...replica.currentDocument(), title: "Renamed" });
+  assert.equal(replica.currentDocument().title, "Renamed");
+  other.free();
 });

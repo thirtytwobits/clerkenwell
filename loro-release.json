@@ -1,44 +1,47 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "source": {
-    "kind": "git",
-    "url": "https://github.com/thirtytwobits/loro.git",
-    "revision": "704cfb2bdb158bcd2910948ad140eb24713f35a1"
+    "kind": "registry",
+    "repository": "https://github.com/loro-dev/loro"
   },
   "rust": {
-    "version": "1.17.1",
     "crates": {
-      "loro": "1.17.1",
-      "loro-internal": "1.17.1",
-      "loro-common": "1.17.0",
-      "loro-kv-store": "1.17.0",
-      "loro-delta": "1.13.0",
-      "loro-rle": "1.6.0",
-      "loro_fractional_index": "1.13.0",
-      "generic-btree": "0.10.7"
-    },
-    "registryCrates": {
+      "loro": {
+        "version": "1.19.1",
+        "checksum": "b586d4a540ccbb17d45125517ff83d738a561257b6b195353fd0b8b4bb190000"
+      },
+      "loro-common": {
+        "version": "1.19.0",
+        "checksum": "059f7fe8069d29b4b490fa707769ffb7ff6c6bb4fcfb124a9e7c28f1abf99629"
+      },
+      "loro-delta": {
+        "version": "1.19.0",
+        "checksum": "6145e8f26d6b3d8ff2f35799daca72645bff643abd13144fdd28990b75a61c1e"
+      },
+      "loro-internal": {
+        "version": "1.19.2",
+        "checksum": "e9ebc2a8d21db73a1b13b618cd4409f0962116c724c360e5213ec2bb5cc45b08"
+      },
+      "loro-kv-store": {
+        "version": "1.19.1",
+        "checksum": "b2b2dfb97ef81bc4c1af522c7232d7543b339721e70b86d3bc7bd6e10357e6a7"
+      },
+      "loro-rle": {
+        "version": "1.6.0",
+        "checksum": "76400c3eea6bb39b013406acce964a8db39311534e308286c8d8721baba8ee20"
+      },
       "loro-thunderdome": {
         "version": "0.6.2",
         "checksum": "3f3d053a135388e6b1df14e8af1212af5064746e9b87a06a345a7a779ee9695a"
+      },
+      "loro_fractional_index": {
+        "version": "1.18.0",
+        "checksum": "ab66fa924d1686474de690d7842dc27a19aed96fd35308d3d6d4355c27d3f4d3"
       }
     }
   },
   "npm": {
-    "version": "1.17.1",
-    "url": "https://github.com/thirtytwobits/loro/releases/download/loro-crdt-1.17.1-704cfb2b/loro-crdt-1.17.1.tgz",
-    "integrity": "sha512-v5uC2qh2Gp3ldaZcEKBCaQUtrNhtmTgIMxosORaz+/fZKj2kfgxchN24wey/TJNB9X7wzJrxw8dJsm4bPoRyaQ==",
-    "build": {
-      "tools": {
-        "rustc": "rustc 1.95.0 (59807616e 2026-04-14)",
-        "cargo": "cargo 1.95.0 (f2d3ce0bd 2026-03-21)",
-        "node": "v23.11.0",
-        "npm": "11.7.0",
-        "pnpm": "10.33.4",
-        "deno": "deno 2.9.6 (stable, release, aarch64-apple-darwin)",
-        "bun": "1.4.2",
-        "wasm-bindgen": "wasm-bindgen 0.2.100"
-      }
-    }
+    "version": "1.19.1",
+    "integrity": "sha512-i0CO94+fJEbmdsl2FrJQXmH/5MzvsTmzH8nrHK6BU0IZSZlbnFaWQ7nzZPKAGxUW3avTzxCVN8w1MJ6lrtIkmQ=="
   }
 }

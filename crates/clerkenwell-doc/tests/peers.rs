@@ -5,7 +5,9 @@ mod support;
 
 use std::collections::HashMap;
 
-use clerkenwell_doc::CollaborationReplica;
+use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
+use clerkenwell_doc::{CollaborationReplica, CollaborationReplicaError};
+use loro::{ExportMode, LoroDoc};
 use serde_json::json;
 use support::*;
 
@@ -82,4 +84,42 @@ fn prepared_text_is_written_under_the_peer_it_is_prepared_for() {
         CollaborationReplica::peers_in_update(&prepared).expect("peers"),
         [99]
     );
+}
+
+#[test]
+fn a_replica_refuses_to_write_while_it_holds_an_update_under_its_own_peer_awaiting_a_dependency() {
+    let mut replica = CollaborationReplica::from_document(NOTE, &wire_document(NOTE), 41)
+        .expect("a replica under peer 41");
+    let held = replica.export_update_base64().expect("export");
+    let other = LoroDoc::new();
+    other
+        .import(&BASE64.decode(&held).expect("base64"))
+        .expect("import the replica");
+    other.set_peer_id(7).expect("peer 7");
+    other.get_map("elsewhere").insert("step", 1).expect("write");
+    other.commit();
+    let missing = other.oplog_vv();
+    other.set_peer_id(41).expect("peer 41");
+    other.get_map("elsewhere").insert("step", 2).expect("write");
+    other.commit();
+    let parked = other
+        .export(ExportMode::updates(&missing))
+        .expect("export the parked change");
+
+    assert!(matches!(
+        replica.adopt_versioned_update_base64(NOTE.schema_version, &BASE64.encode(parked)),
+        Err(CollaborationReplicaError::MissingDependency)
+    ));
+    let summarised = with(&wire_document(NOTE), "/summary", json!("Shorter"));
+    assert!(matches!(
+        replica.replace_document(&summarised),
+        Err(CollaborationReplicaError::Update(_))
+    ));
+    assert_eq!(replica.export_update_base64().expect("export"), held);
+
+    let everything = other.export(ExportMode::all_updates()).expect("export");
+    replica
+        .adopt_versioned_update_base64(NOTE.schema_version, &BASE64.encode(everything))
+        .expect("the dependency arrives");
+    replica.replace_document(&summarised).expect("edit");
 }

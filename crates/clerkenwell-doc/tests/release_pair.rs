@@ -23,65 +23,66 @@ fn toml(path: &str) -> toml::Table {
         .unwrap_or_else(|error| panic!("{path}: {error}"))
 }
 
+const CRATES_IO: &str = "registry+https://github.com/rust-lang/crates.io-index";
+
 fn release() -> Value {
-    json("loro-release.json")
-}
-
-fn git_source(release: &Value) -> (&str, &str) {
-    let source = &release["source"];
-    assert_eq!(source["kind"], "git", "this pair is a Git release");
-    (
-        source["url"].as_str().expect("source url"),
-        source["revision"].as_str().expect("source revision"),
-    )
+    let release = json("loro-release.json");
+    assert_eq!(
+        release["source"]["kind"], "registry",
+        "this pair comes from crates.io and npm"
+    );
+    release
 }
 
 #[test]
-fn the_manifest_pins_loro_and_its_btree_override_to_the_approved_revision() {
+fn the_manifest_pins_loro_to_the_approved_release_without_a_patch() {
     let release = release();
-    let (url, revision) = git_source(&release);
+    let version = release["rust"]["crates"]["loro"]["version"]
+        .as_str()
+        .expect("loro version");
     let manifest = toml("Cargo.toml");
-    let pinned = |table: &toml::Value| {
-        table.get("git").and_then(toml::Value::as_str) == Some(url)
-            && table.get("rev").and_then(toml::Value::as_str) == Some(revision)
-            && table.as_table().is_some_and(|fields| fields.len() == 2)
-    };
-    assert!(pinned(&manifest["workspace"]["dependencies"]["loro"]));
-    assert!(pinned(&manifest["patch"]["crates-io"]["generic-btree"]));
+    assert_eq!(
+        manifest["workspace"]["dependencies"]["loro"].as_str(),
+        Some(format!("={version}").as_str())
+    );
+    assert!(
+        !manifest.contains_key("patch"),
+        "a dependent workspace needs no patch to build these crates"
+    );
 }
 
 #[test]
-fn the_lockfile_resolves_exactly_the_approved_core_crates() {
+fn the_lockfile_resolves_exactly_the_approved_crates_from_crates_io() {
     let release = release();
-    let (url, revision) = git_source(&release);
-    let expected_source = format!("git+{url}?rev={revision}#{revision}");
     let lock = toml("Cargo.lock");
     let packages = lock["package"].as_array().expect("lock packages");
     let crates = release["rust"]["crates"]
         .as_object()
         .expect("approved crates");
-    for (name, version) in crates {
+    for (name, approved) in crates {
         let matching = packages
             .iter()
             .filter(|package| package["name"].as_str() == Some(name))
             .collect::<Vec<_>>();
         assert_eq!(matching.len(), 1, "one {name} in Cargo.lock");
-        assert_eq!(matching[0]["version"].as_str(), version.as_str(), "{name}");
+        let package = matching[0];
         assert_eq!(
-            matching[0]["source"].as_str(),
-            Some(expected_source.as_str()),
+            package["version"].as_str(),
+            approved["version"].as_str(),
+            "{name}"
+        );
+        assert_eq!(package["source"].as_str(), Some(CRATES_IO), "{name}");
+        assert_eq!(
+            package["checksum"].as_str(),
+            approved["checksum"].as_str(),
             "{name}"
         );
     }
-    let approved_registry = release["rust"]["registryCrates"]
-        .as_object()
-        .cloned()
-        .unwrap_or_default();
     for package in packages {
         let name = package["name"].as_str().expect("package name");
         if name.starts_with("loro") {
             assert!(
-                crates.contains_key(name) || approved_registry.contains_key(name),
+                crates.contains_key(name),
                 "{name} is not an approved Loro crate"
             );
         }
@@ -92,8 +93,9 @@ fn the_lockfile_resolves_exactly_the_approved_core_crates() {
 fn the_typescript_client_installs_the_approved_npm_package() {
     let release = release();
     let npm = &release["npm"];
+    let version = npm["version"].as_str().expect("npm version");
     let manifest = json("clients/typescript/client/package.json");
-    assert_eq!(manifest["dependencies"]["loro-crdt"], npm["url"]);
+    assert_eq!(manifest["dependencies"]["loro-crdt"], npm["version"]);
     let lock = json("package-lock.json");
     let installed = lock["packages"]
         .as_object()
@@ -104,31 +106,9 @@ fn the_typescript_client_installs_the_approved_npm_package() {
     assert_eq!(installed.len(), 1, "one loro-crdt in package-lock.json");
     let (_, package) = installed[0];
     assert_eq!(package["version"], npm["version"]);
-    assert_eq!(package["resolved"], npm["url"]);
-    assert_eq!(package["integrity"], npm["integrity"]);
-}
-
-#[test]
-fn the_npm_package_is_released_from_the_approved_source() {
-    let release = release();
-    let (url, revision) = git_source(&release);
-    let version = release["npm"]["version"].as_str().expect("npm version");
-    let downloads = format!("{}/releases/download/", url.trim_end_matches(".git"));
-    let tag = release["npm"]["url"]
-        .as_str()
-        .expect("npm url")
-        .strip_prefix(downloads.as_str())
-        .and_then(|rest| rest.strip_suffix(format!("/loro-crdt-{version}.tgz").as_str()))
-        .expect("the npm url is a release asset on the source repository");
-    // A later build of the same revision carries its ordinal after the revision.
-    let build = tag
-        .strip_prefix(format!("loro-crdt-{version}-{}", &revision[..8]).as_str())
-        .expect("the release tag names the npm version and the source revision");
-    assert!(
-        build.is_empty()
-            || build
-                .strip_prefix('-')
-                .is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit())),
-        "{tag} ends in neither the revision nor a build ordinal"
+    assert_eq!(
+        package["resolved"].as_str(),
+        Some(format!("https://registry.npmjs.org/loro-crdt/-/loro-crdt-{version}.tgz").as_str())
     );
+    assert_eq!(package["integrity"], npm["integrity"]);
 }

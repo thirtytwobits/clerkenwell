@@ -20,21 +20,12 @@ those tests.
 
 ## The Loro version pair
 
-`loro-release.json` records the approved Rust `loro` and npm `loro-crdt` pair and their
-source. `Cargo.toml` pins `loro` to it and the TypeScript client depends on its npm package.
+`loro-release.json` records the approved Rust `loro` and npm `loro-crdt` pair: the version
+and checksum of each Loro crate on crates.io, and the version and integrity of the npm
+package. `Cargo.toml` pins `loro` to it and the TypeScript client depends on its npm package.
 Loro is Clerkenwell's implementation: no public Rust or TypeScript signature names a Loro
 type, nothing public is named after Loro, and an application that uses Loro depends on it
-itself. Every Cargo workspace that builds these crates carries the recorded `generic-btree`
-override, because workspace patches do not propagate. Change the record, the manifests and
-the lockfiles together.
-
-`clients/typescript/loro-package.mjs` builds the pinned `loro-crdt` tarball from the recorded
-source revision with the tools recorded under `npm.build`.
-`.github/workflows/loro-package.yml` runs it and refuses a tarball that does not hold the
-package at the recorded URL. The tarball is published as the release
-`loro-crdt-<version>-<first 8 characters of the revision>` on the source repository, with its
-`provenance.json`; a later build of the same revision appends `-<ordinal>`, as releases are
-never replaced.
+itself. Change the record, the manifests and the lockfiles together.
 
 ## Invariants
 
