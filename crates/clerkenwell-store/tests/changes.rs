@@ -211,3 +211,17 @@ fn each_commit_announces_the_principal_that_made_it_and_why() {
     assert_eq!(edited.actorkind, reviewer.kind);
     assert_eq!(edited.intent.as_deref(), Some("tidy the prose"));
 }
+
+#[test]
+fn each_announcement_is_timed_in_utc_to_the_millisecond() {
+    let (service, heard) = heard_service();
+    bootstrap(&service);
+    edit(&service, "edit-timed", "Timed.");
+
+    let heard = heard.lock().unwrap();
+    assert!(!heard.is_empty(), "the bootstrap and the edit announce");
+    for change in heard.iter() {
+        let time: jiff::Timestamp = change.time.parse().expect("an RFC 3339 timestamp");
+        assert_eq!(format!("{time:.3}"), change.time, "UTC, to the millisecond");
+    }
+}

@@ -9,6 +9,12 @@
   `[patch.crates-io]` override for `generic-btree`; remove it. A workspace that also depends on
   `loro` from crates.io takes 1.17.1.
 
+### Fixed
+
+- The lockfile takes `url` 2.5.9 for RUSTSEC-2026-0592, a stack overflow in `Url::origin()`.
+- `clerkenwell-store` times change events with `jiff` in place of `chrono`, which is unmaintained
+  (RUSTSEC-2026-0543).
+
 ## 0.14.0
 
 ### Breaking
