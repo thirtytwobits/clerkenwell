@@ -1,12 +1,15 @@
-//! Reading the schema subset: local references, primitive unions, and the
-//! string arrays schema nodes carry.
+//! Reading the schema subset: local references, type unions, nullable schemas,
+//! tagged unions, and the string arrays schema nodes carry.
 
 use crate::definition::Definition;
 use crate::error::{refuse, Result};
 use crate::json::{string_literal, Json, Object};
 use crate::names::pascal_identifier;
 
-const PRIMITIVE_UNION_TYPES: [&str; 4] = ["string", "boolean", "integer", "number"];
+const PRIMITIVE_UNION_TYPES: [&str; 5] = ["string", "boolean", "integer", "number", "null"];
+
+/// Types a `type` union may name only beside `null`.
+const NULLABLE_ONLY_TYPES: [&str; 2] = ["array", "object"];
 
 /// The object at `key`, if it is one.
 pub(crate) fn object_at<'a>(schema: &'a Object, key: &str) -> Option<&'a Object> {
@@ -51,8 +54,9 @@ pub(crate) fn value_meets_bounds(schema: &Object, value: &Json) -> bool {
         && bound("maximum").is_none_or(|limit| number <= limit)
 }
 
-/// The member types of a primitive union (`"type": ["string", "integer"]`), or
-/// `None` when `type` is not an array.
+/// The member types of a type union (`"type": ["string", "integer"]`), or
+/// `None` when `type` is not an array. A union combines scalar types and
+/// `null`, or pairs an array or object type with `null`.
 pub(crate) fn primitive_union_types(schema: &Object) -> Result<Option<Vec<&str>>> {
     let Some(Json::Array(types)) = schema.get("type") else {
         return Ok(None);
@@ -60,24 +64,94 @@ pub(crate) fn primitive_union_types(schema: &Object) -> Result<Option<Vec<&str>>
     let members: Option<Vec<&str>> = types
         .iter()
         .map(|entry| {
-            entry
-                .as_str()
-                .filter(|name| PRIMITIVE_UNION_TYPES.contains(name))
+            entry.as_str().filter(|name| {
+                PRIMITIVE_UNION_TYPES.contains(name) || NULLABLE_ONLY_TYPES.contains(name)
+            })
         })
         .collect();
-    let Some(members) = members.filter(|members| members.len() >= 2) else {
+    let composite = |members: &[&str]| {
+        members
+            .iter()
+            .any(|member| NULLABLE_ONLY_TYPES.contains(member))
+    };
+    let Some(members) = members.filter(|members| {
+        members.len() >= 2
+            && (!composite(members) || (members.len() == 2 && members.contains(&"null")))
+    }) else {
         return refuse(format!(
-            "Primitive unions may only combine {}.",
-            PRIMITIVE_UNION_TYPES.join(", ")
+            "Type unions may only combine {}, or pair {} with null.",
+            PRIMITIVE_UNION_TYPES.join(", "),
+            NULLABLE_ONLY_TYPES.join(" or ")
         ));
     };
     let mut unique = members.clone();
     unique.sort_unstable();
     unique.dedup();
     if unique.len() != members.len() {
-        return refuse("Primitive unions may not repeat a type.");
+        return refuse("Type unions may not repeat a type.");
     }
     Ok(Some(members))
+}
+
+/// Whether `schema` is `{"type": "null"}`, with annotations at most.
+pub(crate) fn is_null_schema(schema: &Json) -> bool {
+    schema.as_object().is_some_and(|schema| {
+        has_type(schema, "null")
+            && schema
+                .keys()
+                .all(|key| matches!(key, "type" | "description" | "title"))
+    })
+}
+
+/// The schema a nullable schema holds beside `null`: its `type` union without
+/// `null`, or the member of an `anyOf` that pairs a schema with
+/// `{"type": "null"}`. `None` for a schema that does not admit `null`.
+pub(crate) fn nullable_inner(schema: &Object) -> Option<Object> {
+    if let Some(members) = schema.get("anyOf").and_then(Json::as_array) {
+        let [first, second] = members else {
+            return None;
+        };
+        let inner = match (is_null_schema(first), is_null_schema(second)) {
+            (true, false) => second,
+            (false, true) => first,
+            _ => return None,
+        };
+        return inner.as_object().cloned();
+    }
+    let Some(Json::Array(types)) = schema.get("type") else {
+        return None;
+    };
+    if !types.iter().any(|member| member.as_str() == Some("null")) {
+        return None;
+    }
+    let others: Vec<Json> = types
+        .iter()
+        .filter(|member| member.as_str() != Some("null"))
+        .cloned()
+        .collect();
+    // A `null` default is a default of the nullable schema, not of its inner one.
+    let mut inner: Object = schema
+        .iter()
+        .filter(|(key, value)| !(*key == "default" && **value == Json::Null))
+        .map(|(key, value)| (key, value.clone()))
+        .collect();
+    inner.insert(
+        "type",
+        match others.as_slice() {
+            [single] => single.clone(),
+            _ => Json::Array(others),
+        },
+    );
+    Some(inner)
+}
+
+/// Whether `schema` is an externally tagged union: a `oneOf` map, without a
+/// `discriminator` or a `type`, whose keys are the tags its data variants are
+/// written under and whose `enum` lists its unit variants.
+pub(crate) fn is_externally_tagged(schema: &Object) -> bool {
+    object_at(schema, "oneOf").is_some()
+        && schema.get("discriminator").is_none()
+        && schema.get("type").is_none()
 }
 
 /// The definition name in a `#/$defs/Name` reference.

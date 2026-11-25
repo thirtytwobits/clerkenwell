@@ -549,6 +549,8 @@ pub enum TaskState {
         reviewer: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
         checks: Option<Vec<TaskStateDoneChecks>>,
+        #[serde(default)]
+        #[serde(deserialize_with = "clerkenwell_schema::present")]
         #[serde(skip_serializing_if = "Option::is_none")]
         evidence: Option<JsonValue>,
     },
@@ -584,6 +586,8 @@ pub struct TaskRecord {
     pub blocked: bool,
     #[schemars(transform = SchemaConstraint::new("", "default", SchemaConstraintValue::Json("[]")))]
     pub labels: Vec<TaskRecordLabels>,
+    #[serde(default)]
+    #[serde(deserialize_with = "clerkenwell_schema::present")]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub metadata: Option<JsonValue>,
     pub sort_key: SortKey,
@@ -769,8 +773,123 @@ pub struct SyncHealthRecord {
     pub managed: bool,
     pub lag: Quantity,
     pub peers: Vec<String>,
+    #[serde(default)]
+    #[serde(deserialize_with = "clerkenwell_schema::present")]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_error: Option<RawPayload>,
+    pub phase: SyncPhase,
+    #[schemars(transform = SchemaConstraint::new("", "minimum", SchemaConstraintValue::Integer(0)))]
+    pub last_attempt_ms: Option<i64>,
+    #[serde(default)]
+    #[serde(deserialize_with = "clerkenwell_schema::present")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schemars(transform = SchemaConstraint::new("", "minimum", SchemaConstraintValue::Integer(0)))]
+    pub retry_after_ms: Option<Option<i64>>,
+    pub failure: Option<SyncFailure>,
+    pub cursor: SyncCursor,
+    #[serde(default)]
+    #[serde(deserialize_with = "clerkenwell_schema::present")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schemars(transform = SchemaConstraint::new("", "default", SchemaConstraintValue::Json("null")))]
+    pub resume_cursor: Option<Option<SyncCursor>>,
+    #[serde(default)]
+    #[serde(deserialize_with = "clerkenwell_schema::present")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schemars(transform = SchemaConstraint::new("", "minLength", SchemaConstraintValue::Integer(1)))]
+    pub note: Option<SyncNote>,
+    #[serde(default)]
+    #[serde(deserialize_with = "clerkenwell_schema::present")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub acknowledged: Option<()>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, PartialEq, Eq)]
+pub enum SyncPhase {
+    /// No exchange is in progress.
+    #[serde(rename = "idle")]
+    Idle,
+    /// An exchange with a peer is in progress.
+    #[serde(rename = "syncing")]
+    Syncing,
+}
+
+pub type SyncNote = Option<String>;
+
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub enum SyncFailure {
+    #[serde(rename = "transport")]
+    Transport(SyncTransportFailure),
+    #[serde(rename = "refused")]
+    Refused { reason: String },
+    #[serde(rename = "conflict")]
+    Conflict(SyncFailureConflict),
+    #[serde(rename = "silent")]
+    Silent(()),
+    #[serde(rename = "retried")]
+    Retried(Box<SyncFailure>),
+    /// The exchange was cancelled before it finished.
+    #[serde(rename = "cancelled")]
+    Cancelled,
+    #[serde(rename = "expired")]
+    Expired,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, PartialEq)]
+pub struct SyncFailureConflict {
+    pub peer: String,
+    #[serde(flatten)]
+    pub other_members: OtherMembers<SyncFailureConflict, JsonValue>,
+}
+
+impl DeclaredMembers for SyncFailureConflict {
+    const DECLARED_MEMBERS: &'static [&'static str] = &["peer"];
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct SyncTransportFailure {
+    #[schemars(transform = SchemaConstraint::new("", "minimum", SchemaConstraintValue::Integer(0)))]
+    pub attempts: i64,
+    #[serde(default)]
+    #[serde(deserialize_with = "clerkenwell_schema::present")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schemars(transform = SchemaConstraint::new("", "minimum", SchemaConstraintValue::Integer(100)))]
+    #[schemars(transform = SchemaConstraint::new("", "maximum", SchemaConstraintValue::Integer(599)))]
+    pub status: Option<Option<i64>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, PartialEq)]
+#[serde(tag = "position", deny_unknown_fields)]
+pub enum SyncCursor {
+    #[serde(rename = "start")]
+    Start(SyncCursorStart),
+    #[serde(rename = "at")]
+    At(SyncCursorAt),
+    #[serde(rename = "end")]
+    End {},
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, PartialEq)]
+pub struct SyncCursorStart {
+    #[serde(flatten)]
+    pub other_members: OtherMembers<SyncCursorStart, JsonValue>,
+}
+
+impl DeclaredMembers for SyncCursorStart {
+    const DECLARED_MEMBERS: &'static [&'static str] = &["position"];
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, PartialEq)]
+pub struct SyncCursorAt {
+    #[schemars(transform = SchemaConstraint::new("", "minimum", SchemaConstraintValue::Integer(0)))]
+    pub offset: i64,
+    #[serde(flatten)]
+    pub other_members: OtherMembers<SyncCursorAt, JsonValue>,
+}
+
+impl DeclaredMembers for SyncCursorAt {
+    const DECLARED_MEMBERS: &'static [&'static str] = &["position", "offset"];
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema, PartialEq)]
@@ -1334,7 +1453,7 @@ pub const ACTIVITY_HISTORY_PROJECTION_PARAMS_SCHEMA: &str =
 pub const ACTIVITY_HISTORY_PROJECTION_SNAPSHOT_SCHEMA: &str = r##"{"type":"object","additionalProperties":false,"required":["scope","revision","schema_version","entries"],"properties":{"scope":{"type":"string"},"revision":{"type":"string"},"schema_version":{"type":"integer","const":1},"entries":{"type":"array","items":{"$ref":"#/$defs/ActivityEntry"}}},"$defs":{"ActivityEntry":{"type":"object","additionalProperties":false,"required":["entry_id","kind","at","payload"],"properties":{"entry_id":{"type":"string"},"kind":{"type":"string","enum":["created","edited","deleted"]},"at":{"type":"string"},"payload":{}}}}}"##;
 pub const SYNC_HEALTH_PROJECTION_PARAMS_SCHEMA: &str =
     r#"{"type":"object","additionalProperties":false,"properties":{}}"#;
-pub const SYNC_HEALTH_PROJECTION_SNAPSHOT_SCHEMA: &str = r##"{"type":"object","additionalProperties":false,"required":["scope","revision","healthy","managed","lag","peers"],"properties":{"scope":{"type":"string"},"revision":{"type":"string"},"healthy":{"type":"boolean"},"managed":{"type":"boolean","const":true},"lag":{"$ref":"#/$defs/Quantity"},"peers":{"type":"array","items":{"type":"string"}},"last_error":{"$ref":"#/$defs/RawPayload"}},"$defs":{"RawPayload":{"description":"A replica's own error report, forwarded verbatim for diagnosis."},"Quantity":{"type":["integer","number"],"minimum":0,"description":"A count or a measure, never negative."}}}"##;
+pub const SYNC_HEALTH_PROJECTION_SNAPSHOT_SCHEMA: &str = r##"{"type":"object","additionalProperties":false,"required":["scope","revision","healthy","managed","lag","peers","phase","last_attempt_ms","failure","cursor"],"properties":{"scope":{"type":"string"},"revision":{"type":"string"},"healthy":{"type":"boolean"},"managed":{"type":"boolean","const":true},"lag":{"$ref":"#/$defs/Quantity"},"peers":{"type":"array","items":{"type":"string"}},"last_error":{"$ref":"#/$defs/RawPayload"},"phase":{"$ref":"#/$defs/SyncPhase"},"last_attempt_ms":{"type":["integer","null"],"minimum":0,"description":"When the last attempt began; null before the first."},"retry_after_ms":{"type":["integer","null"],"minimum":0},"failure":{"anyOf":[{"$ref":"#/$defs/SyncFailure"},{"type":"null"}]},"cursor":{"$ref":"#/$defs/SyncCursor"},"resume_cursor":{"anyOf":[{"$ref":"#/$defs/SyncCursor"},{"type":"null"}],"default":null},"note":{"$ref":"#/$defs/SyncNote"},"acknowledged":{"type":"null"}},"$defs":{"RawPayload":{"description":"A replica's own error report, forwarded verbatim for diagnosis."},"Quantity":{"type":["integer","number"],"minimum":0,"description":"A count or a measure, never negative."},"SyncPhase":{"type":"string","oneOf":[{"const":"idle","description":"No exchange is in progress."},{"const":"syncing","description":"An exchange with a peer is in progress."}]},"SyncNote":{"type":["string","null"],"minLength":1},"SyncFailure":{"description":"Why the last exchange failed.","oneOf":[{"type":"object","properties":{"transport":{"$ref":"#/$defs/SyncTransportFailure"}},"required":["transport"],"additionalProperties":false},{"type":"object","properties":{"refused":{"type":"object","additionalProperties":false,"required":["reason"],"properties":{"reason":{"type":"string"}}}},"required":["refused"],"additionalProperties":false},{"type":"object","properties":{"conflict":{"type":"object","required":["peer"],"properties":{"peer":{"type":"string"}},"additionalProperties":{}}},"required":["conflict"],"additionalProperties":false},{"type":"object","properties":{"silent":{"type":"null"}},"required":["silent"],"additionalProperties":false},{"type":"object","properties":{"retried":{"$ref":"#/$defs/SyncFailure"}},"required":["retried"],"additionalProperties":false},{"const":"cancelled","description":"The exchange was cancelled before it finished.","type":"string"},{"const":"expired","type":"string"}]},"SyncTransportFailure":{"type":"object","additionalProperties":false,"required":["attempts"],"properties":{"attempts":{"type":"integer","minimum":0},"status":{"type":["integer","null"],"minimum":100,"maximum":599}}},"SyncCursor":{"type":"object","oneOf":[{"type":"object","additionalProperties":{},"properties":{"position":{"const":"start"}},"required":["position"]},{"type":"object","required":["position","offset"],"properties":{"position":{"const":"at"},"offset":{"type":"integer","minimum":0}},"additionalProperties":{}},{"type":"object","additionalProperties":false,"properties":{"position":{"const":"end"}},"required":["position"]}]}}}"##;
 pub const NOTES_AUTHORING_STATE_PROJECTION_PARAMS_SCHEMA: &str = r#"{"type":"object","additionalProperties":false,"required":["note_id"],"properties":{"note_id":{"type":"string"}}}"#;
 pub const NOTES_AUTHORING_STATE_PROJECTION_SNAPSHOT_SCHEMA: &str = r##"{"type":"object","additionalProperties":false,"required":["schema_version","accepted_frontier_base64","update_base64","etag","exchange_modes","peer_block","replaces_held"],"properties":{"schema_version":{"type":"integer","minimum":0,"maximum":4294967295,"description":"The layout version the document's operations are written in."},"accepted_frontier_base64":{"type":"string","description":"The frontier of the accepted state this delivery leaves its client holding."},"update_base64":{"type":"string","description":"The accepted operations this delivery adds: every one in a snapshot, and in a patch those after the frontier its client held."},"etag":{"type":"string","description":"The accepted state's etag."},"exchange_modes":{"type":"array","items":{"$ref":"#/$defs/CollaborationExchangeMode"},"description":"How the store accepts an import of this document."},"peer_block":{"$ref":"#/$defs/AuthoringPeerBlock"},"replaces_held":{"type":"boolean","description":"Whether the client replaces what it holds with this delivery, because what it named holding is not of this document's history."}},"$defs":{"AuthoringPeerBlock":{"type":"object","additionalProperties":false,"required":["nonce","base","index_bits"],"description":"A block of peers allocated to the subscriber: every peer whose bits above the low index_bits are base's. An import names the block by its nonce.","properties":{"nonce":{"type":"string"},"base":{"type":"string","description":"The block's first peer, in decimal."},"index_bits":{"type":"integer","minimum":0,"maximum":4294967295}}},"CollaborationExchangeMode":{"type":"string","enum":["incremental","bootstrap"],"description":"Whether an import creates a document (bootstrap) or edits one (incremental)."}}}"##;
 pub const BOARDS_AUTHORING_STATE_PROJECTION_PARAMS_SCHEMA: &str = r#"{"type":"object","additionalProperties":false,"required":["board_id"],"properties":{"board_id":{"type":"string"}}}"#;

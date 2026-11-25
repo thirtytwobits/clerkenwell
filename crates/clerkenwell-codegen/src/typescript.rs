@@ -7,8 +7,8 @@ use crate::json::{number_to_string, string_literal, Json, Object};
 use crate::names::{name_constant_identifier, pascal_identifier};
 use crate::replica::optional_paths;
 use crate::schema::{
-    object_at, other_members_schema, primitive_union_types, read_string_array,
-    record_values_schema, schema_ref_type_name, stringify_or_undefined,
+    is_externally_tagged, nullable_inner, object_at, other_members_schema, primitive_union_types,
+    read_string_array, record_values_schema, schema_ref_type_name, stringify_or_undefined,
 };
 
 /// The generated-file header as a block comment, without a trailing newline.
@@ -438,6 +438,12 @@ fn schema_to_typescript(schema: &Object) -> Result<String> {
     if matches!(schema.get("$ref"), Some(Json::String(_))) {
         return schema_ref_type_name(schema);
     }
+    if let Some(inner) = nullable_inner(schema) {
+        return Ok(format!("{} | null", schema_to_typescript(&inner)?));
+    }
+    if is_externally_tagged(schema) {
+        return externally_tagged_union(schema);
+    }
     if let Some(values) = schema.get("enum").and_then(Json::as_array) {
         return Ok(values
             .iter()
@@ -455,12 +461,20 @@ fn schema_to_typescript(schema: &Object) -> Result<String> {
             let variant = variant
                 .as_object()
                 .expect("validation requires object variants");
-            let rendered = schema_to_typescript(variant)?;
             let tag_field = format!(
                 "  {}: {};",
                 string_literal(discriminator),
                 string_literal(tag)
             );
+            // A variant of other members only is its tag beside them.
+            if let Some(values) = record_values_schema(variant) {
+                rendered_variants.push_str(&format!(
+                    "\n  | {{\n{tag_field}\n  [member: string]: {} | undefined;\n}}",
+                    schema_to_typescript(values)?
+                ));
+                continue;
+            }
+            let rendered = schema_to_typescript(variant)?;
             if rendered == "{}" {
                 rendered_variants.push_str(&format!("\n  | {{\n{tag_field}\n}}"));
             } else {
@@ -542,11 +556,39 @@ fn schema_to_typescript(schema: &Object) -> Result<String> {
         Some("boolean") => Ok("boolean".to_owned()),
         Some("integer" | "number") => Ok("number".to_owned()),
         Some("json") => Ok("unknown".to_owned()),
+        Some("null") => Ok("null".to_owned()),
         _ => refuse(format!(
             "Cannot render unsupported TypeScript schema type {}.",
             stringify_or_undefined(schema_type)
         )),
     }
+}
+
+/// An externally tagged union: each data variant an object of one member
+/// named by its tag, each unit variant its tag.
+fn externally_tagged_union(schema: &Object) -> Result<String> {
+    let variants = object_at(schema, "oneOf").expect("checked by the caller");
+    let mut rendered = String::new();
+    for (tag, variant) in variants.iter() {
+        let variant = variant
+            .as_object()
+            .expect("validation requires object variants");
+        let value = schema_to_typescript(variant)?;
+        let value = value.replace('\n', "\n  ");
+        rendered.push_str(&format!(
+            "\n  | {{\n  {}: {value};\n}}",
+            string_literal(tag)
+        ));
+    }
+    for unit in schema
+        .get("enum")
+        .and_then(Json::as_array)
+        .into_iter()
+        .flatten()
+    {
+        rendered.push_str(&format!("\n  | {}", unit.stringify()));
+    }
+    Ok(rendered)
 }
 
 fn name_constants(suffix: &str, values: &[&str]) -> Vec<String> {

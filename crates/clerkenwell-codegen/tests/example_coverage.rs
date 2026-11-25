@@ -186,6 +186,14 @@ fn schema_nodes(schema: &Json, nodes: &mut Vec<Json>) {
             schema_nodes(child, nodes);
         }
     }
+    for member in object
+        .get("anyOf")
+        .and_then(Json::as_array)
+        .into_iter()
+        .flatten()
+    {
+        schema_nodes(member, nodes);
+    }
 }
 
 #[test]
@@ -224,7 +232,7 @@ fn every_schema_keyword_and_type_is_used() {
     assert_covers(
         "schema type",
         [
-            "object", "array", "string", "boolean", "integer", "number", "json",
+            "object", "array", "string", "boolean", "integer", "number", "json", "null",
         ]
         .map(str::to_owned)
         .into(),
@@ -235,6 +243,37 @@ fn every_schema_keyword_and_type_is_used() {
             .iter()
             .any(|node| node.get("type").and_then(Json::as_array).is_some()),
         "the example declares no primitive union"
+    );
+    assert!(
+        nodes.iter().any(|node| node
+            .get("type")
+            .and_then(Json::as_array)
+            .is_some_and(|types| types.contains(&Json::from("null")))),
+        "the example declares no type union naming null"
+    );
+    assert!(
+        nodes.iter().any(|node| node.get("oneOf").is_some()
+            && node.get("discriminator").is_none()
+            && node.get("enum").is_some()),
+        "the example declares no externally tagged union with unit variants"
+    );
+    let open_variant = |node: &Json| {
+        node.get("discriminator").is_some()
+            && node
+                .get("oneOf")
+                .and_then(Json::as_object)
+                .is_some_and(|variants| {
+                    variants.values().any(|variant| {
+                        variant
+                            .get("additionalProperties")
+                            .and_then(Json::as_object)
+                            .is_some()
+                    })
+                })
+    };
+    assert!(
+        nodes.iter().any(open_variant),
+        "the example declares no internally tagged union with an open variant"
     );
     assert!(
         nodes.iter().any(|node| node

@@ -491,3 +491,116 @@ fn a_transport_value_is_its_entry_s_value_without_its_tag() {
         tagged.value().expect("a value")
     );
 }
+
+/// A sync health record holding `members` beside the members it requires.
+fn sync_health(members: serde_json::Value) -> serde_json::Value {
+    let mut record = serde_json::json!({
+        "scope": "workspace",
+        "revision": "r1",
+        "healthy": true,
+        "managed": true,
+        "lag": 0,
+        "peers": [],
+        "phase": "idle",
+        "last_attempt_ms": null,
+        "failure": null,
+        "cursor": { "position": "end" },
+    });
+    for (name, value) in members.as_object().expect("members are an object") {
+        record[name] = value.clone();
+    }
+    record
+}
+
+/// Every variant of an externally tagged union, a nullable value and an open
+/// variant reads into the generated types and writes back as it was read, and
+/// each is a value of the projection's snapshot schema.
+#[test]
+fn nullable_values_and_both_kinds_of_tagged_union_round_trip() {
+    let snapshot = model::GENERATED_PROJECTION_SPECS
+        .iter()
+        .find(|spec| spec.name == model::SYNC_HEALTH_PROJECTION)
+        .expect("the notebook declares sync.health")
+        .snapshot_schema;
+    let snapshot = validator(snapshot);
+    for members in [
+        serde_json::json!({}),
+        serde_json::json!({ "last_attempt_ms": 12, "phase": "syncing" }),
+        serde_json::json!({ "failure": { "transport": { "attempts": 2 } } }),
+        serde_json::json!({ "failure": { "transport": { "attempts": 2, "status": null } } }),
+        serde_json::json!({ "failure": { "transport": { "attempts": 2, "status": 503 } } }),
+        serde_json::json!({ "failure": { "refused": { "reason": "busy" } } }),
+        serde_json::json!({ "failure": { "conflict": { "peer": "p2", "since": 4 } } }),
+        serde_json::json!({ "failure": { "silent": null } }),
+        serde_json::json!({ "failure": { "retried": { "retried": "cancelled" } } }),
+        serde_json::json!({ "failure": "expired" }),
+        serde_json::json!({ "cursor": { "position": "start", "hint": [1] } }),
+        serde_json::json!({ "cursor": { "position": "at", "offset": 3, "hint": "x" } }),
+        serde_json::json!({ "retry_after_ms": null, "resume_cursor": null, "note": null }),
+        serde_json::json!({ "retry_after_ms": 9, "resume_cursor": { "position": "end" }, "note": "n" }),
+        serde_json::json!({ "acknowledged": null }),
+    ] {
+        let wire = sync_health(members);
+        let record: model::SyncHealthRecord = serde_json::from_value(wire.clone())
+            .unwrap_or_else(|error| panic!("{wire} parses: {error}"));
+        assert_eq!(serde_json::to_value(&record).expect("serialises"), wire);
+        assert!(snapshot.is_valid(&wire), "{wire}");
+    }
+}
+
+/// An optional nullable member is absent, null or a value, and keeps which.
+#[test]
+fn an_optional_nullable_member_keeps_absence_apart_from_null() {
+    let absent: model::SyncHealthRecord =
+        serde_json::from_value(sync_health(serde_json::json!({}))).expect("parses");
+    let null: model::SyncHealthRecord =
+        serde_json::from_value(sync_health(serde_json::json!({ "retry_after_ms": null })))
+            .expect("parses");
+    let value: model::SyncHealthRecord =
+        serde_json::from_value(sync_health(serde_json::json!({ "retry_after_ms": 5 })))
+            .expect("parses");
+    assert_eq!(absent.retry_after_ms, None);
+    assert_eq!(null.retry_after_ms, Some(None));
+    assert_eq!(value.retry_after_ms, Some(Some(5)));
+}
+
+/// A value outside a union's variants, a closed variant holding a member it
+/// does not declare, and an open variant missing a member it requires are
+/// refused by the generated types and by the snapshot schema alike.
+#[test]
+fn a_value_outside_a_tagged_union_is_refused() {
+    let snapshot = validator(
+        model::GENERATED_PROJECTION_SPECS
+            .iter()
+            .find(|spec| spec.name == model::SYNC_HEALTH_PROJECTION)
+            .expect("the notebook declares sync.health")
+            .snapshot_schema,
+    );
+    for members in [
+        serde_json::json!({ "failure": "unknown" }),
+        serde_json::json!({ "failure": { "refused": { "reason": "busy", "extra": 1 } } }),
+        serde_json::json!({ "failure": { "conflict": { "since": 4 } } }),
+        serde_json::json!({ "failure": { "transport": { "attempts": 1 }, "refused": { "reason": "x" } } }),
+        serde_json::json!({ "cursor": { "position": "end", "extra": 1 } }),
+        serde_json::json!({ "cursor": { "position": "elsewhere" } }),
+        serde_json::json!({ "last_attempt_ms": "soon" }),
+    ] {
+        let wire = sync_health(members);
+        assert!(
+            serde_json::from_value::<model::SyncHealthRecord>(wire.clone()).is_err(),
+            "{wire} parses"
+        );
+        assert!(!snapshot.is_valid(&wire), "{wire} meets the schema");
+    }
+}
+
+/// A described enum's descriptions reach the schema `schemars` derives.
+#[test]
+fn a_described_enum_carries_its_descriptions_to_the_derived_schema() {
+    let schema = serde_json::to_value(schemars::schema_for!(model::SyncPhase)).expect("a schema");
+    let described = schema.to_string();
+    assert!(
+        described.contains("No exchange is in progress."),
+        "{described}"
+    );
+}

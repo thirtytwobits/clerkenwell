@@ -524,7 +524,17 @@
           "lag": 1,
           "peers": [
             "fixture"
-          ]
+          ],
+          "phase": "idle",
+          "last_attempt_ms": 1,
+          "failure": {
+            "transport": {
+              "attempts": 1
+            }
+          },
+          "cursor": {
+            "position": "start"
+          }
         }
       },
       "cases": [
@@ -542,7 +552,17 @@
                 "lag": 1,
                 "peers": [
                   "fixture"
-                ]
+                ],
+                "phase": "idle",
+                "last_attempt_ms": 1,
+                "failure": {
+                  "transport": {
+                    "attempts": 1
+                  }
+                },
+                "cursor": {
+                  "position": "start"
+                }
               }
             }
           },
@@ -554,7 +574,17 @@
             "lag": 1,
             "peers": [
               "fixture"
-            ]
+            ],
+            "phase": "idle",
+            "last_attempt_ms": 1,
+            "failure": {
+              "transport": {
+                "attempts": 1
+              }
+            },
+            "cursor": {
+              "position": "start"
+            }
           }
         }
       ]

@@ -2391,7 +2391,11 @@
         "healthy",
         "managed",
         "lag",
-        "peers"
+        "peers",
+        "phase",
+        "last_attempt_ms",
+        "failure",
+        "cursor"
       ],
       "properties": {
         "scope": {
@@ -2418,6 +2422,172 @@
         },
         "last_error": {
           "$ref": "#/$defs/RawPayload"
+        },
+        "phase": {
+          "$ref": "#/$defs/SyncPhase"
+        },
+        "last_attempt_ms": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0,
+          "description": "When the last attempt began; null before the first."
+        },
+        "retry_after_ms": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "failure": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SyncFailure"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "cursor": {
+          "$ref": "#/$defs/SyncCursor"
+        },
+        "resume_cursor": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SyncCursor"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "note": {
+          "$ref": "#/$defs/SyncNote"
+        },
+        "acknowledged": {
+          "type": "null"
+        }
+      }
+    },
+    "SyncPhase": {
+      "type": "string",
+      "enum": [
+        "idle",
+        "syncing"
+      ],
+      "enumDescriptions": {
+        "idle": "No exchange is in progress.",
+        "syncing": "An exchange with a peer is in progress."
+      }
+    },
+    "SyncNote": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "minLength": 1
+    },
+    "SyncFailure": {
+      "description": "Why the last exchange failed.",
+      "oneOf": {
+        "transport": {
+          "$ref": "#/$defs/SyncTransportFailure"
+        },
+        "refused": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "reason"
+          ],
+          "properties": {
+            "reason": {
+              "type": "string"
+            }
+          }
+        },
+        "conflict": {
+          "type": "object",
+          "required": [
+            "peer"
+          ],
+          "properties": {
+            "peer": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": {
+            "type": "json"
+          }
+        },
+        "silent": {
+          "type": "null"
+        },
+        "retried": {
+          "$ref": "#/$defs/SyncFailure"
+        }
+      },
+      "enum": [
+        "cancelled",
+        "expired"
+      ],
+      "enumDescriptions": {
+        "cancelled": "The exchange was cancelled before it finished."
+      }
+    },
+    "SyncTransportFailure": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "attempts"
+      ],
+      "properties": {
+        "attempts": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "status": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 100,
+          "maximum": 599
+        }
+      }
+    },
+    "SyncCursor": {
+      "type": "object",
+      "discriminator": "position",
+      "oneOf": {
+        "start": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "json"
+          }
+        },
+        "at": {
+          "type": "object",
+          "required": [
+            "offset"
+          ],
+          "properties": {
+            "offset": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          "additionalProperties": {
+            "type": "json"
+          }
+        },
+        "end": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {}
         }
       }
     },

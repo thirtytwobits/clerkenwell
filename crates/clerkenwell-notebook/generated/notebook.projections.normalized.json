@@ -1792,6 +1792,87 @@
       "type": "object"
     },
     {
+      "discriminator": "position",
+      "name": "SyncCursor",
+      "oneOf": {
+        "at": {
+          "additionalProperties": {
+            "type": "json"
+          },
+          "properties": {
+            "offset": {
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "offset"
+          ],
+          "type": "object"
+        },
+        "end": {
+          "additionalProperties": false,
+          "properties": {},
+          "type": "object"
+        },
+        "start": {
+          "additionalProperties": {
+            "type": "json"
+          },
+          "type": "object"
+        }
+      },
+      "type": "object"
+    },
+    {
+      "description": "Why the last exchange failed.",
+      "enum": [
+        "cancelled",
+        "expired"
+      ],
+      "enumDescriptions": {
+        "cancelled": "The exchange was cancelled before it finished."
+      },
+      "name": "SyncFailure",
+      "oneOf": {
+        "conflict": {
+          "additionalProperties": {
+            "type": "json"
+          },
+          "properties": {
+            "peer": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "peer"
+          ],
+          "type": "object"
+        },
+        "refused": {
+          "additionalProperties": false,
+          "properties": {
+            "reason": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "reason"
+          ],
+          "type": "object"
+        },
+        "retried": {
+          "$ref": "#/$defs/SyncFailure"
+        },
+        "silent": {
+          "type": "null"
+        },
+        "transport": {
+          "$ref": "#/$defs/SyncTransportFailure"
+        }
+      }
+    },
+    {
       "additionalProperties": false,
       "name": "SyncHealthPatch",
       "properties": {
@@ -1814,11 +1895,35 @@
       "additionalProperties": false,
       "name": "SyncHealthRecord",
       "properties": {
+        "acknowledged": {
+          "type": "null"
+        },
+        "cursor": {
+          "$ref": "#/$defs/SyncCursor"
+        },
+        "failure": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SyncFailure"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "healthy": {
           "type": "boolean"
         },
         "lag": {
           "$ref": "#/$defs/Quantity"
+        },
+        "last_attempt_ms": {
+          "description": "When the last attempt began; null before the first.",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
         },
         "last_error": {
           "$ref": "#/$defs/RawPayload"
@@ -1827,11 +1932,35 @@
           "const": true,
           "type": "boolean"
         },
+        "note": {
+          "$ref": "#/$defs/SyncNote"
+        },
         "peers": {
           "items": {
             "type": "string"
           },
           "type": "array"
+        },
+        "phase": {
+          "$ref": "#/$defs/SyncPhase"
+        },
+        "resume_cursor": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SyncCursor"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "retry_after_ms": {
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
         },
         "revision": {
           "type": "string"
@@ -1846,9 +1975,33 @@
         "healthy",
         "managed",
         "lag",
-        "peers"
+        "peers",
+        "phase",
+        "last_attempt_ms",
+        "failure",
+        "cursor"
       ],
       "type": "object"
+    },
+    {
+      "minLength": 1,
+      "name": "SyncNote",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    {
+      "enum": [
+        "idle",
+        "syncing"
+      ],
+      "enumDescriptions": {
+        "idle": "No exchange is in progress.",
+        "syncing": "An exchange with a peer is in progress."
+      },
+      "name": "SyncPhase",
+      "type": "string"
     },
     {
       "additionalProperties": false,
@@ -1858,6 +2011,28 @@
           "type": "string"
         }
       },
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "name": "SyncTransportFailure",
+      "properties": {
+        "attempts": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "status": {
+          "maximum": 599,
+          "minimum": 100,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "attempts"
+      ],
       "type": "object"
     },
     {
