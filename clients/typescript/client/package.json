@@ -30,6 +30,6 @@
     "test": "node --conditions=@clerkenwell/source --import tsx --test \"tests/**/*.test.ts\""
   },
   "dependencies": {
-    "loro-crdt": "1.17.1"
+    "loro-crdt": "1.19.1"
   }
 }

@@ -1060,7 +1060,16 @@ fn write_text(
     value: &str,
 ) -> Result<(), CollaborationReplicaError> {
     text.update(value, loro::UpdateOptions::default())
-        .map_err(|_| invalid_field(path, "a text update within the time budget"))
+        .map_err(|error| text_update_error(path, error))
+}
+
+fn text_update_error(path: &str, error: loro::UpdateTimeoutError) -> CollaborationReplicaError {
+    match error {
+        loro::UpdateTimeoutError::Timeout => {
+            invalid_field(path, "a text update within the time budget")
+        }
+        loro::UpdateTimeoutError::Loro(error) => update_error(error),
+    }
 }
 
 fn write_string_list(list: &LoroList, values: &[String]) -> Result<(), loro::LoroError> {
@@ -1210,7 +1219,7 @@ fn write_structured_document_changes(
                 // prose merges instead of replacing the other writer's text.
                 container
                     .update(text, loro::UpdateOptions::default())
-                    .map_err(|_| invalid_field(key, "a text update within the time budget"))?;
+                    .map_err(|error| text_update_error(key, error))?;
             }
             Value::Object(next_values) if !next_values.contains_key(KEYED_LIST_MARKER) => {
                 let child = ensure_structured_map_child(map, key)?;
