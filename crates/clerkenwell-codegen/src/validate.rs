@@ -16,8 +16,9 @@ use crate::names::{
 };
 use crate::rust::collect_rust_property_enums;
 use crate::schema::{
-    has_type, object_at, other_members_schema, primitive_union_types, read_string_array,
-    record_values_schema, ref_string, resolve_ref, schema_ref_name, value_meets_bounds,
+    has_type, is_externally_tagged, is_null_schema, nullable_inner, object_at,
+    other_members_schema, primitive_union_types, read_string_array, record_values_schema,
+    ref_string, resolve_ref, schema_ref_name, value_meets_bounds,
 };
 
 /// The meta-schema every definition document must satisfy.
@@ -1110,6 +1111,9 @@ fn check_generated_output_names(definition: &Definition) -> Result<()> {
     {
         register(property_enum.name, property_enum.source)?;
     }
+    for (name, source) in crate::rust::variant_structs(definition) {
+        register(name, source)?;
+    }
     let mut imported: IndexSet<&str> = IndexSet::new();
     imported.extend(crate::typescript::client_bindings());
     imported.extend(crate::rust::import_bindings());
@@ -1228,18 +1232,24 @@ const TYPE_SCHEMA_KEYS: &[&str] = &[
     "required",
     "title",
     "type",
-    // An internally tagged union: `discriminator` names the property carrying
-    // the tag, `oneOf` maps each tag value to that variant's object schema.
+    // A tagged union: `oneOf` maps each tag to its variant. With
+    // `discriminator`, the union is internally tagged and each variant is an
+    // object schema; without it, the union is externally tagged, each variant
+    // is written as an object of one member named by its tag, and `enum`
+    // lists the unit variants, written as their tags.
     "discriminator",
     "oneOf",
+    // A nullable schema: a schema paired with `{"type": "null"}`.
+    "anyOf",
 ];
 
 /// Keywords that constrain a value without changing its type. The type
 /// renderers ignore them; they ride into the schema-shaped artefacts.
 pub(crate) const VALIDATION_SCHEMA_KEYS: &[&str] = &["const", "minLength", "minimum", "maximum"];
 
-/// Informational: what the owner supplies when the field is absent.
-const ANNOTATION_SCHEMA_KEYS: &[&str] = &["default"];
+/// Informational: what the owner supplies when the field is absent, and what
+/// each value of a string enum means.
+const ANNOTATION_SCHEMA_KEYS: &[&str] = &["default", "enumDescriptions"];
 
 /// Every keyword a `$defs` schema node may use.
 pub fn schema_keywords() -> impl Iterator<Item = &'static str> {
@@ -1290,6 +1300,14 @@ fn check_schema_node(definition: &Definition, schema: Option<&Json>, context: &s
         return Ok(());
     }
 
+    if schema.get("anyOf").is_some() {
+        return check_nullable(definition, schema, context);
+    }
+
+    if is_externally_tagged(schema) {
+        return check_externally_tagged_union(definition, schema, context);
+    }
+
     if let Some(values) = schema.get("enum") {
         let string_enum = values.as_array().is_some_and(|values| {
             !values.is_empty() && values.iter().all(|value| value.as_str().is_some())
@@ -1316,12 +1334,23 @@ fn check_schema_node(definition: &Definition, schema: Option<&Json>, context: &s
         }
     }
 
+    check_enum_descriptions(schema, context)?;
+
     if schema.get("oneOf").is_some() || schema.get("discriminator").is_some() {
         return check_tagged_union(definition, schema, context);
     }
 
     if let Some(members) = primitive_union_types(schema)? {
         check_applicable_keywords(schema, &members, context)?;
+        if members
+            .iter()
+            .any(|member| matches!(*member, "array" | "object"))
+        {
+            // An array or object type paired with `null` is that schema, nullable.
+            check_default_value(schema, context)?;
+            let inner = nullable_inner(schema).expect("a union naming null is nullable");
+            return check_schema_node(definition, Some(&Json::Object(inner)), context);
+        }
         check_validation_keywords(schema, &members, context)?;
         return check_default_value(schema, context);
     }
@@ -1403,12 +1432,167 @@ fn check_schema_node(definition: &Definition, schema: Option<&Json>, context: &s
             };
             check_schema_node(definition, Some(items), &format!("{context}.items"))
         }
-        "string" | "boolean" | "integer" | "number" | "json" => Ok(()),
+        "string" | "boolean" | "integer" | "number" | "json" | "null" => Ok(()),
         other => refuse(format!(
             "{context} uses unsupported schema type {}.",
             string_literal(other)
         )),
     }
+}
+
+/// A nullable schema pairs one schema with `{"type": "null"}` and carries
+/// annotations beside them.
+fn check_nullable(definition: &Definition, schema: &Object, context: &str) -> Result<()> {
+    if let Some(key) = schema
+        .keys()
+        .find(|key| !matches!(*key, "anyOf" | "default" | "description" | "title"))
+    {
+        return refuse(format!(
+            "{context} may not combine anyOf with {}.",
+            string_literal(key)
+        ));
+    }
+    let Some(inner) = nullable_inner(schema) else {
+        return refuse(format!(
+            "{context}.anyOf must pair one schema with {{\"type\": \"null\"}}."
+        ));
+    };
+    if nullable_inner(&inner).is_some() {
+        return refuse(format!(
+            "{context}.anyOf pairs null with a schema that already admits null."
+        ));
+    }
+    let position = schema
+        .get("anyOf")
+        .and_then(Json::as_array)
+        .and_then(|members| members.iter().position(|member| !is_null_schema(member)))
+        .expect("a nullable schema has a non-null member");
+    let inner_context = format!("{context}.anyOf.{position}");
+    check_schema_node(
+        definition,
+        Some(&Json::Object(inner.clone())),
+        &inner_context,
+    )?;
+    match schema.get("default") {
+        None | Some(Json::Null) => Ok(()),
+        Some(default) => {
+            let mut referenced = dereference(definition, &inner)?.clone();
+            referenced.insert("default", default.clone());
+            check_default_value(&referenced, context)
+        }
+    }
+}
+
+/// The descriptions of a string enum's values name only values it lists.
+fn check_enum_descriptions(schema: &Object, context: &str) -> Result<()> {
+    let Some(descriptions) = schema.get("enumDescriptions") else {
+        return Ok(());
+    };
+    let Some(descriptions) = descriptions.as_object() else {
+        return refuse(format!(
+            "{context}.enumDescriptions must map enum values to descriptions."
+        ));
+    };
+    let Some(values) = schema.get("enum").and_then(Json::as_array) else {
+        return refuse(format!(
+            "{context}.enumDescriptions requires an enum beside it."
+        ));
+    };
+    for (value, description) in descriptions.iter() {
+        if !values.iter().any(|listed| listed.as_str() == Some(value)) {
+            return refuse(format!(
+                "{context}.enumDescriptions describes {}, which its enum does not list.",
+                string_literal(value)
+            ));
+        }
+        if description.as_str().is_none() {
+            return refuse(format!(
+                "{context}.enumDescriptions.{value} must be a string."
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// An externally tagged union is a named type, declared in `$defs` and
+/// reached by `$ref`. Each tag names one variant: a data variant in `oneOf`,
+/// whose value is any schema, or a unit variant in `enum`.
+fn check_externally_tagged_union(
+    definition: &Definition,
+    schema: &Object,
+    context: &str,
+) -> Result<()> {
+    let top_level = context
+        .strip_prefix("$defs.")
+        .is_some_and(|name| !name.contains('.'));
+    if !top_level {
+        return refuse(format!(
+            "{context} may only declare a tagged union at the top level of a $defs entry."
+        ));
+    }
+    if let Some(key) = schema.keys().find(|key| {
+        !matches!(
+            *key,
+            "oneOf" | "enum" | "enumDescriptions" | "description" | "title"
+        )
+    }) {
+        return refuse(format!(
+            "{context} externally tagged unions may not declare {}.",
+            string_literal(key)
+        ));
+    }
+    let variants = object_at(schema, "oneOf").expect("checked by the caller");
+    if variants.is_empty() {
+        return refuse(format!(
+            "{context}.oneOf must declare at least one variant."
+        ));
+    }
+    let units = match schema.get("enum") {
+        None => Vec::new(),
+        Some(values) => match values
+            .as_array()
+            .filter(|values| !values.is_empty())
+            .and_then(|values| values.iter().map(Json::as_str).collect::<Option<Vec<_>>>())
+        {
+            Some(units) => units,
+            None => {
+                return refuse(format!(
+                    "{context}.enum must list the unit variants' tags as strings."
+                ))
+            }
+        },
+    };
+    check_enum_descriptions(schema, context)?;
+    let tags: Vec<&str> = variants.keys().chain(units.iter().copied()).collect();
+    if let Some((previous, tag, variant)) = colliding(tags.iter().copied(), pascal_identifier) {
+        return refuse(format!(
+            "{context} tags {} and {} both generate the Rust variant {variant}.",
+            string_literal(previous),
+            string_literal(tag)
+        ));
+    }
+    if let Some(tag) = tags
+        .iter()
+        .find(|tag| crate::names::js_trim(tag).is_empty())
+    {
+        return refuse(format!(
+            "{context} declares an empty tag value {}.",
+            string_literal(tag)
+        ));
+    }
+    for (tag, variant) in variants.iter() {
+        let variant_context = format!("{context}.oneOf.{tag}");
+        let Some(variant_schema) = variant.as_object() else {
+            return refuse(format!("{variant_context} must be an object schema."));
+        };
+        if object_at(variant_schema, "oneOf").is_some() {
+            return refuse(format!(
+                "{variant_context} may not declare a union inline; reference a $defs entry."
+            ));
+        }
+        check_schema_node(definition, Some(variant), &variant_context)?;
+    }
+    Ok(())
 }
 
 /// The first of `names` to generate the identifier an earlier one generates:
@@ -1537,6 +1721,23 @@ fn admits(
             return Ok(true);
         }
         return admits(definition, values, member, assumed);
+    }
+
+    // A nullable member is admitted where null and its other values are; a
+    // nullable schema admits null and its other values.
+    if let Some(inner) = nullable_inner(member) {
+        let admits_null = nullable_inner(values).is_some() || has_type(values, "null");
+        return Ok(admits_null && admits(definition, values, &inner, assumed)?);
+    }
+    if let Some(inner) = nullable_inner(values) {
+        if has_type(member, "null") {
+            return Ok(true);
+        }
+        return admits(definition, &inner, member, assumed);
+    }
+    // Union variants compare only by reference.
+    if values.get("oneOf").is_some() || member.get("oneOf").is_some() {
+        return Ok(false);
     }
 
     let member_types: Vec<&str> = match primitive_union_types(member)? {
@@ -1857,14 +2058,6 @@ fn check_tagged_union(definition: &Definition, schema: &Object, context: &str) -
                 string_literal(discriminator)
             ));
         }
-        if variant_schema
-            .get("additionalProperties")
-            .is_some_and(|additional| additional.as_object().is_some())
-        {
-            return refuse(format!(
-                "{context}.oneOf.{tag} must be a closed object: additionalProperties false."
-            ));
-        }
         check_schema_node(definition, Some(variant), &format!("{context}.oneOf.{tag}"))?;
     }
     Ok(())
@@ -1879,6 +2072,9 @@ fn check_default_value(schema: &Object, context: &str) -> Result<()> {
             "string" => default.as_str().is_some(),
             "boolean" => default.as_bool().is_some(),
             "integer" => is_integer(default),
+            "null" => *default == Json::Null,
+            "array" => default.as_array().is_some(),
+            "object" => default.as_object().is_some(),
             _ => default.as_f64().is_some(),
         });
         if !matches {
@@ -1897,6 +2093,7 @@ fn check_default_value(schema: &Object, context: &str) -> Result<()> {
         Some("integer") => is_integer(default),
         Some("number") => default.as_f64().is_some(),
         Some("object") => default.as_object().is_some(),
+        Some("null") => *default == Json::Null,
         _ => false,
     };
     if !matches_type {

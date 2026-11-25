@@ -206,3 +206,4 @@ variant clerkenwell_schema::SchemaConstraintValue::Integer(i64)
 variant clerkenwell_schema::SchemaConstraintValue::Json(&'static str)
 variant clerkenwell_schema::SchemaConstraintValue::Number(f64)
 variant clerkenwell_schema::SchemaConstraintValue::String(&'static str)
+fn clerkenwell_schema::present<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error> where D: Deserializer<'de>, T: Deserialize<'de>,

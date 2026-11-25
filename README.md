@@ -72,6 +72,7 @@ The first runs the walk-through above; the second serves notes to WebSocket clie
 |---|---|
 | [`examples/notes/README.md`](examples/notes/README.md) | the walk-through step by step, and the notes server |
 | [`docs/architecture.md`](docs/architecture.md) | crates, packages and directories |
+| [`docs/schema-types.md`](docs/schema-types.md) | the schema types a definition declares and imports, and their bindings |
 | [`docs/using-a-release.md`](docs/using-a-release.md) | depending on a released crate, package or generator |
 | [`CHANGELOG.md`](CHANGELOG.md) | what each release changed |
 

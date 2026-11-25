@@ -8,12 +8,36 @@
   `loro-crdt` 1.17.1 from npm (#37). A workspace that builds Clerkenwell's crates needs no
   `[patch.crates-io]` override for `generic-btree`; remove it. A workspace that also depends on
   `loro` from crates.io takes 1.17.1.
+- `schemaImports` imports the definitions a definition reaches, and only those. A definition
+  that used an imported type without referencing it references it.
+- A schema import converts what serde and `schemars` write: nullable values, string enums
+  written as `oneOf` constants, externally tagged unions, objects that leave `additionalProperties`
+  undeclared, and the 64-bit, pointer-sized and float formats. `docs/schema-types.md` lists the
+  conversions and the refusals.
+- An optional member whose values include `null`, `json` members among them, keeps an absent
+  member apart from `null` in Rust through `clerkenwell_schema::present`.
+- A variant of an internally tagged union may be open; Rust generates it as a struct named after
+  its union and tag.
+
+### Added
+
+- The definition subset admits `null`: the `null` type, `null` in a type union, and `anyOf`
+  pairing a schema with `{"type": "null"}`.
+- Externally tagged unions: a `oneOf` map without `discriminator` or `type`, with `enum` listing
+  its unit variants.
+- `enumDescriptions` describes a string enum's values.
+- A `$defs` entry may be a scalar, a nullable schema or an array, generated as an alias.
+- `clerkenwell_schema::present`.
 
 ### Fixed
 
 - The lockfile takes `url` 2.5.9 for RUSTSEC-2026-0592, a stack overflow in `Url::origin()`.
 - `clerkenwell-store` times change events with `jiff` in place of `chrono`, which is unmaintained
   (RUSTSEC-2026-0543).
+
+### Documentation
+
+- `docs/schema-types.md` lists the schema subset, each type's bindings and the import conversions.
 
 ## 0.14.0
 

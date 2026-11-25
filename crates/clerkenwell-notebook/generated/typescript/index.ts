@@ -395,6 +395,61 @@ export type SyncHealthRecord = {
   "lag": Quantity;
   "peers": string[];
   "last_error"?: RawPayload;
+  "phase": SyncPhase;
+  "last_attempt_ms": number | null;
+  "retry_after_ms"?: number | null;
+  "failure": SyncFailure | null;
+  "cursor": SyncCursor;
+  "resume_cursor"?: SyncCursor | null;
+  "note"?: SyncNote;
+  "acknowledged"?: null;
+};
+
+export type SyncPhase = "idle" | "syncing";
+
+export type SyncNote = string | null;
+
+export type SyncFailure =
+  | {
+  "transport": SyncTransportFailure;
+}
+  | {
+  "refused": {
+    "reason": string;
+  };
+}
+  | {
+  "conflict": {
+    "peer": string;
+    [member: string]: unknown | undefined;
+  };
+}
+  | {
+  "silent": null;
+}
+  | {
+  "retried": SyncFailure;
+}
+  | "cancelled"
+  | "expired";
+
+export type SyncTransportFailure = {
+  "attempts": number;
+  "status"?: number | null;
+};
+
+export type SyncCursor =
+  | {
+  "position": "start";
+  [member: string]: unknown | undefined;
+}
+  | {
+  "position": "at";
+  "offset": number;
+  [member: string]: unknown | undefined;
+}
+  | {
+  "position": "end";
 };
 
 export type SyncHealthPatch = {

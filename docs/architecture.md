@@ -46,11 +46,10 @@ root.
 | `@clerkenwell/react` | React stores, edit overlays, text-binding hooks, autosync and the authoring runtime provider |
 
 The code generator's optional `schemaImports` configuration lists JSON Schema bundles with
-`$defs`, resolved relative to the configuration file. Each definition name has one owner.
-Supported imports include closed objects, open objects, typed maps, arrays, named string enums,
-recursive references, tagged object unions, numeric bounds and opaque JSON extension fields.
-Unsupported constraints fail generation. The projection definition supplies collaboration and transport
-semantics for these imported types.
+`$defs`, resolved relative to the configuration file. Each definition name has one owner. A
+definition imports the definitions it reaches, each converted to the schema subset or refused;
+[`schema-types.md`](schema-types.md) lists the subset and the conversions. The projection
+definition supplies collaboration and transport semantics for these imported types.
 
 A replica reads and writes a collaborative document as the application's schema spells it,
 at every depth. A member name is data, `__proto__` included. The generated TypeScript module declares `CollaborationDocument<TEntity>`, each

@@ -6,12 +6,14 @@
 //! collaborative entity's authoring state delivers the same snapshot and
 //! patch, so generated bindings name [`AuthoringState`] and
 //! [`AuthoringStatePatch`] rather than declaring their own. A generated open
-//! object holds its undeclared members in an [`OtherMembers`], and a generated
-//! record its members in a [`RecordMembers`].
+//! object holds its undeclared members in an [`OtherMembers`], a generated
+//! record its members in a [`RecordMembers`], and a generated optional
+//! nullable member reads through [`present`].
 
 mod authoring;
 mod constraints;
 mod members;
+mod nullable;
 mod records;
 
 pub use authoring::{
@@ -21,6 +23,7 @@ pub use authoring::{
 pub use clerkenwell_events::ActorKind;
 pub use constraints::{SchemaConstraint, SchemaConstraintValue};
 pub use members::{DeclaredMemberError, DeclaredMembers, OtherMembers};
+pub use nullable::present;
 pub use records::{RecordConstraints, RecordMembers};
 
 /// How an entity's content is authored.
