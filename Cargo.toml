@@ -20,7 +20,7 @@ clap = { version = "4.5", features = ["derive"] }
 icu_collator = "2.1"
 indexmap = "2.12"
 jiff = { version = "1.0.2", default-features = false, features = ["std"] }
-jsonschema = { version = "0.60", default-features = false }
+jsonschema = { version = "0.61", default-features = false }
 loro = "=1.19.1"
 schemars = "1.2.3"
 serde = { version = "1.0.228", features = ["derive"] }
