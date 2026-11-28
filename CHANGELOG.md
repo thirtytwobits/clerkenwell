@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+### Breaking
+
+- Clerkenwell builds on Clapham 0.7.0. A host that also depends on Clapham takes the `v0.7.0` tag;
+  Cargo treats each Git tag as a separate `clapham` crate.
+
 ## 0.15.0
 
 ### Breaking
